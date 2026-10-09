@@ -40,5 +40,6 @@ MeshLibrary buildMeshLibrary();
 // existing id. Returns the new mesh id, or -1 with `error` set.
 int importObj(MeshLibrary& lib, const std::string& path, std::string& error);
 
-// Ray vs. mesh in the mesh's local space. Returns the ray parameter t of the closest hit, or -1.
-float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir);
+// Ray vs. mesh in the mesh's local space. Returns the ray parameter t of the closest hit, or -1, and the hit
+// triangle's unit face normal if `normal` is given (it may face either way: meshes are double-sided).
+float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir, Vec3* normal = nullptr);

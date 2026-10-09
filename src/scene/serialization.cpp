@@ -146,6 +146,16 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes) {
         c.set("near", e.camera->zNear);
         c.set("far", e.camera->zFar);
     }
+    if (e.collider) {
+        const Collider& col = *e.collider;
+        json::Value& c = v.set("collider", json::Value::object());
+        c.set("shape", colliderShapeName(col.shape));
+        c.set("center", vec3(col.center));
+        if (col.shape == Collider::Shape::Box) c.set("size", vec3(col.size));
+        if (col.shape == Collider::Shape::Sphere || col.shape == Collider::Shape::Capsule) c.set("radius", col.radius);
+        if (col.shape == Collider::Shape::Capsule) c.set("height", col.height);
+        if (col.trigger) c.set("trigger", true);
+    }
     if (!e.behaviours.empty()) {
         json::Value& list = v.set("behaviours", json::Value::array());
         for (const BehaviourPtr& b : e.behaviours) {
@@ -188,6 +198,20 @@ bool entityFromJson(const json::Value& v, const std::map<std::string, int>& mesh
         cam.zNear = c["near"].asFloat(cam.zNear);
         cam.zFar = c["far"].asFloat(cam.zFar);
         e.camera = cam;
+    }
+    if (const json::Value& c = v["collider"]; c.isObject()) {
+        Collider col;
+        std::string shape = c["shape"].asString();
+        bool known = false;
+        for (int i = 0; i <= (int)Collider::Shape::Mesh; ++i)
+            if (shape == colliderShapeName((Collider::Shape)i)) { col.shape = (Collider::Shape)i; known = true; }
+        if (!known) { error = "entity '" + e.name + "': unknown collider shape '" + shape + "'"; return false; }
+        col.center = readVec3(c["center"], col.center);
+        col.size = readVec3(c["size"], col.size);
+        col.radius = c["radius"].asFloat(col.radius);
+        col.height = c["height"].asFloat(col.height);
+        col.trigger = c["trigger"].asBool(false);
+        e.collider = col;
     }
     if (const json::Value& c = v["animator"]; c.isObject())   // scene format 3 before behaviours existed
         e.behaviours = motionBehaviours(c["spin"].asFloat(0.f), c["bob"].asFloat(0.f), c["phase"].asFloat(0.f));

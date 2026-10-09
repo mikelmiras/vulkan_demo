@@ -51,6 +51,8 @@ add_library(engine STATIC
   src/scene/behaviour.cpp
   src/scene/scene.cpp
   src/scene/serialization.cpp
+  src/physics/collision.cpp
+  src/physics/physics_world.cpp
   src/game/input.cpp
   src/game/game.cpp
   src/game/builtin_behaviours.cpp
@@ -99,7 +101,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_core.cpp
     tests/test_assets.cpp
     tests/test_scene.cpp
-    tests/test_game.cpp)
+    tests/test_game.cpp
+    tests/test_physics.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   add_test(NAME engine_tests COMMAND engine_tests)
 endif()

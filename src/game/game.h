@@ -7,6 +7,7 @@
 
 #include "core/vecmath.h"
 #include "game/input.h"
+#include "physics/physics_world.h"
 #include "scene/scene.h"
 
 // What the game is looking through: the first entity with a Camera component.
@@ -29,6 +30,17 @@ public:
     Entity* find(const std::string& name) { return scene_->findByName(name); }
     Vec3 worldPosition(EntityId id) const;
 
+    // Collision (see physics/physics_world.h). The world is a snapshot taken at the start of the update, so it
+    // doesn't see moves other behaviours make during it.
+    const PhysicsWorld& physics() const { return *physics_; }
+    bool raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore = kNoEntity) const {
+        return physics_->raycast(origin, dir, maxDistance, hit, ignore);
+    }
+    std::vector<EntityId> overlapSphere(Vec3 center, float radius) const { return physics_->overlapSphere(center, radius); }
+    // Moves `self` by `delta` (world space) as a character: its capsule/sphere collider slides along solid colliders.
+    // Without such a collider it just moves.
+    CharacterMove moveCharacter(Entity& self, Vec3 delta);
+
     // Removes the entity (and its children) once every behaviour has run this update, so references stay valid
     void destroy(EntityId id);
     bool isDestroyed(EntityId id) const;   // queued this update
@@ -38,6 +50,7 @@ private:
     friend class Game;
     Scene* scene_ = nullptr;
     const InputMap* input_ = nullptr;
+    const PhysicsWorld* physics_ = nullptr;
     float time_ = 0.f, dt_ = 0.f;
     std::vector<EntityId> destroyQueue_;
     std::vector<std::pair<float, std::string>>* log_ = nullptr;
@@ -49,7 +62,8 @@ public:
     static constexpr int kMaxStepsPerFrame = 8;   // after a long hitch, drop time instead of spiralling
 
     // Takes over `scene` (the play-mode copy) until stop(), and calls every behaviour's start().
-    void start(Scene& scene);
+    // `meshes` is needed for mesh colliders.
+    void start(Scene& scene, const MeshLibrary& meshes);
     void stop();
     bool running() const { return scene_ != nullptr; }
 
@@ -67,15 +81,20 @@ public:
     const std::vector<std::pair<float, std::string>>& log() const { return log_; }
 
     std::vector<Mat4> worldMatrices() const;      // aligned with scene.entities
+    const PhysicsWorld& physics() const { return physics_; }
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
 
 private:
     void fixedUpdate(float dt);
     void prepareContext(float dt);
     void flushDestroyed();
+    void updateTriggers();
 
     Scene* scene_ = nullptr;
+    const MeshLibrary* meshes_ = nullptr;
     InputMap input_;
+    PhysicsWorld physics_;
+    std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     GameContext ctx_;
     std::vector<std::pair<float, std::string>> log_;
     float accumulator_ = 0.f, time_ = 0.f;

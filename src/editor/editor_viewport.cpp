@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "ImGuizmo.h"
+#include "physics/physics_world.h"
 
 namespace {
 bool keyPressed(ImGuiKey key) { return ImGui::IsKeyPressed(key, false); }
@@ -308,6 +309,75 @@ void Editor::drawEntityIcons() {
             }
         }
         dl->AddCircleFilled(sp, px(4.5f), col);
+    }
+    dl->PopClipRect();
+}
+
+// Collider wireframes: blue = solid, green = trigger. All of them with View > Show colliders, else the selection's
+void Editor::drawColliders() {
+    if (viewingGameCamera()) return;
+    bool any = showColliders_;
+    if (!any)
+        if (const Entity* e = scene_.find(selected_)) any = e->collider.has_value();
+    if (!any) return;
+
+    PhysicsWorld world;   // the same world-space shapes the game collides with
+    world.build(scene_, meshes_);
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
+    auto line = [&](Vec3 a, Vec3 b, ImU32 col) {
+        ImVec2 sa, sb;
+        if (worldToScreen(a, sa) && worldToScreen(b, sb)) dl->AddLine(sa, sb, col, px(1.2f));
+    };
+    auto circle = [&](Vec3 c, Vec3 u, Vec3 v, float r, ImU32 col) {   // in the plane of unit vectors u, v
+        const int n = 24;
+        for (int i = 0; i < n; ++i) {
+            float a0 = 2.f * PI * i / n, a1 = 2.f * PI * (i + 1) / n;
+            line(c + (u * std::cos(a0) + v * std::sin(a0)) * r, c + (u * std::cos(a1) + v * std::sin(a1)) * r, col);
+        }
+    };
+    for (const PhysicsWorld::Body& b : world.bodies()) {
+        bool selected = b.entity == selected_;
+        if (!showColliders_ && !selected) continue;
+        ImU32 col = b.trigger ? IM_COL32(90, 230, 120, selected ? 255 : 170) : IM_COL32(90, 190, 255, selected ? 255 : 150);
+        switch (b.shape) {
+            case Collider::Shape::Box:
+            case Collider::Shape::Mesh: {   // meshes: their bounds
+                Vec3 ax[3] = {b.box.axis[0] * b.box.half.x, b.box.axis[1] * b.box.half.y, b.box.axis[2] * b.box.half.z};
+                for (int i = 0; i < 3; ++i) {   // 4 edges parallel to each axis
+                    Vec3 u = ax[(i + 1) % 3], v = ax[(i + 2) % 3];
+                    for (float su : {-1.f, 1.f})
+                        for (float sv : {-1.f, 1.f}) {
+                            Vec3 c = b.box.center + u * su + v * sv;
+                            line(c - ax[i], c + ax[i], col);
+                        }
+                }
+                break;
+            }
+            case Collider::Shape::Sphere:
+                circle(b.sphere.center, {1, 0, 0}, {0, 1, 0}, b.sphere.radius, col);
+                circle(b.sphere.center, {0, 1, 0}, {0, 0, 1}, b.sphere.radius, col);
+                circle(b.sphere.center, {1, 0, 0}, {0, 0, 1}, b.sphere.radius, col);
+                break;
+            case Collider::Shape::Capsule: {
+                const collision::Capsule& c = b.capsule;
+                Vec3 up = length(c.b - c.a) > 1e-5f ? normalize(c.b - c.a) : b.box.axis[1];
+                Vec3 u = b.box.axis[0], v = b.box.axis[2];
+                float r = c.radius;
+                circle(c.a, u, v, r, col);
+                circle(c.b, u, v, r, col);
+                for (Vec3 side : {u, u * -1.f, v, v * -1.f}) line(c.a + side * r, c.b + side * r, col);
+                for (Vec3 side : {u, v}) {   // end caps: half circles
+                    const int n = 12;
+                    for (int i = 0; i < n; ++i) {
+                        float a0 = PI * i / n, a1 = PI * (i + 1) / n;
+                        line(c.b + (side * std::cos(a0) + up * std::sin(a0)) * r, c.b + (side * std::cos(a1) + up * std::sin(a1)) * r, col);
+                        line(c.a + (side * std::cos(a0) - up * std::sin(a0)) * r, c.a + (side * std::cos(a1) - up * std::sin(a1)) * r, col);
+                    }
+                }
+                break;
+            }
+        }
     }
     dl->PopClipRect();
 }

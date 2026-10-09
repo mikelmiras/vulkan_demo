@@ -239,7 +239,7 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
     return lib.count() - 1;
 }
 
-float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir) {
+float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir, Vec3* normal) {
     const Mesh& m = lib.get(mesh);
     // Cheap slab test against the (slightly padded) bounding box first
     float tmin = -1e30f, tmax = 1e30f;
@@ -276,7 +276,10 @@ float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir) {
         float w = dot(dir, q) * inv;
         if (w < 0.f || u + w > 1.f) continue;
         float t = dot(e2, q) * inv;
-        if (t > 0.f && (best < 0.f || t < best)) best = t;
+        if (t > 0.f && (best < 0.f || t < best)) {
+            best = t;
+            if (normal) *normal = normalize(cross(e1, e2));
+        }
     }
     return best;
 }

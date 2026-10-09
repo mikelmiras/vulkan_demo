@@ -22,6 +22,11 @@ Vec3 worldPos(const Scene& s, const char* name) {
     return {m.m[12], m.m[13], m.m[14]};
 }
 
+const MeshLibrary& meshes() {
+    static const MeshLibrary lib = buildMeshLibrary();
+    return lib;
+}
+
 void setString(Behaviour& b, const char* field, const std::string& value) {
     struct S : FieldVisitor {
         const char* f;
@@ -42,7 +47,7 @@ TEST(game_fixed_timestep_is_frame_rate_independent) {
     test::ImGuiContextGuard imgui;
     Scene s;
     Game g;
-    g.start(s);
+    g.start(s, meshes());
     run(g, 10, 1.f / 30.f);
     CHECK(g.tick() == 20);
     run(g, 40, 1.f / 240.f);   // 40 frames at 240 fps = 1/6 s = 10 updates
@@ -56,7 +61,7 @@ TEST(game_pause_and_step) {
     test::ImGuiContextGuard imgui;
     Scene s;
     Game g;
-    g.start(s);
+    g.start(s, meshes());
     g.setPaused(true);
     run(g, 30);
     CHECK(g.tick() == 0);
@@ -69,7 +74,7 @@ TEST(input_short_tap_is_seen_exactly_once) {
     ImGuiIO& io = ImGui::GetIO();
     Scene s;
     Game g;
-    g.start(s);
+    g.start(s, meshes());
     run(g, 2);
     io.AddKeyEvent(ImGuiKey_Space, true);
     run(g, 1, 1.f / 240.f);   // too short for a fixed update
@@ -116,7 +121,7 @@ TEST(behaviours_play_copy_is_independent) {
     Scene edit = buildDefaultScene();
     Scene play = edit;   // what the editor does on Play
     Game g;
-    g.start(play);
+    g.start(play, meshes());
     Vec3 before = worldPos(edit, "Centre Torus");
     run(g, 60);
     CHECK_VEC(worldPos(edit, "Centre Torus"), before, 0.f);
@@ -130,14 +135,17 @@ TEST(behaviours_player_walks_jumps_and_looks) {
     ImGuiIO& io = ImGui::GetIO();
     Scene s = buildDefaultScene();
     Game g;
-    g.start(s);
+    g.start(s, meshes());
+    run(g, 30);   // settle onto the ground (starts 5 cm above it)
     Vec3 p0 = worldPos(s, "Player");
+    CHECK_NEAR(p0.y, 0.f, 0.01);
     io.AddKeyEvent(ImGuiKey_W, true);
     run(g, 60);
     io.AddKeyEvent(ImGuiKey_W, false);
     Vec3 p1 = worldPos(s, "Player");
     CHECK_NEAR(length(p1 - p0), 6.f, 0.3f);   // moveSpeed 6 for 1 s
     CHECK(p1.z < p0.z);                        // forward is -Z
+    CHECK_NEAR(p1.y, 0.f, 0.01);               // still on the ground
 
     io.AddKeyEvent(ImGuiKey_Space, true);
     run(g, 1);
@@ -147,8 +155,8 @@ TEST(behaviours_player_walks_jumps_and_looks) {
         run(g, 1);
         peak = std::max(peak, worldPos(s, "Player").y);
     }
-    CHECK(peak > 2.5f);
-    CHECK_NEAR(worldPos(s, "Player").y, 1.7f, 1e-3);   // landed at eye height
+    CHECK(peak > 1.f);                               // v^2 / 2g = 6.5^2 / 36 = 1.17
+    CHECK_NEAR(worldPos(s, "Player").y, 0.f, 0.01);  // landed
 
     io.AddMousePosEvent(100, 300);
     run(g, 1);
@@ -158,21 +166,23 @@ TEST(behaviours_player_walks_jumps_and_looks) {
     run(g, 2);
     io.AddMouseButtonEvent(ImGuiMouseButton_Right, false);
     run(g, 1);
-    Mat4 m = s.worldMatrix(s.findByName("Player")->id);
-    CHECK_VEC(normalize(transformDir(m, {0, 0, -1})), test::v3(1, 0, 0), 1e-3f);
+    Mat4 cam = s.worldMatrix(s.findByName("Player Camera")->id);
+    CHECK_VEC(normalize(transformDir(cam, {0, 0, -1})), test::v3(1, 0, 0), 1e-3f);
+    Mat4 body = s.worldMatrix(s.findByName("Player")->id);
+    CHECK_VEC(normalize(transformDir(body, {0, 1, 0})), test::v3(0, 1, 0), 1e-4f);   // the capsule stays upright
 }
 
 TEST(behaviours_pickup_destroys_and_logs) {
     test::ImGuiContextGuard imgui;
     Scene s = buildDefaultScene();
     Game g;
-    g.start(s);
+    g.start(s, meshes());
     size_t before = s.entities.size();
     Vec3 gem = worldPos(s, "Gem.003");
     Entity* player = s.findByName("Player");
     player->transform.position[0] = gem.x;
     player->transform.position[2] = gem.z;
-    run(g, 2);
+    run(g, 2);   // the gem's trigger sphere now overlaps the player's capsule
     CHECK(!s.findByName("Gem.003"));
     CHECK(s.entities.size() == before - 1);
     REQUIRE(!g.log().empty());
@@ -189,7 +199,7 @@ TEST(behaviours_patrol_and_look_at) {
     setString(*look, "target", "Walker");
     watcher.behaviours.emplace_back(std::move(look));
     Game g;
-    g.start(s);
+    g.start(s, meshes());
     run(g, 60);
     Vec3 walker = worldPos(s, "Walker");
     CHECK_NEAR(walker.z, 3.f, 0.1f);

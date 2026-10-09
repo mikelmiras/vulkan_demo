@@ -126,6 +126,7 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu("View")) {
         ImGui::MenuItem("Outliner", nullptr, &showOutliner_);
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
+        ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
         ImGui::Separator();
         if (ImGui::MenuItem("Focus selected", "F", false, selection() != nullptr)) focusSelected();
         if (ImGui::MenuItem("Reset camera")) cam_ = EditorCamera{};
@@ -441,6 +442,45 @@ void Editor::drawComponents(Entity& e) {
             else ImGui::TextDisabled("Inactive: %s comes first", first ? first->name.c_str() : "?");
         }
     }
+    if (e.collider) {
+        if (!componentHeader("Collider", open)) { pushUndo(); e.collider.reset(); }
+        else if (open) {
+            Collider& c = *e.collider;
+            int shape = (int)c.shape;
+            if (ImGui::Combo("Shape", &shape, "Box\0Sphere\0Capsule\0Mesh\0")) {
+                pushUndo();
+                c.shape = (Collider::Shape)shape;
+            }
+            ImGui::DragFloat3("Center", &c.center.x, 0.01f, 0.f, 0.f, "%.2f");
+            track();
+            if (c.shape == Collider::Shape::Box) {
+                ImGui::DragFloat3("Size", &c.size.x, 0.01f, 0.f, 10000.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                track();
+            }
+            if (c.shape == Collider::Shape::Sphere || c.shape == Collider::Shape::Capsule) {
+                ImGui::DragFloat("Radius", &c.radius, 0.01f, 0.f, 10000.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                track();
+            }
+            if (c.shape == Collider::Shape::Capsule) {
+                ImGui::DragFloat("Height", &c.height, 0.01f, 0.f, 10000.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                track();
+            }
+            if (c.shape == Collider::Shape::Mesh && !e.meshRenderer)
+                ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a Mesh Renderer to collide with");
+            ImGui::Checkbox("Trigger", &c.trigger);
+            track();
+            tooltip("Triggers don't block anything: they tell behaviours when something enters or leaves them");
+            if (e.meshRenderer) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Fit to mesh")) {
+                    pushUndo();
+                    bool trigger = c.trigger;
+                    c = fitCollider(meshes_, e.meshRenderer->mesh);
+                    c.trigger = trigger;
+                }
+            }
+        }
+    }
     int removeBehaviour = -1;
     FieldInspector inspector([this] { track(); });
     for (size_t i = 0; i < e.behaviours.size(); ++i) {
@@ -461,6 +501,10 @@ void Editor::drawComponents(Entity& e) {
     if (ImGui::BeginPopup("##addcomp")) {
         if (ImGui::MenuItem("Mesh Renderer", nullptr, false, !e.meshRenderer)) { pushUndo(); e.meshRenderer = MeshRenderer{}; }
         if (ImGui::MenuItem("Camera", nullptr, false, !e.camera)) { pushUndo(); e.camera = Camera{}; }
+        if (ImGui::MenuItem("Collider", nullptr, false, !e.collider)) {
+            pushUndo();
+            e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
+        }
         ImGui::SeparatorText("Behaviours");
         for (const BehaviourType& t : behaviourTypes()) {
             if (ImGui::MenuItem(t.name.c_str())) {

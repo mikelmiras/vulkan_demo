@@ -43,6 +43,10 @@ public:
     virtual void fields(FieldVisitor&) {}
     virtual void start(GameContext&, Entity& /*self*/) {}    // when Play is pressed
     virtual void update(GameContext&, Entity& /*self*/) {}   // every fixed update; ctx.dt() is the step length
+    // A trigger collider started / stopped overlapping another collider. Called on the behaviours of both entities
+    // (`self` is the entity the behaviour is on), after every update() of the step.
+    virtual void onTriggerEnter(GameContext&, Entity& /*self*/, Entity& /*other*/) {}
+    virtual void onTriggerExit(GameContext&, Entity& /*self*/, Entity& /*other*/) {}
 };
 
 // CRTP helper: implements typeName() and clone() from T::kTypeName and T's copy constructor

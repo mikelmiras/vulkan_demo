@@ -49,7 +49,7 @@ The editor renders at one pixel per point (no Retina scaling). Shortcuts listed 
 ### Tests
 
 The engine has unit tests (`tests/`, no external framework): JSON, OBJ import, scene hierarchy and
-serialization, the game loop, input actions and the built-in behaviours. They run headless, without a GPU.
+serialization, collision and character movement, the game loop, input actions and the built-in behaviours. They run headless, without a GPU.
 
 ```sh
 make engine_tests && make test     # or: ctest, or ./engine_tests <name filter> for detailed output
@@ -87,6 +87,7 @@ it; hiding, deleting or duplicating a parent includes its children) and a **tran
 |-----------------|----------------------------------------------------------------------|
 | Mesh Renderer   | Draws a mesh (built-in or imported) with a colour / checker pattern  |
 | Camera          | The game renders through the first entity that has one               |
+| Collider        | Box, sphere, capsule or mesh shape; solid or trigger (see Collision) |
 | Behaviours      | Game logic (any number per entity), see below                       |
 
 An entity without components is an **empty**: a handle for grouping others (Add > Empty). Cameras and empties
@@ -100,8 +101,9 @@ still load.
 **Play** (Ctrl+P) copies the scene and runs the game on the copy; **Stop** throws the copy away and restores
 the scene exactly as it was, so anything changed while playing is temporary (and not undoable).
 
-The demo scene is a tiny game: you are the **Player** (a camera with a PlayerController). Walk with WASD / arrow
-keys, hold the right mouse button to look, Space to jump, Shift to sprint, and collect the 8 floating gems.
+The demo scene is a tiny game: you are the **Player** (a capsule body with a PlayerController and a camera child).
+Walk with WASD / arrow keys, hold the right mouse button to look, Space to jump, Shift to sprint, and collect the
+8 floating gems. You bump into the pillars and can jump onto things.
 
 - The game updates at a fixed **60 Hz**, independent of the frame rate (several updates per frame on a slow
   machine, none on some frames of a fast one; a long hitch is capped at 8 updates).
@@ -114,6 +116,20 @@ keys, hold the right mouse button to look, Space to jump, Shift to sprint, and c
 - Messages logged by behaviours show at the bottom of the viewport (and on stdout).
 - Game > Maximize viewport on play hides the side panels while playing.
 
+## Collision
+
+Entities collide through their **Collider** component: a box, sphere, capsule or the entity's mesh, in local
+space and scaled with the entity. Inspector > Add component > Collider fits one to the mesh; View > Show
+colliders draws them all (blue = solid, green = trigger).
+
+- **Solid** colliders block characters and rays. **Triggers** block nothing and instead tell the behaviours on
+  both entities when something enters or leaves them (`onTriggerEnter` / `onTriggerExit`).
+- Everything is kinematic for now: colliders go wherever their entities are (spinning, bobbing, moved by
+  behaviours); there are no rigid-body dynamics.
+- Game code can `raycast`, `overlapSphere` and `moveCharacter` (move a capsule, sliding along walls, landing on
+  floors, sub-stepped so fast moves can't skip through thin walls) through `GameContext`.
+- Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
+
 ## Behaviours
 
 Behaviours are C++ classes attached to entities as components (Inspector > Add component). Each has editable
@@ -125,8 +141,8 @@ Behaviours are C++ classes attached to entities as components (Inspector > Add c
 | Bob              | Floats up and down around its starting height                                |
 | Patrol           | Moves back and forth between its start and start + offset                    |
 | LookAt           | Turns to face another entity (by name)                                       |
-| PlayerController | First-person walking, mouse look, jumping (on the ground plane, no physics yet) |
-| Pickup           | Disappears when the collector entity comes close, logs how many are left     |
+| PlayerController | First-person walking, mouse look, jumping; collides through its capsule collider |
+| Pickup           | Collected when the collector touches its trigger collider; logs how many are left |
 
 Writing one (see `src/game/builtin_behaviours.cpp` for complete examples):
 
@@ -148,7 +164,7 @@ registerBehaviour<Hover>("Floats up and down");           // at startup, before 
 ```
 
 `GameContext` gives access to the scene, input actions, time, entity lookup by name or id, world positions,
-deferred `destroy()` and `log()`.
+collision queries, deferred `destroy()` and `log()`. Behaviours also get `onTriggerEnter` / `onTriggerExit`.
 
 ## Controls
 
@@ -187,6 +203,7 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/assets/`              | Mesh library: procedural meshes, OBJ import, ray/triangle picking |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
+| `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world: raycasts, overlaps, character movement, triggers (`physics_world.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |

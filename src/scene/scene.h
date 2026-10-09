@@ -37,6 +37,22 @@ struct Camera {
     float zNear = 0.1f, zFar = 2000.f;
 };
 
+// Collision shape in the entity's local space (scaled with it). Solid colliders block characters and rays;
+// triggers only report overlaps (Behaviour::onTriggerEnter / onTriggerExit).
+struct Collider {
+    enum class Shape { Box, Sphere, Capsule, Mesh };
+    Shape shape = Shape::Box;
+    Vec3 center{0, 0, 0};
+    Vec3 size{1, 1, 1};     // box: full size
+    float radius = 0.5f;    // sphere, capsule
+    float height = 2.f;     // capsule: total height along local Y, including the caps
+    bool trigger = false;
+};
+const char* colliderShapeName(Collider::Shape shape);
+// Box for cubes and planes (a slab under the plane, so things can't fall through it), sphere for spheres,
+// mesh for everything else
+Collider fitCollider(const MeshLibrary& meshes, int mesh);
+
 struct Entity {
     EntityId id = kNoEntity;
     std::string name;
@@ -47,6 +63,7 @@ struct Entity {
     Transform transform;
     std::optional<MeshRenderer> meshRenderer;
     std::optional<Camera> camera;
+    std::optional<Collider> collider;
     std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
 
     template <class T> T* behaviour() {   // first behaviour of type T, or nullptr

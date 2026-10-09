@@ -22,6 +22,29 @@ void Transform::setMatrix(const Mat4& m) {
     ImGuizmo::DecomposeMatrixToComponents(m.m, position, rotation, scale);
 }
 
+const char* colliderShapeName(Collider::Shape shape) {
+    static const char* names[] = {"box", "sphere", "capsule", "mesh"};
+    return names[(int)shape];
+}
+
+Collider fitCollider(const MeshLibrary& meshes, int mesh) {
+    Collider c;
+    const Mesh& m = meshes.get(mesh);
+    Vec3 size = m.boundsMax - m.boundsMin;
+    c.center = (m.boundsMin + m.boundsMax) * 0.5f;
+    c.size = size;
+    if (mesh == (int)MeshKind::Sphere) {
+        c.shape = Collider::Shape::Sphere;
+        c.radius = 0.5f;
+    } else if (mesh == (int)MeshKind::Plane) {
+        c.center = {0, -0.5f, 0};   // 1 unit thick (before scaling), top face at the plane
+        c.size = {1, 1, 1};
+    } else if (mesh != (int)MeshKind::Cube) {
+        c.shape = Collider::Shape::Mesh;
+    }
+    return c;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Scene
 // ---------------------------------------------------------------------------------------------
@@ -229,7 +252,9 @@ Vec3 hsv(float h, float s, float v) {
     return {f(5), f(3), f(1)};
 }
 
+// A mesh entity with a collider that fits it
 Entity& make(Scene& scene, std::string name, EntityId parent, MeshKind mesh, Vec3 pos, Vec3 size, Vec3 color) {
+    static const MeshLibrary builtins = buildMeshLibrary();
     Entity& e = scene.create(name, parent);
     Transform& t = e.transform;
     t.position[0] = pos.x; t.position[1] = pos.y; t.position[2] = pos.z;
@@ -238,6 +263,7 @@ Entity& make(Scene& scene, std::string name, EntityId parent, MeshKind mesh, Vec
     mr.mesh = (int)mesh;
     mr.color = color;
     e.meshRenderer = mr;
+    e.collider = fitCollider(builtins, (int)mesh);
     return e;
 }
 
@@ -268,10 +294,20 @@ Scene buildDefaultScene() {
     Scene scene;
     Rng rng;
 
-    // The player is the camera: press Play and walk around (WASD, hold the right mouse button to look)
-    Entity& player = group(scene, "Player", {0, 1.7f, 34});
-    player.camera = Camera{};
+    // The player: press Play and walk around (WASD, hold the right mouse button to look). The body is a capsule
+    // with its feet at the entity's origin; the camera is a child at eye height.
+    Entity& player = group(scene, "Player", {0, 0.05f, 34});
+    Collider body;
+    body.shape = Collider::Shape::Capsule;
+    body.center = {0, 0.9f, 0};
+    body.height = 1.8f;
+    body.radius = 0.35f;
+    player.collider = body;
     addBehaviour(player, "PlayerController");
+    EntityId playerId = player.id;
+    Entity& eyes = scene.create("Player Camera", playerId);   // invalidates `player`: use the id from here on
+    eyes.camera = Camera{};
+    eyes.transform.position[1] = 1.65f;
 
     Entity& ground = make(scene, "Ground", kNoEntity, MeshKind::Plane, {0, 0, 0}, {600, 1, 600}, {0.42f, 0.55f, 0.38f});
     ground.meshRenderer->checker = true;
@@ -293,6 +329,11 @@ Scene buildDefaultScene() {
         g.transform.rotation[0] = 45.f;
         g.transform.rotation[2] = 35.f;
         animate(g, 120.f * DEG2RAD, 0.25f, a);
+        Collider trigger;   // a generous sphere around the gem
+        trigger.shape = Collider::Shape::Sphere;
+        trigger.radius = 1.6f;
+        trigger.trigger = true;
+        g.collider = trigger;
         addBehaviour(g, "Pickup");
     }
 

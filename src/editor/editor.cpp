@@ -57,6 +57,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     handlePicking();
     handleShortcuts();
     drawEntityIcons();
+    drawColliders();
     drawViewportOverlay();
 
     // Deferred actions requested from inside list iteration (context menus, drag & drop)
@@ -130,7 +131,7 @@ void Editor::startPlay() {
     editScene_ = scene_;
     editSelected_ = selected_;
     nav_ = Nav::None;
-    game_.start(scene_);
+    game_.start(scene_, meshes_);
     setStatus("Playing. Ctrl+P stops and restores the scene.");
 }
 
@@ -307,10 +308,11 @@ void Editor::newScene(bool demo) {
     pushUndo();
     if (demo) {
         scene_ = buildDefaultScene();
-    } else {   // ground + player
+    } else {   // ground + player (with its camera)
         Scene fresh = buildDefaultScene(), keep;
-        for (const Entity& e : fresh.entities)
-            if (e.name == "Ground" || e.name == "Player") keep.add(e);
+        for (const char* name : {"Ground", "Player"})
+            if (const Entity* root = fresh.findByName(name))
+                for (EntityId id : fresh.subtree(root->id)) keep.add(*fresh.find(id));
         scene_ = std::move(keep);
     }
     selected_ = kNoEntity;

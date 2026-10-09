@@ -68,6 +68,7 @@ private:
     void handleShortcuts();
     void drawViewportOverlay();
     void drawEntityIcons();   // cameras and empties have no mesh: draw something to see and click
+    void drawColliders();     // wireframes of all colliders (View > Show colliders) or just the selected one
     void setCameraFromView(const Mat4& view);
     bool worldToScreen(Vec3 p, ImVec2& out) const;   // through the current view; false if behind the camera
     bool viewportHovered() const;
@@ -143,7 +144,7 @@ private:
     bool gizmoWasUsing_ = false;
     bool gizmoDrawn_ = false;
 
-    bool showOutliner_ = true, showInspector_ = true, showHelp_ = false;
+    bool showOutliner_ = true, showInspector_ = true, showHelp_ = false, showColliders_ = false;
     bool openAddMenu_ = false, scrollToSelected_ = false;
     EntityId pendingDelete_ = kNoEntity, pendingDuplicate_ = kNoEntity, pendingFocus_ = kNoEntity;
     EntityId pendingReparent_ = kNoEntity, pendingParent_ = kNoEntity;   // drag & drop in the outliner

@@ -92,10 +92,15 @@ TEST(scene_unique_names) {
 TEST(scene_default_scene_is_sane) {
     Scene s = buildDefaultScene();
     REQUIRE(!s.entities.empty());
-    Entity* player = s.findByName("Player");
-    REQUIRE(player);
-    CHECK(player->camera.has_value());
-    CHECK(s.entities[0].id == player->id);   // first camera = the one the game renders through
+    const Entity* player = s.findByName("Player");
+    const Entity* eyes = s.findByName("Player Camera");
+    REQUIRE(player && eyes);
+    CHECK(player->collider && player->collider->shape == Collider::Shape::Capsule);
+    CHECK(eyes->parent == player->id);
+    const Entity* firstCamera = nullptr;   // the one the game renders through
+    for (const Entity& e : s.entities)
+        if (e.camera) { firstCamera = &e; break; }
+    CHECK(firstCamera == eyes);
     for (const Entity& e : s.entities) CHECK(e.parent == kNoEntity || s.find(e.parent));
 }
 
