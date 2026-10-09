@@ -1,5 +1,7 @@
 #include "render/renderer.h"
 
+#include "core/png.h"
+
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -358,7 +360,8 @@ void Renderer::createSwapchain() {
     ci.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     ci.imageExtent = extent_;
     ci.imageArrayLayers = 1;
-    ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    canReadSwapchain_ = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (canReadSwapchain_ ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.preTransform = caps.currentTransform;
     ci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -751,10 +754,53 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         vkCmdEndRendering(cb);
     }
 
-    imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                 VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                 VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
+    if (!screenshotPath_.empty() && canReadSwapchain_) {
+        // Copy the finished image into a host-visible buffer (saved after the frame completes)
+        VkDeviceSize size = (VkDeviceSize)extent_.width * extent_.height * 4;
+        if (!readback_.buffer || readback_.size < size) {
+            if (readback_.buffer) destroyBuffer(readback_);
+            readback_ = createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+            readback_.size = size;
+        }
+        imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {extent_.width, extent_.height, 1};
+        vkCmdCopyImageToBuffer(cb, swapImages_[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.buffer, 1,
+                               &region);
+        imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                     VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
+    } else {
+        imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                     VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
+    }
     VK_CHECK(vkEndCommandBuffer(cb));
+}
+
+void Renderer::saveScreenshot() {
+    std::string path = std::move(screenshotPath_);
+    screenshotPath_.clear();
+    if (!canReadSwapchain_) {
+        std::fprintf(stderr, "screenshot: this swapchain can't be read back\n");
+        screenshotResult_ = -1;
+        return;
+    }
+    vkQueueWaitIdle(queue_);   // the copy has finished
+    std::vector<uint8_t> rgba((size_t)extent_.width * extent_.height * 4);
+    std::memcpy(rgba.data(), readback_.mapped, rgba.size());
+    bool bgr = swapFormat_ == VK_FORMAT_B8G8R8A8_UNORM || swapFormat_ == VK_FORMAT_B8G8R8A8_SRGB;
+    for (size_t i = 0; i < rgba.size(); i += 4) {
+        if (bgr) std::swap(rgba[i], rgba[i + 2]);
+        rgba[i + 3] = 255;
+    }
+    bool ok = writePng(path, extent_.width, extent_.height, rgba.data());
+    std::printf(ok ? "Saved screenshot %s (%ux%u)\n" : "screenshot: cannot write %s\n", path.c_str(), extent_.width,
+                extent_.height);
+    screenshotResult_ = ok ? 1 : -1;
 }
 
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
@@ -803,6 +849,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     pi.swapchainCount = 1;
     pi.pSwapchains = &swapchain_;
     pi.pImageIndices = &imageIndex;
+    if (!screenshotPath_.empty()) saveScreenshot();
     r = vkQueuePresentKHR(queue_, &pi);
     if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || resized_) recreateSwapchain();
     else VK_CHECK(r);
@@ -821,6 +868,7 @@ void Renderer::shutdown() {
     vkDestroyDescriptorPool(device_, descPool_, nullptr);
     destroyBuffer(vertexBuffer_);
     destroyBuffer(indexBuffer_);
+    if (readback_.buffer) destroyBuffer(readback_);
     for (int i = 0; i < MAX_FRAMES; ++i) {
         destroyBuffer(ubo_[i]);
         vkDestroySemaphore(device_, imageAvailable_[i], nullptr);

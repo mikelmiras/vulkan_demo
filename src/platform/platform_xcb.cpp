@@ -5,11 +5,17 @@
 
 #include "platform/platform.h"
 
+#include <fcntl.h>
+#include <linux/joystick.h>
+#include <unistd.h>
+
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
+#include "imgui.h"
 #include "platform/imgui_impl_xcb.h"
 
 namespace platform {
@@ -17,11 +23,15 @@ namespace platform {
 namespace {
 
 xcb_connection_t* g_conn = nullptr;
-xcb_window_t g_window = 0;
+xcb_window_t g_window = 0, g_root = 0;
 xcb_atom_t g_wmDelete = 0;
 uint32_t g_width = 0, g_height = 0;
 bool g_closeRequested = false;
 bool g_imguiReady = false;
+bool g_captured = false, g_fullscreen = false;
+float g_mouseDx = 0.f, g_mouseDy = 0.f;
+xcb_cursor_t g_invisibleCursor = 0;
+int g_joystick = -1;   // /dev/input/js0, if there is one
 
 xcb_atom_t internAtom(const char* name) {
     auto cookie = xcb_intern_atom(g_conn, 0, (uint16_t)std::strlen(name), name);
@@ -31,18 +41,79 @@ xcb_atom_t internAtom(const char* name) {
     return atom;
 }
 
-// Window-level events the ImGui backend doesn't consume
-void onEvent(void*, xcb_generic_event_t* e) {
+void warpToCenter() {
+    xcb_warp_pointer(g_conn, XCB_NONE, g_window, 0, 0, 0, 0, (int16_t)(g_width / 2), (int16_t)(g_height / 2));
+    xcb_flush(g_conn);
+}
+
+// Sees every event before the ImGui backend; returns true to keep it from ImGui
+bool onEvent(void*, xcb_generic_event_t* e) {
     switch (e->response_type & 0x7f) {
         case XCB_CONFIGURE_NOTIFY: {
             auto* c = (xcb_configure_notify_event_t*)e;
             g_width = c->width;
             g_height = c->height;
-            break;
+            return false;
         }
         case XCB_CLIENT_MESSAGE:
             if (((xcb_client_message_event_t*)e)->data.data32[0] == g_wmDelete) g_closeRequested = true;
-            break;
+            return false;
+        case XCB_MOTION_NOTIFY: {
+            if (!g_captured) return false;
+            // Captured: movement is measured from the window centre, and the pointer is put back there
+            auto* m = (xcb_motion_notify_event_t*)e;
+            int dx = m->event_x - (int)(g_width / 2), dy = m->event_y - (int)(g_height / 2);
+            if (dx != 0 || dy != 0) {   // (the warp itself produces a motion event at the centre)
+                g_mouseDx += (float)dx;
+                g_mouseDy += (float)dy;
+                warpToCenter();
+            }
+            return true;
+        }
+        case XCB_FOCUS_OUT:
+            setCursorCaptured(false);
+            return false;
+    }
+    return false;
+}
+
+// Linux joystick API (xpad layout: Xbox and most other pads) -> ImGui gamepad keys
+void pollJoystick() {
+    if (g_joystick < 0 || !g_imguiReady) return;
+    ImGuiIO& io = ImGui::GetIO();
+    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    auto stick = [&](ImGuiKey negative, ImGuiKey positive, int raw) {
+        float v = raw / 32767.f, dead = 0.15f;
+        float n = std::clamp((-v - dead) / (1.f - dead), 0.f, 1.f), p = std::clamp((v - dead) / (1.f - dead), 0.f, 1.f);
+        io.AddKeyAnalogEvent(negative, n > 0.1f, n);
+        io.AddKeyAnalogEvent(positive, p > 0.1f, p);
+    };
+    js_event ev;
+    while (read(g_joystick, &ev, sizeof(ev)) == (ssize_t)sizeof(ev)) {
+        int type = ev.type & ~JS_EVENT_INIT;
+        if (type == JS_EVENT_BUTTON) {
+            static const ImGuiKey buttons[] = {ImGuiKey_GamepadFaceDown, ImGuiKey_GamepadFaceRight, ImGuiKey_GamepadFaceLeft,
+                                               ImGuiKey_GamepadFaceUp, ImGuiKey_GamepadL1, ImGuiKey_GamepadR1,
+                                               ImGuiKey_GamepadBack, ImGuiKey_GamepadStart, ImGuiKey_None,
+                                               ImGuiKey_GamepadL3, ImGuiKey_GamepadR3};
+            if (ev.number < sizeof(buttons) / sizeof(buttons[0]) && buttons[ev.number] != ImGuiKey_None)
+                io.AddKeyEvent(buttons[ev.number], ev.value != 0);
+        } else if (type == JS_EVENT_AXIS) {
+            switch (ev.number) {
+                case 0: stick(ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight, ev.value); break;
+                case 1: stick(ImGuiKey_GamepadLStickUp, ImGuiKey_GamepadLStickDown, ev.value); break;
+                case 3: stick(ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight, ev.value); break;
+                case 4: stick(ImGuiKey_GamepadRStickUp, ImGuiKey_GamepadRStickDown, ev.value); break;
+                case 6: stick(ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight, ev.value); break;
+                case 7: stick(ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadDpadDown, ev.value); break;
+                case 2:
+                case 5: {   // triggers: -32767 released .. 32767 pulled
+                    float t = (ev.value + 32767) / 65534.f;
+                    io.AddKeyAnalogEvent(ev.number == 2 ? ImGuiKey_GamepadL2 : ImGuiKey_GamepadR2, t > 0.1f, t);
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -58,6 +129,7 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
     xcb_screen_iterator_t it = xcb_setup_roots_iterator(xcb_get_setup(g_conn));
     for (int i = 0; i < screenNum; ++i) xcb_screen_next(&it);
     xcb_screen_t* screen = it.data;
+    g_root = screen->root;
 
     g_width = width;
     g_height = height;
@@ -82,6 +154,9 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
 }
 
 void destroyWindow() {
+    setCursorCaptured(false);
+    if (g_joystick >= 0) close(g_joystick);
+    g_joystick = -1;
     xcb_destroy_window(g_conn, g_window);
     xcb_disconnect(g_conn);
     g_conn = nullptr;
@@ -90,6 +165,7 @@ void destroyWindow() {
 void pollEvents() {
     if (g_imguiReady) {
         ImGui_ImplXcb_PollEvents(onEvent, nullptr);
+        pollJoystick();
         return;
     }
     while (xcb_generic_event_t* e = xcb_poll_for_event(g_conn)) {
@@ -97,6 +173,55 @@ void pollEvents() {
         free(e);
     }
 }
+
+void setCursorCaptured(bool captured) {
+    if (captured == g_captured || !g_conn) return;
+    g_captured = captured;
+    g_mouseDx = g_mouseDy = 0.f;
+    if (captured) {
+        if (!g_invisibleCursor) {   // a cursor made from an empty 1x1 bitmap
+            xcb_pixmap_t pixmap = xcb_generate_id(g_conn);
+            xcb_create_pixmap(g_conn, 1, pixmap, g_window, 1, 1);
+            g_invisibleCursor = xcb_generate_id(g_conn);
+            xcb_create_cursor(g_conn, g_invisibleCursor, pixmap, pixmap, 0, 0, 0, 0, 0, 0, 0, 0);
+            xcb_free_pixmap(g_conn, pixmap);
+        }
+        xcb_grab_pointer(g_conn, 1, g_window,
+                         XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE,
+                         XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, g_window, g_invisibleCursor, XCB_CURRENT_TIME);
+        warpToCenter();
+    } else {
+        xcb_ungrab_pointer(g_conn, XCB_CURRENT_TIME);
+        xcb_flush(g_conn);
+    }
+}
+
+bool cursorCaptured() { return g_captured; }
+
+void takeMouseDelta(float& dx, float& dy) {
+    dx = g_mouseDx;
+    dy = g_mouseDy;
+    g_mouseDx = g_mouseDy = 0.f;
+}
+
+// Asks the window manager (EWMH _NET_WM_STATE) to make the window fullscreen
+void setFullscreen(bool fullscreen) {
+    if (fullscreen == g_fullscreen || !g_conn) return;
+    g_fullscreen = fullscreen;
+    xcb_client_message_event_t ev{};
+    ev.response_type = XCB_CLIENT_MESSAGE;
+    ev.format = 32;
+    ev.window = g_window;
+    ev.type = internAtom("_NET_WM_STATE");
+    ev.data.data32[0] = fullscreen ? 1 : 0;   // _NET_WM_STATE_ADD / _REMOVE
+    ev.data.data32[1] = internAtom("_NET_WM_STATE_FULLSCREEN");
+    ev.data.data32[3] = 1;                    // request from a normal application
+    xcb_send_event(g_conn, 0, g_root, XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                   (const char*)&ev);
+    xcb_flush(g_conn);
+}
+
+bool isFullscreen() { return g_fullscreen; }
 
 bool closeRequested() { return g_closeRequested; }
 
@@ -121,6 +246,7 @@ VkSurfaceKHR createVulkanSurface(VkInstance instance) {
 void imguiInit() {
     ImGui_ImplXcb_Init(g_conn, g_window);
     g_imguiReady = true;
+    g_joystick = open("/dev/input/js0", O_RDONLY | O_NONBLOCK);
 }
 
 void imguiNewFrame(float deltaTime) { ImGui_ImplXcb_NewFrame((float)g_width, (float)g_height, deltaTime); }

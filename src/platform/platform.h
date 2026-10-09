@@ -20,6 +20,15 @@ void pollEvents();
 bool closeRequested();
 void windowSize(uint32_t& width, uint32_t& height);   // client area in pixels; 0 when minimised
 
+// Mouse capture for first-person games: hides the cursor, keeps it inside the window and reports raw movement.
+// Released automatically when the window loses focus.
+void setCursorCaptured(bool captured);
+bool cursorCaptured();
+void takeMouseDelta(float& dx, float& dy);   // movement since the previous call while captured, in pixels; else 0
+
+void setFullscreen(bool fullscreen);
+bool isFullscreen();
+
 // Content scale of the window's monitor (1.0 = 96 DPI on Windows, always 1.0 on X11)
 float dpiScale();
 

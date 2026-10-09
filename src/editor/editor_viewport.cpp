@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "ImGuizmo.h"
+#include "platform/platform.h"
 #include "physics/physics_world.h"
 
 namespace {
@@ -183,7 +184,9 @@ void Editor::handlePicking() {
 // ---------------------------------------------------------------------------------------------
 void Editor::handleShortcuts() {
     ImGuiIO& io = ImGui::GetIO();
-    if (io.WantTextInput || ImGui::IsAnyItemActive() || nav_ == Nav::Fly) return;
+    if (io.WantTextInput || ImGui::IsAnyItemActive() || nav_ == Nav::Fly || bindingCapture_ >= 0 ||
+        keyTakenByBindings_)
+        return;
     bool ctrl = io.KeyCtrl, shift = io.KeyShift, alt = io.KeyAlt;
 
     if (ctrl && keyPressed(ImGuiKey_P)) {
@@ -232,8 +235,12 @@ void Editor::drawViewportOverlay() {
     static const char* toolNames[] = {"Select", "Move", "Rotate", "Scale"};
     char line[200];
     if (playing()) {
+        const char* mouse = !gameCameraActive_         ? "  |  no camera in the scene: editor view"
+                            : platform::cursorCaptured() ? "  |  Esc releases the mouse"
+                            : captureOnClick_           ? "  |  click to capture the mouse"
+                                                        : "";
         std::snprintf(line, sizeof(line), "%s  |  t = %.2f s  |  tick %llu%s", game_.paused() ? "PAUSED" : "PLAYING",
-                      game_.time(), game_.tick(), gameCameraActive_ ? "" : "  |  no camera in the scene: editor view");
+                      game_.time(), game_.tick(), mouse);
     } else {
         std::snprintf(line, sizeof(line), "Perspective  |  %s%s%s", toolNames[(int)tool_],
                       tool_ == Tool::Select ? "" : (localSpace_ ? " (local)" : " (world)"), snap_ ? "  snap" : "");

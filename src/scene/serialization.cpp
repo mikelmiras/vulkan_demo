@@ -325,6 +325,16 @@ bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& m
         json::Value& prefabs = doc.set("prefabs", json::Value::array());
         for (const Prefab& p : scene.prefabs) prefabs.push(prefabToJson(p, meshes));
     }
+    json::Value& settings = doc.set("settings", json::Value::object());
+    json::Value& input = settings.set("input", json::Value::array());
+    for (const InputAction& a : scene.inputActions) {
+        json::Value av = json::Value::object();
+        av.set("name", a.name);
+        json::Value& keys = av.set("keys", json::Value::array());
+        for (ImGuiKey k : a.keys) keys.push(keyName(k));
+        if (a.mouseButton >= 0) av.set("mouseButton", a.mouseButton);
+        input.push(std::move(av));
+    }
     return writeJson(path, doc, error);
 }
 
@@ -359,6 +369,17 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, std::
         if (!prefabFromJson(v, meshIds, p, error)) { error = path + ": " + error; return false; }
         p.name = result.uniquePrefabName(p.name);
         result.prefabs.push_back(std::move(p));
+    }
+    if (const json::Value& input = doc["settings"]["input"]; input.isArray()) {   // else: the defaults
+        result.inputActions.clear();
+        for (const json::Value& av : input.elements()) {
+            InputAction a;
+            a.name = av["name"].asString();
+            for (const json::Value& k : av["keys"].elements())
+                if (ImGuiKey key = keyFromName(k.asString()); key != ImGuiKey_None) a.keys.push_back(key);
+            a.mouseButton = av["mouseButton"].asInt(-1);
+            if (!a.name.empty()) result.inputActions.push_back(std::move(a));
+        }
     }
     scene = std::move(result);
     return true;

@@ -239,7 +239,7 @@ void ImGui_ImplXcb_NewFrame(float displayWidth, float displayHeight, float delta
     io.DeltaTime = deltaTime > 0.f ? deltaTime : 1.f / 60.f;
 }
 
-void ImGui_ImplXcb_PollEvents(void (*handler)(void* user, xcb_generic_event_t* event), void* user) {
+void ImGui_ImplXcb_PollEvents(bool (*handler)(void* user, xcb_generic_event_t* event), void* user) {
     xcb_connection_t* conn = g_bd->conn;
     xcb_generic_event_t* pending = nullptr;
     for (;;) {
@@ -263,7 +263,7 @@ void ImGui_ImplXcb_PollEvents(void (*handler)(void* user, xcb_generic_event_t* e
             pending = next;
         }
 
-        if (!processInputEvent(e) && handler) handler(user, e);
+        if (!(handler && handler(user, e))) processInputEvent(e);
         free(e);
     }
 }

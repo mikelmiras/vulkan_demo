@@ -12,6 +12,7 @@ compile_commands.json
 /Makefile
 /libimgui.a
 /vkworld
+/vkgame
 /engine_tests
 /Testing/
 

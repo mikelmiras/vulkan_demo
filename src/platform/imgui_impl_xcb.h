@@ -8,6 +8,6 @@ bool ImGui_ImplXcb_Init(xcb_connection_t* connection, xcb_window_t window);
 void ImGui_ImplXcb_Shutdown();
 void ImGui_ImplXcb_NewFrame(float displayWidth, float displayHeight, float deltaTime);
 
-// Drains the X event queue. Input events go to ImGui; everything else (configure, client
-// messages, ...) is forwarded to `handler`. Keyboard auto-repeat release/press pairs are merged.
-void ImGui_ImplXcb_PollEvents(void (*handler)(void* user, xcb_generic_event_t* event), void* user);
+// Drains the X event queue. Every event goes to `handler` first; unless it returns true (consumed), input events
+// then go to ImGui. Keyboard auto-repeat release/press pairs are merged.
+void ImGui_ImplXcb_PollEvents(bool (*handler)(void* user, xcb_generic_event_t* event), void* user);

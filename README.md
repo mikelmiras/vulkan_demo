@@ -46,6 +46,21 @@ cmake --build build -j
 
 The editor renders at one pixel per point (no Retina scaling). Shortcuts listed with Ctrl use Cmd.
 
+### Running the game without the editor
+
+`vkgame` plays a scene full-window, without the editor:
+
+```sh
+./vkgame                 # scene.vkw from the working directory or next to the executable, else the demo
+./vkgame my_level.vkw --fullscreen
+```
+
+The mouse is captured for the game (hidden, raw movement): Esc releases it, a click takes it back, F11 toggles
+fullscreen. Ship a game by copying `vkgame`, the `shaders/` folder and your scene (plus any OBJ files it uses).
+
+Both programs also take `--screenshot out.png [--frames N]`: render N frames (default 30), save the last one and
+quit, which is handy for automated checks. The editor also takes a scene path and `--play`.
+
 ### Tests
 
 The engine has unit tests (`tests/`, no external framework): JSON, OBJ import, scene hierarchy and
@@ -103,7 +118,8 @@ still load.
 the scene exactly as it was, so anything changed while playing is temporary (and not undoable).
 
 The demo scene is a tiny game: you are the **Player** (a capsule body with a PlayerController and a camera child).
-Walk with WASD / arrow keys, hold the right mouse button to look, Space to jump, Shift to sprint, and collect the
+Walk with WASD / arrow keys or the left stick, look with the mouse (click the view to capture it, or hold the right
+button) or the right stick, Space / A to jump, Shift to sprint, and collect the
 8 floating gems. You bump into the pillars and can jump onto things. Left click shoots: the scattered objects
 break, and cubes leave a gem behind.
 
@@ -112,9 +128,14 @@ break, and cubes leave a gem behind.
   **Pause** freezes it and **Step** advances one update.
 - It renders through the first entity with a **Camera** component (Add > Camera creates one at the current
   view). Without one, the editor view is used.
-- Game code reads **named input actions** (`move_forward`, `jump`, `look`, ...; see `src/game/input.cpp`), never
-  raw keys. Key presses are latched until the next update reads them, so a quick tap is never missed. The keyboard
-  is ignored while typing in a text field, and the mouse while it's over a panel.
+- Game code reads **named input actions** (`move_forward`, `jump`, `look`, ...), never raw keys. Each action is
+  triggered by keys, a mouse button and gamepad controls (sticks and triggers are analog: `ctx.input().value()` /
+  `axis()` go from 0 to 1). Edit them in **Game > Input bindings** (click "+ key", then press a key or gamepad
+  button); they're saved with the scene. Presses are latched until the next update reads them, so a quick tap is
+  never missed. The keyboard is ignored while typing in a text field, and the mouse while it's over a panel.
+- **Click the game view to capture the mouse** for mouse look without holding a button; Esc releases it.
+- Gamepads work through Dear ImGui's backends (XInput on Windows, GameController on macOS) and the Linux joystick
+  API (`/dev/input/js0`, Xbox-style layout).
 - Messages logged by behaviours show at the bottom of the viewport (and on stdout).
 - Game > Maximize viewport on play hides the side panels while playing.
 
@@ -212,6 +233,8 @@ collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also
 | Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) | Undo / redo                                    |
 | Ctrl+S / Ctrl+O                | Save / load the scene file (path in File menu, default `scene.vkw`) |
 | F1                             | Controls help window                           |
+| F11                            | Fullscreen                                     |
+| Click / Esc while playing      | Capture / release the mouse for the game       |
 
 ## Code
 
@@ -220,8 +243,10 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 
 | Folder / file              | What                                                            |
 |----------------------------|-----------------------------------------------------------------|
-| `src/main.cpp`             | ImGui setup, main loop                                          |
-| `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer  |
+| `src/main.cpp`             | The editor's entry point                                        |
+| `src/runtime/main.cpp`     | The standalone game (`vkgame`)                                  |
+| `src/app/`                 | Window + renderer + ImGui setup and frame loop shared by both   |
+| `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer, `png.*` screenshot writer |
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/assets/`              | Mesh library: procedural meshes, OBJ import, ray/triangle picking |

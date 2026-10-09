@@ -1,10 +1,12 @@
 #include "editor/editor.h"
 
 #include <cfloat>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 
 #include "ImGuizmo.h"
+#include "render/scene_draw.h"
 #include "platform/platform.h"
 #include "scene/serialization.h"
 
@@ -20,8 +22,21 @@ Editor::Editor(MeshLibrary& meshes, float uiScale)
 // ---------------------------------------------------------------------------------------------
 void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stats) {
     ImGuiIO& io = ImGui::GetIO();
-    // The game sees the keyboard unless a text field has it, and the mouse only over the viewport
-    game_.frame(dt, !io.WantTextInput, viewportHovered());
+    // Mouse capture in play mode: a click on the game view takes the mouse, Esc gives it back
+    if (platform::cursorCaptured() && (!viewingGameCamera() || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
+        platform::setCursorCaptured(false);
+    else if (captureOnClick_ && viewingGameCamera() && !platform::cursorCaptured() && viewportHovered() &&
+             ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        platform::setCursorCaptured(true);
+    if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) platform::setFullscreen(!platform::isFullscreen());
+
+    // The game sees the keyboard unless a text field has it, and the mouse only over the viewport (or captured)
+    bool captured = platform::cursorCaptured();
+    float mdx = 0.f, mdy = 0.f;
+    platform::takeMouseDelta(mdx, mdy);
+    game_.input().setMouseCaptured(captured);
+    game_.frame(dt, !io.WantTextInput, captured || viewportHovered(), captured ? ImVec2(mdx, mdy) : io.MouseDelta);
+    keyTakenByBindings_ = false;
     frameStart_ = {scene_, selected_};
     editBegan_ = false;
     if (statusTimer_ > 0.f) statusTimer_ -= dt;
@@ -53,6 +68,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (showHelp_) drawHelp();
     drawAddPopup();
     drawImportPopup();
+    if (showInputBindings_) drawInputBindings();
 
     handleNavigation(dt);
     handleGizmo();
@@ -100,18 +116,7 @@ const Mat4& Editor::worldOf(EntityId id) const {
 }
 
 void Editor::buildDrawItems() {
-    drawItems_.clear();
-    for (size_t i = 0; i < scene_.entities.size(); ++i) {
-        const Entity& e = scene_.entities[i];
-        if (!e.meshRenderer || !scene_.visibleInHierarchy(e.id)) continue;
-        DrawItem d;
-        d.model = worlds_[i];
-        d.mesh = e.meshRenderer->mesh;
-        d.color = e.meshRenderer->color;
-        d.checker = e.meshRenderer->checker;
-        d.outlined = e.id == selected_ && !viewingGameCamera();
-        drawItems_.push_back(d);
-    }
+    drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_);
 }
 
 SceneRenderInfo Editor::renderInfo() const {
@@ -140,6 +145,7 @@ void Editor::startPlay() {
 
 void Editor::stopPlay() {
     if (!playing()) return;
+    platform::setCursorCaptured(false);
     game_.stop();
     scene_ = std::move(editScene_);
     editScene_ = Scene{};
@@ -395,6 +401,11 @@ void Editor::saveToFile() {
     std::string error;
     if (saveScene(scenePath_, scene_, meshes_, error)) setStatus(std::string("Saved ") + scenePath_);
     else setStatus("Save failed: " + error);
+}
+
+void Editor::openScene(const std::string& path) {
+    std::snprintf(scenePath_, sizeof(scenePath_), "%s", path.c_str());
+    loadFromFile();
 }
 
 void Editor::loadFromFile() {

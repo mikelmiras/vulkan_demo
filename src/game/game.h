@@ -75,8 +75,10 @@ public:
     bool running() const { return scene_ != nullptr; }
 
     // Once per rendered frame: latches input, then runs as many fixed updates as the elapsed time calls for.
-    // keyboard/mouse = false while the UI owns that device.
-    void frame(float dt, bool keyboard, bool mouse);
+    // keyboard/mouse = false while the UI owns that device. mouseDelta: this frame's mouse movement (raw while
+    // the cursor is captured); the overload without it uses Dear ImGui's.
+    void frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta);
+    void frame(float dt, bool keyboard, bool mouse) { frame(dt, keyboard, mouse, ImGui::GetIO().MouseDelta); }
     void setPaused(bool paused) { paused_ = paused; }
     bool paused() const { return paused_; }
     void step();   // run exactly one fixed update (frame stepping while paused)

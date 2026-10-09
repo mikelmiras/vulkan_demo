@@ -43,6 +43,10 @@ public:
     void resize(uint32_t width, uint32_t height);
     void render(const SceneRenderInfo& info, ImDrawData* ui);
 
+    // Saves the next rendered frame (UI included) as a PNG; check the result with screenshotDone()
+    void requestScreenshot(const std::string& path) { screenshotPath_ = path; screenshotResult_ = 0; }
+    int screenshotDone() const { return screenshotResult_; }   // 0 pending / none, 1 saved, -1 failed
+
     const std::string& gpuName() const { return gpuName_; }
     const RenderStats& stats() const { return stats_; }
 
@@ -50,7 +54,12 @@ private:
     static constexpr int MAX_FRAMES = 2;
 
     struct Image { VkImage image = VK_NULL_HANDLE; VkDeviceMemory memory = VK_NULL_HANDLE; VkImageView view = VK_NULL_HANDLE; };
-    struct Buffer { VkBuffer buffer = VK_NULL_HANDLE; VkDeviceMemory memory = VK_NULL_HANDLE; void* mapped = nullptr; };
+    struct Buffer {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        void* mapped = nullptr;
+        VkDeviceSize size = 0;
+    };
 
     struct PipelineDesc {
         const char* vertShader;
@@ -123,4 +132,10 @@ private:
     VkFence inFlight_[MAX_FRAMES] = {};
     uint32_t frame_ = 0;
     bool imguiInitialized_ = false;
+
+    std::string screenshotPath_;
+    int screenshotResult_ = 0;
+    bool canReadSwapchain_ = false;   // swapchain images allow transfers out
+    Buffer readback_;
+    void saveScreenshot();
 };

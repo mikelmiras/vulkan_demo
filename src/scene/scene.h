@@ -9,6 +9,7 @@
 #include "assets/meshes.h"
 #include "core/vecmath.h"
 #include "scene/behaviour.h"
+#include "scene/input_bindings.h"
 
 using EntityId = uint32_t;
 constexpr EntityId kNoEntity = 0;
@@ -84,6 +85,7 @@ class Scene {
 public:
     std::vector<Entity> entities;   // flat; the hierarchy is given by Entity::parent
     std::vector<Prefab> prefabs;    // saved with the scene
+    std::vector<InputAction> inputActions = defaultInputActions();   // the game's controls
 
     Entity& create(const std::string& name, EntityId parent = kNoEntity);   // appended with a fresh id
     Entity& add(Entity e);   // keeps e.id if it's free, otherwise assigns a new one

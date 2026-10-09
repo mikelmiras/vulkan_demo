@@ -31,6 +31,22 @@ HWND g_hwnd = nullptr;
 uint32_t g_width = 0, g_height = 0;
 bool g_closeRequested = false;
 float g_dpiScale = 1.f;
+bool g_captured = false;
+float g_mouseDx = 0.f, g_mouseDy = 0.f;
+bool g_fullscreen = false;
+WINDOWPLACEMENT g_windowedPlacement{sizeof(WINDOWPLACEMENT)};
+
+// Keep the (hidden) cursor inside the client area while captured
+void clipCursorToWindow() {
+    RECT r;
+    GetClientRect(g_hwnd, &r);
+    POINT tl{r.left, r.top}, br{r.right, r.bottom};
+    ClientToScreen(g_hwnd, &tl);
+    ClientToScreen(g_hwnd, &br);
+    RECT clip{tl.x, tl.y, br.x, br.y};
+    ClipCursor(&clip);
+    SetCursorPos((tl.x + br.x) / 2, (tl.y + br.y) / 2);
+}
 
 std::wstring widen(const char* utf8) {
     int n = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, nullptr, 0);
@@ -59,6 +75,20 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                          SWP_NOZORDER | SWP_NOACTIVATE);
             return 0;
         }
+        case WM_INPUT: {   // raw mouse movement (registered in createWindow), used while captured
+            if (!g_captured) break;
+            RAWINPUT raw;
+            UINT size = sizeof(raw);
+            if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, &raw, &size, sizeof(RAWINPUTHEADER)) != (UINT)-1 &&
+                raw.header.dwType == RIM_TYPEMOUSE && !(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+                g_mouseDx += (float)raw.data.mouse.lLastX;
+                g_mouseDy += (float)raw.data.mouse.lLastY;
+            }
+            break;
+        }
+        case WM_KILLFOCUS:
+            setCursorCaptured(false);
+            break;
         case WM_SYSCOMMAND:
             if ((wParam & 0xfff0) == SC_KEYMENU) return 0;   // Alt alone must not open the window menu (Alt+H etc.)
             break;
@@ -102,6 +132,9 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
     if (!g_hwnd) return false;
     g_dpiScale = ImGui_ImplWin32_GetDpiScaleForHwnd(g_hwnd);
 
+    RAWINPUTDEVICE mouse{0x01, 0x02, 0, g_hwnd};   // generic desktop page, mouse
+    RegisterRawInputDevices(&mouse, 1, sizeof(mouse));
+
     ShowWindow(g_hwnd, SW_SHOWDEFAULT);
     UpdateWindow(g_hwnd);
     RECT client{};
@@ -112,6 +145,7 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
 }
 
 void destroyWindow() {
+    setCursorCaptured(false);
     DestroyWindow(g_hwnd);
     UnregisterClassW(kClassName, g_instance);
     g_hwnd = nullptr;
@@ -127,6 +161,49 @@ void pollEvents() {
 }
 
 bool closeRequested() { return g_closeRequested; }
+
+void setCursorCaptured(bool captured) {
+    if (captured == g_captured || !g_hwnd) return;
+    g_captured = captured;
+    g_mouseDx = g_mouseDy = 0.f;
+    if (captured) {
+        clipCursorToWindow();
+        while (ShowCursor(FALSE) >= 0) {}   // the display count is a counter: hide until it's negative
+    } else {
+        ClipCursor(nullptr);
+        while (ShowCursor(TRUE) < 0) {}
+    }
+}
+
+bool cursorCaptured() { return g_captured; }
+
+void takeMouseDelta(float& dx, float& dy) {
+    dx = g_mouseDx;
+    dy = g_mouseDy;
+    g_mouseDx = g_mouseDy = 0.f;
+}
+
+// Borderless window covering the monitor, the usual "fullscreen windowed" mode
+void setFullscreen(bool fullscreen) {
+    if (fullscreen == g_fullscreen || !g_hwnd) return;
+    g_fullscreen = fullscreen;
+    if (fullscreen) {
+        GetWindowPlacement(g_hwnd, &g_windowedPlacement);
+        MONITORINFO mi{sizeof(mi)};
+        GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST), &mi);
+        SetWindowLongW(g_hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos(g_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+                     mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+    } else {
+        SetWindowLongW(g_hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+        SetWindowPlacement(g_hwnd, &g_windowedPlacement);
+        SetWindowPos(g_hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    }
+    if (g_captured) clipCursorToWindow();
+}
+
+bool isFullscreen() { return g_fullscreen; }
 
 void windowSize(uint32_t& width, uint32_t& height) {
     width = g_width;

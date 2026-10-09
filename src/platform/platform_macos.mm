@@ -43,6 +43,8 @@ NSWindow* g_window = nil;
 VkwView* g_view = nil;
 VkwWindowDelegate* g_delegate = nil;
 bool g_closeRequested = false;
+bool g_captured = false;
+float g_mouseDx = 0.f, g_mouseDy = 0.f;
 }  // namespace
 }  // namespace platform
 
@@ -83,6 +85,7 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
                           defer:NO];
         if (!g_window) return false;
         g_window.releasedWhenClosed = NO;
+        g_window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
         g_window.title = [NSString stringWithUTF8String:title];
         g_delegate = [VkwWindowDelegate new];
         g_window.delegate = g_delegate;
@@ -99,6 +102,7 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
 }
 
 void destroyWindow() {
+    setCursorCaptured(false);
     [g_window close];
     g_window = nil;
     g_view = nil;
@@ -111,10 +115,54 @@ void pollEvents() {
                                                    untilDate:nil
                                                       inMode:NSDefaultRunLoopMode
                                                      dequeue:YES]) {
+            if (g_captured) {
+                switch (event.type) {
+                    case NSEventTypeMouseMoved:
+                    case NSEventTypeLeftMouseDragged:
+                    case NSEventTypeRightMouseDragged:
+                    case NSEventTypeOtherMouseDragged:
+                        g_mouseDx += (float)event.deltaX;
+                        g_mouseDy += (float)event.deltaY;
+                        break;
+                    default: break;
+                }
+            }
             [NSApp sendEvent:event];
         }
+        if (g_captured && (!NSApp.isActive || !g_window.isKeyWindow)) setCursorCaptured(false);   // Cmd+Tab etc.
     }
 }
+
+void setCursorCaptured(bool captured) {
+    if (captured == g_captured || !g_window) return;
+    g_captured = captured;
+    g_mouseDx = g_mouseDy = 0.f;
+    if (captured) {
+        // Park the cursor in the middle of the window so clicks keep landing on it, then freeze it there
+        NSRect frame = [g_window convertRectToScreen:g_view.frame];
+        CGFloat screenH = NSScreen.screens[0].frame.size.height;
+        CGWarpMouseCursorPosition(CGPointMake(NSMidX(frame), screenH - NSMidY(frame)));
+        CGAssociateMouseAndMouseCursorPosition(false);
+        [NSCursor hide];
+    } else {
+        CGAssociateMouseAndMouseCursorPosition(true);
+        [NSCursor unhide];
+    }
+}
+
+bool cursorCaptured() { return g_captured; }
+
+void takeMouseDelta(float& dx, float& dy) {
+    dx = g_mouseDx;
+    dy = g_mouseDy;
+    g_mouseDx = g_mouseDy = 0.f;
+}
+
+void setFullscreen(bool fullscreen) {
+    if (g_window && fullscreen != isFullscreen()) [g_window toggleFullScreen:nil];
+}
+
+bool isFullscreen() { return g_window && (g_window.styleMask & NSWindowStyleMaskFullScreen) != 0; }
 
 bool closeRequested() { return g_closeRequested; }
 

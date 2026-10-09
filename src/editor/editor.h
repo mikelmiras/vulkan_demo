@@ -37,6 +37,8 @@ public:
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
     SceneRenderInfo renderInfo() const;   // valid after frame()
     bool quitRequested() const { return quit_; }
+    void openScene(const std::string& path);   // like File > Load
+    void play() { startPlay(); }
 
 private:
     enum class Tool { Select, Move, Rotate, Scale };
@@ -60,6 +62,7 @@ private:
     void drawAddPopup();
     void drawAddMenuItems();
     void drawImportPopup();
+    void drawInputBindings();
     void track();   // call after an editing widget: records an undo step when the edit starts
 
     // ---- Viewport (editor_viewport.cpp)
@@ -138,6 +141,10 @@ private:
     Scene editScene_;   // the scene as it was when Play was pressed
     EntityId editSelected_ = kNoEntity;
     bool maximizeOnPlay_ = false;
+    bool captureOnClick_ = true;      // clicking the game view captures the mouse (Esc releases it)
+    bool showInputBindings_ = false;
+    int bindingCapture_ = -1;         // action waiting for a key press in the bindings window
+    bool keyTakenByBindings_ = false; // that key press mustn't also trigger a shortcut
     bool gameCameraActive_ = false;
 
     // Current view (editor or game camera) and what to draw, rebuilt every frame

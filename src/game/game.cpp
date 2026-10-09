@@ -89,7 +89,7 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     accumulator_ = time_ = 0.f;
     tick_ = 0;
     paused_ = false;
-    input_ = InputMap{};
+    input_ = InputMap(scene.inputActions);
     log_.clear();
 
     physics_.build(*scene_, *meshes_);
@@ -103,9 +103,9 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
 
 void Game::stop() { scene_ = nullptr; }
 
-void Game::frame(float dt, bool keyboard, bool mouse) {
+void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     if (!running()) return;
-    input_.beginFrame(keyboard && !paused_, mouse && !paused_);
+    input_.beginFrame(keyboard && !paused_, mouse && !paused_, mouseDelta);
     if (paused_) return;
     accumulator_ += dt;
     int steps = 0;

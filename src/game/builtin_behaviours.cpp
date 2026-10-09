@@ -104,6 +104,7 @@ struct PlayerController : BehaviourBase<PlayerController> {
     float moveSpeed = 6.f;
     float sprintMultiplier = 2.f;
     float lookSensitivity = 0.15f;   // degrees per pixel
+    float stickLookSpeed = 150.f;    // degrees per second at full gamepad stick
     float jumpSpeed = 6.5f;
     float gravity = 18.f;
     float respawnBelow = -50.f;      // falling under this height puts the player back at the start
@@ -117,6 +118,7 @@ struct PlayerController : BehaviourBase<PlayerController> {
         v.field("moveSpeed", moveSpeed, 0.05f, 0.f, 1000.f);
         v.field("sprintMultiplier", sprintMultiplier, 0.05f, 1.f, 20.f);
         v.field("lookSensitivity", lookSensitivity, 0.005f, 0.f, 5.f);
+        v.field("stickLookSpeed", stickLookSpeed, 1.f, 0.f, 2000.f);
         v.field("jumpSpeed", jumpSpeed, 0.05f, 0.f, 100.f);
         v.field("gravity", gravity, 0.1f, 0.f, 200.f);
         v.field("respawnBelow", respawnBelow, 0.5f);
@@ -143,15 +145,20 @@ struct PlayerController : BehaviourBase<PlayerController> {
     void update(GameContext& ctx, Entity& self) override {
         const InputMap& in = ctx.input();
         float dt = ctx.dt();
-        if (in.down("look")) {
+        if (in.down("look") || in.mouseCaptured()) {
             ImVec2 d = in.mouseDelta();
             yaw += d.x * lookSensitivity * DEG2RAD;
-            pitch = std::clamp(pitch - d.y * lookSensitivity * DEG2RAD, -1.5f, 1.5f);
+            pitch -= d.y * lookSensitivity * DEG2RAD;
         }
+        yaw += in.axis("look_left", "look_right") * stickLookSpeed * DEG2RAD * dt;
+        pitch += in.axis("look_down", "look_up") * stickLookSpeed * DEG2RAD * dt;
+        pitch = std::clamp(pitch, -1.5f, 1.5f);
         Vec3 flat{std::cos(yaw), 0.f, std::sin(yaw)}, right{-flat.z, 0.f, flat.x};
         Vec3 move = flat * in.axis("move_back", "move_forward") + right * in.axis("move_left", "move_right");
         float speed = moveSpeed * (in.down("sprint") ? sprintMultiplier : 1.f);
-        if (length(move) > 0.f) move = normalize(move) * speed;
+        // Keyboard: full speed in any direction. Stick: proportional to how far it's pushed
+        if (length(move) > 1.f) move = normalize(move);
+        move = move * speed;
 
         if (fly) {
             movePosition(self.transform, (move + Vec3{0, in.axis("move_down", "move_up") * speed, 0}) * dt);

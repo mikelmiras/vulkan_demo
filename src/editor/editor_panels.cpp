@@ -5,6 +5,7 @@
 #include <cfloat>
 #include <cstdio>
 #include <filesystem>
+#include <algorithm>
 #include <functional>
 
 #include "misc/cpp/imgui_stdlib.h"
@@ -122,6 +123,9 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem("Step one tick", nullptr, false, playing() && game_.paused())) game_.step();
         ImGui::Separator();
         ImGui::MenuItem("Maximize viewport on play", nullptr, &maximizeOnPlay_);
+        ImGui::MenuItem("Capture mouse on click", nullptr, &captureOnClick_);
+        ImGui::Separator();
+        ImGui::MenuItem("Input bindings...", nullptr, &showInputBindings_);
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
@@ -131,6 +135,8 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Focus selected", "F", false, selection() != nullptr)) focusSelected();
         if (ImGui::MenuItem("Reset camera")) cam_ = EditorCamera{};
+        bool fullscreen = platform::isFullscreen();
+        if (ImGui::MenuItem("Fullscreen", "F11", &fullscreen)) platform::setFullscreen(fullscreen);
         ImGui::Separator();
         ImGui::MenuItem("Controls help", "F1", &showHelp_);
         ImGui::EndMenu();
@@ -634,6 +640,8 @@ void Editor::drawHelp() {
         {"Esc", "Deselect"},
         {"Ctrl+P", "Play / stop the game (the scene is restored on stop)"},
         {"Ctrl+Shift+P", "Pause / resume the game"},
+        {"Click / Esc (playing)", "Capture / release the mouse for the game"},
+        {"F11", "Fullscreen"},
         {"Ctrl+Z / Ctrl+Shift+Z", "Undo / redo"},
         {"Ctrl+S / Ctrl+O", "Save / load scene file"},
     };
@@ -741,4 +749,108 @@ void Editor::drawImportPopup() {
         if (importError_.empty()) ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Input bindings: the scene's named actions and what triggers them
+// ---------------------------------------------------------------------------------------------
+void Editor::drawInputBindings() {
+    ImGui::SetNextWindowSize(ImVec2(px(560.f), px(420.f)), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Input bindings", &showInputBindings_, ImGuiWindowFlags_NoSavedSettings)) {
+        ImGui::End();
+        return;
+    }
+    std::vector<InputAction>& actions = scene_.inputActions;
+    ImGui::TextWrapped("Game code reads these actions by name (ctx.input().down(\"jump\")). Saved with the scene; "
+                       "changes apply from the next Play.");
+
+    // Waiting for a key: the first key or gamepad button pressed is bound (Esc cancels)
+    if (bindingCapture_ >= (int)actions.size()) bindingCapture_ = -1;
+    if (bindingCapture_ >= 0) {
+        for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k) {
+            ImGuiKey key = (ImGuiKey)k;
+            if ((key >= ImGuiKey_MouseLeft && key <= ImGuiKey_MouseWheelY) || !ImGui::IsKeyPressed(key, false)) continue;
+            if (key != ImGuiKey_Escape) {
+                pushUndo();
+                std::vector<ImGuiKey>& keys = actions[(size_t)bindingCapture_].keys;
+                if (std::find(keys.begin(), keys.end(), key) == keys.end()) keys.push_back(key);
+            }
+            bindingCapture_ = -1;
+            keyTakenByBindings_ = true;
+            break;
+        }
+    }
+
+    int removeAction = -1;
+    if (ImGui::BeginTable("##bindings", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY,
+                          ImVec2(0, -ImGui::GetFrameHeightWithSpacing()))) {
+        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, px(130.f));
+        ImGui::TableSetupColumn("Bindings", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, px(24.f));
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableHeadersRow();
+        static const char* mouseNames[] = {"Mouse Left", "Mouse Right", "Mouse Middle"};
+        for (int i = 0; i < (int)actions.size(); ++i) {
+            InputAction& a = actions[(size_t)i];
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            ImGui::InputText("##name", &a.name);
+            track();
+            ImGui::TableNextColumn();
+            int removeKey = -1;
+            for (int k = 0; k < (int)a.keys.size(); ++k) {
+                ImGui::PushID(k);
+                std::string label = std::string(keyName(a.keys[(size_t)k])) + "  x";
+                if (ImGui::SmallButton(label.c_str())) removeKey = k;
+                tooltip("Click to remove");
+                ImGui::SameLine();
+                ImGui::PopID();
+            }
+            if (removeKey >= 0) {
+                pushUndo();
+                a.keys.erase(a.keys.begin() + removeKey);
+            }
+            if (a.mouseButton >= 0 && a.mouseButton < 3) {
+                std::string label = std::string(mouseNames[a.mouseButton]) + "  x";
+                if (ImGui::SmallButton(label.c_str())) { pushUndo(); a.mouseButton = -1; }
+                ImGui::SameLine();
+            }
+            if (bindingCapture_ == i) {
+                ImGui::TextColored(ImVec4(1.f, 0.8f, 0.3f, 1.f), "press a key or button... (Esc cancels)");
+            } else {
+                if (ImGui::SmallButton("+ key")) bindingCapture_ = i;
+                tooltip("Then press a key or gamepad button");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("+ mouse")) ImGui::OpenPopup("##mouse");
+                if (ImGui::BeginPopup("##mouse")) {
+                    for (int m = 0; m < 3; ++m)
+                        if (ImGui::MenuItem(mouseNames[m])) { pushUndo(); a.mouseButton = m; }
+                    ImGui::EndPopup();
+                }
+            }
+            ImGui::TableNextColumn();
+            if (ImGui::SmallButton("x")) removeAction = i;
+            tooltip("Delete this action");
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (removeAction >= 0) {
+        pushUndo();
+        actions.erase(actions.begin() + removeAction);
+        bindingCapture_ = -1;
+    }
+    if (ImGui::Button("Add action")) {
+        pushUndo();
+        actions.push_back({"new_action", {}, -1});
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset to defaults")) {
+        pushUndo();
+        actions = defaultInputActions();
+        bindingCapture_ = -1;
+    }
+    ImGui::End();
 }

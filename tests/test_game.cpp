@@ -2,6 +2,7 @@
 #include "test.h"
 
 #include "game/game.h"
+#include "scene/serialization.h"
 #include "imgui.h"
 
 namespace {
@@ -97,10 +98,10 @@ TEST(input_disabled_devices_read_released) {
     io.AddKeyEvent(ImGuiKey_W, true);
     io.AddMouseButtonEvent(ImGuiMouseButton_Right, true);
     ImGui::NewFrame();
-    in.beginFrame(false, true);
+    in.beginFrame(false, true, ImVec2(0, 0));
     CHECK(!in.down("move_forward"));
     CHECK(in.down("look"));
-    in.beginFrame(true, false);
+    in.beginFrame(true, false, ImVec2(0, 0));
     CHECK(in.down("move_forward"));
     CHECK(!in.down("look"));
     CHECK(in.axis("move_back", "move_forward") == 1.f);
@@ -207,4 +208,74 @@ TEST(behaviours_patrol_and_look_at) {
     CHECK_VEC(normalize(transformDir(wm, {0, 0, -1})), normalize(walker - worldPos(s, "Watcher")), 1e-3f);
     run(g, 180);   // 4 s total = 12 units on a 6-unit leg: back at the start
     CHECK_NEAR(worldPos(s, "Walker").z, 0.f, 0.1f);
+}
+
+TEST(input_key_names_roundtrip) {
+    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END; ++k) {
+        ImGuiKey key = (ImGuiKey)k;
+        if (keyFromName(keyName(key)) != key) {
+            test::fail(__FILE__, __LINE__, std::string("key name doesn't round-trip: ") + keyName(key));
+            break;
+        }
+    }
+    CHECK(keyFromName("NotAKey") == ImGuiKey_None);
+    CHECK(isGamepadKey(ImGuiKey_GamepadFaceDown) && !isGamepadKey(ImGuiKey_W));
+}
+
+TEST(input_bindings_saved_with_scene) {
+    MeshLibrary lib = buildMeshLibrary();
+    Scene s;
+    s.inputActions = {{"shoot", {ImGuiKey_F, ImGuiKey_GamepadR2}, ImGuiMouseButton_Left}, {"duck", {ImGuiKey_C}, -1}};
+    std::string err;
+    auto path = test::tempPath("bindings.vkw").string();
+    REQUIRE(saveScene(path, s, lib, err));
+    Scene loaded;
+    REQUIRE(loadScene(path, loaded, lib, err));
+    REQUIRE(loaded.inputActions.size() == 2);
+    CHECK(loaded.inputActions[0].name == "shoot");
+    CHECK(loaded.inputActions[0].keys == s.inputActions[0].keys);
+    CHECK(loaded.inputActions[0].mouseButton == ImGuiMouseButton_Left);
+    CHECK(loaded.inputActions[1].mouseButton == -1);
+    // Files without bindings get the defaults
+    test::writeFile(test::tempPath("nobindings.vkw"), "{\"format\":\"vkworld-scene\",\"version\":4,\"entities\":[]}");
+    REQUIRE(loadScene(test::tempPath("nobindings.vkw").string(), loaded, lib, err));
+    CHECK(loaded.inputActions.size() == defaultInputActions().size());
+}
+
+TEST(input_analog_sticks_and_captured_mouse) {
+    test::ImGuiContextGuard imgui;
+    ImGuiIO& io = ImGui::GetIO();
+    Scene s = buildDefaultScene();
+    Game g;
+    g.start(s, meshes());
+    run(g, 30);   // settle
+    Vec3 p0 = worldPos(s, "Player");
+    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;   // what a backend sets when a pad is connected
+    io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickUp, true, 0.5f);   // half-pushed stick: half speed
+    run(g, 1);
+    CHECK_NEAR(g.input().value("move_forward"), 0.5f, 1e-6);
+    CHECK_NEAR(g.input().axis("move_back", "move_forward"), 0.5f, 1e-6);
+    run(g, 59);
+    io.AddKeyAnalogEvent(ImGuiKey_GamepadLStickUp, false, 0.f);
+    run(g, 1);
+    CHECK_NEAR(length(worldPos(s, "Player") - p0), 3.f, 0.3f);
+
+    // Right stick turns at stickLookSpeed (150 deg/s): full right for 0.6 s = 90 deg
+    io.AddKeyAnalogEvent(ImGuiKey_GamepadRStickRight, true, 1.f);
+    run(g, 36);
+    io.AddKeyAnalogEvent(ImGuiKey_GamepadRStickRight, false, 0.f);
+    run(g, 1);
+    Mat4 cam = s.worldMatrix(s.findByName("Player Camera")->id);
+    CHECK_VEC(normalize(transformDir(cam, {0, 0, -1})), test::v3(1, 0, 0), 0.03f);
+
+    // Captured mouse: movement turns the view without holding the look button
+    g.input().setMouseCaptured(true);
+    for (int i = 0; i < 2; ++i) {
+        ImGui::NewFrame();
+        g.frame(1.f / 60.f, true, true, ImVec2(300.f, 0.f));   // 600 px * 0.15 deg/px = another 90 deg
+        ImGui::EndFrame();
+    }
+    run(g, 1);
+    cam = s.worldMatrix(s.findByName("Player Camera")->id);
+    CHECK_VEC(normalize(transformDir(cam, {0, 0, -1})), test::v3(0, 0, 1), 0.03f);
 }

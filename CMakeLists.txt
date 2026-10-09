@@ -47,8 +47,10 @@ target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
 # Engine: everything a game needs at runtime (platform, rendering, assets, scene, game loop)
 add_library(engine STATIC
   src/core/json.cpp
+  src/core/png.cpp
   src/assets/meshes.cpp
   src/scene/behaviour.cpp
+  src/scene/input_bindings.cpp
   src/scene/scene.cpp
   src/scene/serialization.cpp
   src/physics/collision.cpp
@@ -56,7 +58,9 @@ add_library(engine STATIC
   src/game/input.cpp
   src/game/game.cpp
   src/game/builtin_behaviours.cpp
-  src/render/renderer.cpp)
+  src/render/renderer.cpp
+  src/render/scene_draw.cpp
+  src/app/application.cpp)
 target_include_directories(engine PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(engine PUBLIC imgui)
 add_dependencies(engine shaders)
@@ -68,6 +72,10 @@ add_executable(vkworld
   src/editor/editor_panels.cpp
   src/editor/editor_viewport.cpp)
 target_link_libraries(vkworld PRIVATE engine)
+
+# Standalone game: the engine without the editor, playing a scene
+add_executable(vkgame src/runtime/main.cpp)
+target_link_libraries(vkgame PRIVATE engine)
 
 # Platform layer (part of the engine)
 if(WIN32)
@@ -109,7 +117,7 @@ if(VKWORLD_BUILD_TESTS)
 endif()
 
 # Warnings
-set(OWN_TARGETS engine vkworld)
+set(OWN_TARGETS engine vkworld vkgame)
 if(VKWORLD_BUILD_TESTS)
   list(APPEND OWN_TARGETS engine_tests)
 endif()
