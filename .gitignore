@@ -1,0 +1,30 @@
+# Out-of-source build directories
+/build*/
+/cmake-build-*/
+/out/
+
+# In-source CMake builds (`cmake .` in the project root)
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+/Makefile
+/libimgui.a
+/vkworld
+
+# Compiled shaders and objects
+*.spv
+*.o
+*.a
+
+# Runtime files
+imgui.ini
+
+# Editors / tools
+.vscode/
+.idea/
+.cache/
+*.swp
+*~
+.DS_Store
