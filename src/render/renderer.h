@@ -7,14 +7,21 @@
 #include <vector>
 
 #include "assets/meshes.h"
-#include "scene/scene.h"
+#include "core/vecmath.h"
 
 struct ImDrawData;
 
+// One mesh to draw. The renderer knows nothing about the scene: callers flatten it into these.
+struct DrawItem {
+    Mat4 model;
+    int mesh = 0;               // id in the MeshLibrary
+    Vec3 color{1, 1, 1};        // sRGB
+    bool checker = false;       // procedural checkerboard + grid
+    bool outlined = false;      // draw the selection outline around it
+};
+
 struct SceneRenderInfo {
-    const std::vector<SceneObject>* objects = nullptr;
-    int selected = -1;
-    float time = 0.f;
+    const std::vector<DrawItem>* items = nullptr;
     Mat4 viewProj;
     Vec3 camPos;
     float viewportX = 0, viewportY = 0, viewportW = 0, viewportH = 0;   // in window pixels

@@ -48,6 +48,8 @@ target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
 add_library(engine STATIC
   src/assets/meshes.cpp
   src/scene/scene.cpp
+  src/game/input.cpp
+  src/game/game.cpp
   src/render/renderer.cpp)
 target_include_directories(engine PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(engine PUBLIC imgui)

@@ -66,6 +66,12 @@ std::vector<SceneObject> buildDefaultScene() {
     std::vector<SceneObject> objs;
     Rng rng;
 
+    SceneObject cam = make("Main Camera", MeshKind::Cube, {0, 7, 34}, {1, 1, 1}, {1, 1, 1});
+    cam.mesh = kNoMesh;
+    cam.camera = true;
+    cam.rotation[0] = -9.f;   // look slightly down at the centrepiece
+    objs.push_back(cam);
+
     SceneObject ground = make("Ground", MeshKind::Plane, {0, 0, 0}, {600, 1, 600}, {0.42f, 0.55f, 0.38f});
     ground.checker = true;
     ground.locked = true;
@@ -145,18 +151,21 @@ bool saveScene(const std::string& path, const std::vector<SceneObject>& objects,
     if (!f) { error = "cannot write " + path; return false; }
     f << kHeader << "\n";
     std::vector<bool> used((size_t)meshes.count(), false);
-    for (const SceneObject& o : objects) used[(size_t)o.mesh] = true;
+    for (const SceneObject& o : objects)
+        if (o.mesh != kNoMesh) used[(size_t)o.mesh] = true;
     for (int i = (int)MeshKind::Count; i < meshes.count(); ++i)
         if (used[(size_t)i]) f << "mesh " << std::quoted(meshes.name(i)) << ' ' << std::quoted(meshes.get(i).source) << '\n';
-    f << "# name mesh pos[3] rot[3] scale[3] color[3] checker visible locked spin bob phase\n";
+    f << "# name mesh pos[3] rot[3] scale[3] color[3] checker visible locked spin bob phase [camera fov]\n";
     f << std::setprecision(6);
     for (const SceneObject& o : objects) {
-        f << std::quoted(o.name) << ' ' << std::quoted(meshes.name(o.mesh));
+        f << std::quoted(o.name) << ' ' << std::quoted(o.mesh == kNoMesh ? "None" : meshes.name(o.mesh));
         for (float v : o.position) f << ' ' << v;
         for (float v : o.rotation) f << ' ' << v;
         for (float v : o.scale) f << ' ' << v;
         f << ' ' << o.color.x << ' ' << o.color.y << ' ' << o.color.z << ' ' << o.checker << ' ' << o.visible
-          << ' ' << o.locked << ' ' << o.spin << ' ' << o.bob << ' ' << o.phase << '\n';
+          << ' ' << o.locked << ' ' << o.spin << ' ' << o.bob << ' ' << o.phase;
+        if (o.camera) f << " camera " << o.fovY;
+        f << '\n';
     }
     if (!f) { error = "write failed for " + path; return false; }
     return true;
@@ -168,6 +177,7 @@ bool loadScene(const std::string& path, std::vector<SceneObject>& objects, MeshL
     std::vector<SceneObject> result;
     std::map<std::string, int> fileMeshes;   // mesh name in this file -> library id (names may differ if renamed on import)
     for (int i = 0; i < (int)MeshKind::Count; ++i) fileMeshes[meshes.name(i)] = i;
+    fileMeshes["None"] = kNoMesh;
     std::string line;
     int lineNo = 0;
     while (std::getline(f, line)) {
@@ -193,6 +203,11 @@ bool loadScene(const std::string& path, std::vector<SceneObject>& objects, MeshL
         for (float& v : o.scale) in >> v;
         in >> o.color.x >> o.color.y >> o.color.z >> o.checker >> o.visible >> o.locked >> o.spin >> o.bob >> o.phase;
         if (!in) return fail("malformed line");
+        std::string extra;
+        if (in >> extra && extra == "camera") {
+            o.camera = true;
+            in >> o.fovY;
+        }
         auto it = fileMeshes.find(mesh);
         if (it == fileMeshes.end()) return fail("unknown mesh '" + mesh + "'");
         o.mesh = it->second;

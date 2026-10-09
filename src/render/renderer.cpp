@@ -696,7 +696,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
     float vw = std::min(info.viewportW, (float)extent_.width - vx);
     float vh = std::min(info.viewportH, (float)extent_.height - vy);
-    if (info.objects && vw >= 1.f && vh >= 1.f) {
+    if (info.items && vw >= 1.f && vh >= 1.f) {
         VkViewport viewport{vx, vy, vw, vh, 0.f, 1.f};
         VkRect2D scissor{{(int32_t)vx, (int32_t)vy}, {(uint32_t)vw, (uint32_t)vh}};
         vkCmdSetViewport(cb, 0, 1, &viewport);
@@ -707,9 +707,9 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         vkCmdBindVertexBuffers(cb, 0, 1, &vertexBuffer_.buffer, &offset);
         vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-        const auto& objects = *info.objects;
-        auto draw = [&](const SceneObject& o, Vec3 rgb, float alpha) {
-            PushConstants pc{o.animatedMatrix(info.time), {rgb.x, rgb.y, rgb.z, alpha}};
+        const auto& items = *info.items;
+        auto draw = [&](const DrawItem& o, Vec3 rgb, float alpha) {
+            PushConstants pc{o.model, {rgb.x, rgb.y, rgb.z, alpha}};
             vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(pc), &pc);
             const Mesh& mesh = meshes_->get(o.mesh);
@@ -719,15 +719,14 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         };
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-        for (const SceneObject& o : objects)
-            if (o.visible) draw(o, srgbToLinear(o.color), o.checker ? 0.f : 1.f);
+        for (const DrawItem& o : items) draw(o, srgbToLinear(o.color), o.checker ? 0.f : 1.f);
 
-        if (info.selected >= 0 && info.selected < (int)objects.size() && objects[info.selected].visible) {
-            const SceneObject& sel = objects[info.selected];
+        for (const DrawItem& o : items) {
+            if (!o.outlined) continue;
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, stencilPipeline_);
-            draw(sel, kOutlineSrgb, 1.f);
+            draw(o, kOutlineSrgb, 1.f);
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, outlinePipeline_);
-            draw(sel, kOutlineSrgb, 1.f);
+            draw(o, kOutlineSrgb, 1.f);
         }
     }
     vkCmdEndRendering(cb);

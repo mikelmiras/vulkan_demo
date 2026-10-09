@@ -53,16 +53,31 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
 
 ## Layout
 
-- **Menu bar**: File (save/load scene, import OBJ, reset), Edit, Add, View.
+- **Menu bar**: File (save/load scene, import OBJ, reset), Edit, Add, Game (play/pause/step), View.
 - **Importing models**: File / Add > Import OBJ... loads a Wavefront `.obj` (triangles or polygons, with or without
   normals; materials/textures ignored). It's centred and scaled to fit a unit cube, then shows up in the Add menu and
   the Inspector's mesh list. Saved scenes reference the `.obj` by absolute path and re-import it on load.
 - **Toolbar**: Select/Move/Rotate/Scale tools, world/local axes, snapping, add/duplicate/delete/focus, undo/redo,
-  play/pause animation, fly speed.
+  Play/Pause/Step, fly speed.
 - **Outliner** (left): every object, with visibility toggles, filter, right-click menu, double-click to focus.
 - **Inspector** (right): name, mesh, position/rotation/scale, colour, flags, animation, camera and renderer stats.
 - **Viewport**: selected object gets an orange outline (visible through other objects) plus the gizmo.
   The cube in the top-right corner snaps/rotates the view.
+
+## Play mode
+
+**Play** (Ctrl+P) copies the scene and runs the game on the copy; **Stop** throws the copy away and restores
+the scene exactly as it was, so anything changed while playing is temporary (and not undoable).
+
+- The game updates at a fixed **60 Hz**, independent of the frame rate (several updates per frame on a slow
+  machine, none on some frames of a fast one; a long hitch is capped at 8 updates).
+  **Pause** freezes it and **Step** advances one update.
+- It renders through the first **camera object** in the scene (Add > Camera creates one at the current view;
+  any object can be made a camera in the Inspector). Without one, the editor view is used.
+- Game code reads **named input actions** (`move_forward`, `jump`, `look`, ...; see `src/game/input.cpp`), never
+  raw keys. Key presses are latched until the next update reads them, so a quick tap is never missed. The keyboard
+  is ignored while typing in a text field, and the mouse while it's over a panel.
+- Game > Maximize viewport on play hides the side panels while playing.
 
 ## Controls
 
@@ -83,7 +98,7 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
 | End                            | Drop selected to the ground                    |
 | H / Alt+H                      | Hide selected / unhide all                     |
 | Esc                            | Deselect                                       |
-| Space                          | Play / pause animation                         |
+| Ctrl+P / Ctrl+Shift+P          | Play-stop / pause the game                     |
 | Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) | Undo / redo                                    |
 | Ctrl+S / Ctrl+O                | Save / load the scene file (path in File menu, default `scene.vkw`) |
 | F1                             | Controls help window                           |
@@ -101,6 +116,7 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/assets/`              | Mesh library: procedural meshes, OBJ import, ray/triangle picking |
 | `src/scene/`               | Scene objects, default scene, save/load                         |
+| `src/game/`                | Game runtime: fixed-timestep loop, play-mode camera, named input actions |
 | `src/editor/`              | Editor app: camera navigation, picking, gizmos, undo/redo, all UI panels |
 | `shaders/scene.*`          | Lit objects, checker ground, fog                                |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

@@ -7,9 +7,13 @@
 #include "assets/meshes.h"
 #include "core/vecmath.h"
 
+constexpr int kNoMesh = -1;
+
 struct SceneObject {
     std::string name;
-    int mesh = (int)MeshKind::Cube;   // id in the MeshLibrary
+    int mesh = (int)MeshKind::Cube;   // id in the MeshLibrary, or kNoMesh
+    bool camera = false;              // the game renders through the first camera object
+    float fovY = 60.f * DEG2RAD;      // camera vertical field of view (radians)
     float position[3] = {0, 0, 0};
     float rotation[3] = {0, 0, 0};   // Euler degrees (ImGuizmo convention)
     float scale[3] = {1, 1, 1};

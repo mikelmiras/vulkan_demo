@@ -6,6 +6,7 @@
 
 #include "imgui.h"
 #include "assets/meshes.h"
+#include "game/game.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
 
@@ -31,7 +32,7 @@ public:
 
     // Builds the UI and handles viewport input. Call between ImGui::NewFrame() and ImGui::Render().
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
-    SceneRenderInfo renderInfo() const;
+    SceneRenderInfo renderInfo() const;   // valid after frame()
     bool quitRequested() const { return quit_; }
 
 private:
@@ -63,11 +64,25 @@ private:
     void setCameraFromView(const Mat4& view);
     float aspect() const { return vh_ > 0.f ? vw_ / vh_ : 1.f; }
     float px(float v) const { return v * uiScale_; }
+    bool worldToScreen(Vec3 p, ImVec2& out) const;   // through the current view; false if behind the camera
+    bool viewportHovered() const;
+    void updateView();        // picks the editor or game camera for this frame
+    void buildDrawItems();
+    void drawCameraGizmos();
+
+    // Play mode: the scene is copied on Play and restored on Stop
+    bool playing() const { return game_.running(); }
+    bool viewingGameCamera() const { return playing() && gameCameraActive_; }
+    float sceneTime() const { return playing() ? game_.time() : 0.f; }
+    void startPlay();
+    void stopPlay();
+    void togglePause();
 
     // Operations
     void select(int index);
     bool hasSelection() const { return selected_ >= 0 && selected_ < (int)objects_.size(); }
     void addObject(int mesh);
+    void addCamera();
     void importMesh();
     void duplicateSelected();
     void deleteSelected();
@@ -96,8 +111,16 @@ private:
     bool localSpace_ = false;
     bool snap_ = false;
     float snapMove_ = 0.5f, snapRotate_ = 15.f, snapScale_ = 0.1f;
-    bool playing_ = true;
-    float animTime_ = 0.f;
+    Game game_;
+    std::vector<SceneObject> editObjects_;   // the scene as it was when Play was pressed
+    int editSelected_ = -1;
+    bool maximizeOnPlay_ = false;
+    bool gameCameraActive_ = false;
+
+    // Current view (editor or game camera) and what to draw, rebuilt every frame
+    Mat4 viewProj_;
+    Vec3 viewPos_;
+    std::vector<DrawItem> drawItems_;
 
     std::vector<Snapshot> undo_, redo_;
     Snapshot frameStart_;

@@ -44,9 +44,10 @@ Editor::Editor(MeshLibrary& meshes, float uiScale)
 // ---------------------------------------------------------------------------------------------
 void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stats) {
     ImGuiIO& io = ImGui::GetIO();
+    // The game sees the keyboard unless a text field has it, and the mouse only over the viewport
+    game_.frame(dt, !io.WantTextInput, viewportHovered());
     frameStart_ = {objects_, selected_};
     editBegan_ = false;
-    if (playing_) animTime_ += dt;
     if (statusTimer_ > 0.f) statusTimer_ -= dt;
     fps_ = fps_ * 0.95f + (dt > 0.f ? 1.f / dt : 0.f) * 0.05f;
 
@@ -60,7 +61,8 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     float toolbarH = ImGui::GetFrameHeight() + style.WindowPadding.y * 2.f;
     topH_ = menuH + toolbarH;
     statusH_ = ImGui::GetTextLineHeight() + style.WindowPadding.y * 2.f;
-    float leftW = showOutliner_ ? px(kLeftPanelW) : 0.f, rightW = showInspector_ ? px(kRightPanelW) : 0.f;
+    bool panels = !(playing() && maximizeOnPlay_);
+    float leftW = panels && showOutliner_ ? px(kLeftPanelW) : 0.f, rightW = panels && showInspector_ ? px(kRightPanelW) : 0.f;
     vx_ = leftW;
     vy_ = topH_;
     vw_ = std::max(io.DisplaySize.x - leftW - rightW, 1.f);
@@ -68,8 +70,9 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
 
     drawMenuBar();
     drawToolbar();
-    if (showOutliner_) drawOutliner();
-    if (showInspector_) drawInspector(gpuName, stats);
+    updateView();
+    if (leftW > 0.f) drawOutliner();
+    if (rightW > 0.f) drawInspector(gpuName, stats);
     drawStatusBar(stats);
     if (showHelp_) drawHelp();
     drawAddPopup();
@@ -79,6 +82,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     handleGizmo();
     handlePicking();
     handleShortcuts();
+    drawCameraGizmos();
     drawViewportOverlay();
 
     // Deferred actions requested from inside list iteration (context menus)
@@ -87,21 +91,64 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (pendingDelete_ >= 0) { select(pendingDelete_); deleteSelected(); }
     pendingFocus_ = pendingDuplicate_ = pendingDelete_ = -1;
 
-    if (editBegan_) {
+    if (editBegan_ && !playing()) {   // play-mode edits are thrown away on Stop: no undo
         undo_.push_back(std::move(frameStart_));
         if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
         redo_.clear();
     }
     if (!hasSelection()) selected_ = -1;
+    updateView();   // the camera may have moved during this frame
+    buildDrawItems();
+}
+
+void Editor::updateView() {
+    CameraView gc;
+    gameCameraActive_ = playing() && game_.activeCamera(gc);
+    if (gameCameraActive_) {
+        viewProj_ = perspective(gc.fovY, aspect(), gc.zNear, gc.zFar, true) * gc.view;
+        viewPos_ = gc.position;
+    } else {
+        viewProj_ = perspective(cam_.fovY, aspect(), 0.1f, 2000.f, true) * cam_.view();
+        viewPos_ = cam_.pos;
+    }
+}
+
+void Editor::buildDrawItems() {
+    drawItems_.clear();
+    for (int i = 0; i < (int)objects_.size(); ++i) {
+        const SceneObject& o = objects_[i];
+        if (!o.visible || o.mesh == kNoMesh) continue;
+        DrawItem d;
+        d.model = o.animatedMatrix(sceneTime());
+        d.mesh = o.mesh;
+        d.color = o.color;
+        d.checker = o.checker;
+        d.outlined = i == selected_ && !viewingGameCamera();
+        drawItems_.push_back(d);
+    }
+}
+
+bool Editor::viewportHovered() const {
+    ImVec2 mp = ImGui::GetIO().MousePos;
+    bool inViewport = mp.x >= vx_ && mp.x < vx_ + vw_ && mp.y >= vy_ && mp.y < vy_ + vh_;
+    return inViewport && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) && !ImGui::IsAnyItemActive();
+}
+
+bool Editor::worldToScreen(Vec3 p, ImVec2& out) const {
+    const float* m = viewProj_.m;
+    float x = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12];
+    float y = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13];
+    float w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
+    if (w < 1e-4f) return false;
+    out = ImVec2(vx_ + (x / w * 0.5f + 0.5f) * vw_, vy_ + (y / w * 0.5f + 0.5f) * vh_);   // Vulkan clip: Y down
+    return true;
 }
 
 SceneRenderInfo Editor::renderInfo() const {
     SceneRenderInfo info;
-    info.objects = &objects_;
-    info.selected = selected_;
-    info.time = animTime_;
-    info.viewProj = perspective(cam_.fovY, aspect(), 0.1f, 2000.f, true) * cam_.view();
-    info.camPos = cam_.pos;
+    info.items = &drawItems_;
+    info.viewProj = viewProj_;
+    info.camPos = viewPos_;
     info.viewportX = vx_;
     info.viewportY = vy_;
     info.viewportW = vw_;
@@ -121,6 +168,7 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu("File")) {
         ImGui::SetNextItemWidth(px(220.f));
         ImGui::InputText("Scene file", scenePath_, sizeof(scenePath_));
+        ImGui::BeginDisabled(playing());   // stop first: the scene on screen is the throwaway play copy
         if (ImGui::MenuItem("Save", "Ctrl+S")) saveToFile();
         if (ImGui::MenuItem("Load", "Ctrl+O")) loadFromFile();
         if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
@@ -136,6 +184,7 @@ void Editor::drawMenuBar() {
             objects_ = buildDefaultScene();
             selected_ = -1;
         }
+        ImGui::EndDisabled();
         ImGui::Separator();
         if (ImGui::MenuItem("Quit", "Ctrl+Q")) quit_ = true;
         ImGui::EndMenu();
@@ -157,13 +206,20 @@ void Editor::drawMenuBar() {
         drawAddMenuItems();
         ImGui::EndMenu();
     }
+    if (ImGui::BeginMenu("Game")) {
+        if (ImGui::MenuItem(playing() ? "Stop" : "Play", "Ctrl+P")) playing() ? stopPlay() : startPlay();
+        if (ImGui::MenuItem("Pause", "Ctrl+Shift+P", playing() && game_.paused(), playing())) togglePause();
+        if (ImGui::MenuItem("Step one tick", nullptr, false, playing() && game_.paused())) game_.step();
+        ImGui::Separator();
+        ImGui::MenuItem("Maximize viewport on play", nullptr, &maximizeOnPlay_);
+        ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("View")) {
         ImGui::MenuItem("Outliner", nullptr, &showOutliner_);
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
         ImGui::Separator();
         if (ImGui::MenuItem("Focus selected", "F", false, hasSelection())) focusSelected();
         if (ImGui::MenuItem("Reset camera")) cam_ = EditorCamera{};
-        ImGui::MenuItem("Play animation", "Space", &playing_);
         ImGui::Separator();
         ImGui::MenuItem("Controls help", "F1", &showHelp_);
         ImGui::EndMenu();
@@ -230,9 +286,28 @@ void Editor::drawToolbar() {
     ImGui::EndDisabled();
 
     verticalSeparator();
-    if (ImGui::Button(playing_ ? "Pause" : "Play")) playing_ = !playing_;
-    tooltip("Toggle spin/bob animation (Space)");
-    ImGui::SameLine();
+    {
+        bool p = playing();
+        if (p) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.75f, 0.25f, 0.2f, 1.f));
+        else ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.55f, 0.25f, 1.f));
+        if (ImGui::Button(p ? "Stop" : "Play")) p ? stopPlay() : startPlay();
+        ImGui::PopStyleColor();
+        tooltip(p ? "Stop and restore the scene (Ctrl+P)" : "Run the game from this scene (Ctrl+P)");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!p);
+        bool paused = p && game_.paused();
+        if (paused) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::Button("Pause")) togglePause();
+        if (paused) ImGui::PopStyleColor();
+        tooltip("Ctrl+Shift+P");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!paused);
+        if (ImGui::Button("Step")) game_.step();
+        tooltip("Advance one fixed update (1/60 s) while paused");
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+    }
     ImGui::SetNextItemWidth(px(140.f));
     ImGui::SliderFloat("Fly speed", &cam_.speed, 1.f, 200.f, "%.0f", ImGuiSliderFlags_Logarithmic);
     ImGui::End();
@@ -262,7 +337,7 @@ void Editor::drawOutliner() {
         if (!o.visible) ImGui::PopStyleColor();
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) pendingFocus_ = i;
         if (ImGui::BeginPopupContextItem()) {
-            ImGui::TextDisabled("%s (%s)", o.name.c_str(), meshes_.name(o.mesh));
+            ImGui::TextDisabled("%s (%s)", o.name.c_str(), o.mesh == kNoMesh ? "no mesh" : meshes_.name(o.mesh));
             if (ImGui::MenuItem("Focus")) pendingFocus_ = i;
             if (ImGui::MenuItem("Duplicate")) pendingDuplicate_ = i;
             if (ImGui::MenuItem("Delete")) pendingDelete_ = i;
@@ -290,9 +365,12 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         SceneObject& o = objects_[selected_];
         ImGui::InputText("Name", &o.name);
         track();
-        ImGui::Combo(
-            "Mesh", &o.mesh, [](void* lib, int i) { return ((const MeshLibrary*)lib)->name(i); }, &meshes_,
-            meshes_.count());
+        int meshItem = o.mesh + 1;   // item 0 = no mesh
+        if (ImGui::Combo(
+                "Mesh", &meshItem,
+                [](void* lib, int i) { return i == 0 ? "(none)" : ((const MeshLibrary*)lib)->name(i - 1); }, &meshes_,
+                meshes_.count() + 1))
+            o.mesh = meshItem - 1;
         track();
 
         ImGui::SeparatorText("Transform");
@@ -335,12 +413,20 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::SliderAngle("Phase", &o.phase, 0.f, 360.f);
         track();
 
+        ImGui::SeparatorText("Game camera");
+        ImGui::Checkbox("Is camera", &o.camera);
+        track();
+        tooltip("In play mode the game renders through the first camera object (looking down its local -Z)");
+        if (o.camera) {
+            ImGui::SliderAngle("Field of view", &o.fovY, 20.f, 120.f);
+            track();
+        }
+
         ImGui::SeparatorText("Info");
-        const Mesh& mesh = meshes_.get(o.mesh);
-        ImGui::Text("Triangles: %u", mesh.indexCount / 3);
+        if (o.mesh != kNoMesh) ImGui::Text("Triangles: %u", meshes_.get(o.mesh).indexCount / 3);
         ImGui::Text("Distance to camera: %.2f", length(o.pos() - cam_.pos));
         if (ImGui::TreeNode("World matrix")) {
-            Mat4 m = o.animatedMatrix(animTime_);
+            Mat4 m = o.animatedMatrix(sceneTime());
             for (int r = 0; r < 4; ++r)
                 ImGui::Text("%8.3f %8.3f %8.3f %8.3f", m.m[r], m.m[4 + r], m.m[8 + r], m.m[12 + r]);
             ImGui::TreePop();
@@ -373,8 +459,9 @@ void Editor::drawStatusBar(const RenderStats& stats) {
         const char* hint = nav_ == Nav::Fly     ? "Flying: WASD move, E/Q up/down, Shift fast, wheel = speed"
                            : nav_ == Nav::Orbit ? "Orbiting (Shift+MMB to pan)"
                            : nav_ == Nav::Pan   ? "Panning"
+                           : playing()          ? "Playing: Ctrl+P stops and restores the scene, Ctrl+Shift+P pauses"
                                                 : "LMB select | RMB+WASD fly | MMB orbit | Shift+MMB pan | "
-                                                  "Wheel zoom | G/R/S tools | F focus | Shift+A add | F1 help";
+                                                  "Wheel zoom | G/R/S tools | F focus | Shift+A add | Ctrl+P play";
         ImGui::TextDisabled("%s", hint);
     }
     char right[128];
@@ -408,7 +495,8 @@ void Editor::drawHelp() {
         {"End", "Drop selected to the ground"},
         {"H / Alt+H", "Hide selected / unhide all"},
         {"Esc", "Deselect"},
-        {"Space", "Play / pause animation"},
+        {"Ctrl+P", "Play / stop the game (the scene is restored on stop)"},
+        {"Ctrl+Shift+P", "Pause / resume the game"},
         {"Ctrl+Z / Ctrl+Shift+Z", "Undo / redo"},
         {"Ctrl+S / Ctrl+O", "Save / load scene file"},
     };
@@ -445,6 +533,7 @@ void Editor::drawAddMenuItems() {
         if (ImGui::MenuItem(meshes_.name(k))) addObject(k);
     }
     ImGui::Separator();
+    if (ImGui::MenuItem("Camera")) addCamera();
     if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
 }
 
@@ -517,15 +606,25 @@ void Editor::drawViewportOverlay() {
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     static const char* toolNames[] = {"Select", "Move", "Rotate", "Scale"};
     char line[160];
-    std::snprintf(line, sizeof(line), "Perspective  |  %s%s%s  |  %s", toolNames[(int)tool_],
-                  tool_ == Tool::Select ? "" : (localSpace_ ? " (local)" : " (world)"), snap_ ? "  snap" : "",
-                  playing_ ? "animating" : "paused");
+    if (playing()) {
+        std::snprintf(line, sizeof(line), "%s  |  t = %.2f s  |  tick %llu%s", game_.paused() ? "PAUSED" : "PLAYING",
+                      game_.time(), game_.tick(),
+                      gameCameraActive_ ? "" : "  |  no camera in the scene: editor view");
+    } else {
+        std::snprintf(line, sizeof(line), "Perspective  |  %s%s%s", toolNames[(int)tool_],
+                      tool_ == Tool::Select ? "" : (localSpace_ ? " (local)" : " (world)"), snap_ ? "  snap" : "");
+    }
     ImVec2 p(vx_ + px(10.f), vy_ + px(8.f));
     dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 120), line);
     dl->AddText(p, IM_COL32(255, 255, 255, 230), line);
-    if (hasSelection()) {
+    if (playing()) {   // red frame around the viewport while playing
+        dl->AddRect(ImVec2(vx_ + 1, vy_ + 1), ImVec2(vx_ + vw_ - 1, vy_ + vh_ - 1),
+                    game_.paused() ? IM_COL32(240, 190, 60, 200) : IM_COL32(220, 70, 50, 200), 0.f, 0, px(2.f));
+    }
+    if (hasSelection() && !viewingGameCamera()) {
         const SceneObject& o = objects_[selected_];
-        std::snprintf(line, sizeof(line), "%s  (%s)", o.name.c_str(), meshes_.name(o.mesh));
+        std::snprintf(line, sizeof(line), "%s  (%s)", o.name.c_str(),
+                      o.camera ? "camera" : o.mesh == kNoMesh ? "no mesh" : meshes_.name(o.mesh));
         p.y += ImGui::GetTextLineHeightWithSpacing();
         dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 120), line);
         dl->AddText(p, IM_COL32(255, 170, 60, 255), line);
@@ -537,6 +636,7 @@ void Editor::drawViewportOverlay() {
 // ---------------------------------------------------------------------------------------------
 void Editor::handleNavigation(float dt) {
     ImGuiIO& io = ImGui::GetIO();
+    if (viewingGameCamera()) { nav_ = Nav::None; return; }   // the game owns the view (and the mouse)
     ImVec2 mp = io.MousePos;
     bool inViewport = mp.x >= vx_ && mp.x < vx_ + vw_ && mp.y >= vy_ && mp.y < vy_ + vh_;
     bool overUi = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) || ImGui::IsAnyItemActive();
@@ -599,7 +699,8 @@ void Editor::handleGizmo() {
     ImGuizmo::SetRect(vx_, vy_, vw_, vh_);
 
     gizmoDrawn_ = false;
-    if (hasSelection() && tool_ != Tool::Select && objects_[selected_].visible) {
+    if (viewingGameCamera()) return;
+    if (hasSelection() && tool_ != Tool::Select && (objects_[selected_].visible || objects_[selected_].camera)) {
         SceneObject& o = objects_[selected_];
         ImGuizmo::OPERATION op = tool_ == Tool::Move     ? ImGuizmo::TRANSLATE
                                  : tool_ == Tool::Rotate ? ImGuizmo::ROTATE
@@ -633,7 +734,7 @@ void Editor::handleGizmo() {
 
 void Editor::handlePicking() {
     ImGuiIO& io = ImGui::GetIO();
-    if (nav_ != Nav::None || !ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+    if (viewingGameCamera() || nav_ != Nav::None || !ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
     ImVec2 mp = io.MousePos;
     bool inViewport = mp.x >= vx_ && mp.x < vx_ + vw_ && mp.y >= vy_ && mp.y < vy_ + vh_;
     if (!inViewport || ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) || ImGui::IsAnyItemActive()) return;
@@ -648,9 +749,21 @@ void Editor::handlePicking() {
     float bestT = FLT_MAX;
     for (int i = 0; i < (int)objects_.size(); ++i) {
         const SceneObject& o = objects_[i];
-        if (!o.visible || o.locked) continue;
+        if (o.locked) continue;
+        Mat4 world = o.animatedMatrix(sceneTime());
+        if (o.mesh == kNoMesh) {
+            // No geometry (e.g. a camera): pick its icon, a small circle around the projected origin
+            Vec3 pos{world.m[12], world.m[13], world.m[14]};
+            ImVec2 sp;
+            if (!worldToScreen(pos, sp)) continue;
+            float dx = sp.x - mp.x, dy = sp.y - mp.y;
+            float t = length(pos - cam_.pos);
+            if (dx * dx + dy * dy < px(14.f) * px(14.f) && t < bestT) { bestT = t; best = i; }
+            continue;
+        }
+        if (!o.visible) continue;
         // Transform the ray into object space; t stays comparable because dir isn't renormalised
-        Mat4 inv = inverseAffine(o.animatedMatrix(animTime_));
+        Mat4 inv = inverseAffine(world);
         float t = intersectMesh(meshes_, o.mesh, transformPoint(inv, cam_.pos), transformDir(inv, dir));
         if (t > 0.f && t < bestT) { bestT = t; best = i; }
     }
@@ -662,6 +775,14 @@ void Editor::handleShortcuts() {
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput || ImGui::IsAnyItemActive() || nav_ == Nav::Fly) return;
     bool ctrl = io.KeyCtrl, shift = io.KeyShift, alt = io.KeyAlt;
+
+    if (ctrl && keyPressed(ImGuiKey_P)) {
+        if (shift) togglePause();
+        else playing() ? stopPlay() : startPlay();
+        return;
+    }
+    if (keyPressed(ImGuiKey_F1)) showHelp_ = !showHelp_;
+    if (playing()) return;   // everything else belongs to the game while it runs
 
     if (ctrl) {
         if (keyPressed(ImGuiKey_Z)) shift ? redo() : undo();
@@ -691,8 +812,6 @@ void Editor::handleShortcuts() {
     if (keyPressed(ImGuiKey_H)) toggleHideSelected();
     if (keyPressed(ImGuiKey_End)) dropSelectedToGround();
     if (keyPressed(ImGuiKey_Escape)) selected_ = -1;
-    if (keyPressed(ImGuiKey_Space)) playing_ = !playing_;
-    if (keyPressed(ImGuiKey_F1)) showHelp_ = !showHelp_;
 }
 
 void Editor::setCameraFromView(const Mat4& v) {
@@ -755,6 +874,76 @@ void Editor::addObject(int mesh) {
     setStatus("Added " + o.name);
 }
 
+void Editor::addCamera() {
+    pushUndo();
+    SceneObject o;
+    o.name = uniqueName("Camera.001");
+    o.mesh = kNoMesh;
+    o.camera = true;
+    o.fovY = cam_.fovY;
+    // Start where the editor camera is, looking the same way
+    Mat4 world = inverseAffine(cam_.view());
+    ImGuizmo::DecomposeMatrixToComponents(world.m, o.position, o.rotation, o.scale);
+    o.scale[0] = o.scale[1] = o.scale[2] = 1.f;
+    objects_.push_back(o);
+    select((int)objects_.size() - 1);
+    setStatus("Added " + o.name + " at the current view");
+}
+
+void Editor::startPlay() {
+    if (playing()) return;
+    editObjects_ = objects_;
+    editSelected_ = selected_;
+    nav_ = Nav::None;
+    game_.start(objects_);
+    setStatus("Playing. Ctrl+P stops and restores the scene.");
+}
+
+void Editor::stopPlay() {
+    if (!playing()) return;
+    game_.stop();
+    objects_ = std::move(editObjects_);
+    editObjects_.clear();
+    selected_ = editSelected_;
+    gizmoWasUsing_ = false;
+    setStatus("Stopped: scene restored");
+}
+
+void Editor::togglePause() {
+    if (playing()) game_.setPaused(!game_.paused());
+}
+
+// Camera objects have no mesh: draw their view frustum (and an icon to click) as overlay lines
+void Editor::drawCameraGizmos() {
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
+    for (int i = 0; i < (int)objects_.size(); ++i) {
+        const SceneObject& o = objects_[i];
+        if (!o.camera || (viewingGameCamera())) continue;
+        Mat4 m = o.animatedMatrix(sceneTime());
+        Vec3 x = normalize(transformDir(m, {1, 0, 0})), y = normalize(transformDir(m, {0, 1, 0}));
+        Vec3 z = normalize(cross(x, y)), pos{m.m[12], m.m[13], m.m[14]};
+        float d = 1.5f, h = std::tan(o.fovY * 0.5f) * d, w = h * 16.f / 9.f;
+        Vec3 c[4] = {pos - z * d - x * w - y * h, pos - z * d + x * w - y * h, pos - z * d + x * w + y * h,
+                     pos - z * d - x * w + y * h};
+        ImU32 col = i == selected_ ? IM_COL32(255, 170, 60, 255) : IM_COL32(220, 220, 230, 200);
+        ImVec2 sp, sc[4];
+        if (!worldToScreen(pos, sp)) continue;
+        bool ok = true;
+        for (int k = 0; k < 4; ++k) ok = ok && worldToScreen(c[k], sc[k]);
+        if (ok) {
+            for (int k = 0; k < 4; ++k) {
+                dl->AddLine(sp, sc[k], col, px(1.5f));
+                dl->AddLine(sc[k], sc[(k + 1) % 4], col, px(1.5f));
+            }
+            ImVec2 up;   // little triangle marks the top edge
+            if (worldToScreen(pos - z * d + y * (h * 1.4f), up)) dl->AddTriangleFilled(sc[2], sc[3], up, col);
+        }
+        dl->AddCircleFilled(sp, px(5.f), col);
+    }
+    dl->PopClipRect();
+}
+
 void Editor::duplicateSelected() {
     if (!hasSelection()) return;
     pushUndo();
@@ -790,9 +979,12 @@ void Editor::unhideAll() {
 void Editor::focusSelected() {
     if (!hasSelection()) return;
     const SceneObject& o = objects_[selected_];
-    Mat4 m = o.animatedMatrix(animTime_);
-    const Mesh& mesh = meshes_.get(o.mesh);
-    Vec3 center = transformPoint(m, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
+    Mat4 m = o.animatedMatrix(sceneTime());
+    Vec3 center = transformPoint(m, Vec3{0, 0, 0});
+    if (o.mesh != kNoMesh) {
+        const Mesh& mesh = meshes_.get(o.mesh);
+        center = transformPoint(m, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
+    }
     float radius = 0.75f * std::max({std::fabs(o.scale[0]), std::fabs(o.scale[1]), std::fabs(o.scale[2])});
     float dist = std::max(radius / std::tan(cam_.fovY * 0.5f) * 1.3f, 1.f);
     cam_.pos = center - cam_.forward() * dist;
@@ -800,7 +992,7 @@ void Editor::focusSelected() {
 }
 
 void Editor::dropSelectedToGround() {
-    if (!hasSelection()) return;
+    if (!hasSelection() || objects_[selected_].mesh == kNoMesh) return;
     pushUndo();
     SceneObject& o = objects_[selected_];
     // Lowest point of the mesh under the current rotation/scale
@@ -851,6 +1043,7 @@ void Editor::setStatus(const std::string& msg) {
 // Undo / redo (whole-scene snapshots; the scene is tiny)
 // ---------------------------------------------------------------------------------------------
 void Editor::pushUndo() {
+    if (playing()) return;   // play-mode edits are discarded on Stop
     undo_.push_back({objects_, selected_});
     if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
     redo_.clear();
