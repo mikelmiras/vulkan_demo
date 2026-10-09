@@ -90,18 +90,17 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
 
 ## Code
 
-| File                       | What                                                            |
+The code is split into an **engine** static library (everything a game needs at runtime) and the **editor**
+application (`vkworld`) built on top of it. Includes are relative to `src/`.
+
+| Folder / file              | What                                                            |
 |----------------------------|-----------------------------------------------------------------|
 | `src/main.cpp`             | ImGui setup, main loop                                          |
-| `src/platform.h`           | OS layer interface: window, input, Vulkan surface, paths        |
-| `src/platform_xcb.cpp`     | Linux implementation (XCB)                                      |
-| `src/platform_win32.cpp`   | Windows implementation (Win32 + ImGui's Win32 backend)          |
-| `src/platform_macos.mm`    | macOS implementation (Cocoa + CAMetalLayer + ImGui's OSX backend) |
-| `src/editor.*`             | Camera navigation, picking, gizmos, undo/redo, all UI panels    |
-| `src/renderer.*`           | Vulkan: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
-| `src/scene.*`              | Scene objects, default scene, save/load text format             |
-| `src/geometry.*`           | Procedural meshes, OBJ import and ray/triangle picking          |
-| `src/imgui_impl_xcb.*`     | Dear ImGui platform backend for XCB (Linux only)                |
-| `src/vecmath.h`            | Small vector/matrix helpers                                     |
+| `src/core/`                | `vecmath.h`: small vector/matrix helpers                        |
+| `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
+| `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
+| `src/assets/`              | Mesh library: procedural meshes, OBJ import, ray/triangle picking |
+| `src/scene/`               | Scene objects, default scene, save/load                         |
+| `src/editor/`              | Editor app: camera navigation, picking, gizmos, undo/redo, all UI panels |
 | `shaders/scene.*`          | Lit objects, checker ground, fog                                |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

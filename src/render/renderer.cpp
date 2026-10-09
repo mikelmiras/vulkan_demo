@@ -1,4 +1,4 @@
-#include "renderer.h"
+#include "render/renderer.h"
 
 #include <cstddef>
 #include <cstdio>
@@ -9,7 +9,7 @@
 
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
-#include "platform.h"
+#include "platform/platform.h"
 
 #define VK_CHECK(expr)                                                                         \
     do {                                                                                       \

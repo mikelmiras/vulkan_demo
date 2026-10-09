@@ -3,14 +3,14 @@
 #include <xcb/xcb.h>
 #include <vulkan/vulkan.h>
 
-#include "platform.h"
+#include "platform/platform.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
-#include "imgui_impl_xcb.h"
+#include "platform/imgui_impl_xcb.h"
 
 namespace platform {
 

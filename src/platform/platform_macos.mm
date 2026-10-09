@@ -7,7 +7,7 @@
 #define VK_USE_PLATFORM_METAL_EXT
 #include <vulkan/vulkan.h>
 
-#include "platform.h"
+#include "platform/platform.h"
 
 #include <mach-o/dyld.h>
 

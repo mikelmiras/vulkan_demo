@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#include "geometry.h"
-#include "vecmath.h"
+#include "assets/meshes.h"
+#include "core/vecmath.h"
 
 struct SceneObject {
     std::string name;

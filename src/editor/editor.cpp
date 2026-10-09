@@ -1,4 +1,4 @@
-#include "editor.h"
+#include "editor/editor.h"
 
 #include <cfloat>
 #include <cstdio>
@@ -9,7 +9,7 @@
 
 #include "ImGuizmo.h"
 #include "misc/cpp/imgui_stdlib.h"
-#include "platform.h"
+#include "platform/platform.h"
 
 namespace {
 

@@ -6,8 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "geometry.h"
-#include "scene.h"
+#include "assets/meshes.h"
+#include "scene/scene.h"
 
 struct ImDrawData;
 

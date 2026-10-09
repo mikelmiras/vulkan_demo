@@ -5,9 +5,9 @@
 #include <vector>
 
 #include "imgui.h"
-#include "geometry.h"
-#include "renderer.h"
-#include "scene.h"
+#include "assets/meshes.h"
+#include "render/renderer.h"
+#include "scene/scene.h"
 
 struct EditorCamera {
     Vec3 pos{0, 10, 42};

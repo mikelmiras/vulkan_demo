@@ -44,44 +44,54 @@ add_library(imgui STATIC
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMGUIZMO_DIR})
 target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
 
+# Engine: everything a game needs at runtime (platform, rendering, assets, scene, game loop)
+add_library(engine STATIC
+  src/assets/meshes.cpp
+  src/scene/scene.cpp
+  src/render/renderer.cpp)
+target_include_directories(engine PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(engine PUBLIC imgui)
+add_dependencies(engine shaders)
+
+# Editor: the application built on top of the engine
 add_executable(vkworld
   src/main.cpp
-  src/geometry.cpp
-  src/scene.cpp
-  src/renderer.cpp
-  src/editor.cpp)
-add_dependencies(vkworld shaders)
-target_link_libraries(vkworld PRIVATE imgui)
+  src/editor/editor.cpp)
+target_link_libraries(vkworld PRIVATE engine)
 
-# Platform layer
+# Platform layer (part of the engine)
 if(WIN32)
   target_sources(imgui PRIVATE ${IMGUI_DIR}/backends/imgui_impl_win32.cpp)
   if(NOT MSVC)
     target_link_libraries(imgui PUBLIC gdi32 dwmapi)   # MSVC gets these via #pragma comment
   endif()
-  target_sources(vkworld PRIVATE src/platform_win32.cpp)
-  target_link_libraries(vkworld PRIVATE comdlg32)
-  target_compile_definitions(vkworld PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  target_sources(engine PRIVATE src/platform/platform_win32.cpp)
+  target_link_libraries(engine PUBLIC comdlg32)
+  target_compile_definitions(engine PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 elseif(APPLE)
   enable_language(OBJCXX)
   target_sources(imgui PRIVATE ${IMGUI_DIR}/backends/imgui_impl_osx.mm)
   target_compile_options(imgui PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
   target_link_libraries(imgui PUBLIC "-framework Cocoa" "-framework GameController")
-  target_sources(vkworld PRIVATE src/platform_macos.mm)
-  target_compile_options(vkworld PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
-  target_link_libraries(vkworld PRIVATE "-framework Cocoa" "-framework QuartzCore" "-framework UniformTypeIdentifiers")
+  target_sources(engine PRIVATE src/platform/platform_macos.mm)
+  target_compile_options(engine PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+  target_link_libraries(engine PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework UniformTypeIdentifiers")
 else()
   find_library(XCB_LIBRARY xcb REQUIRED)
-  target_sources(vkworld PRIVATE src/platform_xcb.cpp src/imgui_impl_xcb.cpp)
-  target_link_libraries(vkworld PRIVATE ${XCB_LIBRARY})
+  target_sources(engine PRIVATE src/platform/platform_xcb.cpp src/platform/imgui_impl_xcb.cpp)
+  target_link_libraries(engine PUBLIC ${XCB_LIBRARY})
 endif()
 
 # Warnings
 if(MSVC)
   target_compile_options(imgui PRIVATE /utf-8)
-  target_compile_options(vkworld PRIVATE /W4 /permissive- /utf-8)
-  target_compile_definitions(vkworld PRIVATE _CRT_SECURE_NO_WARNINGS)
+  foreach(t engine vkworld)
+    target_compile_options(${t} PRIVATE /W4 /permissive- /utf-8)
+    target_compile_definitions(${t} PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endforeach()
   set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT vkworld)
 else()
-  target_compile_options(vkworld PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+  foreach(t engine vkworld)
+    target_compile_options(${t} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+  endforeach()
 endif()

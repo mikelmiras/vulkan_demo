@@ -7,12 +7,12 @@
 #include <system_error>
 #include <thread>
 
-#include "editor.h"
-#include "geometry.h"
+#include "editor/editor.h"
+#include "assets/meshes.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
-#include "platform.h"
-#include "renderer.h"
+#include "platform/platform.h"
+#include "render/renderer.h"
 
 namespace {
 

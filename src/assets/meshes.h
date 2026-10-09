@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "vecmath.h"
+#include "core/vecmath.h"
 
 struct Vertex { Vec3 pos, normal; };
 
