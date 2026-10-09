@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "geometry.h"
-#include "math.h"
+#include "vecmath.h"
 
 struct SceneObject {
     std::string name;

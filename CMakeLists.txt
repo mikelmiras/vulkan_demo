@@ -3,15 +3,17 @@ project(VulkanWorld CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-if(NOT CMAKE_BUILD_TYPE)
+get_property(MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(NOT MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
 find_package(Vulkan REQUIRED)
-find_library(XCB_LIBRARY xcb REQUIRED)
-find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin REQUIRED)
+find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/Bin REQUIRED)
 
 # Compile GLSL -> SPIR-V into <build>/shaders
+# (the executable looks in <exe dir>/shaders and <exe dir>/../shaders, which covers
+#  single-config builds and Visual Studio's <build>/Debug, <build>/Release folders)
 set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
@@ -47,8 +49,30 @@ add_executable(vkworld
   src/geometry.cpp
   src/scene.cpp
   src/renderer.cpp
-  src/editor.cpp
-  src/imgui_impl_xcb.cpp)
+  src/editor.cpp)
 add_dependencies(vkworld shaders)
-target_link_libraries(vkworld PRIVATE imgui ${XCB_LIBRARY})
-target_compile_options(vkworld PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+target_link_libraries(vkworld PRIVATE imgui)
+
+# Platform layer
+if(WIN32)
+  target_sources(imgui PRIVATE ${IMGUI_DIR}/backends/imgui_impl_win32.cpp)
+  if(NOT MSVC)
+    target_link_libraries(imgui PUBLIC gdi32 dwmapi)   # MSVC gets these via #pragma comment
+  endif()
+  target_sources(vkworld PRIVATE src/platform_win32.cpp)
+  target_compile_definitions(vkworld PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+else()
+  find_library(XCB_LIBRARY xcb REQUIRED)
+  target_sources(vkworld PRIVATE src/platform_xcb.cpp src/imgui_impl_xcb.cpp)
+  target_link_libraries(vkworld PRIVATE ${XCB_LIBRARY})
+endif()
+
+# Warnings
+if(MSVC)
+  target_compile_options(imgui PRIVATE /utf-8)
+  target_compile_options(vkworld PRIVATE /W4 /permissive- /utf-8)
+  target_compile_definitions(vkworld PRIVATE _CRT_SECURE_NO_WARNINGS)
+  set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT vkworld)
+else()
+  target_compile_options(vkworld PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+endif()

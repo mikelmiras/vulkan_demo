@@ -1,8 +1,6 @@
 // Vulkan 1.3 renderer: scene (MSAA + depth/stencil), selection outline, and the ImGui overlay.
 #pragma once
 
-#define VK_USE_PLATFORM_XCB_KHR
-#include <xcb/xcb.h>
 #include <vulkan/vulkan.h>
 
 #include <string>
@@ -29,7 +27,8 @@ struct RenderStats {
 
 class Renderer {
 public:
-    void init(xcb_connection_t* conn, xcb_window_t window, uint32_t width, uint32_t height, const MeshLibrary& meshes);
+    // The platform window must exist (platform::createWindow) before init().
+    void init(uint32_t width, uint32_t height, const MeshLibrary& meshes);
     void initImGui();   // call after ImGui::CreateContext()
     void shutdown();
 
@@ -75,8 +74,6 @@ private:
     VkImageView createView(VkImage image, VkFormat format, VkImageAspectFlags aspect);
     VkShaderModule loadShader(const std::string& name);
 
-    xcb_connection_t* conn_ = nullptr;
-    xcb_window_t window_ = 0;
     uint32_t width_ = 0, height_ = 0;
     bool resized_ = false;
     std::string gpuName_;

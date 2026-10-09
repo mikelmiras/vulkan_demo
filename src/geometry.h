@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "math.h"
+#include "vecmath.h"
 
 struct Vertex { Vec3 pos, normal; };
 

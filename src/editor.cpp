@@ -33,7 +33,8 @@ bool keyPressed(ImGuiKey key) { return ImGui::IsKeyPressed(key, false); }
 
 }  // namespace
 
-Editor::Editor(const MeshLibrary& meshes) : meshes_(meshes), objects_(buildDefaultScene()) {}
+Editor::Editor(const MeshLibrary& meshes, float uiScale)
+    : meshes_(meshes), uiScale_(uiScale), objects_(buildDefaultScene()) {}
 
 // ---------------------------------------------------------------------------------------------
 // Frame
@@ -56,7 +57,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     float toolbarH = ImGui::GetFrameHeight() + style.WindowPadding.y * 2.f;
     topH_ = menuH + toolbarH;
     statusH_ = ImGui::GetTextLineHeight() + style.WindowPadding.y * 2.f;
-    float leftW = showOutliner_ ? kLeftPanelW : 0.f, rightW = showInspector_ ? kRightPanelW : 0.f;
+    float leftW = showOutliner_ ? px(kLeftPanelW) : 0.f, rightW = showInspector_ ? px(kRightPanelW) : 0.f;
     vx_ = leftW;
     vy_ = topH_;
     vw_ = std::max(io.DisplaySize.x - leftW - rightW, 1.f);
@@ -114,7 +115,7 @@ void Editor::track() {
 void Editor::drawMenuBar() {
     if (!ImGui::BeginMainMenuBar()) return;
     if (ImGui::BeginMenu("File")) {
-        ImGui::SetNextItemWidth(220.f);
+        ImGui::SetNextItemWidth(px(220.f));
         ImGui::InputText("Scene file", scenePath_, sizeof(scenePath_));
         if (ImGui::MenuItem("Save", "Ctrl+S")) saveToFile();
         if (ImGui::MenuItem("Load", "Ctrl+O")) loadFromFile();
@@ -192,7 +193,7 @@ void Editor::drawToolbar() {
     ImGui::Checkbox("Snap", &snap_);
     tooltip("Snap gizmo moves to increments. Holding Ctrl while dragging inverts this.");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(70.f);
+    ImGui::SetNextItemWidth(px(70.f));
     if (tool_ == Tool::Rotate) ImGui::DragFloat("##snap", &snapRotate_, 0.5f, 1.f, 180.f, "%.0f deg");
     else if (tool_ == Tool::Scale) ImGui::DragFloat("##snap", &snapScale_, 0.01f, 0.01f, 10.f, "%.2f x");
     else ImGui::DragFloat("##snap", &snapMove_, 0.05f, 0.05f, 100.f, "%.2f m");
@@ -228,7 +229,7 @@ void Editor::drawToolbar() {
     if (ImGui::Button(playing_ ? "Pause" : "Play")) playing_ = !playing_;
     tooltip("Toggle spin/bob animation (Space)");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(140.f);
+    ImGui::SetNextItemWidth(px(140.f));
     ImGui::SliderFloat("Fly speed", &cam_.speed, 1.f, 200.f, "%.0f", ImGuiSliderFlags_Logarithmic);
     ImGui::End();
 }
@@ -236,10 +237,10 @@ void Editor::drawToolbar() {
 void Editor::drawOutliner() {
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(0, topH_));
-    ImGui::SetNextWindowSize(ImVec2(kLeftPanelW, io.DisplaySize.y - topH_ - statusH_));
+    ImGui::SetNextWindowSize(ImVec2(px(kLeftPanelW), io.DisplaySize.y - topH_ - statusH_));
     ImGui::Begin("Outliner", nullptr, kPanelFlags);
 
-    filter_.Draw("Filter", -50.f);
+    filter_.Draw("Filter", -px(50.f));
     ImGui::TextDisabled("%zu objects", objects_.size());
     ImGui::Separator();
 
@@ -273,10 +274,10 @@ void Editor::drawOutliner() {
 
 void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats) {
     ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - kRightPanelW, topH_));
-    ImGui::SetNextWindowSize(ImVec2(kRightPanelW, io.DisplaySize.y - topH_ - statusH_));
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - px(kRightPanelW), topH_));
+    ImGui::SetNextWindowSize(ImVec2(px(kRightPanelW), io.DisplaySize.y - topH_ - statusH_));
     ImGui::Begin("Inspector", nullptr, kPanelFlags);
-    ImGui::PushItemWidth(-110.f);
+    ImGui::PushItemWidth(-px(110.f));
 
     if (!hasSelection()) {
         ImGui::TextWrapped("Nothing selected.");
@@ -383,7 +384,7 @@ void Editor::drawStatusBar(const RenderStats& stats) {
 }
 
 void Editor::drawHelp() {
-    ImGui::SetNextWindowSize(ImVec2(470, 0), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(px(470.f), 0), ImGuiCond_FirstUseEver);
     ImVec2 center(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
     ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
     if (!ImGui::Begin("Controls", &showHelp_, ImGuiWindowFlags_NoSavedSettings)) { ImGui::End(); return; }
@@ -442,7 +443,7 @@ void Editor::drawViewportOverlay() {
     std::snprintf(line, sizeof(line), "Perspective  |  %s%s%s  |  %s", toolNames[(int)tool_],
                   tool_ == Tool::Select ? "" : (localSpace_ ? " (local)" : " (world)"), snap_ ? "  snap" : "",
                   playing_ ? "animating" : "paused");
-    ImVec2 p(vx_ + 10.f, vy_ + 8.f);
+    ImVec2 p(vx_ + px(10.f), vy_ + px(8.f));
     dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 120), line);
     dl->AddText(p, IM_COL32(255, 255, 255, 230), line);
     if (hasSelection()) {
@@ -544,11 +545,11 @@ void Editor::handleGizmo() {
     gizmoWasUsing_ = using_;
 
     // Orientation cube in the top-right corner of the viewport
-    const float cube = 110.f;
+    const float cube = px(110.f);
     // (overload taking the projection, so it also works when no Manipulate() ran this frame)
     Mat4 newView = view, identity;
     ImGuizmo::ViewManipulate(newView.m, proj.m, ImGuizmo::TRANSLATE, ImGuizmo::WORLD, identity.m,
-                             cam_.orbitDistance, ImVec2(vx_ + vw_ - cube - 8.f, vy_ + 8.f), ImVec2(cube, cube),
+                             cam_.orbitDistance, ImVec2(vx_ + vw_ - cube - px(8.f), vy_ + px(8.f)), ImVec2(cube, cube),
                              IM_COL32(0, 0, 0, 40));
     if (std::memcmp(newView.m, view.m, sizeof(view.m)) != 0) setCameraFromView(newView);
 }

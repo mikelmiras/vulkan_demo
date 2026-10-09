@@ -26,7 +26,8 @@ struct EditorCamera {
 
 class Editor {
 public:
-    explicit Editor(const MeshLibrary& meshes);
+    // uiScale: DPI scale for fixed pixel sizes (panel widths etc.), 1.0 at 96 DPI
+    Editor(const MeshLibrary& meshes, float uiScale);
 
     // Builds the UI and handles viewport input. Call between ImGui::NewFrame() and ImGui::Render().
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
@@ -59,6 +60,7 @@ private:
     void handleShortcuts();
     void setCameraFromView(const Mat4& view);
     float aspect() const { return vh_ > 0.f ? vw_ / vh_ : 1.f; }
+    float px(float v) const { return v * uiScale_; }
 
     // Operations
     void select(int index);
@@ -81,6 +83,7 @@ private:
     void redo();
 
     const MeshLibrary& meshes_;
+    float uiScale_ = 1.f;
     std::vector<SceneObject> objects_;
     int selected_ = -1;
     EditorCamera cam_;

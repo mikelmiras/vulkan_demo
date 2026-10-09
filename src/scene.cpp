@@ -1,6 +1,7 @@
 #include "scene.h"
 
 #include <cstdint>
+#include <cstdio>
 #include <fstream>
 #include <iomanip>
 #include <sstream>

@@ -1,14 +1,15 @@
 #include "renderer.h"
 
-#include <unistd.h>
-#include <climits>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
+#include "platform.h"
 
 #define VK_CHECK(expr)                                                                         \
     do {                                                                                       \
@@ -73,19 +74,14 @@ void checkVk(VkResult r) {
 // ---------------------------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------------------------
-void Renderer::init(xcb_connection_t* conn, xcb_window_t window, uint32_t width, uint32_t height,
-                    const MeshLibrary& meshes) {
-    conn_ = conn;
-    window_ = window;
+void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes) {
     width_ = width;
     height_ = height;
     meshes_ = &meshes;
 
     createInstance();
-    VkXcbSurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR};
-    sci.connection = conn;
-    sci.window = window;
-    VK_CHECK(vkCreateXcbSurfaceKHR(instance_, &sci, nullptr, &surface_));
+    surface_ = platform::createVulkanSurface(instance_);
+    if (!surface_) fatal("cannot create Vulkan window surface");
     pickDevice();
     createDevice();
     createSwapchain();
@@ -111,7 +107,7 @@ void Renderer::createInstance() {
         if (!validation) std::fprintf(stderr, "validation layer not available, continuing without it\n");
     }
 
-    std::vector<const char*> exts = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_XCB_SURFACE_EXTENSION_NAME};
+    std::vector<const char*> exts = {VK_KHR_SURFACE_EXTENSION_NAME, platform::vulkanSurfaceExtension()};
     std::vector<const char*> layers;
     if (validation) {
         exts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -397,14 +393,20 @@ void Renderer::resize(uint32_t width, uint32_t height) {
 }
 
 VkShaderModule Renderer::loadShader(const std::string& name) {
-    char exe[PATH_MAX] = {};
-    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
-    std::string dir = n > 0 ? std::string(exe, (size_t)n) : std::string("./x");
-    dir = dir.substr(0, dir.find_last_of('/'));
-    std::string path = dir + "/shaders/" + name;
-
+    // Shaders are compiled into <build>/shaders. The executable is either next to that folder
+    // (single-config generators) or one level below it (Visual Studio: <build>/Debug, <build>/Release).
+    namespace fs = std::filesystem;
+    const fs::path exeDir = platform::executableDir();
+    fs::path path;
+    for (const fs::path& dir : {exeDir / "shaders", exeDir.parent_path() / "shaders"}) {
+        std::error_code ec;
+        if (fs::exists(dir / name, ec)) { path = dir / name; break; }
+    }
     std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) { std::fprintf(stderr, "cannot open %s\n", path.c_str()); std::exit(1); }
+    if (path.empty() || !f) {
+        std::fprintf(stderr, "cannot find shader %s next to %s\n", name.c_str(), exeDir.u8string().c_str());
+        std::exit(1);
+    }
     size_t size = (size_t)f.tellg();
     std::vector<uint32_t> code((size + 3) / 4);
     f.seekg(0);

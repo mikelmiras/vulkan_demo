@@ -2,11 +2,17 @@
 
 A small Vulkan 1.3 3D scene with a Blender-style editing UI, in C++17.
 
-- Window/input: raw XCB (works on X11 and XWayland). No GLFW/SDL needed.
+- Runs on **Linux** (X11 / XWayland, via raw XCB) and **Windows** (Win32). No GLFW/SDL needed.
 - UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo),
   vendored in `third_party/` and compiled into the binary.
 
 ## Build & run
+
+Requires the [Vulkan SDK](https://vulkan.lunarg.com/) (sets `VULKAN_SDK`, provides `glslc`) and CMake 3.20+.
+
+### Linux
+
+Also needs libxcb (installed on any X11/XWayland desktop).
 
 ```sh
 cmake -S . -B build
@@ -14,8 +20,24 @@ cmake --build build -j
 ./build/vkworld
 ```
 
-Requires the Vulkan SDK (`VULKAN_SDK` set, provides `glslc`) and libxcb.
-Set `VKWORLD_VALIDATION=1` to enable the Khronos validation layer (on by default in Debug builds).
+### Windows
+
+Install the Vulkan SDK and Visual Studio 2019+ with the "Desktop development with C++" workload, then from a
+Developer Command Prompt (or any shell with CMake on the PATH):
+
+```bat
+cmake -S . -B build
+cmake --build build --config Release
+build\Release\vkworld.exe
+```
+
+Or open the folder in Visual Studio / VS Code (CMake Tools) and run the `vkworld` target.
+MinGW-w64 and Ninja also work (`cmake -S . -B build -G Ninja`; the exe is then `build\vkworld.exe`).
+
+### Validation layer
+
+Set `VKWORLD_VALIDATION=1` to enable the Khronos validation layer (on by default in Debug builds,
+e.g. Visual Studio's default Debug configuration). Messages go to the console.
 
 ## Layout
 
@@ -55,12 +77,15 @@ Set `VKWORLD_VALIDATION=1` to enable the Khronos validation layer (on by default
 
 | File                       | What                                                            |
 |----------------------------|-----------------------------------------------------------------|
-| `src/main.cpp`             | XCB window, ImGui setup, main loop                              |
+| `src/main.cpp`             | ImGui setup, main loop                                          |
+| `src/platform.h`           | OS layer interface: window, input, Vulkan surface, paths        |
+| `src/platform_xcb.cpp`     | Linux implementation (XCB)                                      |
+| `src/platform_win32.cpp`   | Windows implementation (Win32 + ImGui's Win32 backend)          |
 | `src/editor.*`             | Camera navigation, picking, gizmos, undo/redo, all UI panels    |
 | `src/renderer.*`           | Vulkan: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/scene.*`              | Scene objects, default scene, save/load text format             |
 | `src/geometry.*`           | Procedural meshes and ray/triangle picking                      |
-| `src/imgui_impl_xcb.*`     | Dear ImGui platform backend for XCB (keyboard map, text input, mouse) |
-| `src/math.h`               | Small vector/matrix helpers                                     |
+| `src/imgui_impl_xcb.*`     | Dear ImGui platform backend for XCB (Linux only)                |
+| `src/vecmath.h`            | Small vector/matrix helpers                                     |
 | `shaders/scene.*`          | Lit objects, checker ground, fog                                |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |
