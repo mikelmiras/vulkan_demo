@@ -19,6 +19,10 @@ constexpr size_t kMaxUndo = 200;
 Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale)
     : meshes_(meshes), textures_(textures), audio_(audio), uiScale_(uiScale), scene_(buildDefaultScene()) {
     game_.setAudio(audio);
+    assetDir_ = project::root();
+    std::string error;
+    if (project::exists(project::root())) project::load(project::root(), project_, error);
+    else project_.name = project::root().filename().u8string();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -62,7 +66,8 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     vx_ = leftW;
     vy_ = topH_;
     vw_ = std::max(io.DisplaySize.x - leftW - rightW, 1.f);
-    vh_ = std::max(io.DisplaySize.y - topH_ - statusH_, 1.f);
+    assetsH_ = panels && showAssets_ ? std::min(px(160.f), io.DisplaySize.y * 0.3f) : 0.f;
+    vh_ = std::max(io.DisplaySize.y - topH_ - statusH_ - assetsH_, 1.f);
     updateView();
 
     drawMenuBar();
@@ -71,6 +76,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (rightW > 0.f) drawInspector(gpuName, stats);
     drawStatusBar(stats);
     if (showHelp_) drawHelp();
+    if (assetsH_ > 0.f) drawAssetBrowser();
     drawAddPopup();
     drawImportPopup();
     if (showInputBindings_) drawInputBindings();
@@ -78,6 +84,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     handleNavigation(dt);
     handleGizmo();
     handlePicking();
+    handleViewportDrop();
     handleShortcuts();
     drawEntityIcons();
     drawColliders();
@@ -241,8 +248,8 @@ void Editor::addLight(Light::Type type) {
     setStatus("Added " + e.name);
 }
 
-void Editor::importModel() {
-    std::string path = importPath_;
+void Editor::importModel(const std::string& rawPath, const Vec3* at) {
+    std::string path = rawPath;
     if (path.size() >= 2 && path[0] == '~' && (path[1] == '/' || path[1] == '\\'))
         if (const char* home = std::getenv("HOME")) path = home + path.substr(1);
     importError_.clear();
@@ -257,6 +264,10 @@ void Editor::importModel() {
         p.name = scene_.uniquePrefabName(p.name);
         scene_.addPrefab(std::move(p));
         instantiatePrefab((int)scene_.prefabs.size() - 1);
+        if (at)
+            if (Entity* root = selection()) {
+                root->transform.position[0] = at->x; root->transform.position[1] = at->y; root->transform.position[2] = at->z;
+            }
         setStatus("Imported " + scene_.prefabs.back().name + " as a prefab (" +
                   std::to_string(scene_.prefabs.back().entities.size()) + " entities)" +
                   (warning.empty() ? "" : ". Warning: " + warning));
@@ -266,6 +277,12 @@ void Editor::importModel() {
     int id = importObj(meshes_, path, importError_);
     if (id < 0) return;
     addObject(id);
+    if (at)
+        if (Entity* e = selection()) {   // resting on the drop point
+            e->transform.position[0] = at->x;
+            e->transform.position[1] = at->y - meshes_.get(id).boundsMin.y * e->transform.scale[1];
+            e->transform.position[2] = at->z;
+        }
     const Mesh& m = meshes_.get(id);
     setStatus((meshes_.count() > before ? "Imported " : "Already imported: ") + m.name + " (" +
               std::to_string(m.indexCount / 3) + " triangles)");
@@ -329,8 +346,11 @@ void Editor::deletePrefab(int index) {
 void Editor::exportPrefab(int index) {
     if (index < 0 || index >= (int)scene_.prefabs.size()) return;
     const Prefab& p = scene_.prefabs[(size_t)index];
-    std::string path = p.name + ".prefab", error;
-    if (savePrefab(path, p, meshes_, textures_, error)) setStatus("Exported " + path + " (in the working directory)");
+    std::string path = (project::root() / (p.name + ".prefab")).u8string(), error;
+    if (savePrefab(path, p, meshes_, textures_, error)) {
+        setStatus("Exported " + project::toStored(path) + " (in the project folder)");
+        assetsScannedAt_ = -1.0;   // show it in the browser
+    }
     else setStatus("Export failed: " + error);
 }
 
@@ -338,7 +358,10 @@ void Editor::importPrefab() {
     std::filesystem::path path = platform::openFileDialog("Import prefab", "prefab");
     ImGui::GetIO().ClearInputKeys();   // the dialog ran its own event loop
     ImGui::GetIO().ClearInputMouse();
-    if (path.empty()) return;
+    if (!path.empty()) importPrefabFile(path);
+}
+
+void Editor::importPrefabFile(const std::filesystem::path& path, const Vec3* placeAt) {
     Prefab p;
     std::string error;
     if (!loadPrefab(path.u8string(), p, meshes_, textures_, error)) { setStatus("Import failed: " + error); return; }
@@ -346,7 +369,15 @@ void Editor::importPrefab() {
     p.name = scene_.uniquePrefabName(p.name);
     scene_.addPrefab(std::move(p));
     selectedPrefab_ = (int)scene_.prefabs.size() - 1;
+    showPrefabsTab_ = true;
     setStatus("Imported prefab " + scene_.prefabs.back().name);
+    if (placeAt) {   // dropped on the viewport: also put a copy there
+        instantiatePrefab(selectedPrefab_);
+        if (Entity* root = selection()) {
+            root->transform.position[0] = placeAt->x; root->transform.position[1] = placeAt->y;
+            root->transform.position[2] = placeAt->z;
+        }
+    }
 }
 
 void Editor::duplicateSelected() {
@@ -447,7 +478,10 @@ void Editor::newScene(bool demo) {
 
 void Editor::saveToFile() {
     std::string error;
-    if (saveScene(scenePath_, scene_, meshes_, textures_, error)) setStatus(std::string("Saved ") + scenePath_);
+    if (saveScene(project::resolve(scenePath_), scene_, meshes_, textures_, error)) {
+        setStatus(std::string("Saved ") + scenePath_);
+        assetsScannedAt_ = -1.0;
+    }
     else setStatus("Save failed: " + error);
 }
 
@@ -458,14 +492,17 @@ bool Editor::selectByName(const std::string& name) {
 }
 
 void Editor::openScene(const std::string& path) {
-    std::snprintf(scenePath_, sizeof(scenePath_), "%s", path.c_str());
+    std::snprintf(scenePath_, sizeof(scenePath_), "%s", project::toStored(project::resolve(path)).c_str());
     loadFromFile();
 }
 
 void Editor::loadFromFile() {
     Scene loaded;
     std::string error;
-    if (!loadScene(scenePath_, loaded, meshes_, textures_, error)) { setStatus("Load failed: " + error); return; }
+    if (!loadScene(project::resolve(scenePath_), loaded, meshes_, textures_, error)) {
+        setStatus("Load failed: " + error);
+        return;
+    }
     pushUndo();
     scene_ = std::move(loaded);
     selected_ = kNoEntity;

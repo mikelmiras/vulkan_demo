@@ -285,6 +285,26 @@ std::filesystem::path openFileDialog(const char* title, const char* extension) {
     return {};
 }
 
+std::filesystem::path openFolderDialog(const char* title) {
+    std::string t = title;
+    for (char& c : t) if (c == '\'') c = ' ';
+    const std::string cmds[] = {"zenity --file-selection --directory --title='" + t + "' 2>/dev/null",
+                                "kdialog --getexistingdirectory . --title '" + t + "' 2>/dev/null"};
+    for (const std::string& cmd : cmds) {
+        std::string tool = cmd.substr(0, cmd.find(' '));
+        if (std::system(("command -v " + tool + " >/dev/null 2>&1").c_str()) != 0) continue;
+        FILE* p = popen(cmd.c_str(), "r");
+        if (!p) continue;
+        std::string out;
+        char buf[512];
+        while (std::fgets(buf, sizeof(buf), p)) out += buf;
+        pclose(p);
+        while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+        return out;
+    }
+    return {};
+}
+
 std::filesystem::path executableDir() {
     std::error_code ec;
     std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);

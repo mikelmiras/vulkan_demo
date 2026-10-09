@@ -48,6 +48,7 @@ target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
 add_library(engine STATIC
   src/core/json.cpp
   src/core/png.cpp
+  src/core/project.cpp
   src/assets/meshes.cpp
   src/assets/textures.cpp
   src/assets/gltf.cpp
@@ -83,7 +84,8 @@ add_executable(vkworld
   src/main.cpp
   src/editor/editor.cpp
   src/editor/editor_panels.cpp
-  src/editor/editor_viewport.cpp)
+  src/editor/editor_viewport.cpp
+  src/editor/editor_assets.cpp)
 target_link_libraries(vkworld PRIVATE engine)
 
 # Standalone game: the engine without the editor, playing a scene
@@ -97,7 +99,7 @@ if(WIN32)
     target_link_libraries(imgui PUBLIC gdi32 dwmapi)   # MSVC gets these via #pragma comment
   endif()
   target_sources(engine PRIVATE src/platform/platform_win32.cpp)
-  target_link_libraries(engine PUBLIC comdlg32)
+  target_link_libraries(engine PUBLIC comdlg32 shell32 ole32)
   target_compile_definitions(engine PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 elseif(APPLE)
   enable_language(OBJCXX)
@@ -127,7 +129,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_physics.cpp
     tests/test_prefabs.cpp
     tests/test_rendering_assets.cpp
-    tests/test_audio.cpp)
+    tests/test_audio.cpp
+    tests/test_project.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   add_test(NAME engine_tests COMMAND engine_tests)
 endif()

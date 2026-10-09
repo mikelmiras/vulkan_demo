@@ -7,6 +7,7 @@
 #endif
 #include <windows.h>
 #include <commdlg.h>
+#include <shlobj.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 
@@ -251,6 +252,20 @@ std::filesystem::path openFileDialog(const char* title, const char* extension) {
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
     if (!GetOpenFileNameW(&ofn)) return {};
     return std::filesystem::path(file);
+}
+
+std::filesystem::path openFolderDialog(const char* title) {
+    std::wstring wtitle = widen(title);
+    BROWSEINFOW bi{};
+    bi.hwndOwner = g_hwnd;
+    bi.lpszTitle = wtitle.c_str();
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    PIDLIST_ABSOLUTE item = SHBrowseForFolderW(&bi);
+    if (!item) return {};
+    wchar_t path[MAX_PATH] = {};
+    bool ok = SHGetPathFromIDListW(item, path) != FALSE;
+    CoTaskMemFree(item);
+    return ok ? std::filesystem::path(path) : std::filesystem::path();
 }
 
 std::filesystem::path executableDir() {

@@ -217,6 +217,21 @@ std::filesystem::path openFileDialog(const char* title, const char* extension) {
     }
 }
 
+std::filesystem::path openFolderDialog(const char* title) {
+    @autoreleasepool {
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.message = [NSString stringWithUTF8String:title];
+        panel.canChooseFiles = NO;
+        panel.canChooseDirectories = YES;
+        panel.canCreateDirectories = YES;
+        panel.allowsMultipleSelection = NO;
+        NSModalResponse r = [panel runModal];
+        [g_window makeKeyAndOrderFront:nil];
+        if (r != NSModalResponseOK || !panel.URL) return {};
+        return std::filesystem::u8path(panel.URL.fileSystemRepresentation);
+    }
+}
+
 std::filesystem::path executableDir() {
     uint32_t size = 0;
     _NSGetExecutablePath(nullptr, &size);

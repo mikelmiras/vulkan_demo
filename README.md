@@ -98,6 +98,28 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
 - **Viewport**: selected object gets an orange outline (visible through other objects) plus the gizmo.
   The cube in the top-right corner snaps/rotates the view.
 
+## Projects and the asset browser
+
+A **project** is a folder with your game's scenes and assets and a `project.json` (its name and start scene).
+Files inside it are saved with paths relative to the folder, so a project can be moved, zipped or put in git;
+files outside it keep absolute paths.
+
+```sh
+./vkworld path/to/MyGame     # open a project (a folder without project.json becomes one)
+./vkgame path/to/MyGame      # play its start scene
+```
+
+Without an argument both use the working directory. In the editor: File > Open project folder..., and
+File > Use this scene at startup sets the start scene.
+
+The **Assets** panel (under the viewport; View > Assets) shows the project's folders, scenes, prefabs, models
+(OBJ / glTF), textures and sounds, and refreshes on its own:
+
+- **Double-click**: open a scene, import a model or prefab, put a texture on the selected object, play a sound.
+- **Drag onto the viewport**: models and prefabs are placed where you drop them; a texture goes on the object
+  under the mouse; a sound becomes that object's Audio Source.
+- **Drag onto the Inspector**: textures onto Mesh Renderer > Texture, sounds onto Audio Source > Clip file.
+
 ## Scenes: entities and components
 
 A scene is a flat list of **entities**. Each has a name, an id, an optional **parent** (transforms are relative to
@@ -285,7 +307,7 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/main.cpp`             | The editor's entry point                                        |
 | `src/runtime/main.cpp`     | The standalone game (`vkgame`)                                  |
 | `src/app/`                 | Window + renderer + ImGui setup and frame loop shared by both   |
-| `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer, `png.*` screenshot writer |
+| `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer, `png.*` screenshot writer, `project.*` project folder and paths |
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
@@ -293,7 +315,7 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid-body motion (`dynamics.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
-| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking |
+| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project and asset browser |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `shaders/common.glsl`      | Frame data (camera, sun, point lights, shadow camera) shared by the shaders |
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |

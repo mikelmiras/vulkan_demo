@@ -44,6 +44,7 @@ void imguiShutdown();
 // Native "open file" dialog filtered to extensions (comma-separated, e.g. "obj,gltf,glb"); blocks until closed.
 // Returns an empty path when cancelled or when no dialog is available (Linux without zenity/kdialog).
 std::filesystem::path openFileDialog(const char* title, const char* extension);
+std::filesystem::path openFolderDialog(const char* title);   // empty when cancelled / unavailable
 
 std::filesystem::path executableDir();
 std::vector<std::filesystem::path> uiFontCandidates();

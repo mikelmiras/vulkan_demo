@@ -1,9 +1,9 @@
 // The standalone game: plays a scene without the editor.
 //
-//   vkgame [scene.vkw] [--fullscreen] [--screenshot out.png [--frames N]]
+//   vkgame [scene.vkw | project folder] [--fullscreen] [--screenshot out.png [--frames N]]
 //
-// Without a scene argument it looks for scene.vkw in the working directory, then next to the executable, and
-// falls back to the built-in demo. The mouse is captured for the game: Esc releases it, a click takes it back.
+// Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
+// directory or the executable's folder), then scene.vkw in those folders, and falls back to the built-in demo. The mouse is captured for the game: Esc releases it, a click takes it back.
 // F11 toggles fullscreen.
 
 #include <algorithm>
@@ -12,6 +12,7 @@
 
 #include "app/application.h"
 #include "audio/audio.h"
+#include "core/project.h"
 #include "assets/meshes.h"
 #include "game/game.h"
 #include "imgui.h"
@@ -21,11 +22,27 @@
 
 namespace {
 
+namespace fs = std::filesystem;
+
+// Picks the project (setting project::root) and returns the scene to play, or "" for the demo
 std::string findScene(int argc, char** argv) {
-    if (argc > 1) return argv[1];
     std::error_code ec;
-    for (const std::filesystem::path& p : {std::filesystem::current_path(ec) / "scene.vkw", platform::executableDir() / "scene.vkw"})
-        if (std::filesystem::exists(p, ec)) return p.u8string();
+    if (argc > 1 && !fs::is_directory(argv[1], ec)) return argv[1];   // a scene file
+    std::vector<fs::path> folders;
+    if (argc > 1) folders.push_back(argv[1]);
+    else folders = {fs::current_path(ec), platform::executableDir()};
+    for (const fs::path& dir : folders) {
+        project::Settings settings;
+        std::string error;
+        if (project::exists(dir) && project::load(dir, settings, error)) {
+            project::setRoot(dir);
+            return project::resolve(settings.startScene);
+        }
+        if (fs::exists(dir / "scene.vkw", ec)) {
+            project::setRoot(dir);
+            return (dir / "scene.vkw").u8string();
+        }
+    }
     return {};
 }
 

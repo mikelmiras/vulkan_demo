@@ -84,6 +84,21 @@ void Editor::drawMenuBar() {
     if (!ImGui::BeginMainMenuBar()) return;
     if (ImGui::BeginMenu("File")) {
         ImGui::BeginDisabled(playing());   // stop first: the scene on screen is the throwaway play copy
+        ImGui::TextDisabled("Project: %s", project_.name.c_str());
+        if (ImGui::MenuItem("Open project folder...")) {
+            std::filesystem::path dir = platform::openFolderDialog("Open project folder");
+            ImGui::GetIO().ClearInputKeys();
+            ImGui::GetIO().ClearInputMouse();
+            if (!dir.empty()) openProject(dir);
+        }
+        if (ImGui::MenuItem("Use this scene at startup")) {
+            project_.startScene = scenePath_;
+            std::string error;
+            if (project::save(project::root(), project_, error)) setStatus("vkgame and the editor now start with " + project_.startScene);
+            else setStatus(error);
+        }
+        tooltip("Saved in project.json: the scene vkgame plays");
+        ImGui::Separator();
         ImGui::SetNextItemWidth(px(220.f));
         ImGui::InputText("Scene file", scenePath_, sizeof(scenePath_));
         if (ImGui::MenuItem("Save", "Ctrl+S")) saveToFile();
@@ -132,6 +147,7 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu("View")) {
         ImGui::MenuItem("Outliner", nullptr, &showOutliner_);
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
+        ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
         ImGui::Separator();
         if (ImGui::MenuItem("Focus selected", "F", false, selection() != nullptr)) focusSelected();
@@ -555,6 +571,8 @@ void Editor::drawComponents(Entity& e) {
                 pushUndo();
                 mr.texture = tex - 1;
             }
+            if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Texture, dropped)) assignTexture(e.id, dropped);
+            tooltip("Drop a texture from the Assets panel here");
             if (ImGui::SmallButton("Load texture...")) {
                 std::filesystem::path path = platform::openFileDialog("Load texture", "png,jpg,jpeg,tga,bmp");
                 ImGui::GetIO().ClearInputKeys();
@@ -606,11 +624,15 @@ void Editor::drawComponents(Entity& e) {
             }
             ImGui::InputText("Clip file", &a.clip);
             track();
+            if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Sound, dropped)) {
+                pushUndo();
+                a.clip = project::toStored(dropped.u8string());
+            }
             if (ImGui::SmallButton("Browse...")) {
                 std::filesystem::path path = platform::openFileDialog("Sound file", "wav,mp3,flac");
                 ImGui::GetIO().ClearInputKeys();
                 ImGui::GetIO().ClearInputMouse();
-                if (!path.empty()) { pushUndo(); a.clip = path.u8string(); }
+                if (!path.empty()) { pushUndo(); a.clip = project::toStored(path.u8string()); }
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Preview") && audio_) {
@@ -926,7 +948,7 @@ void Editor::drawImportPopup() {
     if (ImGui::Button("Cancel", ImVec2(px(100.f), 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         ImGui::CloseCurrentPopup();
     if (submit && !importPath_.empty()) {
-        importModel();
+        importModel(importPath_);
         if (importError_.empty()) ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();

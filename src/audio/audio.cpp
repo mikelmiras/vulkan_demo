@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <map>
 
+#include "core/project.h"
 #include "miniaudio.h"   // implementation compiled in miniaudio_impl.c
 
 namespace {
@@ -152,8 +153,9 @@ AudioEngine::Sound AudioEngine::play(const std::string& clip, const PlayParams& 
         s->usesRef = true;
         r = ma_sound_init_from_data_source(&impl_->engine, &s->ref, 0, nullptr, &s->sound);
     } else {
-        // Files: decoded once by miniaudio's resource manager, then shared
-        r = ma_sound_init_from_file(&impl_->engine, clip.c_str(), MA_SOUND_FLAG_DECODE, nullptr, nullptr, &s->sound);
+        // Files (paths relative to the project): decoded once by miniaudio's resource manager, then shared
+        std::string path = project::resolve(clip);
+        r = ma_sound_init_from_file(&impl_->engine, path.c_str(), MA_SOUND_FLAG_DECODE, nullptr, nullptr, &s->sound);
     }
     if (r != MA_SUCCESS) {
         if (s->usesRef) ma_audio_buffer_ref_uninit(&s->ref);

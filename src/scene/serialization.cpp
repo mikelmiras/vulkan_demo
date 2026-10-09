@@ -6,6 +6,7 @@
 #include <sstream>
 
 #include "core/json.h"
+#include "core/project.h"
 
 namespace {
 
@@ -84,7 +85,7 @@ bool loadLegacy(const std::string& path, const std::string& text, Scene& scene, 
             in >> keyword >> std::quoted(name) >> std::quoted(source);
             if (!in) return fail("malformed mesh line");
             std::string importError;
-            int id = importMesh(meshes, source, importError);
+            int id = importMesh(meshes, project::resolve(source), importError);
             if (id < 0) return fail(importError);
             meshIds[name] = id;
             continue;
@@ -336,14 +337,14 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
     for (int id : usedMeshes) {
         json::Value v = json::Value::object();
         v.set("name", meshes.name(id));
-        v.set("source", meshes.get(id).source);
+        v.set("source", project::toStored(meshes.get(id).source));
         m.push(std::move(v));
     }
     json::Value& t = doc.set("textures", json::Value::array());
     for (int id : usedTextures) {
         json::Value v = json::Value::object();
         v.set("name", textures.name(id));
-        v.set("source", textures.get(id).source);
+        v.set("source", project::toStored(textures.get(id).source));
         t.push(std::move(v));
     }
 }
@@ -353,12 +354,12 @@ bool assetListsFromJson(const json::Value& doc, MeshLibrary& meshes, TextureLibr
                         std::string& error) {
     ids = builtinAssetIds(meshes, textures);
     for (const json::Value& m : doc["meshes"].elements()) {
-        int id = importMesh(meshes, m["source"].asString(), error);
+        int id = importMesh(meshes, project::resolve(m["source"].asString()), error);
         if (id < 0) return false;
         ids.meshes[m["name"].asString()] = id;
     }
     for (const json::Value& t : doc["textures"].elements()) {
-        int id = importTexture(textures, t["source"].asString(), error);
+        int id = importTexture(textures, project::resolve(t["source"].asString()), error);
         if (id < 0) return false;
         ids.textures[t["name"].asString()] = id;
     }

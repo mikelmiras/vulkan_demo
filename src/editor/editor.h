@@ -9,6 +9,7 @@
 
 #include "imgui.h"
 #include "assets/meshes.h"
+#include "core/project.h"
 #include "game/game.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
@@ -38,6 +39,8 @@ public:
     SceneRenderInfo renderInfo() const;   // valid after frame()
     bool quitRequested() const { return quit_; }
     void openScene(const std::string& path);   // like File > Load
+    // Makes `dir` the current project (creating its project.json if it has none) and opens its start scene
+    void openProject(const std::filesystem::path& dir);
     void play() { startPlay(); }
     bool selectByName(const std::string& name);
 
@@ -64,12 +67,28 @@ private:
     void drawAddMenuItems();
     void drawImportPopup();
     void drawInputBindings();
+    // ---- Project and assets (editor_assets.cpp)
+    enum class AssetKind { Folder, Scene, Prefab, Model, Texture, Sound, Other };
+    struct AssetEntry {
+        std::string name;
+        std::filesystem::path path;   // absolute
+        AssetKind kind = AssetKind::Other;
+    };
+    static AssetKind assetKind(const std::filesystem::path& path);
+    void drawAssetBrowser();
+    void scanAssets();
+    void openAsset(const AssetEntry& asset);
+    void handleViewportDrop();          // assets dragged from the browser onto the viewport
+    bool acceptAssetDrop(AssetKind kind, std::filesystem::path& out);   // after an Inspector widget: dropped on it?
+    void assignTexture(EntityId id, const std::filesystem::path& file);
     void track();   // call after an editing widget: records an undo step when the edit starts
 
     // ---- Viewport (editor_viewport.cpp)
     void handleNavigation(float dt);
     void handleGizmo();
     void handlePicking();
+    EntityId pickAt(ImVec2 mouse) const;                 // what's under the mouse in the viewport, or kNoEntity
+    void mouseRay(ImVec2 mouse, Vec3& origin, Vec3& dir) const;
     void handleShortcuts();
     void drawViewportOverlay();
     void drawEntityIcons();   // cameras and empties have no mesh: draw something to see and click
@@ -101,14 +120,17 @@ private:
     void addEmpty();
     void addCamera();
     void addLight(Light::Type type);
-    void importModel();   // the path in the import dialog: .obj -> one object, .gltf / .glb -> a prefab + copy
+    // .obj -> one object, .gltf / .glb -> a prefab + copy; placed at `at` if given, else in front of the camera.
+    // Errors go to importError_.
+    void importModel(const std::string& path, const Vec3* at = nullptr);
     // Prefabs (index into scene_.prefabs)
     void createPrefabFromSelection();
     void instantiatePrefab(int index);
     void updatePrefabFromSelection(int index);
     void deletePrefab(int index);
     void exportPrefab(int index);
-    void importPrefab();
+    void importPrefab();                                  // asks for a .prefab file
+    void importPrefabFile(const std::filesystem::path& path, const Vec3* placeAt = nullptr);
     void duplicateSelected();
     void deleteSelected();
     void reparent(EntityId id, EntityId newParent);
@@ -172,7 +194,13 @@ private:
     ImGuiTextFilter filter_;
     int selectedPrefab_ = -1;
     bool showPrefabsTab_ = false;   // switch the outliner to the Prefabs tab next frame
-    char scenePath_[256] = "scene.vkw";
+    char scenePath_[256] = "scene.vkw";   // relative to the project (or absolute)
+    project::Settings project_;
+    bool showAssets_ = true;
+    std::filesystem::path assetDir_;      // the folder the browser shows (absolute)
+    std::vector<AssetEntry> assets_;
+    double assetsScannedAt_ = -1.0;
+    float assetsH_ = 0.f;                 // layout: height of the browser panel
     bool openImport_ = false;
     std::string importPath_, importError_;
     std::string status_;

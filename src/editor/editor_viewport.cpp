@@ -149,12 +149,21 @@ void Editor::handlePicking() {
     if (!viewportHovered()) return;
     if (ImGuizmo::IsUsingAny() || ImGuizmo::IsViewManipulateHovered() || (gizmoDrawn_ && ImGuizmo::IsOver())) return;
 
-    // Camera ray through the mouse position
-    ImVec2 mp = ImGui::GetIO().MousePos;
+    EntityId best = pickAt(ImGui::GetIO().MousePos);
+    if (best) select(best);
+    else selected_ = kNoEntity;
+}
+
+void Editor::mouseRay(ImVec2 mp, Vec3& origin, Vec3& dir) const {
     float nx = (mp.x - vx_) / vw_ * 2.f - 1.f, ny = 1.f - (mp.y - vy_) / vh_ * 2.f;
     float th = std::tan(cam_.fovY * 0.5f);
-    Vec3 dir = normalize(cam_.forward() + cam_.right() * (nx * th * aspect()) + cam_.up() * (ny * th));
+    origin = cam_.pos;
+    dir = normalize(cam_.forward() + cam_.right() * (nx * th * aspect()) + cam_.up() * (ny * th));
+}
 
+EntityId Editor::pickAt(ImVec2 mp) const {
+    Vec3 origin, dir;
+    mouseRay(mp, origin, dir);
     EntityId best = kNoEntity;
     float bestT = FLT_MAX;
     for (size_t i = 0; i < scene_.entities.size(); ++i) {
@@ -172,11 +181,10 @@ void Editor::handlePicking() {
         if (!scene_.visibleInHierarchy(e.id)) continue;
         // Transform the ray into object space; t stays comparable because dir isn't renormalised
         Mat4 inv = inverseAffine(world);
-        float t = intersectMesh(meshes_, e.meshRenderer->mesh, transformPoint(inv, cam_.pos), transformDir(inv, dir));
+        float t = intersectMesh(meshes_, e.meshRenderer->mesh, transformPoint(inv, origin), transformDir(inv, dir));
         if (t > 0.f && t < bestT) { bestT = t; best = e.id; }
     }
-    if (best) select(best);
-    else selected_ = kNoEntity;
+    return best;
 }
 
 // ---------------------------------------------------------------------------------------------

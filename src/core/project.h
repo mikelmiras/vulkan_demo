@@ -1,0 +1,29 @@
+// The project: a folder holding a game's scenes and assets, with a project.json. Files inside it are referred
+// to by paths relative to it (so a project can be moved or shared); files outside it keep absolute paths.
+// There is one current project per program (by default the working directory).
+#pragma once
+
+#include <filesystem>
+#include <string>
+
+namespace project {
+
+struct Settings {
+    std::string name = "Untitled";
+    std::string startScene = "scene.vkw";   // what vkgame plays and the editor opens (relative to the project)
+};
+
+void setRoot(const std::filesystem::path& root);
+const std::filesystem::path& root();
+
+// For saving: relative to the project (forward slashes) when inside it, else absolute. A "#fragment" suffix
+// (glTF sub-assets: "model.glb#2.0") is kept as is.
+std::string toStored(const std::string& path);
+// For loading: stored paths (relative or absolute, with or without "#fragment") -> absolute
+std::string resolve(const std::string& stored);
+
+bool exists(const std::filesystem::path& dir);   // has a project.json
+bool load(const std::filesystem::path& dir, Settings& out, std::string& error);
+bool save(const std::filesystem::path& dir, const Settings& settings, std::string& error);
+
+}  // namespace project
