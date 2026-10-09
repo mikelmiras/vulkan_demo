@@ -291,7 +291,35 @@ void Editor::drawEntityIcons() {
         ImU32 col = e.id == selected_ ? IM_COL32(255, 170, 60, 255) : IM_COL32(220, 220, 230, 200);
         ImVec2 sp;
         if (!worldToScreen(pos, sp)) continue;
-        if (e.camera) {
+        if (e.light && !e.camera) {
+            if (e.light->type == Light::Type::Directional) {   // a sun with rays, and its direction
+                dl->AddCircle(sp, px(9.f), col, 0, px(1.5f));
+                for (int k = 0; k < 8; ++k) {
+                    float a = k * PI / 4.f;
+                    ImVec2 dir(std::cos(a), std::sin(a));
+                    dl->AddLine(ImVec2(sp.x + dir.x * px(12.f), sp.y + dir.y * px(12.f)),
+                                ImVec2(sp.x + dir.x * px(17.f), sp.y + dir.y * px(17.f)), col, px(1.5f));
+                }
+                ImVec2 tip;
+                if (worldToScreen(pos - z * 4.f, tip)) dl->AddLine(sp, tip, col, px(1.5f));
+            } else {   // a bulb; its range when selected
+                dl->AddCircle(sp, px(8.f), col, 0, px(1.5f));
+                if (e.id == selected_) {
+                    const int n = 48;
+                    const Vec3 planes[3][2] = {{{1, 0, 0}, {0, 0, 1}}, {{1, 0, 0}, {0, 1, 0}}, {{0, 1, 0}, {0, 0, 1}}};
+                    for (const auto& plane : planes) {
+                        Vec3 u = plane[0], v = plane[1];
+                        for (int i = 0; i < n; ++i) {
+                            float a0 = 2.f * PI * i / n, a1 = 2.f * PI * (i + 1) / n;
+                            ImVec2 p0, p1;
+                            if (worldToScreen(pos + (u * std::cos(a0) + v * std::sin(a0)) * e.light->range, p0) &&
+                                worldToScreen(pos + (u * std::cos(a1) + v * std::sin(a1)) * e.light->range, p1))
+                                dl->AddLine(p0, p1, IM_COL32(255, 220, 120, 90), px(1.f));
+                        }
+                    }
+                }
+            }
+        } else if (e.camera) {
             float d = 1.5f, h = std::tan(e.camera->fovY * 0.5f) * d, w = h * 16.f / 9.f;
             Vec3 c[4] = {pos - z * d - x * w - y * h, pos - z * d + x * w - y * h, pos - z * d + x * w + y * h,
                          pos - z * d - x * w + y * h};

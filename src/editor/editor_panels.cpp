@@ -87,7 +87,7 @@ void Editor::drawMenuBar() {
         ImGui::InputText("Scene file", scenePath_, sizeof(scenePath_));
         if (ImGui::MenuItem("Save", "Ctrl+S")) saveToFile();
         if (ImGui::MenuItem("Load", "Ctrl+O")) loadFromFile();
-        if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
+        if (ImGui::MenuItem("Import model...")) openImport_ = true;
         ImGui::Separator();
         if (ImGui::MenuItem("New (ground + player)")) newScene(false);
         if (ImGui::MenuItem("Reset to demo scene")) newScene(true);
@@ -361,7 +361,7 @@ void Editor::drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityI
     if (e.id == selected_) flags |= ImGuiTreeNodeFlags_Selected;
     bool dim = !scene_.visibleInHierarchy(e.id);
     if (dim) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    const char* tag = e.camera ? "  [cam]" : (!e.meshRenderer && kids.empty()) ? "  [empty]" : "";
+    const char* tag = e.camera ? "  [cam]" : e.light ? "  [light]" : (!e.meshRenderer && kids.empty()) ? "  [empty]" : "";
     ImGui::PopID();   // an open tree node pushes its own ID: keep the ID stack balanced around it
     if (scrollToSelected_ && scene_.isAncestor(e.id, selected_)) ImGui::SetNextItemOpen(true);   // reveal selection
     bool open = ImGui::TreeNodeEx((void*)(uintptr_t)e.id, flags, "%s%s", e.name.c_str(), tag);
@@ -490,6 +490,32 @@ void Editor::drawComponents(Entity& e) {
             track();
             ImGui::ColorEdit3("Color", &mr.color.x);
             track();
+            int tex = mr.texture + 1;   // item 0 = none
+            if (ImGui::Combo(
+                    "Texture", &tex,
+                    [](void* lib, int i) { return i == 0 ? "(none)" : ((const TextureLibrary*)lib)->name(i - 1); },
+                    &textures_, textures_.count() + 1)) {
+                pushUndo();
+                mr.texture = tex - 1;
+            }
+            if (ImGui::SmallButton("Load texture...")) {
+                std::filesystem::path path = platform::openFileDialog("Load texture", "png,jpg,jpeg,tga,bmp");
+                ImGui::GetIO().ClearInputKeys();
+                ImGui::GetIO().ClearInputMouse();
+                std::string error;
+                int id = path.empty() ? -1 : loadTexture(textures_, path.u8string(), error);
+                if (id >= 0) {
+                    pushUndo();
+                    mr.texture = id;
+                    setStatus("Loaded texture " + textures_.get(id).name);
+                } else if (!path.empty()) {
+                    setStatus("Texture failed: " + error);
+                }
+            }
+            if (mr.texture >= 0) {
+                ImGui::DragFloat("Tiling", &mr.tiling, 0.01f, 0.01f, 1000.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                track();
+            }
             ImGui::Checkbox("Checker pattern", &mr.checker);
             track();
             ImGui::TextDisabled("%u triangles", meshes_.get(mr.mesh).indexCount / 3);
@@ -510,6 +536,29 @@ void Editor::drawComponents(Entity& e) {
                 if (o.camera) { first = &o; break; }
             if (first == &e) ImGui::TextDisabled("Active: the game renders through this camera");
             else ImGui::TextDisabled("Inactive: %s comes first", first ? first->name.c_str() : "?");
+        }
+    }
+    if (e.light) {
+        if (!componentHeader("Light", open)) { pushUndo(); e.light.reset(); }
+        else if (open) {
+            Light& l = *e.light;
+            int type = (int)l.type;
+            if (ImGui::Combo("Type", &type, "Directional\0Point\0")) {
+                pushUndo();
+                l.type = (Light::Type)type;
+            }
+            ImGui::ColorEdit3("Light color", &l.color.x);
+            track();
+            ImGui::DragFloat("Intensity", &l.intensity, 0.01f, 0.f, 100.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            if (l.type == Light::Type::Point) {
+                ImGui::DragFloat("Range", &l.range, 0.1f, 0.1f, 1000.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+                track();
+            } else {
+                ImGui::Checkbox("Cast shadows", &l.castShadows);
+                track();
+                ImGui::TextDisabled("Shines along the entity's -Z (rotate it).\nThe first directional light is the sun.");
+            }
         }
     }
     if (e.collider) {
@@ -571,6 +620,7 @@ void Editor::drawComponents(Entity& e) {
     if (ImGui::BeginPopup("##addcomp")) {
         if (ImGui::MenuItem("Mesh Renderer", nullptr, false, !e.meshRenderer)) { pushUndo(); e.meshRenderer = MeshRenderer{}; }
         if (ImGui::MenuItem("Camera", nullptr, false, !e.camera)) { pushUndo(); e.camera = Camera{}; }
+        if (ImGui::MenuItem("Light", nullptr, false, !e.light)) { pushUndo(); e.light = Light{}; }
         if (ImGui::MenuItem("Collider", nullptr, false, !e.collider)) {
             pushUndo();
             e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
@@ -680,27 +730,29 @@ void Editor::drawAddMenuItems() {
     ImGui::Separator();
     if (ImGui::MenuItem("Empty")) addEmpty();
     if (ImGui::MenuItem("Camera")) addCamera();
+    if (ImGui::MenuItem("Point light")) addLight(Light::Type::Point);
+    if (ImGui::MenuItem("Directional light")) addLight(Light::Type::Directional);
     ImGui::Separator();
-    if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
+    if (ImGui::MenuItem("Import model...")) openImport_ = true;
 }
 
 void Editor::drawImportPopup() {
     namespace fs = std::filesystem;
     if (openImport_) {
-        ImGui::OpenPopup("Import OBJ");
+        ImGui::OpenPopup("Import model");
         importError_.clear();
         openImport_ = false;
     }
     ImVec2 center(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(px(520.f), 0), ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal("Import OBJ", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
+    if (!ImGui::BeginPopupModal("Import model", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
 
-    ImGui::TextWrapped("Browse for a Wavefront .obj file or type its path. The mesh is centred and scaled to fit a "
-                       "unit cube; materials and textures are ignored.");
+    ImGui::TextWrapped("glTF (.gltf / .glb): the whole model with its hierarchy, materials and textures, as a new "
+                       "prefab plus a copy in the scene. OBJ: a single mesh, centred and scaled to fit a unit cube.");
     bool submit = false;
     if (ImGui::Button("Browse...")) {
-        std::filesystem::path picked = platform::openFileDialog("Import OBJ model", "obj");
+        std::filesystem::path picked = platform::openFileDialog("Import model", "gltf,glb,obj");
         // The dialog ran its own event loop: drop key/button state ImGui may have missed the release of
         ImGui::GetIO().ClearInputKeys();
         ImGui::GetIO().ClearInputMouse();
@@ -712,15 +764,17 @@ void Editor::drawImportPopup() {
     ImGui::SameLine();
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-FLT_MIN);
-    submit |= ImGui::InputTextWithHint("##path", "path, e.g. ~/Downloads/model.obj", &importPath_,
+    submit |= ImGui::InputTextWithHint("##path", "path, e.g. ~/Downloads/model.glb", &importPath_,
                                        ImGuiInputTextFlags_EnterReturnsTrue);
 
-    // .obj files in the working directory, for convenience
+    // Model files in the working directory, for convenience
     std::error_code ec;
     std::vector<fs::path> found;
-    for (const auto& entry : fs::directory_iterator(fs::current_path(ec), ec))
-        if (entry.path().extension() == ".obj" || entry.path().extension() == ".OBJ")
-            found.push_back(entry.path().filename());
+    for (const auto& entry : fs::directory_iterator(fs::current_path(ec), ec)) {
+        std::string ext = entry.path().extension().u8string();
+        for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+        if (ext == ".obj" || ext == ".gltf" || ext == ".glb") found.push_back(entry.path().filename());
+    }
     if (!found.empty()) {
         ImGui::TextDisabled("In %s:", fs::current_path(ec).u8string().c_str());
         float rows = std::min<float>((float)found.size(), 6.f);
@@ -745,7 +799,7 @@ void Editor::drawImportPopup() {
     if (ImGui::Button("Cancel", ImVec2(px(100.f), 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         ImGui::CloseCurrentPopup();
     if (submit && !importPath_.empty()) {
-        importMesh();
+        importModel();
         if (importError_.empty()) ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();

@@ -1,5 +1,6 @@
 #include "editor/editor.h"
 
+#include <cctype>
 #include <cfloat>
 #include <cstdio>
 #include <cstdlib>
@@ -14,8 +15,8 @@ namespace {
 constexpr size_t kMaxUndo = 200;
 }
 
-Editor::Editor(MeshLibrary& meshes, float uiScale)
-    : meshes_(meshes), uiScale_(uiScale), scene_(buildDefaultScene()) {}
+Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, float uiScale)
+    : meshes_(meshes), textures_(textures), uiScale_(uiScale), scene_(buildDefaultScene()) {}
 
 // ---------------------------------------------------------------------------------------------
 // Frame
@@ -103,9 +104,11 @@ void Editor::updateView() {
     if (gameCameraActive_) {
         viewProj_ = perspective(gc.fovY, aspect(), gc.zNear, gc.zFar, true) * gc.view;
         viewPos_ = gc.position;
+        viewForward_ = normalize(transformDir(inverseAffine(gc.view), {0, 0, -1}));
     } else {
         viewProj_ = perspective(cam_.fovY, aspect(), 0.1f, 2000.f, true) * cam_.view();
         viewPos_ = cam_.pos;
+        viewForward_ = cam_.forward();
     }
 }
 
@@ -117,13 +120,16 @@ const Mat4& Editor::worldOf(EntityId id) const {
 
 void Editor::buildDrawItems() {
     drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_);
+    lights_ = collectLights(scene_, worlds_);
 }
 
 SceneRenderInfo Editor::renderInfo() const {
     SceneRenderInfo info;
     info.items = &drawItems_;
+    info.lights = &lights_;
     info.viewProj = viewProj_;
     info.camPos = viewPos_;
+    info.camForward = viewForward_;
     info.viewportX = vx_;
     info.viewportY = vy_;
     info.viewportW = vw_;
@@ -217,12 +223,42 @@ void Editor::addCamera() {
     setStatus("Added " + e.name + " at the current view");
 }
 
-void Editor::importMesh() {
+void Editor::addLight(Light::Type type) {
+    pushUndo();
+    bool sun = type == Light::Type::Directional;
+    Entity& e = scene_.create(scene_.uniqueName(sun ? "Sun.001" : "Light.001"));
+    Light l;
+    l.type = type;
+    e.light = l;
+    const float unit[3] = {1, 1, 1};
+    Vec3 p = sun ? cam_.pos + cam_.forward() * 10.f : spawnPoint(0.f) + Vec3{0, 2.5f, 0};
+    e.transform.setMatrix(lookRotation(p, sun ? normalize(Vec3{-0.45f, -1.f, -0.3f}) : Vec3{0, 0, -1}, unit));
+    select(e.id);
+    setStatus("Added " + e.name);
+}
+
+void Editor::importModel() {
     std::string path = importPath_;
     if (path.size() >= 2 && path[0] == '~' && (path[1] == '/' || path[1] == '\\'))
         if (const char* home = std::getenv("HOME")) path = home + path.substr(1);
-    int before = meshes_.count();
     importError_.clear();
+    std::string ext = std::filesystem::path(path).extension().u8string();
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    if (ext == ".gltf" || ext == ".glb") {
+        // The whole model: its node tree becomes a prefab, and a copy goes into the scene
+        Prefab p;
+        std::string warning;
+        if (!importGltfPrefab(path, meshes_, textures_, p, importError_, warning)) return;
+        pushUndo();
+        p.name = scene_.uniquePrefabName(p.name);
+        scene_.prefabs.push_back(std::move(p));
+        instantiatePrefab((int)scene_.prefabs.size() - 1);
+        setStatus("Imported " + scene_.prefabs.back().name + " as a prefab (" +
+                  std::to_string(scene_.prefabs.back().entities.size()) + " entities)" +
+                  (warning.empty() ? "" : ". Warning: " + warning));
+        return;
+    }
+    int before = meshes_.count();
     int id = importObj(meshes_, path, importError_);
     if (id < 0) return;
     addObject(id);
@@ -282,7 +318,7 @@ void Editor::exportPrefab(int index) {
     if (index < 0 || index >= (int)scene_.prefabs.size()) return;
     const Prefab& p = scene_.prefabs[(size_t)index];
     std::string path = p.name + ".prefab", error;
-    if (savePrefab(path, p, meshes_, error)) setStatus("Exported " + path + " (in the working directory)");
+    if (savePrefab(path, p, meshes_, textures_, error)) setStatus("Exported " + path + " (in the working directory)");
     else setStatus("Export failed: " + error);
 }
 
@@ -293,7 +329,7 @@ void Editor::importPrefab() {
     if (path.empty()) return;
     Prefab p;
     std::string error;
-    if (!loadPrefab(path.u8string(), p, meshes_, error)) { setStatus("Import failed: " + error); return; }
+    if (!loadPrefab(path.u8string(), p, meshes_, textures_, error)) { setStatus("Import failed: " + error); return; }
     pushUndo();
     p.name = scene_.uniquePrefabName(p.name);
     scene_.prefabs.push_back(std::move(p));
@@ -399,7 +435,7 @@ void Editor::newScene(bool demo) {
 
 void Editor::saveToFile() {
     std::string error;
-    if (saveScene(scenePath_, scene_, meshes_, error)) setStatus(std::string("Saved ") + scenePath_);
+    if (saveScene(scenePath_, scene_, meshes_, textures_, error)) setStatus(std::string("Saved ") + scenePath_);
     else setStatus("Save failed: " + error);
 }
 
@@ -411,7 +447,7 @@ void Editor::openScene(const std::string& path) {
 void Editor::loadFromFile() {
     Scene loaded;
     std::string error;
-    if (!loadScene(scenePath_, loaded, meshes_, error)) { setStatus("Load failed: " + error); return; }
+    if (!loadScene(scenePath_, loaded, meshes_, textures_, error)) { setStatus("Load failed: " + error); return; }
     pushUndo();
     scene_ = std::move(loaded);
     selected_ = kNoEntity;

@@ -59,6 +59,18 @@ inline Mat4 perspective(float fovy, float aspect, float zn, float zf, bool vulka
     return r;
 }
 
+// Orthographic projection of a right-handed view (looking down -Z) to Vulkan clip space: depth [0, 1]
+inline Mat4 orthographic(float l, float r, float b, float t, float zn, float zf) {
+    Mat4 m;
+    m.m[0] = 2.f / (r - l);
+    m.m[5] = 2.f / (t - b);
+    m.m[10] = -1.f / (zf - zn);
+    m.m[12] = -(r + l) / (r - l);
+    m.m[13] = -(t + b) / (t - b);
+    m.m[14] = -zn / (zf - zn);
+    return m;
+}
+
 inline Mat4 lookAt(Vec3 eye, Vec3 center, Vec3 up) {
     Vec3 f = normalize(center - eye), s = normalize(cross(f, up)), u = cross(s, f);
     Mat4 r;

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "assets/textures.h"
 #include "core/vecmath.h"
 
 namespace test {
@@ -38,6 +39,9 @@ struct ImGuiContextGuard {
 };
 
 }  // namespace test
+
+// The built-in textures, shared by tests that load or save scenes (imports get appended)
+TextureLibrary& textures();
 
 #define TEST(name)                                      \
     static void name();                                 \

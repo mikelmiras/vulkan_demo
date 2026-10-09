@@ -5,6 +5,7 @@
 #include <string>
 
 #include "assets/meshes.h"
+#include "assets/textures.h"
 #include "render/renderer.h"
 
 class Application {
@@ -22,7 +23,7 @@ public:
     // what's left (the program name first) is for the caller
     static Options parseArgs(int& argc, char** argv, Options defaults);
 
-    bool init(const Options& options, MeshLibrary& meshes);
+    bool init(const Options& options, MeshLibrary& meshes, TextureLibrary& textures);
     void shutdown();
 
     // Frame loop: while (app.beginFrame(dt)) { ...build the UI and the scene... app.endFrame(info); }

@@ -29,18 +29,30 @@
 
 namespace {
 
+// Must match shaders/common.glsl
+constexpr int kMaxPointLights = 8;
 struct FrameUBO {
     Mat4 viewProj;
+    Mat4 lightViewProj;
     float camPos[4];
-    float lightDir[4];
     float fogColor[4];   // rgb linear, w = density
     float viewport[4];   // width, height, outline width in pixels, unused
+    float sunDir[4];     // xyz, w = 1 if it casts shadows
+    float sunColor[4];   // rgb linear * intensity
+    float ambient[4];    // rgb, w = point light count
+    float pointPos[kMaxPointLights][4];     // xyz, w = range
+    float pointColor[kMaxPointLights][4];   // rgb linear * intensity
 };
 
 struct PushConstants {
     Mat4 model;
-    float color[4];   // rgb, a = 0 for checkered material
+    float color[4];    // rgb (linear albedo; sRGB for the outline)
+    float params[4];   // x = checker ground, y = texture tiling, z = textured
 };
+
+void set4(float out[4], Vec3 v, float w) {
+    out[0] = v.x; out[1] = v.y; out[2] = v.z; out[3] = w;
+}
 
 constexpr Vec3 kSkySrgb{0.62f, 0.75f, 0.90f};
 constexpr Vec3 kOutlineSrgb{1.0f, 0.55f, 0.1f};
@@ -76,10 +88,11 @@ void checkVk(VkResult r) {
 // ---------------------------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------------------------
-void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes) {
+void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, const TextureLibrary& textures) {
     width_ = width;
     height_ = height;
     meshes_ = &meshes;
+    textures_ = &textures;
 
     createInstance();
     surface_ = platform::createVulkanSurface(instance_);
@@ -88,6 +101,7 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes) 
     createDevice();
     createSwapchain();
     createPipelines();
+    createShadowResources();
     createResources(meshes);
 }
 
@@ -226,6 +240,14 @@ void Renderer::createDevice() {
     VkPhysicalDeviceVulkan13Features f13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     f13.dynamicRendering = VK_TRUE;
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f13};
+    VkPhysicalDeviceFeatures supported;
+    vkGetPhysicalDeviceFeatures(gpu_, &supported);
+    if (supported.samplerAnisotropy) {   // sharper textures at grazing angles
+        f2.features.samplerAnisotropy = VK_TRUE;
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(gpu_, &props);
+        maxAnisotropy_ = std::min(props.limits.maxSamplerAnisotropy, 8.f);
+    }
 
     std::vector<const char*> exts = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     // Portability drivers (MoltenVK etc.) require VK_KHR_portability_subset to be enabled when they expose it
@@ -282,14 +304,20 @@ void Renderer::destroyBuffer(Buffer& b) {
 }
 
 Renderer::Image Renderer::createImage(VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect) {
+    return createImage(format, usage, aspect, extent_.width, extent_.height, samples_, 1);
+}
+
+Renderer::Image Renderer::createImage(VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect,
+                                      uint32_t width, uint32_t height, VkSampleCountFlagBits samples,
+                                      uint32_t mipLevels) {
     Image img;
     VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = format;
-    ci.extent = {extent_.width, extent_.height, 1};
-    ci.mipLevels = 1;
+    ci.extent = {width, height, 1};
+    ci.mipLevels = mipLevels;
     ci.arrayLayers = 1;
-    ci.samples = samples_;
+    ci.samples = samples;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
     ci.usage = usage;
     VK_CHECK(vkCreateImage(device_, &ci, nullptr, &img.image));
@@ -301,7 +329,7 @@ Renderer::Image Renderer::createImage(VkFormat format, VkImageUsageFlags usage, 
     ai.memoryTypeIndex = findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
     VK_CHECK(vkAllocateMemory(device_, &ai, nullptr, &img.memory));
     VK_CHECK(vkBindImageMemory(device_, img.image, img.memory, 0));
-    img.view = createView(img.image, format, aspect);
+    img.view = createView(img.image, format, aspect, mipLevels);
     return img;
 }
 
@@ -312,12 +340,12 @@ void Renderer::destroyImage(Image& img) {
     img = {};
 }
 
-VkImageView Renderer::createView(VkImage image, VkFormat format, VkImageAspectFlags aspect) {
+VkImageView Renderer::createView(VkImage image, VkFormat format, VkImageAspectFlags aspect, uint32_t mipLevels) {
     VkImageViewCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     ci.image = image;
     ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     ci.format = format;
-    ci.subresourceRange = {aspect, 0, 1, 0, 1};
+    ci.subresourceRange = {aspect, 0, mipLevels, 0, 1};
     VkImageView view;
     VK_CHECK(vkCreateImageView(device_, &ci, nullptr, &view));
     return view;
@@ -440,21 +468,23 @@ VkShaderModule Renderer::loadShader(const std::string& name) {
 }
 
 VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
-    VkShaderModule vs = loadShader(d.vertShader), fs = loadShader(d.fragShader);
+    const bool depthOnly = d.fragShader == nullptr;   // the shadow pass
+    VkShaderModule vs = loadShader(d.vertShader), fs = depthOnly ? VK_NULL_HANDLE : loadShader(d.fragShader);
     VkPipelineShaderStageCreateInfo stages[2] = {
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr},
     };
 
     VkVertexInputBindingDescription vib{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    VkVertexInputAttributeDescription attrs[2] = {
+    VkVertexInputAttributeDescription attrs[3] = {
         {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)},
         {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
+        {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)},
     };
     VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     vi.vertexBindingDescriptionCount = 1;
     vi.pVertexBindingDescriptions = &vib;
-    vi.vertexAttributeDescriptionCount = 2;
+    vi.vertexAttributeDescriptionCount = d.vertexAttributes;
     vi.pVertexAttributeDescriptions = attrs;
 
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
@@ -469,9 +499,14 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
     rs.cullMode = d.cull;
     rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rs.lineWidth = 1.f;
+    if (depthOnly) {   // slope-scaled bias against shadow acne
+        rs.depthBiasEnable = VK_TRUE;
+        rs.depthBiasConstantFactor = 1.5f;
+        rs.depthBiasSlopeFactor = 2.0f;
+    }
 
     VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    ms.rasterizationSamples = samples_;
+    ms.rasterizationSamples = depthOnly ? VK_SAMPLE_COUNT_1_BIT : samples_;
 
     VkStencilOpState st{};
     st.failOp = VK_STENCIL_OP_KEEP;
@@ -494,7 +529,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT)
                                       : 0;
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
+    cb.attachmentCount = depthOnly ? 0 : 1;
     cb.pAttachments = &cba;
 
     VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
@@ -503,14 +538,14 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
     dy.pDynamicStates = dyn;
 
     VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rci.colorAttachmentCount = 1;
+    rci.colorAttachmentCount = depthOnly ? 0 : 1;
     rci.pColorAttachmentFormats = &swapFormat_;
-    rci.depthAttachmentFormat = depthFormat_;
-    rci.stencilAttachmentFormat = depthFormat_;
+    rci.depthAttachmentFormat = depthOnly ? shadowFormat_ : depthFormat_;
+    rci.stencilAttachmentFormat = depthOnly ? VK_FORMAT_UNDEFINED : depthFormat_;
 
     VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     ci.pNext = &rci;
-    ci.stageCount = 2;
+    ci.stageCount = depthOnly ? 1 : 2;
     ci.pStages = stages;
     ci.pVertexInputState = &vi;
     ci.pInputAssemblyState = &ia;
@@ -525,22 +560,32 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
     VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
 
     vkDestroyShaderModule(device_, vs, nullptr);
-    vkDestroyShaderModule(device_, fs, nullptr);
+    if (fs) vkDestroyShaderModule(device_, fs, nullptr);
     return pipeline;
 }
 
 void Renderer::createPipelines() {
-    VkDescriptorSetLayoutBinding binding{0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
-                                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    // Set 0, per frame: the frame data and the shadow map
+    VkDescriptorSetLayoutBinding frameBindings[2] = {
+        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+    };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 1;
-    dslci.pBindings = &binding;
+    dslci.bindingCount = 2;
+    dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
+    // Set 1, per draw: the material's texture
+    VkDescriptorSetLayoutBinding texBinding{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                            nullptr};
+    dslci.bindingCount = 1;
+    dslci.pBindings = &texBinding;
+    VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &textureSetLayout_));
 
     VkPushConstantRange pcr{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants)};
+    VkDescriptorSetLayout layouts[2] = {setLayout_, textureSetLayout_};
     VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    plci.setLayoutCount = 1;
-    plci.pSetLayouts = &setLayout_;
+    plci.setLayoutCount = 2;
+    plci.pSetLayouts = layouts;
     plci.pushConstantRangeCount = 1;
     plci.pPushConstantRanges = &pcr;
     VK_CHECK(vkCreatePipelineLayout(device_, &plci, nullptr, &pipelineLayout_));
@@ -553,7 +598,168 @@ void Renderer::createPipelines() {
                                        true, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_REPLACE, 0xff});
     // Hull extruded in screen space, drawn only outside the silhouette -> outline visible through walls
     outlinePipeline_ = createPipeline({"outline.vert.spv", "outline.frag.spv", false, false, true, VK_CULL_MODE_NONE,
-                                       true, VK_COMPARE_OP_NOT_EQUAL, VK_STENCIL_OP_KEEP, 0});
+                                       true, VK_COMPARE_OP_NOT_EQUAL, VK_STENCIL_OP_KEEP, 0, 2});
+    // Depth from the sun's point of view (no fragment shader)
+    shadowPipeline_ = createPipeline({"shadow.vert.spv", nullptr, true, true, false, VK_CULL_MODE_NONE, false,
+                                      VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 1});
+}
+
+// ---------------------------------------------------------------------------------------------
+// Textures and the shadow map
+// ---------------------------------------------------------------------------------------------
+VkCommandBuffer Renderer::beginOneTimeCommands() {
+    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    ai.commandPool = cmdPool_;
+    ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    ai.commandBufferCount = 1;
+    VkCommandBuffer cb;
+    VK_CHECK(vkAllocateCommandBuffers(device_, &ai, &cb));
+    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VK_CHECK(vkBeginCommandBuffer(cb, &bi));
+    return cb;
+}
+
+void Renderer::endOneTimeCommands(VkCommandBuffer cb) {
+    VK_CHECK(vkEndCommandBuffer(cb));
+    VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    si.commandBufferCount = 1;
+    si.pCommandBuffers = &cb;
+    VK_CHECK(vkQueueSubmit(queue_, 1, &si, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueWaitIdle(queue_));
+    vkFreeCommandBuffers(device_, cmdPool_, 1, &cb);
+}
+
+void Renderer::createShadowResources() {
+    shadowMap_ = createImage(shadowFormat_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                             VK_IMAGE_ASPECT_DEPTH_BIT, kShadowSize, kShadowSize, VK_SAMPLE_COUNT_1_BIT, 1);
+    VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sci.magFilter = sci.minFilter = VK_FILTER_NEAREST;   // the shader compares and filters itself
+    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &shadowSampler_));
+
+    // Textures: trilinear, repeating, anisotropic where available
+    sci.magFilter = sci.minFilter = VK_FILTER_LINEAR;
+    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sci.maxLod = VK_LOD_CLAMP_NONE;
+    sci.anisotropyEnable = maxAnisotropy_ > 1.f;
+    sci.maxAnisotropy = maxAnisotropy_;
+    VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &sampler_));
+}
+
+// Uploads RGBA8 sRGB pixels to a device-local image with a full mip chain (when the format can be blitted)
+Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width, uint32_t height) {
+    const VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
+    VkFormatProperties fp;
+    vkGetPhysicalDeviceFormatProperties(gpu_, format, &fp);
+    const VkFormatFeatureFlags blit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                      VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    uint32_t mips = 1;
+    if ((fp.optimalTilingFeatures & blit) == blit)
+        while ((std::max(width, height) >> mips) > 0) ++mips;
+
+    GpuTexture t;
+    t.image = createImage(format,
+                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                          VK_IMAGE_ASPECT_COLOR_BIT, width, height, VK_SAMPLE_COUNT_1_BIT, mips);
+    Buffer staging = createBuffer((VkDeviceSize)width * height * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, rgba);
+
+    auto barrier = [&](VkCommandBuffer cb, uint32_t mip, uint32_t count, VkImageLayout from, VkImageLayout to,
+                       VkPipelineStageFlags srcStage, VkAccessFlags srcAccess, VkPipelineStageFlags dstStage,
+                       VkAccessFlags dstAccess) {
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.srcAccessMask = srcAccess;
+        b.dstAccessMask = dstAccess;
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = t.image.image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, count, 0, 1};
+        vkCmdPipelineBarrier(cb, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+    VkCommandBuffer cb = beginOneTimeCommands();
+    barrier(cb, 0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {width, height, 1};
+    vkCmdCopyBufferToImage(cb, staging.buffer, t.image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    int32_t w = (int32_t)width, h = (int32_t)height;
+    for (uint32_t m = 1; m < mips; ++m) {   // each level is a filtered half-size copy of the previous one
+        barrier(cb, m - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_TRANSFER_READ_BIT);
+        VkImageBlit region{};
+        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
+        region.srcOffsets[1] = {w, h, 1};
+        w = std::max(w / 2, 1);
+        h = std::max(h / 2, 1);
+        region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+        region.dstOffsets[1] = {w, h, 1};
+        vkCmdBlitImage(cb, t.image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, t.image.image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+        barrier(cb, m - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                VK_ACCESS_SHADER_READ_BIT);
+    }
+    barrier(cb, mips - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_SHADER_READ_BIT);
+    endOneTimeCommands(cb);
+    destroyBuffer(staging);
+
+    VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    dsai.descriptorPool = texturePool_;
+    dsai.descriptorSetCount = 1;
+    dsai.pSetLayouts = &textureSetLayout_;
+    VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &t.set));
+    VkDescriptorImageInfo ii{sampler_, t.image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    wr.dstSet = t.set;
+    wr.descriptorCount = 1;
+    wr.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    wr.pImageInfo = &ii;
+    vkUpdateDescriptorSets(device_, 1, &wr, 0, nullptr);
+    return t;
+}
+
+void Renderer::destroyTexture(GpuTexture& t) {
+    destroyImage(t.image);   // the descriptor set goes with its pool
+    t = {};
+}
+
+void Renderer::uploadTextures() {
+    while ((int)gpuTextures_.size() < textures_->count()) {
+        const Texture& tex = textures_->get((int)gpuTextures_.size());
+        gpuTextures_.push_back(createTexture(tex.rgba.data(), tex.width, tex.height));
+    }
+    // The shadow map starts out readable, so frames without shadows can still bind it
+    if (!shadowMapReady_) {
+        VkCommandBuffer cb = beginOneTimeCommands();
+        imageBarrier(cb, shadowMap_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        endOneTimeCommands(cb);
+        shadowMapReady_ = true;
+    }
+}
+
+// Orthographic camera looking along the sun, covering a square area in front of the viewer, moved in whole
+// shadow-map texels so the shadow edges don't shimmer as the camera moves
+Mat4 Renderer::shadowMatrix(const SceneRenderInfo& info, Vec3 sunDir) const {
+    const float r = kShadowRadius;
+    Vec3 flat{info.camForward.x, 0.f, info.camForward.z};
+    Vec3 center = info.camPos + (length(flat) > 1e-3f ? normalize(flat) * (r * 0.6f) : Vec3{});
+    Vec3 up = std::fabs(sunDir.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
+    Mat4 view = lookAt(center - sunDir * (r * 3.f), center, up);
+    Mat4 proj = orthographic(-r, r, -r, r, 0.1f, r * 6.f);
+    Mat4 vp = proj * view;
+    float half = kShadowSize * 0.5f;
+    float ox = vp.m[12] * half, oy = vp.m[13] * half;   // where the world origin lands, in texels
+    proj.m[12] += (std::round(ox) - ox) / half;
+    proj.m[13] += (std::round(oy) - oy) / half;
+    return proj * view;
 }
 
 void Renderer::uploadMeshes() {
@@ -572,12 +778,19 @@ void Renderer::uploadMeshes() {
 void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
-    VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES};
+    VkDescriptorPoolSize poolSizes[2] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
-    dpci.poolSizeCount = 1;
-    dpci.pPoolSizes = &poolSize;
+    dpci.poolSizeCount = 2;
+    dpci.pPoolSizes = poolSizes;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &descPool_));
+    // One set per texture
+    VkDescriptorPoolSize texSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096};
+    dpci.maxSets = 4096;
+    dpci.poolSizeCount = 1;
+    dpci.pPoolSizes = &texSize;
+    VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &texturePool_));
 
     VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -604,16 +817,26 @@ void Renderer::createResources(const MeshLibrary&) {
         VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &descSets_[i]));
 
         VkDescriptorBufferInfo bi{ubo_[i].buffer, 0, sizeof(FrameUBO)};
-        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        w.dstSet = descSets_[i];
-        w.descriptorCount = 1;
-        w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        w.pBufferInfo = &bi;
-        vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+        VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+        w[0].dstSet = descSets_[i];
+        w[0].descriptorCount = 1;
+        w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        w[0].pBufferInfo = &bi;
+        VkDescriptorImageInfo shadowInfo{shadowSampler_, shadowMap_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        w[1].dstSet = descSets_[i];
+        w[1].dstBinding = 1;
+        w[1].descriptorCount = 1;
+        w[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w[1].pImageInfo = &shadowInfo;
+        vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
 
         VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &imageAvailable_[i]));
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
     }
+
+    const uint8_t white[4] = {255, 255, 255, 255};
+    whiteTexture_ = createTexture(white, 1, 1);
+    uploadTextures();
 }
 
 void Renderer::initImGui() {
@@ -649,6 +872,46 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     const VkPipelineStageFlags depthStages =
         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     const VkImageAspectFlags dsAspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+
+    VkDeviceSize vbOffset = 0;
+    vkCmdBindVertexBuffers(cb, 0, 1, &vertexBuffer_.buffer, &vbOffset);
+    vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 0, nullptr);
+
+    // ---- Pass 0: shadow map (depth from the sun)
+    if (frameShadows_ && info.items) {
+        // The previous frame's sampling must finish first; the old contents are discarded
+        imageBarrier(cb, shadowMap_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                     depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+        VkRenderingAttachmentInfo sd{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        sd.imageView = shadowMap_.view;
+        sd.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        sd.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        sd.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        sd.clearValue.depthStencil = {1.f, 0};
+        VkRenderingInfo sri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        sri.renderArea = {{0, 0}, {kShadowSize, kShadowSize}};
+        sri.layerCount = 1;
+        sri.pDepthAttachment = &sd;
+        vkCmdBeginRendering(cb, &sri);
+        VkViewport sv{0.f, 0.f, (float)kShadowSize, (float)kShadowSize, 0.f, 1.f};
+        VkRect2D ss{{0, 0}, {kShadowSize, kShadowSize}};
+        vkCmdSetViewport(cb, 0, 1, &sv);
+        vkCmdSetScissor(cb, 0, 1, &ss);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
+        for (const DrawItem& o : *info.items) {
+            PushConstants pc{o.model, {}, {}};
+            vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(pc), &pc);
+            const Mesh& mesh = meshes_->get(o.mesh);
+            vkCmdDrawIndexed(cb, mesh.indexCount, 1, mesh.firstIndex, mesh.vertexOffset, 0);
+        }
+        vkCmdEndRendering(cb);
+        imageBarrier(cb, shadowMap_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    }
 
     imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage, 0, colorStage,
@@ -704,15 +967,17 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         VkRect2D scissor{{(int32_t)vx, (int32_t)vy}, {(uint32_t)vw, (uint32_t)vh}};
         vkCmdSetViewport(cb, 0, 1, &viewport);
         vkCmdSetScissor(cb, 0, 1, &scissor);
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 0,
-                                nullptr);
-        VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(cb, 0, 1, &vertexBuffer_.buffer, &offset);
-        vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
 
         const auto& items = *info.items;
-        auto draw = [&](const DrawItem& o, Vec3 rgb, float alpha) {
-            PushConstants pc{o.model, {rgb.x, rgb.y, rgb.z, alpha}};
+        VkDescriptorSet boundTexture = VK_NULL_HANDLE;
+        auto draw = [&](const DrawItem& o, Vec3 rgb) {
+            bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
+            VkDescriptorSet set = textured ? gpuTextures_[(size_t)o.texture].set : whiteTexture_.set;
+            if (set != boundTexture) {
+                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &set, 0, nullptr);
+                boundTexture = set;
+            }
+            PushConstants pc{o.model, {rgb.x, rgb.y, rgb.z, 1.f}, {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, 0.f}};
             vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                                sizeof(pc), &pc);
             const Mesh& mesh = meshes_->get(o.mesh);
@@ -722,14 +987,14 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         };
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-        for (const DrawItem& o : items) draw(o, srgbToLinear(o.color), o.checker ? 0.f : 1.f);
+        for (const DrawItem& o : items) draw(o, srgbToLinear(o.color));
 
         for (const DrawItem& o : items) {
             if (!o.outlined) continue;
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, stencilPipeline_);
-            draw(o, kOutlineSrgb, 1.f);
+            draw(o, kOutlineSrgb);
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, outlinePipeline_);
-            draw(o, kOutlineSrgb, 1.f);
+            draw(o, kOutlineSrgb);
         }
     }
     vkCmdEndRendering(cb);
@@ -807,6 +1072,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (width_ == 0 || height_ == 0) return;
     if (resized_) recreateSwapchain();
     if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
+    if ((int)gpuTextures_.size() < textures_->count()) uploadTextures();
 
     VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
 
@@ -817,16 +1083,41 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) VK_CHECK(r);
     VK_CHECK(vkResetFences(device_, 1, &inFlight_[frame_]));
 
-    Vec3 light = normalize({-0.45f, -1.f, -0.3f});
+    // Lights: the first directional light is the sun (a default one if there's none), then the point lights
+    // nearest the camera
+    LightInfo sun;
+    sun.directional = true;
+    sun.direction = normalize({-0.45f, -1.f, -0.3f});
+    sun.color = {1.f, 0.95f, 0.85f};
+    std::vector<const LightInfo*> points;
+    bool haveSun = false;
+    if (info.lights)
+        for (const LightInfo& l : *info.lights) {
+            if (l.directional && !haveSun) { sun = l; haveSun = true; }
+            else if (!l.directional) points.push_back(&l);
+        }
+    std::sort(points.begin(), points.end(), [&](const LightInfo* a, const LightInfo* b) {
+        return length(a->position - info.camPos) < length(b->position - info.camPos);
+    });
+    if (points.size() > (size_t)kMaxPointLights) points.resize(kMaxPointLights);
+    frameShadows_ = sun.castShadows && sun.intensity > 0.f;
+
     Vec3 fog = srgbToLinear(kSkySrgb);
     FrameUBO u{};
     u.viewProj = info.viewProj;
-    float c[4] = {info.camPos.x, info.camPos.y, info.camPos.z, 1.f}, l[4] = {light.x, light.y, light.z, 0.f},
-          f[4] = {fog.x, fog.y, fog.z, 0.006f}, v[4] = {info.viewportW, info.viewportH, 2.5f, 0.f};
-    std::memcpy(u.camPos, c, sizeof(c));
-    std::memcpy(u.lightDir, l, sizeof(l));
-    std::memcpy(u.fogColor, f, sizeof(f));
-    std::memcpy(u.viewport, v, sizeof(v));
+    u.lightViewProj = shadowMatrix(info, normalize(sun.direction));
+    set4(u.camPos, info.camPos, 1.f);
+    set4(u.fogColor, fog, 0.006f);
+    u.viewport[0] = info.viewportW;
+    u.viewport[1] = info.viewportH;
+    u.viewport[2] = 2.5f;
+    set4(u.sunDir, normalize(sun.direction), frameShadows_ ? 1.f : 0.f);
+    set4(u.sunColor, srgbToLinear(sun.color) * sun.intensity, 0.f);
+    set4(u.ambient, {0.45f, 0.45f, 0.45f}, (float)points.size());
+    for (size_t i = 0; i < points.size(); ++i) {
+        set4(u.pointPos[i], points[i]->position, std::max(points[i]->range, 0.01f));
+        set4(u.pointColor[i], srgbToLinear(points[i]->color) * points[i]->intensity, 0.f);
+    }
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
 
     VK_CHECK(vkResetCommandBuffer(cmd_[frame_], 0));
@@ -862,10 +1153,18 @@ void Renderer::shutdown() {
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
-    for (VkPipeline p : {scenePipeline_, stencilPipeline_, outlinePipeline_}) vkDestroyPipeline(device_, p, nullptr);
+    for (VkPipeline p : {scenePipeline_, stencilPipeline_, outlinePipeline_, shadowPipeline_})
+        vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, setLayout_, nullptr);
+    vkDestroyDescriptorSetLayout(device_, textureSetLayout_, nullptr);
     vkDestroyDescriptorPool(device_, descPool_, nullptr);
+    for (GpuTexture& t : gpuTextures_) destroyTexture(t);
+    destroyTexture(whiteTexture_);
+    vkDestroyDescriptorPool(device_, texturePool_, nullptr);
+    vkDestroySampler(device_, sampler_, nullptr);
+    vkDestroySampler(device_, shadowSampler_, nullptr);
+    destroyImage(shadowMap_);
     destroyBuffer(vertexBuffer_);
     destroyBuffer(indexBuffer_);
     if (readback_.buffer) destroyBuffer(readback_);

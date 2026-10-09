@@ -112,13 +112,13 @@ TEST(serialization_json_roundtrip) {
     Scene s = buildDefaultScene();
     std::string err;
     auto path = test::tempPath("roundtrip.vkw").string();
-    REQUIRE(saveScene(path, s, lib, err));
+    REQUIRE(saveScene(path, s, lib, textures(), err));
     Scene loaded;
     MeshLibrary lib2 = buildMeshLibrary();
-    REQUIRE(loadScene(path, loaded, lib2, err));
+    REQUIRE(loadScene(path, loaded, lib2, textures(), err));
     REQUIRE(loaded.entities.size() == s.entities.size());
     for (size_t i = 0; i < s.entities.size(); ++i)   // every component and behaviour field, compared as JSON
-        CHECK(json::write(entityToJson(s.entities[i], lib)) == json::write(entityToJson(loaded.entities[i], lib2)));
+        CHECK(json::write(entityToJson(s.entities[i], lib, textures())) == json::write(entityToJson(loaded.entities[i], lib2, textures())));
 }
 
 TEST(serialization_imported_meshes_are_reimported) {
@@ -131,10 +131,10 @@ TEST(serialization_imported_meshes_are_reimported) {
     Scene s;
     s.create("T").meshRenderer = MeshRenderer{id};
     auto path = test::tempPath("imported.vkw").string();
-    REQUIRE(saveScene(path, s, lib, err));
+    REQUIRE(saveScene(path, s, lib, textures(), err));
     MeshLibrary fresh = buildMeshLibrary();
     Scene loaded;
-    REQUIRE(loadScene(path, loaded, fresh, err));
+    REQUIRE(loadScene(path, loaded, fresh, textures(), err));
     REQUIRE(loaded.entities[0].meshRenderer);
     CHECK(fresh.count() == (int)MeshKind::Count + 1);
     CHECK(fresh.name(loaded.entities[0].meshRenderer->mesh) == std::string("tri"));
@@ -149,7 +149,7 @@ TEST(serialization_loads_legacy_text_format) {
                           "\"Spinner\" Cube 1 2 3 0 0 0 1 1 1 0.5 0.5 0.5 0 1 0 1.5 0.5 0.2\n");
     Scene s;
     std::string err;
-    REQUIRE(loadScene(path.string(), s, lib, err));
+    REQUIRE(loadScene(path.string(), s, lib, textures(), err));
     REQUIRE(s.entities.size() == 3);
     CHECK(s.entities[0].meshRenderer && s.entities[0].meshRenderer->checker);
     CHECK(s.entities[1].camera && !s.entities[1].meshRenderer);
@@ -164,7 +164,7 @@ TEST(serialization_converts_animator_component) {
         {"id":1,"name":"T","animator":{"spin":0.8,"bob":0.4,"phase":0}}]})");
     Scene s;
     std::string err;
-    REQUIRE(loadScene(path.string(), s, lib, err));
+    REQUIRE(loadScene(path.string(), s, lib, textures(), err));
     REQUIRE(s.entities[0].behaviours.size() == 2);
     CHECK(std::string(s.entities[0].behaviours[1]->typeName()) == "Bob");
 }
@@ -177,7 +177,7 @@ TEST(serialization_repairs_broken_hierarchy) {
         {"name":"no id"}]})");
     Scene s;
     std::string err;
-    REQUIRE(loadScene(path.string(), s, lib, err));
+    REQUIRE(loadScene(path.string(), s, lib, textures(), err));
     REQUIRE(s.entities.size() == 4);
     CHECK(s.entities[2].parent == kNoEntity);                   // missing parent -> root
     CHECK(!(s.isAncestor(1, 2) && s.isAncestor(2, 1)));         // cycle cut
@@ -190,13 +190,13 @@ TEST(serialization_rejects_bad_files) {
     std::string err;
     auto garbage = test::tempPath("garbage.vkw");
     test::writeFile(garbage, "{\"format\": \"vkworld-scene\", \"entities\": [1, 2,");
-    CHECK(!loadScene(garbage.string(), s, lib, err));
+    CHECK(!loadScene(garbage.string(), s, lib, textures(), err));
     auto unknown = test::tempPath("unknown.vkw");
     test::writeFile(unknown, R"({"format":"vkworld-scene","version":3,"entities":[{"id":1,"name":"T","behaviours":[{"type":"Nope"}]}]})");
-    CHECK(!loadScene(unknown.string(), s, lib, err));
+    CHECK(!loadScene(unknown.string(), s, lib, textures(), err));
     CHECK(err.find("Nope") != std::string::npos);
     auto future = test::tempPath("future.vkw");
     test::writeFile(future, R"({"format":"vkworld-scene","version":999,"entities":[]})");
-    CHECK(!loadScene(future.string(), s, lib, err));
-    CHECK(!loadScene(test::tempPath("missing.vkw").string(), s, lib, err));
+    CHECK(!loadScene(future.string(), s, lib, textures(), err));
+    CHECK(!loadScene(test::tempPath("missing.vkw").string(), s, lib, textures(), err));
 }

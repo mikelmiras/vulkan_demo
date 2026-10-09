@@ -7,14 +7,17 @@
 
 #include "core/vecmath.h"
 
-struct Vertex { Vec3 pos, normal; };
+struct Vertex {
+    Vec3 pos, normal;
+    float u = 0.f, v = 0.f;   // texture coordinates (v down, Vulkan style)
+};
 
 struct Mesh {
     uint32_t firstIndex = 0, indexCount = 0;
     int32_t vertexOffset = 0;
     Vec3 boundsMin, boundsMax;   // local-space bounding box
     std::string name;
-    std::string source;          // OBJ file it was imported from; empty for built-in meshes
+    std::string source;          // file it was imported from ("model.obj", "model.glb#2.0"); empty for built-ins
 };
 
 // Built-in meshes: their ids in the library. Imported meshes get ids from MeshKind::Count up.
@@ -39,6 +42,13 @@ MeshLibrary buildMeshLibrary();
 // recentred and scaled to fit a unit cube like the built-in meshes. Re-importing the same file returns the
 // existing id. Returns the new mesh id, or -1 with `error` set.
 int importObj(MeshLibrary& lib, const std::string& path, std::string& error);
+
+// Appends a mesh as is (no recentring). Used by importers; returns its id.
+int addMesh(MeshLibrary& lib, const std::string& name, const std::string& source, const std::vector<Vertex>& vertices,
+            const std::vector<uint32_t>& indices);
+// Re-imports a mesh from its source: an OBJ path or a glTF primitive ("model.glb#mesh.primitive"). Already
+// loaded sources return their existing id; -1 with `error` on failure.
+int importMesh(MeshLibrary& lib, const std::string& source, std::string& error);
 
 // Ray vs. mesh in the mesh's local space. Returns the ray parameter t of the closest hit, or -1, and the hit
 // triangle's unit face normal if `normal` is given (it may face either way: meshes are double-sided).

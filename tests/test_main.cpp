@@ -51,6 +51,11 @@ ImGuiContextGuard::~ImGuiContextGuard() { ImGui::DestroyContext(); }
 
 }  // namespace test
 
+TextureLibrary& textures() {
+    static TextureLibrary lib = buildTextureLibrary();
+    return lib;
+}
+
 int main(int argc, char** argv) {
     const char* filter = argc > 1 ? argv[1] : nullptr;
     int run = 0, failed = 0;

@@ -1,21 +1,10 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
 // Selection outline: push each vertex outwards along its normal by a fixed number of pixels.
 
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
-
-layout(set = 0, binding = 0) uniform Frame {
-    mat4 viewProj;
-    vec4 camPos;
-    vec4 lightDir;
-    vec4 fogColor;
-    vec4 viewport; // width, height, outline width (px)
-} frame;
-
-layout(push_constant) uniform Push {
-    mat4 model;
-    vec4 color;
-} pc;
 
 void main() {
     vec4 world = pc.model * vec4(inPos, 1.0);

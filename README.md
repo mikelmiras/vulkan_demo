@@ -3,8 +3,9 @@
 A small Vulkan 1.3 3D scene with a Blender-style editing UI, in C++17.
 
 - Runs on **Linux** (X11 / XWayland, via raw XCB), **Windows** (Win32) and **macOS** (Cocoa + MoltenVK). No GLFW/SDL needed.
-- UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo),
-  vendored in `third_party/` and compiled into the binary.
+- UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo);
+  images: [stb_image](https://github.com/nothings/stb) v2.30; glTF: [cgltf](https://github.com/jkuhlmann/cgltf) v1.14.
+  All vendored in `third_party/` and compiled into the binary.
 
 ## Build & run
 
@@ -81,9 +82,11 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
 ## Layout
 
 - **Menu bar**: File (save/load scene, import OBJ, reset), Edit, Add, Game (play/pause/step), View.
-- **Importing models**: File / Add > Import OBJ... loads a Wavefront `.obj` (triangles or polygons, with or without
-  normals; materials/textures ignored). It's centred and scaled to fit a unit cube, then shows up in the Add menu and
-  the Inspector's mesh list. Saved scenes reference the `.obj` by absolute path and re-import it on load.
+- **Importing models**: File / Add > Import model... loads **glTF** (`.gltf` with its files, or `.glb`) or a
+  Wavefront **OBJ**. A glTF model keeps its node hierarchy, real size, materials (base colour + texture) and
+  textures: it becomes a new prefab, and a copy is placed in the scene. An OBJ is a single mesh (with its texture
+  coordinates), centred and scaled to fit a unit cube. Saved scenes reference model files by absolute path and
+  re-import them on load.
 - **Toolbar**: Select/Move/Rotate/Scale tools, world/local axes, snapping, add/duplicate/delete/focus, undo/redo,
   Play/Pause/Step, fly speed.
 - **Outliner** (left): the entity tree, with visibility toggles, filter, right-click menu, double-click to focus.
@@ -101,7 +104,8 @@ it; hiding, deleting or duplicating a parent includes its children) and a **tran
 
 | Component       | What it does                                                         |
 |-----------------|----------------------------------------------------------------------|
-| Mesh Renderer   | Draws a mesh (built-in or imported) with a colour / checker pattern  |
+| Mesh Renderer   | Draws a mesh (built-in or imported) with a colour and optional texture |
+| Light           | Directional (the sun, with shadows) or point light                   |
 | Camera          | The game renders through the first entity that has one               |
 | Collider        | Box, sphere, capsule or mesh shape; solid or trigger (see Collision) |
 | Behaviours      | Game logic (any number per entity), see below                       |
@@ -138,6 +142,18 @@ break, and cubes leave a gem behind.
   API (`/dev/input/js0`, Xbox-style layout).
 - Messages logged by behaviours show at the bottom of the viewport (and on stdout).
 - Game > Maximize viewport on play hides the side panels while playing.
+
+## Rendering
+
+- **Materials**: a Mesh Renderer has a colour and optionally a texture (PNG, JPEG, TGA, BMP via Inspector > Load
+  texture..., or the built-in procedural Checker / Bricks / Tiles), with a tiling factor. Built-in meshes have
+  box-mapped texture coordinates; imported ones use their own. Textures get mipmaps and anisotropic filtering.
+- **Lights**: Light components, directional (shines along the entity's -Z) or point (colour, intensity, range).
+  The first directional light is the sun and casts the shadows; up to 8 point lights (nearest the camera) light
+  each frame. Scenes without a directional light get a default sun.
+- **Shadows**: one 2048x2048 shadow map for the sun, covering about 90 m around the camera, filtered 3x3, snapped
+  to texels so edges don't shimmer.
+- 4x MSAA, distance fog, the selection outline, and a little dithering against banding.
 
 ## Collision
 
@@ -249,11 +265,13 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer, `png.*` screenshot writer |
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
-| `src/assets/`              | Mesh library: procedural meshes, OBJ import, ray/triangle picking |
+| `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
 | `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world: raycasts, overlaps, character movement, triggers (`physics_world.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
-| `shaders/scene.*`          | Lit objects, checker ground, fog                                |
+| `shaders/common.glsl`      | Frame data (camera, sun, point lights, shadow camera) shared by the shaders |
+| `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |
+| `shaders/shadow.vert`      | Shadow map (depth only)                                         |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

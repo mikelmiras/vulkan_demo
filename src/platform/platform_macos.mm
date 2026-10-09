@@ -205,9 +205,11 @@ std::filesystem::path openFileDialog(const char* title, const char* extension) {
         panel.canChooseFiles = YES;
         panel.canChooseDirectories = NO;
         panel.allowsMultipleSelection = NO;
-        // .obj has no system-wide type on macOS: filter by extension, falling back to "any file"
-        if (UTType* type = [UTType typeWithFilenameExtension:[NSString stringWithUTF8String:extension]])
-            panel.allowedContentTypes = @[type];
+        // Filter by extension (types macOS doesn't know about are skipped: then any file can be picked)
+        NSMutableArray<UTType*>* types = [NSMutableArray array];
+        for (NSString* ext in [[NSString stringWithUTF8String:extension] componentsSeparatedByString:@","])
+            if (UTType* type = [UTType typeWithFilenameExtension:ext]) [types addObject:type];
+        if (types.count > 0) panel.allowedContentTypes = types;
         NSModalResponse r = [panel runModal];
         [g_window makeKeyAndOrderFront:nil];
         if (r != NSModalResponseOK || !panel.URL) return {};

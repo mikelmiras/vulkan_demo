@@ -1,5 +1,9 @@
 #include "assets/meshes.h"
 
+#include <tuple>
+
+#include "assets/gltf.h"
+
 #include <cfloat>
 #include <cstdlib>
 #include <filesystem>
@@ -39,12 +43,18 @@ struct Builder {
     }
     uint32_t base() const { return (uint32_t)lib.vertices.size() - (uint32_t)current.vertexOffset; }
 
-    // Flat-shaded triangle, wound counter-clockwise when seen from outside (away from `inside`)
+    // Flat-shaded triangle, wound counter-clockwise when seen from outside (away from `inside`).
+    // Texture coordinates: projected along the normal's main axis (box mapping), one texture per unit.
     void flatTri(Vec3 a, Vec3 b, Vec3 c, Vec3 inside) {
         Vec3 n = normalize(cross(b - a, c - a));
         if (dot(n, a - inside) < 0.f) { std::swap(b, c); n = n * -1.f; }
+        Vec3 t, bt;   // texture u and v directions on the face
+        float ax = std::fabs(n.x), ay = std::fabs(n.y), az = std::fabs(n.z);
+        if (ax >= ay && ax >= az) { t = {0, 0, n.x > 0.f ? -1.f : 1.f}; bt = {0, -1, 0}; }
+        else if (ay >= az) { t = {1, 0, 0}; bt = {0, 0, n.y > 0.f ? 1.f : -1.f}; }
+        else { t = {n.z > 0.f ? 1.f : -1.f, 0, 0}; bt = {0, -1, 0}; }
         uint32_t i = base();
-        lib.vertices.push_back({a, n}); lib.vertices.push_back({b, n}); lib.vertices.push_back({c, n});
+        for (Vec3 p : {a, b, c}) lib.vertices.push_back({p, n, dot(p, t) + 0.5f, dot(p, bt) + 0.5f});
         lib.indices.insert(lib.indices.end(), {i, i + 1, i + 2});
     }
 
@@ -101,7 +111,7 @@ MeshLibrary buildMeshLibrary() {
     g.grid(24, 48, [](float u, float v) {
         float th = u * PI, ph = v * 2.f * PI;
         Vec3 n{std::sin(th) * std::cos(ph), std::cos(th), std::sin(th) * std::sin(ph)};
-        return Vertex{n * 0.5f, n};
+        return Vertex{n * 0.5f, n, v, u};   // u around, v from top to bottom
     });
     g.end("Sphere");
 
@@ -121,7 +131,7 @@ MeshLibrary buildMeshLibrary() {
         float a = v * 2.f * PI, b2 = u * 2.f * PI;
         Vec3 ring{std::cos(a), 0, std::sin(a)};
         Vec3 n = ring * std::cos(b2) + Vec3{0, std::sin(b2), 0};
-        return Vertex{ring * R + n * r, n};
+        return Vertex{ring * R + n * r, n, v * 4.f, u};
     });
     g.end("Torus");
     return lib;
@@ -154,7 +164,8 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
     if (!f) { error = "cannot open " + path; return -1; }
 
     std::vector<Vec3> positions, normals;
-    struct Corner { int v, n; };
+    std::vector<std::pair<float, float>> texcoords;
+    struct Corner { int v, n, t; };
     std::vector<Corner> tris;   // 3 corners per triangle
     std::vector<Corner> face;
     std::string line;
@@ -166,6 +177,10 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
             char* e;
             v.x = std::strtof(p + 2, &e); v.y = std::strtof(e, &e); v.z = std::strtof(e, &e);
             positions.push_back(v);
+        } else if (p[0] == 'v' && p[1] == 't') {
+            char* e;
+            float u = std::strtof(p + 2, &e), v = std::strtof(e, &e);
+            texcoords.emplace_back(u, 1.f - v);   // OBJ's v goes up, ours down
         } else if (p[0] == 'v' && p[1] == 'n') {
             Vec3 n;
             char* e;
@@ -178,11 +193,11 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
             for (;;) {
                 while (*e == ' ' || *e == '\t') ++e;
                 if (!*e || *e == '\r' || *e == '#') break;
-                Corner c{resolveIndex(e, &e, positions.size()), -1};
+                Corner c{resolveIndex(e, &e, positions.size()), -1, -1};
                 if (c.v < 0) { error = path + ": bad face index"; return -1; }
                 if (*e == '/') {
                     ++e;
-                    if (*e != '/') std::strtol(e, &e, 10);   // texture coordinate: unused
+                    if (*e != '/') c.t = resolveIndex(e, &e, texcoords.size());
                     if (*e == '/') { ++e; c.n = resolveIndex(e, &e, normals.size()); }
                 }
                 while (*e && *e != ' ' && *e != '\t') ++e;   // skip anything unexpected in this token
@@ -207,7 +222,7 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
     Mesh m;
     m.firstIndex = (uint32_t)lib.indices.size();
     m.vertexOffset = (int32_t)lib.vertices.size();
-    std::map<std::pair<int, int>, uint32_t> shared;   // (position, normal) -> vertex, for smooth corners
+    std::map<std::tuple<int, int, int>, uint32_t> shared;   // (position, normal, uv) -> vertex, for smooth corners
     for (size_t t = 0; t < tris.size(); t += 3) {
         Vec3 p[3];
         for (int k = 0; k < 3; ++k) p[k] = (positions[(size_t)tris[t + k].v] - center) * scale;
@@ -216,13 +231,14 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
         faceN = normalize(faceN);
         for (int k = 0; k < 3; ++k) {
             const Corner& c = tris[t + k];
+            float u = c.t >= 0 ? texcoords[(size_t)c.t].first : 0.f, v = c.t >= 0 ? texcoords[(size_t)c.t].second : 0.f;
             if (c.n >= 0) {
-                auto [it, added] = shared.try_emplace({c.v, c.n}, (uint32_t)(lib.vertices.size() - (size_t)m.vertexOffset));
-                if (added) lib.vertices.push_back({p[k], normalize(normals[(size_t)c.n])});
+                auto [it, added] = shared.try_emplace({c.v, c.n, c.t}, (uint32_t)(lib.vertices.size() - (size_t)m.vertexOffset));
+                if (added) lib.vertices.push_back({p[k], normalize(normals[(size_t)c.n]), u, v});
                 lib.indices.push_back(it->second);
             } else {   // no normal in the file: flat shading
                 lib.indices.push_back((uint32_t)(lib.vertices.size() - (size_t)m.vertexOffset));
-                lib.vertices.push_back({p[k], faceN});
+                lib.vertices.push_back({p[k], faceN, u, v});
             }
         }
     }
@@ -237,6 +253,37 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
     lib.meshes.push_back(m);
     ++lib.version;
     return lib.count() - 1;
+}
+
+int addMesh(MeshLibrary& lib, const std::string& name, const std::string& source, const std::vector<Vertex>& vertices,
+            const std::vector<uint32_t>& indices) {
+    Mesh m;
+    m.firstIndex = (uint32_t)lib.indices.size();
+    m.vertexOffset = (int32_t)lib.vertices.size();
+    m.indexCount = (uint32_t)indices.size();
+    lib.vertices.insert(lib.vertices.end(), vertices.begin(), vertices.end());
+    lib.indices.insert(lib.indices.end(), indices.begin(), indices.end());
+    computeBounds(lib, m);
+    std::string unique = name;
+    for (int n = 2; lib.find(unique) >= 0; ++n) unique = name + " " + std::to_string(n);
+    m.name = unique;
+    m.source = source;
+    lib.meshes.push_back(m);
+    ++lib.version;
+    return lib.count() - 1;
+}
+
+int importMesh(MeshLibrary& lib, const std::string& source, std::string& error) {
+    for (int i = 0; i < lib.count(); ++i)
+        if (lib.meshes[(size_t)i].source == source) return i;
+    size_t hash = source.rfind('#');
+    if (hash == std::string::npos) return importObj(lib, source, error);
+    // A glTF primitive: importing the file brings in all of its meshes, then pick this one
+    if (!importGltfMeshes(lib, source.substr(0, hash), error)) return -1;
+    for (int i = 0; i < lib.count(); ++i)
+        if (lib.meshes[(size_t)i].source == source) return i;
+    error = source + ": no such mesh in the file";
+    return -1;
 }
 
 float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir, Vec3* normal) {

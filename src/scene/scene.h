@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "assets/meshes.h"
+#include "assets/textures.h"
 #include "core/vecmath.h"
 #include "scene/behaviour.h"
 #include "scene/input_bindings.h"
@@ -28,9 +29,22 @@ struct Transform {
 // ---- Components -----------------------------------------------------------------------------
 struct MeshRenderer {
     int mesh = (int)MeshKind::Cube;   // id in the MeshLibrary
-    Vec3 color{0.8f, 0.8f, 0.8f};     // sRGB, as shown in the colour picker
+    Vec3 color{0.8f, 0.8f, 0.8f};     // sRGB, as shown in the colour picker; multiplies the texture
+    int texture = -1;                 // id in the TextureLibrary, or -1 for plain colour
+    float tiling = 1.f;               // texture repeats per unit of texture coordinate
     bool checker = false;             // procedural checkerboard + grid (used by the ground)
 };
+
+// Lights the scene. Without any directional light the renderer uses a default sun.
+struct Light {
+    enum class Type { Directional, Point };
+    Type type = Type::Point;
+    Vec3 color{1.f, 0.95f, 0.85f};   // sRGB
+    float intensity = 1.f;
+    float range = 15.f;               // point lights fade to nothing at this distance
+    bool castShadows = true;          // directional lights (the first one casts the shadow map)
+};
+const char* lightTypeName(Light::Type type);
 
 // The game renders through the first entity with a camera, looking down its local -Z axis.
 struct Camera {
@@ -65,6 +79,7 @@ struct Entity {
     std::optional<MeshRenderer> meshRenderer;
     std::optional<Camera> camera;
     std::optional<Collider> collider;
+    std::optional<Light> light;
     std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
 
     template <class T> T* behaviour() {   // first behaviour of type T, or nullptr
@@ -127,6 +142,11 @@ private:
 };
 
 Scene buildDefaultScene();
+
+// A glTF model as a prefab: an empty root named after the file, then its node tree with mesh renderers,
+// materials and textures. `warning` gets non-fatal problems (images that couldn't be loaded).
+bool importGltfPrefab(const std::string& path, MeshLibrary& meshes, TextureLibrary& textures, Prefab& out,
+                      std::string& error, std::string& warning);
 
 // Spin (rad/s around the parent's Y) and Bob (amplitude, phase in radians) behaviours: what the old Animator
 // component did. Used by the default scene and to load files from before behaviours existed.

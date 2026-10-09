@@ -23,10 +23,11 @@ int main(int argc, char** argv) {
     }
 
     MeshLibrary meshes = buildMeshLibrary();
+    TextureLibrary textures = buildTextureLibrary();
     Application app;
-    if (!app.init(options, meshes)) return 1;
+    if (!app.init(options, meshes, textures)) return 1;
 
-    Editor editor(meshes, app.uiScale());
+    Editor editor(meshes, textures, app.uiScale());
     if (scenePath) editor.openScene(scenePath);
     if (play) editor.play();
 

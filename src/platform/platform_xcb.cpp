@@ -258,11 +258,18 @@ void imguiShutdown() {
 
 std::filesystem::path openFileDialog(const char* title, const char* extension) {
     // No toolkit here: borrow the desktop's dialog helper if one is installed
-    std::string t = title, e = extension;
+    std::string t = title, patterns;
     for (char& c : t) if (c == '\'' ) c = ' ';
+    for (size_t start = 0, end; start <= std::strlen(extension); start = end + 1) {   // "obj,glb" -> "*.obj *.glb"
+        end = std::string(extension).find(',', start);
+        if (end == std::string::npos) end = std::strlen(extension);
+        std::string e = std::string(extension).substr(start, end - start);
+        bool safe = !e.empty() && e.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == std::string::npos;
+        if (safe) patterns += (patterns.empty() ? "*." : " *.") + e;
+    }
     const std::string cmds[] = {
-        "zenity --file-selection --title='" + t + "' --file-filter='*." + e + "' --file-filter='*' 2>/dev/null",
-        "kdialog --getopenfilename . '*." + e + "' --title '" + t + "' 2>/dev/null"};
+        "zenity --file-selection --title='" + t + "' --file-filter='" + patterns + "' --file-filter='*' 2>/dev/null",
+        "kdialog --getopenfilename . '" + patterns + "' --title '" + t + "' 2>/dev/null"};
     for (const std::string& cmd : cmds) {
         std::string tool = cmd.substr(0, cmd.find(' '));
         if (std::system(("command -v " + tool + " >/dev/null 2>&1").c_str()) != 0) continue;

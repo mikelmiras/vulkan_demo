@@ -56,18 +56,19 @@ int main(int argc, char** argv) {
     Application::Options options = Application::parseArgs(argc, argv, defaults);
 
     MeshLibrary meshes = buildMeshLibrary();
+    TextureLibrary textures = buildTextureLibrary();
     Scene scene;
     std::string path = findScene(argc, argv), error;
     if (path.empty()) {
         scene = buildDefaultScene();
-    } else if (!loadScene(path, scene, meshes, error)) {
+    } else if (!loadScene(path, scene, meshes, textures, error)) {
         std::fprintf(stderr, "fatal: %s\n", error.c_str());
         return 1;
     }
     std::printf("Playing %s\n", path.empty() ? "the built-in demo scene" : path.c_str());
 
     Application app;
-    if (!app.init(options, meshes)) return 1;
+    if (!app.init(options, meshes, textures)) return 1;
     Game game;
     game.start(scene, meshes);
     if (options.screenshotPath.empty()) platform::setCursorCaptured(true);
@@ -91,9 +92,13 @@ int main(int argc, char** argv) {
         float aspect = h > 0 ? (float)w / (float)h : 1.f;
         CameraView cam;
         if (!game.activeCamera(cam)) cam.view = lookAt({0, 10, 40}, {0, 0, 0}, {0, 1, 0});   // no camera: a fixed view
-        std::vector<DrawItem> items = collectDrawItems(scene, game.worldMatrices());
+        std::vector<Mat4> worlds = game.worldMatrices();
+        std::vector<DrawItem> items = collectDrawItems(scene, worlds);
+        std::vector<LightInfo> lights = collectLights(scene, worlds);
         SceneRenderInfo info;
         info.items = &items;
+        info.lights = &lights;
+        info.camForward = normalize(transformDir(inverseAffine(cam.view), {0, 0, -1}));
         info.viewProj = perspective(cam.fovY, aspect, cam.zNear, cam.zFar, true) * cam.view;
         info.camPos = cam.position;
         info.viewportW = (float)w;

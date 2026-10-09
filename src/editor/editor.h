@@ -31,7 +31,7 @@ struct EditorCamera {
 class Editor {
 public:
     // meshes: imports are appended to it. uiScale: DPI scale for fixed pixel sizes (1.0 at 96 DPI).
-    Editor(MeshLibrary& meshes, float uiScale);
+    Editor(MeshLibrary& meshes, TextureLibrary& textures, float uiScale);
 
     // Builds the UI and handles viewport input. Call between ImGui::NewFrame() and ImGui::Render().
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
@@ -99,7 +99,8 @@ private:
     void addObject(int mesh);
     void addEmpty();
     void addCamera();
-    void importMesh();
+    void addLight(Light::Type type);
+    void importModel();   // the path in the import dialog: .obj -> one object, .gltf / .glb -> a prefab + copy
     // Prefabs (index into scene_.prefabs)
     void createPrefabFromSelection();
     void instantiatePrefab(int index);
@@ -126,6 +127,7 @@ private:
     void redo();
 
     MeshLibrary& meshes_;
+    TextureLibrary& textures_;
     float uiScale_ = 1.f;
     Scene scene_;
     EntityId selected_ = kNoEntity;
@@ -149,7 +151,8 @@ private:
 
     // Current view (editor or game camera) and what to draw, rebuilt every frame
     Mat4 viewProj_;
-    Vec3 viewPos_;
+    Vec3 viewPos_, viewForward_;
+    std::vector<LightInfo> lights_;
     std::vector<Mat4> worlds_;
     std::vector<DrawItem> drawItems_;
 

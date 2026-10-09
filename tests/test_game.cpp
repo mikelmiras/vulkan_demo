@@ -228,9 +228,9 @@ TEST(input_bindings_saved_with_scene) {
     s.inputActions = {{"shoot", {ImGuiKey_F, ImGuiKey_GamepadR2}, ImGuiMouseButton_Left}, {"duck", {ImGuiKey_C}, -1}};
     std::string err;
     auto path = test::tempPath("bindings.vkw").string();
-    REQUIRE(saveScene(path, s, lib, err));
+    REQUIRE(saveScene(path, s, lib, textures(), err));
     Scene loaded;
-    REQUIRE(loadScene(path, loaded, lib, err));
+    REQUIRE(loadScene(path, loaded, lib, textures(), err));
     REQUIRE(loaded.inputActions.size() == 2);
     CHECK(loaded.inputActions[0].name == "shoot");
     CHECK(loaded.inputActions[0].keys == s.inputActions[0].keys);
@@ -238,7 +238,7 @@ TEST(input_bindings_saved_with_scene) {
     CHECK(loaded.inputActions[1].mouseButton == -1);
     // Files without bindings get the defaults
     test::writeFile(test::tempPath("nobindings.vkw"), "{\"format\":\"vkworld-scene\",\"version\":4,\"entities\":[]}");
-    REQUIRE(loadScene(test::tempPath("nobindings.vkw").string(), loaded, lib, err));
+    REQUIRE(loadScene(test::tempPath("nobindings.vkw").string(), loaded, lib, textures(), err));
     CHECK(loaded.inputActions.size() == defaultInputActions().size());
 }
 

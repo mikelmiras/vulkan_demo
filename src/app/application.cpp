@@ -60,7 +60,7 @@ Application::Options Application::parseArgs(int& argc, char** argv, Options o) {
     return o;
 }
 
-bool Application::init(const Options& options, MeshLibrary& meshes) {
+bool Application::init(const Options& options, MeshLibrary& meshes, TextureLibrary& textures) {
     options_ = options;
     if (!platform::createWindow(options.title.c_str(), options.width, options.height)) {
         std::fprintf(stderr, "fatal: cannot create window\n");
@@ -68,7 +68,7 @@ bool Application::init(const Options& options, MeshLibrary& meshes) {
     }
     if (options.fullscreen) platform::setFullscreen(true);
     platform::windowSize(width_, height_);
-    renderer_.init(width_, height_, meshes);
+    renderer_.init(width_, height_, meshes, textures);
 
     uiScale_ = std::max(platform::dpiScale(), 1.f);
     IMGUI_CHECKVERSION();

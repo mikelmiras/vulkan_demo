@@ -230,9 +230,16 @@ void imguiNewFrame(float) { ImGui_ImplWin32_NewFrame(); }   // the backend measu
 void imguiShutdown() { ImGui_ImplWin32_Shutdown(); }
 
 std::filesystem::path openFileDialog(const char* title, const char* extension) {
-    std::wstring ext = widen(extension), wtitle = widen(title);
-    // Filter: "OBJ files (*.obj)\0*.obj\0All files\0*.*\0\0"
-    std::wstring filter = ext + L" files (*." + ext + L")" + L'\0' + L"*." + ext + L'\0' + L"All files" + L'\0' + L"*.*" + L'\0';
+    std::wstring exts = widen(extension), wtitle = widen(title), patterns;
+    for (size_t start = 0; start <= exts.size();) {   // "obj,glb" -> "*.obj;*.glb"
+        size_t comma = exts.find(L',', start);
+        if (comma == std::wstring::npos) comma = exts.size();
+        if (comma > start) patterns += (patterns.empty() ? L"*." : L";*.") + exts.substr(start, comma - start);
+        start = comma + 1;
+    }
+    // Filter: "Supported files (*.obj;*.glb)\0*.obj;*.glb\0All files\0*.*\0\0"
+    std::wstring filter = L"Supported files (" + patterns + L")" + L'\0' + patterns + L'\0' + L"All files" + L'\0' +
+                          L"*.*" + L'\0';
     wchar_t file[MAX_PATH * 4] = {};
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);

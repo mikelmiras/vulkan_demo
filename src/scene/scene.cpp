@@ -1,6 +1,9 @@
 #include "scene/scene.h"
 
+#include "assets/gltf.h"
+
 #include <algorithm>
+#include <filesystem>
 #include <cstdio>
 #include <functional>
 #include <set>
@@ -20,6 +23,56 @@ Mat4 Transform::matrix() const {
 
 void Transform::setMatrix(const Mat4& m) {
     ImGuizmo::DecomposeMatrixToComponents(m.m, position, rotation, scale);
+}
+
+const char* lightTypeName(Light::Type type) { return type == Light::Type::Directional ? "directional" : "point"; }
+
+bool importGltfPrefab(const std::string& path, MeshLibrary& meshes, TextureLibrary& textures, Prefab& out,
+                      std::string& error, std::string& warning) {
+    GltfModel model;
+    std::string message;
+    if (!importGltf(path, meshes, textures, model, message)) { error = message; return false; }
+    warning = message;
+    Prefab p;
+    p.name = std::filesystem::path(path).stem().u8string();
+    EntityId nextId = 1;
+    Entity root;
+    root.id = nextId++;
+    root.name = p.name;
+    p.entities.push_back(root);
+    std::vector<EntityId> nodeIds;
+    for (const GltfModel::Node& n : model.nodes) {
+        Entity e;
+        e.id = nextId++;
+        e.name = n.name;
+        e.parent = n.parent >= 0 ? nodeIds[(size_t)n.parent] : root.id;
+        e.transform.setMatrix(n.local);
+        nodeIds.push_back(e.id);
+        // The first primitive goes on the node, any others on children of it
+        for (size_t k = 0; k < n.meshes.size(); ++k) {
+            MeshRenderer mr;
+            mr.mesh = n.meshes[k];
+            mr.color = {1, 1, 1};
+            if (int m = n.materials[k]; m >= 0) {
+                mr.color = model.materials[(size_t)m].color;
+                mr.texture = model.materials[(size_t)m].texture;
+            }
+            if (k == 0) {
+                e.meshRenderer = mr;
+                continue;
+            }
+            if (k == 1) p.entities.push_back(e);   // the node first, so its children come after it
+            Entity part;
+            part.id = nextId++;
+            part.name = n.name + " part " + std::to_string(k);
+            part.parent = e.id;
+            part.meshRenderer = mr;
+            p.entities.push_back(part);
+        }
+        if (n.meshes.size() < 2) p.entities.push_back(e);
+    }
+    out = std::move(p);
+    return true;
 }
 
 const char* colliderShapeName(Collider::Shape shape) {
@@ -355,6 +408,17 @@ Scene buildDefaultScene() {
     eyes.transform.position[1] = 1.65f;
     addBehaviour(eyes, "Shooter");   // left mouse fires the Bullet prefab
 
+    // Lighting: a sun (casts the shadows) and a warm light in the centrepiece
+    {
+        Entity& sun = group(scene, "Sun", {0, 40, 0});
+        Light l;
+        l.type = Light::Type::Directional;
+        l.color = {1.f, 0.95f, 0.85f};
+        sun.light = l;
+        const float unit[3] = {1, 1, 1};
+        sun.transform.setMatrix(lookRotation({0, 40, 0}, normalize(Vec3{-0.45f, -1.f, -0.3f}), unit));
+    }
+
     Entity& ground = make(scene, "Ground", kNoEntity, MeshKind::Plane, {0, 0, 0}, {600, 1, 600}, {0.42f, 0.55f, 0.38f});
     ground.meshRenderer->checker = true;
     ground.locked = true;
@@ -365,6 +429,15 @@ Scene buildDefaultScene() {
     Entity& torus = make(scene, "Centre Torus", centre, MeshKind::Torus, {0, 0, 0}, {7, 7, 7}, {0.85f, 0.2f, 0.25f});
     torus.transform.rotation[0] = 0.6f / DEG2RAD;
     animate(torus, 0.8f, 0.4f);
+    {
+        Entity& glow = scene.create("Centre Light", centre);
+        glow.transform.position[1] = -2.f;
+        Light l;
+        l.color = {1.f, 0.62f, 0.3f};
+        l.intensity = 2.5f;
+        l.range = 22.f;
+        glow.light = l;
+    }
 
     // Prefabs: templates that game code spawns (and the gems below are made from). Each is built as an entity,
     // turned into a prefab, and removed again.
@@ -426,8 +499,10 @@ Scene buildDefaultScene() {
     for (int i = 0; i < 5; ++i) {
         float a = i * 2.f * PI / 5 + 0.3f, d = rng.range(110, 160), s = rng.range(20, 35);
         Entity& e = make(scene, numbered("Landmark", i + 1), landmarks, MeshKind::Pyramid,
-                         {std::cos(a) * d, 0, std::sin(a) * d}, {s, s * 0.8f, s}, {0.85f, 0.75f, 0.55f});
+                         {std::cos(a) * d, 0, std::sin(a) * d}, {s, s * 0.8f, s}, {1.f, 0.95f, 0.85f});
         e.transform.rotation[1] = a / DEG2RAD;
+        e.meshRenderer->texture = 1;   // built-in "Bricks"
+        e.meshRenderer->tiling = std::round(s / 3.f);
     }
 
     // Random scattered objects
@@ -455,6 +530,10 @@ Scene buildDefaultScene() {
             t.position[1] += 2.f;
             t.rotation[0] = 0.6f / DEG2RAD;
             animate(o, 0.7f, 0.5f, phase);
+        }
+        if (k == 0) {   // brick cubes
+            o.meshRenderer->texture = 1;
+            o.meshRenderer->color = {1.f, 1.f, 1.f};
         }
         // Shoot them: cubes leave a gem behind
         addBehaviour(o, "Destructible");

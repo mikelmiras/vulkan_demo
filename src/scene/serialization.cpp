@@ -10,7 +10,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 4;   // 4: prefabs; 3: entities/components (JSON)
+constexpr int kVersion = 5;   // 5: textures, lights; 4: prefabs; 3: entities/components (JSON)
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -29,6 +29,8 @@ std::map<std::string, int> builtinMeshIds(const MeshLibrary& meshes) {
     for (int i = 0; i < (int)MeshKind::Count; ++i) ids[meshes.name(i)] = i;
     return ids;
 }
+
+const char* lightTypeKey(Light::Type t) { return lightTypeName(t); }
 
 // Behaviour fields -> JSON members
 struct FieldWriter : FieldVisitor {
@@ -82,7 +84,7 @@ bool loadLegacy(const std::string& path, const std::string& text, Scene& scene, 
             in >> keyword >> std::quoted(name) >> std::quoted(source);
             if (!in) return fail("malformed mesh line");
             std::string importError;
-            int id = importObj(meshes, source, importError);
+            int id = importMesh(meshes, source, importError);
             if (id < 0) return fail(importError);
             meshIds[name] = id;
             continue;
@@ -121,7 +123,14 @@ bool loadLegacy(const std::string& path, const std::string& text, Scene& scene, 
 // ---------------------------------------------------------------------------------------------
 // Entities
 // ---------------------------------------------------------------------------------------------
-json::Value entityToJson(const Entity& e, const MeshLibrary& meshes) {
+AssetIds builtinAssetIds(const MeshLibrary& meshes, const TextureLibrary& textures) {
+    AssetIds ids;
+    ids.meshes = builtinMeshIds(meshes);
+    for (int i = 0; i < kBuiltinTextureCount && i < textures.count(); ++i) ids.textures[textures.name(i)] = i;
+    return ids;
+}
+
+json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const TextureLibrary& textures) {
     json::Value v = json::Value::object();
     v.set("id", e.id);
     v.set("name", e.name);
@@ -138,6 +147,9 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes) {
         json::Value& c = v.set("meshRenderer", json::Value::object());
         c.set("mesh", meshes.name(e.meshRenderer->mesh));
         c.set("color", vec3(e.meshRenderer->color));
+        if (e.meshRenderer->texture >= 0 && e.meshRenderer->texture < textures.count())
+            c.set("texture", textures.name(e.meshRenderer->texture));
+        if (e.meshRenderer->tiling != 1.f) c.set("tiling", e.meshRenderer->tiling);
         if (e.meshRenderer->checker) c.set("checker", true);
     }
     if (e.camera) {
@@ -145,6 +157,15 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes) {
         c.set("fov", e.camera->fovY / DEG2RAD);
         c.set("near", e.camera->zNear);
         c.set("far", e.camera->zFar);
+    }
+    if (e.light) {
+        const Light& l = *e.light;
+        json::Value& c = v.set("light", json::Value::object());
+        c.set("type", lightTypeKey(l.type));
+        c.set("color", vec3(l.color));
+        c.set("intensity", l.intensity);
+        if (l.type == Light::Type::Point) c.set("range", l.range);
+        else c.set("castShadows", l.castShadows);
     }
     if (e.collider) {
         const Collider& col = *e.collider;
@@ -169,7 +190,8 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes) {
     return v;
 }
 
-bool entityFromJson(const json::Value& v, const std::map<std::string, int>& meshIds, Entity& out, std::string& error) {
+bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std::string& error) {
+    const std::map<std::string, int>& meshIds = ids.meshes;
     if (!v.isObject()) { error = "entity is not an object"; return false; }
     Entity e;
     e.id = (EntityId)v["id"].asNumber(0);
@@ -190,6 +212,12 @@ bool entityFromJson(const json::Value& v, const std::map<std::string, int>& mesh
         mr.mesh = it->second;
         mr.color = readVec3(c["color"], mr.color);
         mr.checker = c["checker"].asBool(false);
+        mr.tiling = c["tiling"].asFloat(1.f);
+        if (const std::string& tex = c["texture"].asString(); !tex.empty()) {
+            auto t = ids.textures.find(tex);
+            if (t == ids.textures.end()) { error = "entity '" + e.name + "': unknown texture '" + tex + "'"; return false; }
+            mr.texture = t->second;
+        }
         e.meshRenderer = mr;
     }
     if (const json::Value& c = v["camera"]; c.isObject()) {
@@ -198,6 +226,15 @@ bool entityFromJson(const json::Value& v, const std::map<std::string, int>& mesh
         cam.zNear = c["near"].asFloat(cam.zNear);
         cam.zFar = c["far"].asFloat(cam.zFar);
         e.camera = cam;
+    }
+    if (const json::Value& c = v["light"]; c.isObject()) {
+        Light l;
+        l.type = c["type"].asString() == "directional" ? Light::Type::Directional : Light::Type::Point;
+        l.color = readVec3(c["color"], l.color);
+        l.intensity = c["intensity"].asFloat(l.intensity);
+        l.range = c["range"].asFloat(l.range);
+        l.castShadows = c["castShadows"].asBool(true);
+        e.light = l;
     }
     if (const json::Value& c = v["collider"]; c.isObject()) {
         Collider col;
@@ -234,48 +271,63 @@ bool entityFromJson(const json::Value& v, const std::map<std::string, int>& mesh
 // ---------------------------------------------------------------------------------------------
 namespace {
 
-// "meshes": imported meshes the entities use, by name and OBJ path
-json::Value meshListToJson(const std::vector<const std::vector<Entity>*>& lists, const MeshLibrary& meshes) {
-    std::set<int> used;
+// "meshes" and "textures": the imported ones the entities use, by name and source file
+void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Entity>*>& lists, const MeshLibrary& meshes,
+                      const TextureLibrary& textures) {
+    std::set<int> usedMeshes, usedTextures;
     for (const auto* list : lists)
-        for (const Entity& e : *list)
-            if (e.meshRenderer && e.meshRenderer->mesh >= (int)MeshKind::Count) used.insert(e.meshRenderer->mesh);
-    json::Value out = json::Value::array();
-    for (int id : used) {
-        json::Value m = json::Value::object();
-        m.set("name", meshes.name(id));
-        m.set("source", meshes.get(id).source);
-        out.push(std::move(m));
+        for (const Entity& e : *list) {
+            if (!e.meshRenderer) continue;
+            if (e.meshRenderer->mesh >= (int)MeshKind::Count) usedMeshes.insert(e.meshRenderer->mesh);
+            if (e.meshRenderer->texture >= kBuiltinTextureCount) usedTextures.insert(e.meshRenderer->texture);
+        }
+    json::Value& m = doc.set("meshes", json::Value::array());
+    for (int id : usedMeshes) {
+        json::Value v = json::Value::object();
+        v.set("name", meshes.name(id));
+        v.set("source", meshes.get(id).source);
+        m.push(std::move(v));
     }
-    return out;
+    json::Value& t = doc.set("textures", json::Value::array());
+    for (int id : usedTextures) {
+        json::Value v = json::Value::object();
+        v.set("name", textures.name(id));
+        v.set("source", textures.get(id).source);
+        t.push(std::move(v));
+    }
 }
 
-// Imports the listed meshes; fills the file's mesh names -> library ids
-bool meshListFromJson(const json::Value& list, MeshLibrary& meshes, std::map<std::string, int>& meshIds,
-                      std::string& error) {
-    meshIds = builtinMeshIds(meshes);
-    for (const json::Value& m : list.elements()) {
-        int id = importObj(meshes, m["source"].asString(), error);
+// Imports the listed meshes and textures; fills the file's names -> library ids
+bool assetListsFromJson(const json::Value& doc, MeshLibrary& meshes, TextureLibrary& textures, AssetIds& ids,
+                        std::string& error) {
+    ids = builtinAssetIds(meshes, textures);
+    for (const json::Value& m : doc["meshes"].elements()) {
+        int id = importMesh(meshes, m["source"].asString(), error);
         if (id < 0) return false;
-        meshIds[m["name"].asString()] = id;
+        ids.meshes[m["name"].asString()] = id;
+    }
+    for (const json::Value& t : doc["textures"].elements()) {
+        int id = importTexture(textures, t["source"].asString(), error);
+        if (id < 0) return false;
+        ids.textures[t["name"].asString()] = id;
     }
     return true;
 }
 
-json::Value prefabToJson(const Prefab& p, const MeshLibrary& meshes) {
+json::Value prefabToJson(const Prefab& p, const MeshLibrary& meshes, const TextureLibrary& textures) {
     json::Value v = json::Value::object();
     v.set("name", p.name);
     json::Value& ents = v.set("entities", json::Value::array());
-    for (const Entity& e : p.entities) ents.push(entityToJson(e, meshes));
+    for (const Entity& e : p.entities) ents.push(entityToJson(e, meshes, textures));
     return v;
 }
 
-bool prefabFromJson(const json::Value& v, const std::map<std::string, int>& meshIds, Prefab& out, std::string& error) {
+bool prefabFromJson(const json::Value& v, const AssetIds& ids, Prefab& out, std::string& error) {
     Prefab p;
     p.name = v["name"].asString();
     for (const json::Value& ev : v["entities"].elements()) {
         Entity e;
-        if (!entityFromJson(ev, meshIds, e, error)) { error = "prefab '" + p.name + "': " + error; return false; }
+        if (!entityFromJson(ev, ids, e, error)) { error = "prefab '" + p.name + "': " + error; return false; }
         p.entities.push_back(std::move(e));
     }
     if (p.entities.empty()) { error = "prefab '" + p.name + "' has no entities"; return false; }
@@ -312,18 +364,19 @@ constexpr int kPrefabVersion = 1;
 // ---------------------------------------------------------------------------------------------
 // Scenes
 // ---------------------------------------------------------------------------------------------
-bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& meshes, std::string& error) {
+bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& meshes, const TextureLibrary& textures,
+               std::string& error) {
     json::Value doc = json::Value::object();
     doc.set("format", kFormat);
     doc.set("version", kVersion);
     std::vector<const std::vector<Entity>*> lists = {&scene.entities};
     for (const Prefab& p : scene.prefabs) lists.push_back(&p.entities);
-    doc.set("meshes", meshListToJson(lists, meshes));
+    assetListsToJson(doc, lists, meshes, textures);
     json::Value& ents = doc.set("entities", json::Value::array());
-    for (const Entity& e : scene.entities) ents.push(entityToJson(e, meshes));
+    for (const Entity& e : scene.entities) ents.push(entityToJson(e, meshes, textures));
     if (!scene.prefabs.empty()) {
         json::Value& prefabs = doc.set("prefabs", json::Value::array());
-        for (const Prefab& p : scene.prefabs) prefabs.push(prefabToJson(p, meshes));
+        for (const Prefab& p : scene.prefabs) prefabs.push(prefabToJson(p, meshes, textures));
     }
     json::Value& settings = doc.set("settings", json::Value::object());
     json::Value& input = settings.set("input", json::Value::array());
@@ -338,7 +391,7 @@ bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& m
     return writeJson(path, doc, error);
 }
 
-bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, std::string& error) {
+bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, TextureLibrary& textures, std::string& error) {
     std::string text;
     if (!readFile(path, text)) { error = "cannot open " + path; return false; }
     size_t first = text.find_first_not_of(" \t\r\n");
@@ -346,13 +399,13 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, std::
 
     json::Value doc;
     if (!readJson(path, kFormat, kVersion, doc, error)) return false;
-    std::map<std::string, int> meshIds;
-    if (!meshListFromJson(doc["meshes"], meshes, meshIds, error)) { error = path + ": " + error; return false; }
+    AssetIds ids;
+    if (!assetListsFromJson(doc, meshes, textures, ids, error)) { error = path + ": " + error; return false; }
 
     Scene result;
     for (const json::Value& v : doc["entities"].elements()) {
         Entity e;
-        if (!entityFromJson(v, meshIds, e, error)) { error = path + ": " + error; return false; }
+        if (!entityFromJson(v, ids, e, error)) { error = path + ": " + error; return false; }
         EntityId fileId = e.id;
         if (result.add(std::move(e)).id != fileId && fileId != kNoEntity) {   // id-less entities just get a new one
             error = path + ": duplicate entity id " + std::to_string(fileId);
@@ -366,7 +419,7 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, std::
     }
     for (const json::Value& v : doc["prefabs"].elements()) {
         Prefab p;
-        if (!prefabFromJson(v, meshIds, p, error)) { error = path + ": " + error; return false; }
+        if (!prefabFromJson(v, ids, p, error)) { error = path + ": " + error; return false; }
         p.name = result.uniquePrefabName(p.name);
         result.prefabs.push_back(std::move(p));
     }
@@ -388,20 +441,22 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, std::
 // ---------------------------------------------------------------------------------------------
 // Prefab files
 // ---------------------------------------------------------------------------------------------
-bool savePrefab(const std::string& path, const Prefab& prefab, const MeshLibrary& meshes, std::string& error) {
+bool savePrefab(const std::string& path, const Prefab& prefab, const MeshLibrary& meshes, const TextureLibrary& textures,
+                std::string& error) {
     json::Value doc = json::Value::object();
     doc.set("format", kPrefabFormat);
     doc.set("version", kPrefabVersion);
-    doc.set("meshes", meshListToJson({&prefab.entities}, meshes));
-    doc.set("prefab", prefabToJson(prefab, meshes));
+    assetListsToJson(doc, {&prefab.entities}, meshes, textures);
+    doc.set("prefab", prefabToJson(prefab, meshes, textures));
     return writeJson(path, doc, error);
 }
 
-bool loadPrefab(const std::string& path, Prefab& prefab, MeshLibrary& meshes, std::string& error) {
+bool loadPrefab(const std::string& path, Prefab& prefab, MeshLibrary& meshes, TextureLibrary& textures,
+                std::string& error) {
     json::Value doc;
     if (!readJson(path, kPrefabFormat, kPrefabVersion, doc, error)) return false;
-    std::map<std::string, int> meshIds;
-    if (!meshListFromJson(doc["meshes"], meshes, meshIds, error)) { error = path + ": " + error; return false; }
-    if (!prefabFromJson(doc["prefab"], meshIds, prefab, error)) { error = path + ": " + error; return false; }
+    AssetIds ids;
+    if (!assetListsFromJson(doc, meshes, textures, ids, error)) { error = path + ": " + error; return false; }
+    if (!prefabFromJson(doc["prefab"], ids, prefab, error)) { error = path + ": " + error; return false; }
     return true;
 }

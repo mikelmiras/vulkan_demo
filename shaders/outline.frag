@@ -1,12 +1,9 @@
 #version 450
-
-layout(push_constant) uniform Push {
-    mat4 model;
-    vec4 color; // sRGB, written as-is to the UNORM target
-} pc;
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
 
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    outColor = vec4(pc.color.rgb, 1.0);
+    outColor = vec4(pc.color.rgb, 1.0);   // sRGB, written as-is to the UNORM target
 }

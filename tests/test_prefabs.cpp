@@ -189,21 +189,21 @@ TEST(prefabs_saved_with_scene_and_as_files) {
     s.prefabs[0].entities[1].meshRenderer = MeshRenderer{tri};   // a prefab-only use of an imported mesh
 
     auto scenePath = test::tempPath("prefabs.vkw").string();
-    REQUIRE(saveScene(scenePath, s, lib, err));
+    REQUIRE(saveScene(scenePath, s, lib, textures(), err));
     MeshLibrary lib2 = buildMeshLibrary();
     Scene loaded;
-    REQUIRE(loadScene(scenePath, loaded, lib2, err));
+    REQUIRE(loadScene(scenePath, loaded, lib2, textures(), err));
     REQUIRE(loaded.prefabs.size() == 1);
     CHECK(loaded.prefabs[0].name == "Thing");
-    CHECK(json::write(entityToJson(loaded.prefabs[0].entities[1], lib2)) ==
-          json::write(entityToJson(s.prefabs[0].entities[1], lib)));
+    CHECK(json::write(entityToJson(loaded.prefabs[0].entities[1], lib2, textures())) ==
+          json::write(entityToJson(s.prefabs[0].entities[1], lib, textures())));
 
     auto prefabPath = test::tempPath("thing.prefab").string();
-    REQUIRE(savePrefab(prefabPath, s.prefabs[0], lib, err));
+    REQUIRE(savePrefab(prefabPath, s.prefabs[0], lib, textures(), err));
     MeshLibrary lib3 = buildMeshLibrary();
     Prefab p;
-    REQUIRE(loadPrefab(prefabPath, p, lib3, err));
+    REQUIRE(loadPrefab(prefabPath, p, lib3, textures(), err));
     CHECK(p.entities.size() == 2);
     CHECK(lib3.count() == (int)MeshKind::Count + 1);   // the imported mesh came along
-    CHECK(!loadPrefab(scenePath, p, lib3, err));      // a scene isn't a prefab
+    CHECK(!loadPrefab(scenePath, p, lib3, textures(), err));      // a scene isn't a prefab
 }

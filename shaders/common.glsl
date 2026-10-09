@@ -1,0 +1,21 @@
+// Shared by the scene shaders: per-frame data (set 0, binding 0) and per-draw push constants.
+// Must match FrameUBO / PushConstants in src/render/renderer.cpp.
+
+layout(set = 0, binding = 0) uniform Frame {
+    mat4 viewProj;
+    mat4 lightViewProj;   // the directional light's shadow camera
+    vec4 camPos;
+    vec4 fogColor;        // rgb = fog/sky colour, w = density
+    vec4 viewport;        // width, height, outline width (px), unused
+    vec4 sunDir;          // xyz = direction the light travels, w = 1 when it casts shadows
+    vec4 sunColor;        // rgb = colour * intensity (linear)
+    vec4 ambient;         // rgb = ambient strength, w = number of point lights
+    vec4 pointPos[8];     // xyz = position, w = range
+    vec4 pointColor[8];   // rgb = colour * intensity (linear)
+} frame;
+
+layout(push_constant) uniform Push {
+    mat4 model;
+    vec4 color;    // rgb = albedo (linear; sRGB for the outline), a unused
+    vec4 params;   // x = 1 for the procedural checker ground, y = texture tiling, z = 1 if textured
+} pc;

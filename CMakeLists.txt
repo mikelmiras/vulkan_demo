@@ -14,7 +14,7 @@ find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/Bin REQUIRE
 # Compile GLSL -> SPIR-V into <build>/shaders
 # (the executable looks in <exe dir>/shaders and <exe dir>/../shaders, which covers
 #  single-config builds and Visual Studio's <build>/Debug, <build>/Release folders)
-set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag)
+set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag shaders/shadow.vert)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -23,7 +23,7 @@ foreach(src ${SHADER_SOURCES})
     OUTPUT ${out}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
     COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/${src} -o ${out}
-    DEPENDS ${CMAKE_SOURCE_DIR}/${src}
+    DEPENDS ${CMAKE_SOURCE_DIR}/${src} ${CMAKE_SOURCE_DIR}/shaders/common.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
@@ -49,6 +49,8 @@ add_library(engine STATIC
   src/core/json.cpp
   src/core/png.cpp
   src/assets/meshes.cpp
+  src/assets/textures.cpp
+  src/assets/gltf.cpp
   src/scene/behaviour.cpp
   src/scene/input_bindings.cpp
   src/scene/scene.cpp
@@ -62,6 +64,8 @@ add_library(engine STATIC
   src/render/scene_draw.cpp
   src/app/application.cpp)
 target_include_directories(engine PUBLIC ${CMAKE_SOURCE_DIR}/src)
+# Vendored single-header libraries (implementations compiled in assets/): stb_image v2.30, cgltf v1.14
+target_include_directories(engine PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb ${CMAKE_SOURCE_DIR}/third_party/cgltf)
 target_link_libraries(engine PUBLIC imgui)
 add_dependencies(engine shaders)
 
@@ -111,7 +115,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_scene.cpp
     tests/test_game.cpp
     tests/test_physics.cpp
-    tests/test_prefabs.cpp)
+    tests/test_prefabs.cpp
+    tests/test_rendering_assets.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   add_test(NAME engine_tests COMMAND engine_tests)
 endif()
