@@ -1,0 +1,167 @@
+// macOS platform layer: Cocoa window with a CAMetalLayer (Vulkan via MoltenVK / KosmicKrisp) + Dear ImGui's OSX backend.
+// Rendering is done at one pixel per point: the editor and renderer share window coordinates, so the framebuffer must
+// match ImGui's DisplaySize.
+#import <Cocoa/Cocoa.h>
+#import <QuartzCore/CAMetalLayer.h>
+#define VK_USE_PLATFORM_METAL_EXT
+#include <vulkan/vulkan.h>
+
+#include "platform.h"
+
+#include <mach-o/dyld.h>
+
+#include <algorithm>
+#include <string>
+
+#include "imgui.h"
+#include "imgui_impl_osx.h"
+
+@interface VkwView : NSView
+@end
+
+@implementation VkwView
+- (BOOL)wantsUpdateLayer { return YES; }
+- (CALayer*)makeBackingLayer {
+    CAMetalLayer* layer = [CAMetalLayer layer];
+    layer.contentsScale = 1.0;
+    return layer;
+}
+- (BOOL)acceptsFirstResponder { return YES; }
+- (BOOL)acceptsFirstMouse:(NSEvent*)event { return YES; }
+// ImGui's key responder (a subview) forwards keys it doesn't want to us; swallow them so AppKit doesn't beep
+- (void)keyDown:(NSEvent*)event {}
+- (void)keyUp:(NSEvent*)event {}
+@end
+
+@interface VkwWindowDelegate : NSObject <NSWindowDelegate>
+@end
+
+namespace platform {
+namespace {
+NSWindow* g_window = nil;
+VkwView* g_view = nil;
+VkwWindowDelegate* g_delegate = nil;
+bool g_closeRequested = false;
+}  // namespace
+}  // namespace platform
+
+@implementation VkwWindowDelegate
+- (BOOL)windowShouldClose:(NSWindow*)sender {
+    platform::g_closeRequested = true;
+    return NO;
+}
+@end
+
+namespace platform {
+
+bool createWindow(const char* title, uint32_t width, uint32_t height) {
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+
+        // Minimal menu so Cmd+Q works
+        NSMenu* menuBar = [NSMenu new];
+        NSMenuItem* appItem = [NSMenuItem new];
+        [menuBar addItem:appItem];
+        NSMenu* appMenu = [NSMenu new];
+        [appMenu addItemWithTitle:@"Quit" action:@selector(terminate:) keyEquivalent:@"q"];
+        appItem.submenu = appMenu;
+        NSApp.mainMenu = menuBar;
+        [NSApp finishLaunching];
+
+        // Keep within 90% of the screen
+        NSRect visible = NSScreen.mainScreen.visibleFrame;
+        CGFloat w = std::min<CGFloat>(width, visible.size.width * 0.9);
+        CGFloat h = std::min<CGFloat>(height, visible.size.height * 0.9);
+
+        g_window = [[NSWindow alloc]
+            initWithContentRect:NSMakeRect(0, 0, w, h)
+                      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable |
+                                NSWindowStyleMaskResizable
+                        backing:NSBackingStoreBuffered
+                          defer:NO];
+        if (!g_window) return false;
+        g_window.releasedWhenClosed = NO;
+        g_window.title = [NSString stringWithUTF8String:title];
+        g_delegate = [VkwWindowDelegate new];
+        g_window.delegate = g_delegate;
+
+        g_view = [[VkwView alloc] initWithFrame:NSMakeRect(0, 0, w, h)];
+        g_view.wantsLayer = YES;
+        g_window.contentView = g_view;
+        [g_window center];
+        [g_window makeKeyAndOrderFront:nil];
+        [g_window makeFirstResponder:g_view];
+        [NSApp activateIgnoringOtherApps:YES];
+        return true;
+    }
+}
+
+void destroyWindow() {
+    [g_window close];
+    g_window = nil;
+    g_view = nil;
+    g_delegate = nil;
+}
+
+void pollEvents() {
+    @autoreleasepool {
+        while (NSEvent* event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                                   untilDate:nil
+                                                      inMode:NSDefaultRunLoopMode
+                                                     dequeue:YES]) {
+            [NSApp sendEvent:event];
+        }
+    }
+}
+
+bool closeRequested() { return g_closeRequested; }
+
+void windowSize(uint32_t& width, uint32_t& height) {
+    if (!g_window || g_window.miniaturized) {
+        width = height = 0;
+        return;
+    }
+    NSSize size = g_view.bounds.size;
+    width = (uint32_t)size.width;
+    height = (uint32_t)size.height;
+    ((CAMetalLayer*)g_view.layer).drawableSize = CGSizeMake(width, height);
+}
+
+float dpiScale() { return 1.f; }
+
+const char* vulkanSurfaceExtension() { return VK_EXT_METAL_SURFACE_EXTENSION_NAME; }
+
+VkSurfaceKHR createVulkanSurface(VkInstance instance) {
+    VkMetalSurfaceCreateInfoEXT ci{VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT};
+    ci.pLayer = (CAMetalLayer*)g_view.layer;
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (vkCreateMetalSurfaceEXT(instance, &ci, nullptr, &surface) != VK_SUCCESS) return VK_NULL_HANDLE;
+    return surface;
+}
+
+void imguiInit() { ImGui_ImplOSX_Init(g_view); }
+
+void imguiNewFrame(float) {
+    ImGui_ImplOSX_NewFrame(g_view);
+    ImGui::GetIO().DisplayFramebufferScale = ImVec2(1.f, 1.f);   // the swapchain is not Retina-scaled (see top)
+}
+
+void imguiShutdown() { ImGui_ImplOSX_Shutdown(); }
+
+std::filesystem::path executableDir() {
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buf(size, '\0');
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) return std::filesystem::current_path();
+    std::error_code ec;
+    std::filesystem::path p = std::filesystem::canonical(buf.c_str(), ec);
+    return (ec ? std::filesystem::path(buf.c_str()) : p).parent_path();
+}
+
+std::vector<std::filesystem::path> uiFontCandidates() {
+    return {"/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/Library/Fonts/Arial Unicode.ttf"};
+}
+
+}  // namespace platform

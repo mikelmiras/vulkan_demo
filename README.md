@@ -2,7 +2,7 @@
 
 A small Vulkan 1.3 3D scene with a Blender-style editing UI, in C++17.
 
-- Runs on **Linux** (X11 / XWayland, via raw XCB) and **Windows** (Win32). No GLFW/SDL needed.
+- Runs on **Linux** (X11 / XWayland, via raw XCB), **Windows** (Win32) and **macOS** (Cocoa + MoltenVK). No GLFW/SDL needed.
 - UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo),
   vendored in `third_party/` and compiled into the binary.
 
@@ -33,6 +33,18 @@ build\Release\vkworld.exe
 
 Or open the folder in Visual Studio / VS Code (CMake Tools) and run the `vkworld` target.
 MinGW-w64 and Ninja also work (`cmake -S . -B build -G Ninja`; the exe is then `build\vkworld.exe`).
+
+### macOS
+
+Install the Vulkan SDK (it provides MoltenVK and `glslc`), then build as on Linux:
+
+```sh
+cmake -S . -B build
+cmake --build build -j
+./build/vkworld
+```
+
+The editor renders at one pixel per point (no Retina scaling). Shortcuts listed with Ctrl use Cmd.
 
 ### Validation layer
 
@@ -81,6 +93,7 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
 | `src/platform.h`           | OS layer interface: window, input, Vulkan surface, paths        |
 | `src/platform_xcb.cpp`     | Linux implementation (XCB)                                      |
 | `src/platform_win32.cpp`   | Windows implementation (Win32 + ImGui's Win32 backend)          |
+| `src/platform_macos.mm`    | macOS implementation (Cocoa + CAMetalLayer + ImGui's OSX backend) |
 | `src/editor.*`             | Camera navigation, picking, gizmos, undo/redo, all UI panels    |
 | `src/renderer.*`           | Vulkan: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/scene.*`              | Scene objects, default scene, save/load text format             |

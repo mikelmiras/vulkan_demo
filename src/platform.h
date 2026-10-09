@@ -1,6 +1,7 @@
 // Native window, input and OS services. One implementation per OS:
 //   platform_xcb.cpp   (Linux: X11 / XWayland via XCB)
 //   platform_win32.cpp (Windows)
+//   platform_macos.mm  (macOS: Cocoa + CAMetalLayer, Vulkan via MoltenVK)
 #pragma once
 
 #include <vulkan/vulkan.h>

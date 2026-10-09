@@ -118,7 +118,15 @@ void Renderer::createInstance() {
     appInfo.pApplicationName = "Vulkan World Editor";
     appInfo.apiVersion = VK_API_VERSION_1_3;
 
+#ifdef __APPLE__
+    // MoltenVK / KosmicKrisp are non-conformant "portability" drivers that are only enumerated on request
+    exts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
+
     VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+#ifdef __APPLE__
+    ci.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
     ci.pApplicationInfo = &appInfo;
     ci.enabledExtensionCount = (uint32_t)exts.size();
     ci.ppEnabledExtensionNames = exts.data();
@@ -217,13 +225,21 @@ void Renderer::createDevice() {
     f13.dynamicRendering = VK_TRUE;
     VkPhysicalDeviceFeatures2 f2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &f13};
 
-    const char* ext = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+    std::vector<const char*> exts = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    // Portability drivers (MoltenVK etc.) require VK_KHR_portability_subset to be enabled when they expose it
+    uint32_t extCount = 0;
+    vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &extCount, nullptr);
+    std::vector<VkExtensionProperties> available(extCount);
+    vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &extCount, available.data());
+    for (const auto& e : available)
+        if (std::strcmp(e.extensionName, "VK_KHR_portability_subset") == 0) exts.push_back("VK_KHR_portability_subset");
+
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &f2;
     ci.queueCreateInfoCount = 1;
     ci.pQueueCreateInfos = &qci;
-    ci.enabledExtensionCount = 1;
-    ci.ppEnabledExtensionNames = &ext;
+    ci.enabledExtensionCount = (uint32_t)exts.size();
+    ci.ppEnabledExtensionNames = exts.data();
     VK_CHECK(vkCreateDevice(gpu_, &ci, nullptr, &device_));
     vkGetDeviceQueue(device_, queueFamily_, 0, &queue_);
 }
