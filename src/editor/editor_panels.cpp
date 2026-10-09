@@ -1,9 +1,11 @@
 // Editor panels: menu bar, toolbar, outliner, inspector, status bar, help and dialogs.
 #include "editor/editor.h"
 
+#include <cctype>
 #include <cfloat>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 
 #include "misc/cpp/imgui_stdlib.h"
 #include "platform/platform.h"
@@ -25,6 +27,40 @@ void verticalSeparator() {
 void tooltip(const char* text) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", text);
 }
+
+// "moveSpeed" -> "Move speed"
+std::string prettyName(const char* key) {
+    std::string out;
+    for (const char* c = key; *c; ++c) {
+        if (c == key) out += (char)std::toupper((unsigned char)*c);
+        else if (std::isupper((unsigned char)*c)) { out += ' '; out += (char)std::tolower((unsigned char)*c); }
+        else out += *c;
+    }
+    return out;
+}
+
+// Behaviour fields as inspector widgets; afterWidget runs after each one (undo tracking)
+struct FieldInspector : FieldVisitor {
+    std::function<void()> afterWidget;
+    explicit FieldInspector(std::function<void()> fn) : afterWidget(std::move(fn)) {}
+    void field(const char* name, float& v, float speed, float min, float max) override {
+        ImGui::DragFloat(prettyName(name).c_str(), &v, speed, min, max, "%.3g",
+                         min < max ? ImGuiSliderFlags_AlwaysClamp : 0);
+        afterWidget();
+    }
+    void field(const char* name, bool& v) override {
+        ImGui::Checkbox(prettyName(name).c_str(), &v);
+        afterWidget();
+    }
+    void field(const char* name, Vec3& v, float speed) override {
+        ImGui::DragFloat3(prettyName(name).c_str(), &v.x, speed, 0.f, 0.f, "%.2f");
+        afterWidget();
+    }
+    void field(const char* name, std::string& v) override {
+        ImGui::InputText(prettyName(name).c_str(), &v);
+        afterWidget();
+    }
+};
 
 // Collapsing header with a remove button; returns false when the component should be removed
 bool componentHeader(const char* label, bool& open) {
@@ -52,7 +88,7 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem("Load", "Ctrl+O")) loadFromFile();
         if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
         ImGui::Separator();
-        if (ImGui::MenuItem("New (ground + camera)")) newScene(false);
+        if (ImGui::MenuItem("New (ground + player)")) newScene(false);
         if (ImGui::MenuItem("Reset to demo scene")) newScene(true);
         ImGui::EndDisabled();
         ImGui::Separator();
@@ -405,18 +441,19 @@ void Editor::drawComponents(Entity& e) {
             else ImGui::TextDisabled("Inactive: %s comes first", first ? first->name.c_str() : "?");
         }
     }
-    if (e.animator) {
-        if (!componentHeader("Animator", open)) { pushUndo(); e.animator.reset(); }
-        else if (open) {
-            Animator& a = *e.animator;
-            ImGui::DragFloat("Spin (rad/s)", &a.spin, 0.01f, -20.f, 20.f, "%.2f");
-            track();
-            ImGui::DragFloat("Bob height", &a.bob, 0.01f, 0.f, 50.f, "%.2f");
-            track();
-            ImGui::SliderAngle("Phase", &a.phase, 0.f, 360.f);
-            track();
-            ImGui::TextDisabled("Moves the object in play mode");
-        }
+    int removeBehaviour = -1;
+    FieldInspector inspector([this] { track(); });
+    for (size_t i = 0; i < e.behaviours.size(); ++i) {
+        Behaviour& b = *e.behaviours[i];
+        ImGui::PushID((int)i);
+        std::string label = std::string(b.typeName()) + "  (behaviour)";
+        if (!componentHeader(label.c_str(), open)) removeBehaviour = (int)i;
+        else if (open) b.fields(inspector);
+        ImGui::PopID();
+    }
+    if (removeBehaviour >= 0) {
+        pushUndo();
+        e.behaviours.erase(e.behaviours.begin() + removeBehaviour);
     }
 
     ImGui::Spacing();
@@ -424,7 +461,14 @@ void Editor::drawComponents(Entity& e) {
     if (ImGui::BeginPopup("##addcomp")) {
         if (ImGui::MenuItem("Mesh Renderer", nullptr, false, !e.meshRenderer)) { pushUndo(); e.meshRenderer = MeshRenderer{}; }
         if (ImGui::MenuItem("Camera", nullptr, false, !e.camera)) { pushUndo(); e.camera = Camera{}; }
-        if (ImGui::MenuItem("Animator", nullptr, false, !e.animator)) { pushUndo(); e.animator = Animator{}; }
+        ImGui::SeparatorText("Behaviours");
+        for (const BehaviourType& t : behaviourTypes()) {
+            if (ImGui::MenuItem(t.name.c_str())) {
+                pushUndo();
+                e.behaviours.emplace_back(t.create());
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", t.description.c_str());
+        }
         ImGui::EndPopup();
     }
 }

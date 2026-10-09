@@ -76,7 +76,7 @@ it; hiding, deleting or duplicating a parent includes its children) and a **tran
 |-----------------|----------------------------------------------------------------------|
 | Mesh Renderer   | Draws a mesh (built-in or imported) with a colour / checker pattern  |
 | Camera          | The game renders through the first entity that has one               |
-| Animator        | Spin / bob motion while playing                                      |
+| Behaviours      | Game logic (any number per entity), see below                       |
 
 An entity without components is an **empty**: a handle for grouping others (Add > Empty). Cameras and empties
 show as icons in the viewport and can be clicked like meshes.
@@ -89,15 +89,55 @@ still load.
 **Play** (Ctrl+P) copies the scene and runs the game on the copy; **Stop** throws the copy away and restores
 the scene exactly as it was, so anything changed while playing is temporary (and not undoable).
 
+The demo scene is a tiny game: you are the **Player** (a camera with a PlayerController). Walk with WASD / arrow
+keys, hold the right mouse button to look, Space to jump, Shift to sprint, and collect the 8 floating gems.
+
 - The game updates at a fixed **60 Hz**, independent of the frame rate (several updates per frame on a slow
   machine, none on some frames of a fast one; a long hitch is capped at 8 updates).
   **Pause** freezes it and **Step** advances one update.
-- It renders through the first **camera object** in the scene (Add > Camera creates one at the current view;
-  any entity can get a Camera component in the Inspector). Without one, the editor view is used.
+- It renders through the first entity with a **Camera** component (Add > Camera creates one at the current
+  view). Without one, the editor view is used.
 - Game code reads **named input actions** (`move_forward`, `jump`, `look`, ...; see `src/game/input.cpp`), never
   raw keys. Key presses are latched until the next update reads them, so a quick tap is never missed. The keyboard
   is ignored while typing in a text field, and the mouse while it's over a panel.
+- Messages logged by behaviours show at the bottom of the viewport (and on stdout).
 - Game > Maximize viewport on play hides the side panels while playing.
+
+## Behaviours
+
+Behaviours are C++ classes attached to entities as components (Inspector > Add component). Each has editable
+**fields**, saved with the scene, and `start()` / `update()` callbacks that run in play mode. Built in:
+
+| Behaviour        | What it does                                                                 |
+|------------------|------------------------------------------------------------------------------|
+| Spin             | Rotates around the parent's Y axis                                           |
+| Bob              | Floats up and down around its starting height                                |
+| Patrol           | Moves back and forth between its start and start + offset                    |
+| LookAt           | Turns to face another entity (by name)                                       |
+| PlayerController | First-person walking, mouse look, jumping (on the ground plane, no physics yet) |
+| Pickup           | Disappears when the collector entity comes close, logs how many are left     |
+
+Writing one (see `src/game/builtin_behaviours.cpp` for complete examples):
+
+```cpp
+struct Hover : BehaviourBase<Hover> {
+    static constexpr const char* kTypeName = "Hover";
+    float height = 1.f;                                    // a field: inspector + scene file
+    float baseY = 0.f;                                     // runtime state: fresh on every Play
+
+    void fields(FieldVisitor& v) override { v.field("height", height); }
+    void start(GameContext&, Entity& self) override { baseY = self.transform.position[1]; }
+    void update(GameContext& ctx, Entity& self) override {
+        if (ctx.input().pressed("jump")) ctx.log(self.name + " jumped");
+        self.transform.position[1] = baseY + height * std::sin(ctx.time());
+    }
+};
+
+registerBehaviour<Hover>("Floats up and down");           // at startup, before loading scenes
+```
+
+`GameContext` gives access to the scene, input actions, time, entity lookup by name or id, world positions,
+deferred `destroy()` and `log()`.
 
 ## Controls
 
@@ -135,8 +175,8 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/assets/`              | Mesh library: procedural meshes, OBJ import, ray/triangle picking |
-| `src/scene/`               | Entities, components and hierarchy (`scene.*`); JSON save/load (`serialization.*`) |
-| `src/game/`                | Game runtime: fixed-timestep loop, play-mode camera, named input actions |
+| `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
+| `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking |
 | `shaders/scene.*`          | Lit objects, checker ground, fog                                |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

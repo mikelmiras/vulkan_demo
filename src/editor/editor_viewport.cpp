@@ -116,8 +116,7 @@ void Editor::handleGizmo() {
         bool useSnap = snap_ != io.KeyCtrl;
 
         ImGuizmo::Enable(nav_ == Nav::None);
-        // Edit the transform, not the animated play pose (the Animator is applied on top of it)
-        Mat4 parentWorld = playing() ? worldOf(e->parent) : scene_.parentWorldMatrix(e->id);
+        Mat4 parentWorld = scene_.parentWorldMatrix(e->id);
         Mat4 m = parentWorld * e->transform.matrix();
         if (ImGuizmo::Manipulate(view.m, proj.m, op, localSpace_ ? ImGuizmo::LOCAL : ImGuizmo::WORLD, m.m, nullptr,
                                  useSnap ? snapValues : nullptr)) {
@@ -244,6 +243,21 @@ void Editor::drawViewportOverlay() {
     if (playing()) {   // coloured frame around the viewport while playing
         dl->AddRect(ImVec2(vx_ + 1, vy_ + 1), ImVec2(vx_ + vw_ - 1, vy_ + vh_ - 1),
                     game_.paused() ? IM_COL32(240, 190, 60, 200) : IM_COL32(220, 70, 50, 200), 0.f, 0, px(2.f));
+    }
+    // Recent game log messages (GameContext::log), fading out after a few seconds
+    if (playing()) {
+        float y = vy_ + vh_ - px(10.f);
+        const auto& log = game_.log();
+        int shown = 0;
+        for (auto it = log.rbegin(); it != log.rend() && shown < 6; ++it, ++shown) {
+            float age = game_.time() - it->first;
+            if (age > 6.f) break;
+            int alpha = (int)(255.f * std::clamp(6.f - age, 0.f, 1.f));
+            y -= ImGui::GetTextLineHeightWithSpacing();
+            ImVec2 tp(vx_ + px(10.f), y);
+            dl->AddText(ImVec2(tp.x + 1, tp.y + 1), IM_COL32(0, 0, 0, alpha / 2), it->second.c_str());
+            dl->AddText(tp, IM_COL32(255, 235, 140, alpha), it->second.c_str());
+        }
     }
     const Entity* e = scene_.find(selected_);
     if (e && !viewingGameCamera()) {

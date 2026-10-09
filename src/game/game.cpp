@@ -1,11 +1,48 @@
 #include "game/game.h"
 
+#include <algorithm>
+#include <cstdio>
+
+// ---------------------------------------------------------------------------------------------
+// GameContext
+// ---------------------------------------------------------------------------------------------
+Vec3 GameContext::worldPosition(EntityId id) const {
+    Mat4 m = scene_->worldMatrix(id);
+    return {m.m[12], m.m[13], m.m[14]};
+}
+
+void GameContext::destroy(EntityId id) {
+    if (!isDestroyed(id)) destroyQueue_.push_back(id);
+}
+
+bool GameContext::isDestroyed(EntityId id) const {
+    return std::find(destroyQueue_.begin(), destroyQueue_.end(), id) != destroyQueue_.end();
+}
+
+void GameContext::log(const std::string& message) {
+    std::printf("[game %7.2fs] %s\n", time_, message.c_str());
+    std::fflush(stdout);
+    log_->emplace_back(time_, message);
+    if (log_->size() > 100) log_->erase(log_->begin());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Game
+// ---------------------------------------------------------------------------------------------
 void Game::start(Scene& scene) {
     scene_ = &scene;
     accumulator_ = time_ = 0.f;
     tick_ = 0;
     paused_ = false;
     input_ = InputMap{};
+    log_.clear();
+
+    prepareContext(0.f);
+    // Index loops: behaviours may look entities up, but nothing is added or removed until flushDestroyed()
+    for (size_t i = 0; i < scene_->entities.size(); ++i)
+        for (size_t b = 0; b < scene_->entities[i].behaviours.size(); ++b)
+            scene_->entities[i].behaviours[b]->start(ctx_, scene_->entities[i]);
+    flushDestroyed();
 }
 
 void Game::stop() { scene_ = nullptr; }
@@ -28,22 +65,41 @@ void Game::step() {
     if (running()) fixedUpdate(kFixedDt);
 }
 
+void Game::prepareContext(float dt) {
+    ctx_.scene_ = scene_;
+    ctx_.input_ = &input_;
+    ctx_.time_ = time_;
+    ctx_.dt_ = dt;
+    ctx_.log_ = &log_;
+}
+
 void Game::fixedUpdate(float dt) {
     time_ += dt;
     ++tick_;
+    prepareContext(dt);
+    for (size_t i = 0; i < scene_->entities.size(); ++i) {
+        Entity& e = scene_->entities[i];
+        if (ctx_.isDestroyed(e.id)) continue;
+        for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
+    }
+    flushDestroyed();
     input_.endFixedStep();
 }
 
+void Game::flushDestroyed() {
+    for (EntityId id : ctx_.destroyQueue_) scene_->remove(id);
+    ctx_.destroyQueue_.clear();
+}
+
 std::vector<Mat4> Game::worldMatrices() const {
-    return scene_ ? scene_->worldMatrices(true, time_) : std::vector<Mat4>{};
+    return scene_ ? scene_->worldMatrices() : std::vector<Mat4>{};
 }
 
 bool Game::activeCamera(CameraView& out) const {
     if (!scene_) return false;
-    for (size_t i = 0; i < scene_->entities.size(); ++i) {
-        const Entity& e = scene_->entities[i];
+    for (const Entity& e : scene_->entities) {
         if (!e.camera) continue;
-        Mat4 world = worldMatrices()[i];
+        Mat4 world = scene_->worldMatrix(e.id);
         // Strip scale so it doesn't distort the view; the camera looks down its local -Z
         Vec3 x = normalize(transformDir(world, {1, 0, 0})), y = normalize(transformDir(world, {0, 1, 0}));
         Vec3 z = normalize(cross(x, y));

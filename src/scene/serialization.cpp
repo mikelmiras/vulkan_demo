@@ -30,6 +30,28 @@ std::map<std::string, int> builtinMeshIds(const MeshLibrary& meshes) {
     return ids;
 }
 
+// Behaviour fields -> JSON members
+struct FieldWriter : FieldVisitor {
+    json::Value& out;
+    explicit FieldWriter(json::Value& o) : out(o) {}
+    void field(const char* name, float& v, float, float, float) override { out.set(name, v); }
+    void field(const char* name, bool& v) override { out.set(name, v); }
+    void field(const char* name, Vec3& v, float) override { out.set(name, vec3(v)); }
+    void field(const char* name, std::string& v) override { out.set(name, v); }
+};
+
+// JSON members -> behaviour fields (missing members keep the behaviour's defaults)
+struct FieldReader : FieldVisitor {
+    const json::Value& in;
+    explicit FieldReader(const json::Value& i) : in(i) {}
+    void field(const char* name, float& v, float, float, float) override { v = in[name].asFloat(v); }
+    void field(const char* name, bool& v) override { v = in[name].asBool(v); }
+    void field(const char* name, Vec3& v, float) override { v = readVec3(in[name], v); }
+    void field(const char* name, std::string& v) override {
+        if (in[name].type() == json::Value::Type::String) v = in[name].asString();
+    }
+};
+
 bool readFile(const std::string& path, std::string& text) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return false;
@@ -68,13 +90,12 @@ bool loadLegacy(const std::string& path, const std::string& text, Scene& scene, 
         Entity e;
         std::string mesh;
         MeshRenderer mr;
-        Animator anim;
+        float spin = 0.f, bob = 0.f, phase = 0.f;
         in >> std::quoted(e.name) >> std::quoted(mesh);
         for (float& v : e.transform.position) in >> v;
         for (float& v : e.transform.rotation) in >> v;
         for (float& v : e.transform.scale) in >> v;
-        in >> mr.color.x >> mr.color.y >> mr.color.z >> mr.checker >> e.visible >> e.locked >> anim.spin >> anim.bob >>
-            anim.phase;
+        in >> mr.color.x >> mr.color.y >> mr.color.z >> mr.checker >> e.visible >> e.locked >> spin >> bob >> phase;
         if (!in) return fail("malformed line");
         std::string extra;
         if (in >> extra && extra == "camera") {
@@ -88,7 +109,7 @@ bool loadLegacy(const std::string& path, const std::string& text, Scene& scene, 
             mr.mesh = it->second;
             e.meshRenderer = mr;
         }
-        if (anim.spin != 0.f || anim.bob != 0.f) e.animator = anim;
+        e.behaviours = motionBehaviours(spin, bob, phase);
         result.add(std::move(e));
     }
     scene = std::move(result);
@@ -125,11 +146,15 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes) {
         c.set("near", e.camera->zNear);
         c.set("far", e.camera->zFar);
     }
-    if (e.animator) {
-        json::Value& c = v.set("animator", json::Value::object());
-        c.set("spin", e.animator->spin);
-        c.set("bob", e.animator->bob);
-        c.set("phase", e.animator->phase);
+    if (!e.behaviours.empty()) {
+        json::Value& list = v.set("behaviours", json::Value::array());
+        for (const BehaviourPtr& b : e.behaviours) {
+            json::Value bv = json::Value::object();
+            bv.set("type", b->typeName());
+            FieldWriter writer(bv);
+            b->fields(writer);
+            list.push(std::move(bv));
+        }
     }
     return v;
 }
@@ -164,12 +189,17 @@ bool entityFromJson(const json::Value& v, const std::map<std::string, int>& mesh
         cam.zFar = c["far"].asFloat(cam.zFar);
         e.camera = cam;
     }
-    if (const json::Value& c = v["animator"]; c.isObject()) {
-        Animator a;
-        a.spin = c["spin"].asFloat(0.f);
-        a.bob = c["bob"].asFloat(0.f);
-        a.phase = c["phase"].asFloat(0.f);
-        e.animator = a;
+    if (const json::Value& c = v["animator"]; c.isObject())   // scene format 3 before behaviours existed
+        e.behaviours = motionBehaviours(c["spin"].asFloat(0.f), c["bob"].asFloat(0.f), c["phase"].asFloat(0.f));
+    for (const json::Value& bv : v["behaviours"].elements()) {
+        std::unique_ptr<Behaviour> b = createBehaviour(bv["type"].asString());
+        if (!b) {
+            error = "entity '" + e.name + "': unknown behaviour type '" + bv["type"].asString() + "'";
+            return false;
+        }
+        FieldReader reader(bv);
+        b->fields(reader);
+        e.behaviours.emplace_back(std::move(b));
     }
     out = std::move(e);
     return true;

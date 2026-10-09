@@ -22,16 +22,6 @@ void Transform::setMatrix(const Mat4& m) {
     ImGuizmo::DecomposeMatrixToComponents(m.m, position, rotation, scale);
 }
 
-Mat4 Animator::apply(const Transform& t, float time) const {
-    Mat4 base = t.matrix();
-    if (spin == 0.f && bob == 0.f) return base;
-    // Spin around the parent's Y axis through the entity's origin, and bob up and down.
-    // Both start from the edit-time pose at time 0, so pressing Play doesn't make anything jump.
-    Vec3 p = t.pos();
-    Vec3 offset{0, bob * (std::sin(time * 1.5f + phase) - std::sin(phase)), 0};
-    return translate(p + offset) * rotateY(spin * time) * translate(p * -1.f) * base;
-}
-
 // ---------------------------------------------------------------------------------------------
 // Scene
 // ---------------------------------------------------------------------------------------------
@@ -74,7 +64,7 @@ Entity* Scene::findByName(const std::string& name) {
     return nullptr;
 }
 
-std::vector<Mat4> Scene::worldMatrices(bool animate, float time) const {
+std::vector<Mat4> Scene::worldMatrices() const {
     std::unordered_map<EntityId, size_t> index;
     index.reserve(entities.size());
     for (size_t i = 0; i < entities.size(); ++i) index[entities[i].id] = i;
@@ -84,7 +74,7 @@ std::vector<Mat4> Scene::worldMatrices(bool animate, float time) const {
     std::function<const Mat4&(size_t, int)> compute = [&](size_t i, int depth) -> const Mat4& {
         if (done[i]) return world[i];
         const Entity& e = entities[i];
-        Mat4 local = animate && e.animator ? e.animator->apply(e.transform, time) : e.transform.matrix();
+        Mat4 local = e.transform.matrix();
         auto p = index.find(e.parent);
         // depth guard: a corrupted file with a parent cycle degrades to "root" instead of recursing forever
         world[i] = p != index.end() && depth < 256 ? compute(p->second, depth + 1) * local : local;
@@ -200,6 +190,22 @@ std::string Scene::uniqueName(const std::string& wanted) const {
     }
 }
 
+std::vector<BehaviourPtr> motionBehaviours(float spin, float bob, float phase) {
+    std::vector<BehaviourPtr> out;
+    if (spin != 0.f)
+        if (auto b = createBehaviour("Spin")) {
+            setField(*b, "speed", spin / DEG2RAD);
+            out.emplace_back(std::move(b));
+        }
+    if (bob != 0.f)
+        if (auto b = createBehaviour("Bob")) {
+            setField(*b, "height", bob);
+            setField(*b, "phase", phase / DEG2RAD);
+            out.emplace_back(std::move(b));
+        }
+    return out;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Default scene
 // ---------------------------------------------------------------------------------------------
@@ -237,9 +243,13 @@ Entity& group(Scene& scene, const char* name, Vec3 pos = {0, 0, 0}) {
     return e;
 }
 
-Animator& animate(Entity& e, float spin, float bob, float phase = 0.f) {
-    e.animator = Animator{spin, bob, phase};
-    return *e.animator;
+// Spin (rad/s) and/or bob (amplitude) behaviours
+void animate(Entity& e, float spin, float bob, float phase = 0.f) {
+    for (BehaviourPtr& b : motionBehaviours(spin, bob, phase)) e.behaviours.push_back(std::move(b));
+}
+
+void addBehaviour(Entity& e, const char* type) {
+    if (auto b = createBehaviour(type)) e.behaviours.emplace_back(std::move(b));
 }
 
 std::string numbered(const char* base, int n) {
@@ -254,9 +264,10 @@ Scene buildDefaultScene() {
     Scene scene;
     Rng rng;
 
-    Entity& cam = group(scene, "Main Camera", {0, 7, 34});
-    cam.camera = Camera{};
-    cam.transform.rotation[0] = -9.f;   // look slightly down at the centrepiece
+    // The player is the camera: press Play and walk around (WASD, hold the right mouse button to look)
+    Entity& player = group(scene, "Player", {0, 1.7f, 34});
+    player.camera = Camera{};
+    addBehaviour(player, "PlayerController");
 
     Entity& ground = make(scene, "Ground", kNoEntity, MeshKind::Plane, {0, 0, 0}, {600, 1, 600}, {0.42f, 0.55f, 0.38f});
     ground.meshRenderer->checker = true;
@@ -268,6 +279,18 @@ Scene buildDefaultScene() {
     Entity& torus = make(scene, "Centre Torus", centre, MeshKind::Torus, {0, 0, 0}, {7, 7, 7}, {0.85f, 0.2f, 0.25f});
     torus.transform.rotation[0] = 0.6f / DEG2RAD;
     animate(torus, 0.8f, 0.4f);
+
+    // Gems to collect: walk into them
+    EntityId gems = group(scene, "Gems").id;
+    for (int i = 0; i < 8; ++i) {
+        float a = i * 2.f * PI / 8 + PI / 8;
+        Entity& g = make(scene, numbered("Gem", i + 1), gems, MeshKind::Cube, {std::cos(a) * 26.f, 1.2f, std::sin(a) * 26.f},
+                         {0.7f, 0.7f, 0.7f}, hsv(0.5f + 0.06f * (i % 3), 0.75f, 1.f));
+        g.transform.rotation[0] = 45.f;
+        g.transform.rotation[2] = 35.f;
+        animate(g, 120.f * DEG2RAD, 0.25f, a);
+        addBehaviour(g, "Pickup");
+    }
 
     // Ring of pillars, each with a floating spinning cube on top
     EntityId ring = group(scene, "Pillar Ring").id;

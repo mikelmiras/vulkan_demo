@@ -8,6 +8,7 @@
 
 #include "assets/meshes.h"
 #include "core/vecmath.h"
+#include "scene/behaviour.h"
 
 using EntityId = uint32_t;
 constexpr EntityId kNoEntity = 0;
@@ -36,15 +37,6 @@ struct Camera {
     float zNear = 0.1f, zFar = 2000.f;
 };
 
-// Simple procedural motion, applied in play mode on top of the transform
-struct Animator {
-    float spin = 0.f;    // rad/s around the parent's Y axis
-    float bob = 0.f;     // vertical bobbing amplitude
-    float phase = 0.f;   // offset (radians)
-
-    Mat4 apply(const Transform& t, float time) const;
-};
-
 struct Entity {
     EntityId id = kNoEntity;
     std::string name;
@@ -55,7 +47,13 @@ struct Entity {
     Transform transform;
     std::optional<MeshRenderer> meshRenderer;
     std::optional<Camera> camera;
-    std::optional<Animator> animator;
+    std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
+
+    template <class T> T* behaviour() {   // first behaviour of type T, or nullptr
+        for (BehaviourPtr& b : behaviours)
+            if (auto* t = dynamic_cast<T*>(b.get())) return t;
+        return nullptr;
+    }
 };
 
 class Scene {
@@ -70,10 +68,8 @@ public:
     const Entity* find(EntityId id) const;
     Entity* findByName(const std::string& name);
 
-    // World matrices for every entity, aligned with `entities`. With animate = true the Animator component is
-    // applied at `time` (play mode); otherwise it's the edit-time pose.
-    std::vector<Mat4> worldMatrices(bool animate = false, float time = 0.f) const;
-    Mat4 worldMatrix(EntityId id) const;          // edit-time pose
+    std::vector<Mat4> worldMatrices() const;      // for every entity, aligned with `entities`
+    Mat4 worldMatrix(EntityId id) const;
     Mat4 parentWorldMatrix(EntityId id) const;    // identity for roots
 
     bool isAncestor(EntityId ancestor, EntityId id) const;   // true if `ancestor` is above `id` in the tree
@@ -93,3 +89,7 @@ private:
 };
 
 Scene buildDefaultScene();
+
+// Spin (rad/s around the parent's Y) and Bob (amplitude, phase in radians) behaviours: what the old Animator
+// component did. Used by the default scene and to load files from before behaviours existed.
+std::vector<BehaviourPtr> motionBehaviours(float spin, float bob, float phase);

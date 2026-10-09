@@ -307,10 +307,10 @@ void Editor::newScene(bool demo) {
     pushUndo();
     if (demo) {
         scene_ = buildDefaultScene();
-    } else {   // ground + camera
+    } else {   // ground + player
         Scene fresh = buildDefaultScene(), keep;
         for (const Entity& e : fresh.entities)
-            if (e.name == "Ground" || e.name == "Main Camera") keep.add(e);
+            if (e.name == "Ground" || e.name == "Player") keep.add(e);
         scene_ = std::move(keep);
     }
     selected_ = kNoEntity;
