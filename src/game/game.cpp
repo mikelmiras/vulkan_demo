@@ -1,14 +1,14 @@
 #include "game/game.h"
 
-void Game::start(std::vector<SceneObject>& objects) {
-    objects_ = &objects;
+void Game::start(Scene& scene) {
+    scene_ = &scene;
     accumulator_ = time_ = 0.f;
     tick_ = 0;
     paused_ = false;
     input_ = InputMap{};
 }
 
-void Game::stop() { objects_ = nullptr; }
+void Game::stop() { scene_ = nullptr; }
 
 void Game::frame(float dt, bool keyboard, bool mouse) {
     if (!running()) return;
@@ -34,11 +34,16 @@ void Game::fixedUpdate(float dt) {
     input_.endFixedStep();
 }
 
+std::vector<Mat4> Game::worldMatrices() const {
+    return scene_ ? scene_->worldMatrices(true, time_) : std::vector<Mat4>{};
+}
+
 bool Game::activeCamera(CameraView& out) const {
-    if (!objects_) return false;
-    for (const SceneObject& o : *objects_) {
-        if (!o.camera) continue;
-        Mat4 world = o.animatedMatrix(time_);
+    if (!scene_) return false;
+    for (size_t i = 0; i < scene_->entities.size(); ++i) {
+        const Entity& e = scene_->entities[i];
+        if (!e.camera) continue;
+        Mat4 world = worldMatrices()[i];
         // Strip scale so it doesn't distort the view; the camera looks down its local -Z
         Vec3 x = normalize(transformDir(world, {1, 0, 0})), y = normalize(transformDir(world, {0, 1, 0}));
         Vec3 z = normalize(cross(x, y));
@@ -49,7 +54,9 @@ bool Game::activeCamera(CameraView& out) const {
         rigid.m[12] = world.m[12]; rigid.m[13] = world.m[13]; rigid.m[14] = world.m[14];
         out.view = inverseAffine(rigid);
         out.position = {world.m[12], world.m[13], world.m[14]};
-        out.fovY = o.fovY;
+        out.fovY = e.camera->fovY;
+        out.zNear = e.camera->zNear;
+        out.zFar = e.camera->zFar;
         return true;
     }
     return false;

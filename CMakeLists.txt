@@ -46,8 +46,10 @@ target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
 
 # Engine: everything a game needs at runtime (platform, rendering, assets, scene, game loop)
 add_library(engine STATIC
+  src/core/json.cpp
   src/assets/meshes.cpp
   src/scene/scene.cpp
+  src/scene/serialization.cpp
   src/game/input.cpp
   src/game/game.cpp
   src/render/renderer.cpp)
@@ -58,7 +60,9 @@ add_dependencies(engine shaders)
 # Editor: the application built on top of the engine
 add_executable(vkworld
   src/main.cpp
-  src/editor/editor.cpp)
+  src/editor/editor.cpp
+  src/editor/editor_panels.cpp
+  src/editor/editor_viewport.cpp)
 target_link_libraries(vkworld PRIVATE engine)
 
 # Platform layer (part of the engine)

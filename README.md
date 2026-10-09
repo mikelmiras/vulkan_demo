@@ -59,10 +59,30 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
   the Inspector's mesh list. Saved scenes reference the `.obj` by absolute path and re-import it on load.
 - **Toolbar**: Select/Move/Rotate/Scale tools, world/local axes, snapping, add/duplicate/delete/focus, undo/redo,
   Play/Pause/Step, fly speed.
-- **Outliner** (left): every object, with visibility toggles, filter, right-click menu, double-click to focus.
-- **Inspector** (right): name, mesh, position/rotation/scale, colour, flags, animation, camera and renderer stats.
+- **Outliner** (left): the entity tree, with visibility toggles, filter, right-click menu, double-click to focus.
+  Drag an entity onto another to make it a child (it keeps its place in the world); drop it on the empty area
+  below the tree to move it back to the root.
+- **Inspector** (right): name, flags, transform (relative to the parent), the entity's components (add with
+  "Add component", remove with the x on their header), editor camera and renderer stats.
 - **Viewport**: selected object gets an orange outline (visible through other objects) plus the gizmo.
   The cube in the top-right corner snaps/rotates the view.
+
+## Scenes: entities and components
+
+A scene is a flat list of **entities**. Each has a name, an id, an optional **parent** (transforms are relative to
+it; hiding, deleting or duplicating a parent includes its children) and a **transform**, plus optional components:
+
+| Component       | What it does                                                         |
+|-----------------|----------------------------------------------------------------------|
+| Mesh Renderer   | Draws a mesh (built-in or imported) with a colour / checker pattern  |
+| Camera          | The game renders through the first entity that has one               |
+| Animator        | Spin / bob motion while playing                                      |
+
+An entity without components is an **empty**: a handle for grouping others (Add > Empty). Cameras and empties
+show as icons in the viewport and can be clicked like meshes.
+
+Scenes are saved as readable **JSON** (`scene.vkw`). Files from earlier versions (the line-based text format)
+still load.
 
 ## Play mode
 
@@ -73,7 +93,7 @@ the scene exactly as it was, so anything changed while playing is temporary (and
   machine, none on some frames of a fast one; a long hitch is capped at 8 updates).
   **Pause** freezes it and **Step** advances one update.
 - It renders through the first **camera object** in the scene (Add > Camera creates one at the current view;
-  any object can be made a camera in the Inspector). Without one, the editor view is used.
+  any entity can get a Camera component in the Inspector). Without one, the editor view is used.
 - Game code reads **named input actions** (`move_forward`, `jump`, `look`, ...; see `src/game/input.cpp`), never
   raw keys. Key presses are latched until the next update reads them, so a quick tap is never missed. The keyboard
   is ignored while typing in a text field, and the mouse while it's over a panel.
@@ -111,12 +131,12 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | Folder / file              | What                                                            |
 |----------------------------|-----------------------------------------------------------------|
 | `src/main.cpp`             | ImGui setup, main loop                                          |
-| `src/core/`                | `vecmath.h`: small vector/matrix helpers                        |
+| `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer  |
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/assets/`              | Mesh library: procedural meshes, OBJ import, ray/triangle picking |
-| `src/scene/`               | Scene objects, default scene, save/load                         |
+| `src/scene/`               | Entities, components and hierarchy (`scene.*`); JSON save/load (`serialization.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop, play-mode camera, named input actions |
-| `src/editor/`              | Editor app: camera navigation, picking, gizmos, undo/redo, all UI panels |
+| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking |
 | `shaders/scene.*`          | Lit objects, checker ground, fog                                |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

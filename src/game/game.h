@@ -7,7 +7,7 @@
 #include "game/input.h"
 #include "scene/scene.h"
 
-// What the game is looking through: a camera object in the scene.
+// What the game is looking through: the first entity with a Camera component.
 struct CameraView {
     Mat4 view;
     Vec3 position;
@@ -20,10 +20,10 @@ public:
     static constexpr float kFixedDt = 1.f / 60.f;
     static constexpr int kMaxStepsPerFrame = 8;   // after a long hitch, drop time instead of spiralling
 
-    // Takes over `objects` (the play-mode copy of the scene) until stop().
-    void start(std::vector<SceneObject>& objects);
+    // Takes over `scene` (the play-mode copy) until stop().
+    void start(Scene& scene);
     void stop();
-    bool running() const { return objects_ != nullptr; }
+    bool running() const { return scene_ != nullptr; }
 
     // Once per rendered frame: latches input, then runs as many fixed updates as the elapsed time calls for.
     // keyboard/mouse = false while the UI owns that device.
@@ -36,13 +36,15 @@ public:
     unsigned long long tick() const { return tick_; }  // fixed updates since start()
     InputMap& input() { return input_; }
 
-    // The first camera object in the scene, or false if there is none.
+    // World matrices of the scene's current (animated) pose, aligned with scene.entities
+    std::vector<Mat4> worldMatrices() const;
+    // The first entity with a camera, or false if there is none.
     bool activeCamera(CameraView& out) const;
 
 private:
     void fixedUpdate(float dt);
 
-    std::vector<SceneObject>* objects_ = nullptr;
+    Scene* scene_ = nullptr;
     InputMap input_;
     float accumulator_ = 0.f, time_ = 0.f;
     unsigned long long tick_ = 0;

@@ -1,4 +1,7 @@
-// Scene editor: camera navigation, picking, transform gizmos, undo/redo and the ImGui panels.
+// Scene editor: camera navigation, picking, transform gizmos, undo/redo, play mode and the ImGui panels.
+//   editor.cpp           frame loop, view, play mode, operations, undo
+//   editor_panels.cpp    menu bar, toolbar, outliner, inspector, status bar, dialogs
+//   editor_viewport.cpp  navigation, gizmos, picking, shortcuts, overlays
 #pragma once
 
 #include <string>
@@ -27,8 +30,8 @@ struct EditorCamera {
 
 class Editor {
 public:
-    // uiScale: DPI scale for fixed pixel sizes (panel widths etc.), 1.0 at 96 DPI
-    Editor(MeshLibrary& meshes, float uiScale);   // meshes: imports are appended to it
+    // meshes: imports are appended to it. uiScale: DPI scale for fixed pixel sizes (1.0 at 96 DPI).
+    Editor(MeshLibrary& meshes, float uiScale);
 
     // Builds the UI and handles viewport input. Call between ImGui::NewFrame() and ImGui::Render().
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
@@ -39,71 +42,81 @@ private:
     enum class Tool { Select, Move, Rotate, Scale };
     enum class Nav { None, Fly, Orbit, Pan };
     struct Snapshot {
-        std::vector<SceneObject> objects;
-        int selected = -1;
+        Scene scene;
+        EntityId selected = kNoEntity;
     };
 
-    // UI
+    // ---- Panels (editor_panels.cpp)
     void drawMenuBar();
     void drawToolbar();
     void drawOutliner();
+    void drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityId>>& children,
+                          const std::vector<int>& indexOf);
     void drawInspector(const std::string& gpuName, const RenderStats& stats);
+    void drawComponents(Entity& e);
     void drawStatusBar(const RenderStats& stats);
     void drawHelp();
     void drawAddPopup();
     void drawAddMenuItems();
     void drawImportPopup();
-    void drawViewportOverlay();
     void track();   // call after an editing widget: records an undo step when the edit starts
 
-    // Viewport interaction
+    // ---- Viewport (editor_viewport.cpp)
     void handleNavigation(float dt);
     void handleGizmo();
     void handlePicking();
     void handleShortcuts();
+    void drawViewportOverlay();
+    void drawEntityIcons();   // cameras and empties have no mesh: draw something to see and click
     void setCameraFromView(const Mat4& view);
-    float aspect() const { return vh_ > 0.f ? vw_ / vh_ : 1.f; }
-    float px(float v) const { return v * uiScale_; }
     bool worldToScreen(Vec3 p, ImVec2& out) const;   // through the current view; false if behind the camera
     bool viewportHovered() const;
-    void updateView();        // picks the editor or game camera for this frame
-    void buildDrawItems();
-    void drawCameraGizmos();
 
-    // Play mode: the scene is copied on Play and restored on Stop
+    // ---- Frame / view (editor.cpp)
+    void updateView();   // picks the editor or game camera for this frame
+    void buildDrawItems();
+    float aspect() const { return vh_ > 0.f ? vw_ / vh_ : 1.f; }
+    float px(float v) const { return v * uiScale_; }
+    // World matrices of what's on screen: the animated play pose while playing, else the edit pose
+    const std::vector<Mat4>& worlds() const { return worlds_; }
+    const Mat4& worldOf(EntityId id) const;
+
+    // ---- Play mode: the scene is copied on Play and restored on Stop
     bool playing() const { return game_.running(); }
     bool viewingGameCamera() const { return playing() && gameCameraActive_; }
-    float sceneTime() const { return playing() ? game_.time() : 0.f; }
     void startPlay();
     void stopPlay();
     void togglePause();
 
-    // Operations
-    void select(int index);
-    bool hasSelection() const { return selected_ >= 0 && selected_ < (int)objects_.size(); }
+    // ---- Operations
+    Entity* selection() { return scene_.find(selected_); }
+    void select(EntityId id);
     void addObject(int mesh);
+    void addEmpty();
     void addCamera();
     void importMesh();
     void duplicateSelected();
     void deleteSelected();
+    void reparent(EntityId id, EntityId newParent);
     void toggleHideSelected();
     void unhideAll();
     void focusSelected();
     void dropSelectedToGround();
+    void newScene(bool demo);
     void saveToFile();
     void loadFromFile();
-    std::string uniqueName(const std::string& wanted) const;
     void setStatus(const std::string& msg);
+    Vec3 spawnPoint(float lift) const;   // where new objects go: on the ground in front of the camera
 
-    // Undo
+    // ---- Undo (whole-scene snapshots; the scene is small)
     void pushUndo();
     void undo();
     void redo();
 
     MeshLibrary& meshes_;
     float uiScale_ = 1.f;
-    std::vector<SceneObject> objects_;
-    int selected_ = -1;
+    Scene scene_;
+    EntityId selected_ = kNoEntity;
     EditorCamera cam_;
 
     Tool tool_ = Tool::Move;
@@ -111,15 +124,17 @@ private:
     bool localSpace_ = false;
     bool snap_ = false;
     float snapMove_ = 0.5f, snapRotate_ = 15.f, snapScale_ = 0.1f;
+
     Game game_;
-    std::vector<SceneObject> editObjects_;   // the scene as it was when Play was pressed
-    int editSelected_ = -1;
+    Scene editScene_;   // the scene as it was when Play was pressed
+    EntityId editSelected_ = kNoEntity;
     bool maximizeOnPlay_ = false;
     bool gameCameraActive_ = false;
 
     // Current view (editor or game camera) and what to draw, rebuilt every frame
     Mat4 viewProj_;
     Vec3 viewPos_;
+    std::vector<Mat4> worlds_;
     std::vector<DrawItem> drawItems_;
 
     std::vector<Snapshot> undo_, redo_;
@@ -130,7 +145,8 @@ private:
 
     bool showOutliner_ = true, showInspector_ = true, showHelp_ = false;
     bool openAddMenu_ = false, scrollToSelected_ = false;
-    int pendingDelete_ = -1, pendingDuplicate_ = -1, pendingFocus_ = -1;
+    EntityId pendingDelete_ = kNoEntity, pendingDuplicate_ = kNoEntity, pendingFocus_ = kNoEntity;
+    EntityId pendingReparent_ = kNoEntity, pendingParent_ = kNoEntity;   // drag & drop in the outliner
     ImGuiTextFilter filter_;
     char scenePath_[256] = "scene.vkw";
     bool openImport_ = false;

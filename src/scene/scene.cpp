@@ -1,28 +1,203 @@
 #include "scene/scene.h"
 
-#include <cstdint>
+#include <algorithm>
 #include <cstdio>
-#include <fstream>
-#include <iomanip>
-#include <map>
-#include <sstream>
+#include <functional>
+#include <set>
+#include <unordered_map>
 
 #include "imgui.h"
 #include "ImGuizmo.h"
 
-Mat4 SceneObject::baseMatrix() const {
+// ---------------------------------------------------------------------------------------------
+// Transform / components
+// ---------------------------------------------------------------------------------------------
+Mat4 Transform::matrix() const {
     Mat4 m;
     ImGuizmo::RecomposeMatrixFromComponents(position, rotation, scale, m.m);
     return m;
 }
 
-Mat4 SceneObject::animatedMatrix(float t) const {
-    Mat4 base = baseMatrix();
+void Transform::setMatrix(const Mat4& m) {
+    ImGuizmo::DecomposeMatrixToComponents(m.m, position, rotation, scale);
+}
+
+Mat4 Animator::apply(const Transform& t, float time) const {
+    Mat4 base = t.matrix();
     if (spin == 0.f && bob == 0.f) return base;
-    // Spin around the world Y axis through the object's origin, then bob up and down.
-    Vec3 p = pos();
-    Vec3 offset{0, bob * std::sin(t * 1.5f + phase), 0};
-    return translate(p + offset) * rotateY(spin * t + phase) * translate(p * -1.f) * base;
+    // Spin around the parent's Y axis through the entity's origin, and bob up and down.
+    // Both start from the edit-time pose at time 0, so pressing Play doesn't make anything jump.
+    Vec3 p = t.pos();
+    Vec3 offset{0, bob * (std::sin(time * 1.5f + phase) - std::sin(phase)), 0};
+    return translate(p + offset) * rotateY(spin * time) * translate(p * -1.f) * base;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scene
+// ---------------------------------------------------------------------------------------------
+Entity& Scene::create(const std::string& name, EntityId parent) {
+    Entity e;
+    e.name = name;
+    e.parent = parent;
+    e.id = nextId_++;
+    entities.push_back(std::move(e));
+    return entities.back();
+}
+
+Entity& Scene::add(Entity e) {
+    if (e.id == kNoEntity || find(e.id)) e.id = nextId_;
+    nextId_ = std::max(nextId_, e.id + 1);
+    entities.push_back(std::move(e));
+    return entities.back();
+}
+
+int Scene::indexOf(EntityId id) const {
+    if (id == kNoEntity) return -1;
+    for (size_t i = 0; i < entities.size(); ++i)
+        if (entities[i].id == id) return (int)i;
+    return -1;
+}
+
+Entity* Scene::find(EntityId id) {
+    int i = indexOf(id);
+    return i >= 0 ? &entities[(size_t)i] : nullptr;
+}
+
+const Entity* Scene::find(EntityId id) const {
+    int i = indexOf(id);
+    return i >= 0 ? &entities[(size_t)i] : nullptr;
+}
+
+Entity* Scene::findByName(const std::string& name) {
+    for (Entity& e : entities)
+        if (e.name == name) return &e;
+    return nullptr;
+}
+
+std::vector<Mat4> Scene::worldMatrices(bool animate, float time) const {
+    std::unordered_map<EntityId, size_t> index;
+    index.reserve(entities.size());
+    for (size_t i = 0; i < entities.size(); ++i) index[entities[i].id] = i;
+
+    std::vector<Mat4> world(entities.size());
+    std::vector<char> done(entities.size(), 0);
+    std::function<const Mat4&(size_t, int)> compute = [&](size_t i, int depth) -> const Mat4& {
+        if (done[i]) return world[i];
+        const Entity& e = entities[i];
+        Mat4 local = animate && e.animator ? e.animator->apply(e.transform, time) : e.transform.matrix();
+        auto p = index.find(e.parent);
+        // depth guard: a corrupted file with a parent cycle degrades to "root" instead of recursing forever
+        world[i] = p != index.end() && depth < 256 ? compute(p->second, depth + 1) * local : local;
+        done[i] = 1;
+        return world[i];
+    };
+    for (size_t i = 0; i < entities.size(); ++i) compute(i, 0);
+    return world;
+}
+
+Mat4 Scene::worldMatrix(EntityId id) const {
+    Mat4 m;
+    int depth = 0;
+    for (const Entity* e = find(id); e && depth < 256; e = find(e->parent), ++depth) m = e->transform.matrix() * m;
+    return m;
+}
+
+Mat4 Scene::parentWorldMatrix(EntityId id) const {
+    const Entity* e = find(id);
+    return e ? worldMatrix(e->parent) : Mat4{};
+}
+
+bool Scene::isAncestor(EntityId ancestor, EntityId id) const {
+    int depth = 0;
+    for (const Entity* e = find(id); e && depth < 256; ++depth) {
+        if (e->parent == ancestor && ancestor != kNoEntity) return true;
+        e = find(e->parent);
+    }
+    return false;
+}
+
+bool Scene::visibleInHierarchy(EntityId id) const {
+    int depth = 0;
+    for (const Entity* e = find(id); e && depth < 256; e = find(e->parent), ++depth)
+        if (!e->visible) return false;
+    return true;
+}
+
+std::vector<EntityId> Scene::childrenOf(EntityId parent) const {
+    std::vector<EntityId> out;
+    for (const Entity& e : entities) {
+        // entities whose parent no longer exists count as roots
+        bool isRoot = e.parent == kNoEntity || !find(e.parent);
+        if (parent == kNoEntity ? isRoot : e.parent == parent) out.push_back(e.id);
+    }
+    return out;
+}
+
+std::vector<EntityId> Scene::subtree(EntityId root) const {
+    std::vector<EntityId> out;
+    if (!find(root)) return out;
+    out.push_back(root);
+    for (size_t i = 0; i < out.size(); ++i)   // breadth-first is enough: order only matters for "root first"
+        for (const Entity& e : entities)
+            if (e.parent == out[i]) out.push_back(e.id);
+    return out;
+}
+
+bool Scene::setParent(EntityId id, EntityId newParent, bool keepWorld) {
+    Entity* e = find(id);
+    if (!e || id == newParent || (newParent != kNoEntity && !find(newParent)) || isAncestor(id, newParent))
+        return false;
+    if (keepWorld) {
+        Mat4 world = worldMatrix(id);
+        Mat4 local = inverseAffine(worldMatrix(newParent)) * world;
+        e->transform.setMatrix(local);
+    }
+    e->parent = newParent;
+    return true;
+}
+
+void Scene::remove(EntityId id) {
+    std::vector<EntityId> doomed = subtree(id);
+    std::set<EntityId> set(doomed.begin(), doomed.end());
+    entities.erase(std::remove_if(entities.begin(), entities.end(), [&](const Entity& e) { return set.count(e.id) > 0; }),
+                   entities.end());
+}
+
+EntityId Scene::duplicate(EntityId id) {
+    std::vector<EntityId> ids = subtree(id);
+    if (ids.empty()) return kNoEntity;
+    std::unordered_map<EntityId, EntityId> remap;
+    for (EntityId old : ids) remap[old] = nextId_++;
+    std::vector<Entity> copies;
+    for (EntityId old : ids) {
+        Entity c = *find(old);
+        c.id = remap[old];
+        if (old != id) c.parent = remap[c.parent];   // the copied root keeps the original's parent
+        copies.push_back(std::move(c));
+    }
+    copies[0].name = uniqueName(copies[0].name);
+    // Insert right after the original subtree's last entity, so the copy shows up next to it
+    int insertAt = 0;
+    for (EntityId e : ids) insertAt = std::max(insertAt, indexOf(e) + 1);
+    entities.insert(entities.begin() + insertAt, copies.begin(), copies.end());
+    return remap[id];
+}
+
+std::string Scene::uniqueName(const std::string& wanted) const {
+    std::set<std::string> names;
+    for (const auto& e : entities) names.insert(e.name);
+    if (!names.count(wanted)) return wanted;
+    // Strip a trailing ".NNN" and find the next free number, Blender style
+    std::string base = wanted;
+    size_t dot = base.find_last_of('.');
+    if (dot != std::string::npos && dot + 1 < base.size() &&
+        base.find_first_not_of("0123456789", dot + 1) == std::string::npos)
+        base = base.substr(0, dot);
+    for (int n = 1;; ++n) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), ".%03d", n);
+        if (!names.count(base + buf)) return base + buf;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -44,14 +219,27 @@ Vec3 hsv(float h, float s, float v) {
     return {f(5), f(3), f(1)};
 }
 
-SceneObject make(std::string name, MeshKind mesh, Vec3 pos, Vec3 size, Vec3 color) {
-    SceneObject o;
-    o.name = std::move(name);
-    o.mesh = (int)mesh;
-    o.position[0] = pos.x; o.position[1] = pos.y; o.position[2] = pos.z;
-    o.scale[0] = size.x; o.scale[1] = size.y; o.scale[2] = size.z;
-    o.color = color;
-    return o;
+Entity& make(Scene& scene, std::string name, EntityId parent, MeshKind mesh, Vec3 pos, Vec3 size, Vec3 color) {
+    Entity& e = scene.create(name, parent);
+    Transform& t = e.transform;
+    t.position[0] = pos.x; t.position[1] = pos.y; t.position[2] = pos.z;
+    t.scale[0] = size.x; t.scale[1] = size.y; t.scale[2] = size.z;
+    MeshRenderer mr;
+    mr.mesh = (int)mesh;
+    mr.color = color;
+    e.meshRenderer = mr;
+    return e;
+}
+
+Entity& group(Scene& scene, const char* name, Vec3 pos = {0, 0, 0}) {
+    Entity& e = scene.create(name);
+    e.transform.position[0] = pos.x; e.transform.position[1] = pos.y; e.transform.position[2] = pos.z;
+    return e;
+}
+
+Animator& animate(Entity& e, float spin, float bob, float phase = 0.f) {
+    e.animator = Animator{spin, bob, phase};
+    return *e.animator;
 }
 
 std::string numbered(const char* base, int n) {
@@ -62,57 +250,50 @@ std::string numbered(const char* base, int n) {
 
 }  // namespace
 
-std::vector<SceneObject> buildDefaultScene() {
-    std::vector<SceneObject> objs;
+Scene buildDefaultScene() {
+    Scene scene;
     Rng rng;
 
-    SceneObject cam = make("Main Camera", MeshKind::Cube, {0, 7, 34}, {1, 1, 1}, {1, 1, 1});
-    cam.mesh = kNoMesh;
-    cam.camera = true;
-    cam.rotation[0] = -9.f;   // look slightly down at the centrepiece
-    objs.push_back(cam);
+    Entity& cam = group(scene, "Main Camera", {0, 7, 34});
+    cam.camera = Camera{};
+    cam.transform.rotation[0] = -9.f;   // look slightly down at the centrepiece
 
-    SceneObject ground = make("Ground", MeshKind::Plane, {0, 0, 0}, {600, 1, 600}, {0.42f, 0.55f, 0.38f});
-    ground.checker = true;
+    Entity& ground = make(scene, "Ground", kNoEntity, MeshKind::Plane, {0, 0, 0}, {600, 1, 600}, {0.42f, 0.55f, 0.38f});
+    ground.meshRenderer->checker = true;
     ground.locked = true;
-    objs.push_back(ground);
 
     // Centrepiece: golden sphere inside a spinning tilted torus
-    SceneObject sphere = make("Centre Sphere", MeshKind::Sphere, {0, 5, 0}, {3, 3, 3}, {0.95f, 0.75f, 0.25f});
-    sphere.bob = 0.4f;
-    objs.push_back(sphere);
-    SceneObject torus = make("Centre Torus", MeshKind::Torus, {0, 5, 0}, {7, 7, 7}, {0.85f, 0.2f, 0.25f});
-    torus.rotation[0] = 0.6f / DEG2RAD;
-    torus.spin = 0.8f;
-    torus.bob = 0.4f;
-    objs.push_back(torus);
+    EntityId centre = group(scene, "Centrepiece", {0, 5, 0}).id;
+    animate(make(scene, "Centre Sphere", centre, MeshKind::Sphere, {0, 0, 0}, {3, 3, 3}, {0.95f, 0.75f, 0.25f}), 0.f, 0.4f);
+    Entity& torus = make(scene, "Centre Torus", centre, MeshKind::Torus, {0, 0, 0}, {7, 7, 7}, {0.85f, 0.2f, 0.25f});
+    torus.transform.rotation[0] = 0.6f / DEG2RAD;
+    animate(torus, 0.8f, 0.4f);
 
     // Ring of pillars, each with a floating spinning cube on top
+    EntityId ring = group(scene, "Pillar Ring").id;
     const int pillars = 12;
     for (int i = 0; i < pillars; ++i) {
         float a = i * 2.f * PI / pillars, h = (i % 2) ? 5.f : 8.f;
         Vec3 p{std::cos(a) * 20.f, 0, std::sin(a) * 20.f};
-        objs.push_back(make(numbered("Pillar", i + 1), MeshKind::Cube, p + Vec3{0, h * 0.5f, 0}, {1.6f, h, 1.6f},
-                            {0.82f, 0.8f, 0.76f}));
-        SceneObject top = make(numbered("Pillar Top", i + 1), MeshKind::Cube, p + Vec3{0, h + 1.8f, 0}, {1, 1, 1},
-                               hsv((float)i / pillars, 0.7f, 0.95f));
-        top.rotation[0] = 0.6f / DEG2RAD;
-        top.spin = 1.5f;
-        top.bob = 0.5f;
-        top.phase = a;
-        objs.push_back(top);
+        make(scene, numbered("Pillar", i + 1), ring, MeshKind::Cube, p + Vec3{0, h * 0.5f, 0}, {1.6f, h, 1.6f},
+             {0.82f, 0.8f, 0.76f});
+        Entity& top = make(scene, numbered("Pillar Top", i + 1), ring, MeshKind::Cube, p + Vec3{0, h + 1.8f, 0},
+                           {1, 1, 1}, hsv((float)i / pillars, 0.7f, 0.95f));
+        top.transform.rotation[0] = 0.6f / DEG2RAD;
+        animate(top, 1.5f, 0.5f, a);
     }
 
     // Distant landmark pyramids
+    EntityId landmarks = group(scene, "Landmarks").id;
     for (int i = 0; i < 5; ++i) {
         float a = i * 2.f * PI / 5 + 0.3f, d = rng.range(110, 160), s = rng.range(20, 35);
-        SceneObject o = make(numbered("Landmark", i + 1), MeshKind::Pyramid, {std::cos(a) * d, 0, std::sin(a) * d},
-                             {s, s * 0.8f, s}, {0.85f, 0.75f, 0.55f});
-        o.rotation[1] = a / DEG2RAD;
-        objs.push_back(o);
+        Entity& e = make(scene, numbered("Landmark", i + 1), landmarks, MeshKind::Pyramid,
+                         {std::cos(a) * d, 0, std::sin(a) * d}, {s, s * 0.8f, s}, {0.85f, 0.75f, 0.55f});
+        e.transform.rotation[1] = a / DEG2RAD;
     }
 
     // Random scattered objects
+    EntityId scatter = group(scene, "Scattered").id;
     const MeshKind kinds[4] = {MeshKind::Cube, MeshKind::Sphere, MeshKind::Pyramid, MeshKind::Torus};
     const char* kNames[4] = {"Cube", "Sphere", "Pyramid", "Torus"};
     int counters[4] = {};
@@ -120,99 +301,23 @@ std::vector<SceneObject> buildDefaultScene() {
         float a = rng.range(0, 2 * PI), d = rng.range(28, 100);
         int k = (int)(rng.next() * 4) % 4;
         float s = rng.range(1.f, 4.f);
-        SceneObject o = make(numbered(kNames[k], ++counters[k]), kinds[k],
-                             {std::cos(a) * d, 0, std::sin(a) * d}, {s, s, s},
-                             hsv(rng.next(), rng.range(0.4f, 0.8f), rng.range(0.7f, 0.95f)));
-        o.phase = rng.range(0, 2 * PI);
-        o.rotation[1] = rng.range(0, 360);
+        Entity& o = make(scene, numbered(kNames[k], ++counters[k]), scatter, kinds[k],
+                         {std::cos(a) * d, 0, std::sin(a) * d}, {s, s, s},
+                         hsv(rng.next(), rng.range(0.4f, 0.8f), rng.range(0.7f, 0.95f)));
+        Transform& t = o.transform;
+        float phase = rng.range(0, 2 * PI);
+        t.rotation[1] = rng.range(0, 360);
         switch (k) {
-            case 0: o.position[1] = s * 0.5f; break;
-            case 1: o.position[1] = s * 0.5f + 1.f; o.bob = 0.8f; break;
-            case 2: o.scale[1] = s * rng.range(0.8f, 2.f); break;
-            case 3: o.position[1] = s * 0.5f + 0.5f; o.spin = 1.f; o.rotation[0] = 90.f; break;
+            case 0: t.position[1] = s * 0.5f; break;
+            case 1: t.position[1] = s * 0.5f + 1.f; animate(o, 0.f, 0.8f, phase); break;
+            case 2: t.scale[1] = s * rng.range(0.8f, 2.f); break;
+            case 3: t.position[1] = s * 0.5f + 0.5f; animate(o, 1.f, 0.f, phase); t.rotation[0] = 90.f; break;
         }
         if (k == 0 && rng.next() < 0.3f) {
-            o.position[1] += 2.f; o.spin = 0.7f; o.bob = 0.5f; o.rotation[0] = 0.6f / DEG2RAD;
+            t.position[1] += 2.f;
+            t.rotation[0] = 0.6f / DEG2RAD;
+            animate(o, 0.7f, 0.5f, phase);
         }
-        objs.push_back(o);
     }
-    return objs;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Save / load: one object per line, whitespace-separated, names quoted. Imported meshes are listed first
-// as `mesh "name" "path"` lines (v2); v1 files have only objects with built-in meshes.
-// ---------------------------------------------------------------------------------------------
-static const char* kHeader = "# vkworld scene v2";
-
-bool saveScene(const std::string& path, const std::vector<SceneObject>& objects, const MeshLibrary& meshes,
-               std::string& error) {
-    std::ofstream f(path);
-    if (!f) { error = "cannot write " + path; return false; }
-    f << kHeader << "\n";
-    std::vector<bool> used((size_t)meshes.count(), false);
-    for (const SceneObject& o : objects)
-        if (o.mesh != kNoMesh) used[(size_t)o.mesh] = true;
-    for (int i = (int)MeshKind::Count; i < meshes.count(); ++i)
-        if (used[(size_t)i]) f << "mesh " << std::quoted(meshes.name(i)) << ' ' << std::quoted(meshes.get(i).source) << '\n';
-    f << "# name mesh pos[3] rot[3] scale[3] color[3] checker visible locked spin bob phase [camera fov]\n";
-    f << std::setprecision(6);
-    for (const SceneObject& o : objects) {
-        f << std::quoted(o.name) << ' ' << std::quoted(o.mesh == kNoMesh ? "None" : meshes.name(o.mesh));
-        for (float v : o.position) f << ' ' << v;
-        for (float v : o.rotation) f << ' ' << v;
-        for (float v : o.scale) f << ' ' << v;
-        f << ' ' << o.color.x << ' ' << o.color.y << ' ' << o.color.z << ' ' << o.checker << ' ' << o.visible
-          << ' ' << o.locked << ' ' << o.spin << ' ' << o.bob << ' ' << o.phase;
-        if (o.camera) f << " camera " << o.fovY;
-        f << '\n';
-    }
-    if (!f) { error = "write failed for " + path; return false; }
-    return true;
-}
-
-bool loadScene(const std::string& path, std::vector<SceneObject>& objects, MeshLibrary& meshes, std::string& error) {
-    std::ifstream f(path);
-    if (!f) { error = "cannot open " + path; return false; }
-    std::vector<SceneObject> result;
-    std::map<std::string, int> fileMeshes;   // mesh name in this file -> library id (names may differ if renamed on import)
-    for (int i = 0; i < (int)MeshKind::Count; ++i) fileMeshes[meshes.name(i)] = i;
-    fileMeshes["None"] = kNoMesh;
-    std::string line;
-    int lineNo = 0;
-    while (std::getline(f, line)) {
-        ++lineNo;
-        if (line.empty() || line[0] == '#') continue;
-        std::istringstream in(line);
-        auto fail = [&](const std::string& msg) { error = path + ":" + std::to_string(lineNo) + ": " + msg; return false; };
-        if (line.compare(0, 5, "mesh ") == 0) {
-            std::string keyword, name, source;
-            in >> keyword >> std::quoted(name) >> std::quoted(source);
-            if (!in) return fail("malformed mesh line");
-            std::string importError;
-            int id = importObj(meshes, source, importError);
-            if (id < 0) return fail(importError);
-            fileMeshes[name] = id;
-            continue;
-        }
-        SceneObject o;
-        std::string mesh;
-        in >> std::quoted(o.name) >> std::quoted(mesh);
-        for (float& v : o.position) in >> v;
-        for (float& v : o.rotation) in >> v;
-        for (float& v : o.scale) in >> v;
-        in >> o.color.x >> o.color.y >> o.color.z >> o.checker >> o.visible >> o.locked >> o.spin >> o.bob >> o.phase;
-        if (!in) return fail("malformed line");
-        std::string extra;
-        if (in >> extra && extra == "camera") {
-            o.camera = true;
-            in >> o.fovY;
-        }
-        auto it = fileMeshes.find(mesh);
-        if (it == fileMeshes.end()) return fail("unknown mesh '" + mesh + "'");
-        o.mesh = it->second;
-        result.push_back(std::move(o));
-    }
-    objects = std::move(result);
-    return true;
+    return scene;
 }

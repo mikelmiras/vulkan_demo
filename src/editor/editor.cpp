@@ -1,43 +1,17 @@
 #include "editor/editor.h"
 
 #include <cfloat>
-#include <cstdio>
-#include <cstring>
 #include <cstdlib>
-#include <filesystem>
-#include <set>
 
 #include "ImGuizmo.h"
-#include "misc/cpp/imgui_stdlib.h"
-#include "platform/platform.h"
+#include "scene/serialization.h"
 
 namespace {
-
-constexpr float kLeftPanelW = 250.f;
-constexpr float kRightPanelW = 330.f;
 constexpr size_t kMaxUndo = 200;
-
-constexpr ImGuiWindowFlags kPanelFlags =
-    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
-constexpr ImGuiWindowFlags kBarFlags = kPanelFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
-                                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus;
-
-void verticalSeparator() {
-    ImGui::SameLine();
-    ImGui::TextDisabled("|");
-    ImGui::SameLine();
 }
-
-void tooltip(const char* text) {
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", text);
-}
-
-bool keyPressed(ImGuiKey key) { return ImGui::IsKeyPressed(key, false); }
-
-}  // namespace
 
 Editor::Editor(MeshLibrary& meshes, float uiScale)
-    : meshes_(meshes), uiScale_(uiScale), objects_(buildDefaultScene()) {}
+    : meshes_(meshes), uiScale_(uiScale), scene_(buildDefaultScene()) {}
 
 // ---------------------------------------------------------------------------------------------
 // Frame
@@ -46,7 +20,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     ImGuiIO& io = ImGui::GetIO();
     // The game sees the keyboard unless a text field has it, and the mouse only over the viewport
     game_.frame(dt, !io.WantTextInput, viewportHovered());
-    frameStart_ = {objects_, selected_};
+    frameStart_ = {scene_, selected_};
     editBegan_ = false;
     if (statusTimer_ > 0.f) statusTimer_ -= dt;
     fps_ = fps_ * 0.95f + (dt > 0.f ? 1.f / dt : 0.f) * 0.05f;
@@ -62,15 +36,15 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     topH_ = menuH + toolbarH;
     statusH_ = ImGui::GetTextLineHeight() + style.WindowPadding.y * 2.f;
     bool panels = !(playing() && maximizeOnPlay_);
-    float leftW = panels && showOutliner_ ? px(kLeftPanelW) : 0.f, rightW = panels && showInspector_ ? px(kRightPanelW) : 0.f;
+    float leftW = panels && showOutliner_ ? px(250.f) : 0.f, rightW = panels && showInspector_ ? px(340.f) : 0.f;
     vx_ = leftW;
     vy_ = topH_;
     vw_ = std::max(io.DisplaySize.x - leftW - rightW, 1.f);
     vh_ = std::max(io.DisplaySize.y - topH_ - statusH_, 1.f);
+    updateView();
 
     drawMenuBar();
     drawToolbar();
-    updateView();
     if (leftW > 0.f) drawOutliner();
     if (rightW > 0.f) drawInspector(gpuName, stats);
     drawStatusBar(stats);
@@ -82,26 +56,28 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     handleGizmo();
     handlePicking();
     handleShortcuts();
-    drawCameraGizmos();
+    drawEntityIcons();
     drawViewportOverlay();
 
-    // Deferred actions requested from inside list iteration (context menus)
-    if (pendingFocus_ >= 0) { select(pendingFocus_); focusSelected(); }
-    if (pendingDuplicate_ >= 0) { select(pendingDuplicate_); duplicateSelected(); }
-    if (pendingDelete_ >= 0) { select(pendingDelete_); deleteSelected(); }
-    pendingFocus_ = pendingDuplicate_ = pendingDelete_ = -1;
+    // Deferred actions requested from inside list iteration (context menus, drag & drop)
+    if (pendingFocus_) { select(pendingFocus_); focusSelected(); }
+    if (pendingDuplicate_) { select(pendingDuplicate_); duplicateSelected(); }
+    if (pendingDelete_) { select(pendingDelete_); deleteSelected(); }
+    if (pendingReparent_) reparent(pendingReparent_, pendingParent_);
+    pendingFocus_ = pendingDuplicate_ = pendingDelete_ = pendingReparent_ = pendingParent_ = kNoEntity;
 
     if (editBegan_ && !playing()) {   // play-mode edits are thrown away on Stop: no undo
         undo_.push_back(std::move(frameStart_));
         if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
         redo_.clear();
     }
-    if (!hasSelection()) selected_ = -1;
-    updateView();   // the camera may have moved during this frame
+    if (!scene_.find(selected_)) selected_ = kNoEntity;
+    updateView();   // the scene or the camera may have changed during this frame
     buildDrawItems();
 }
 
 void Editor::updateView() {
+    worlds_ = playing() ? game_.worldMatrices() : scene_.worldMatrices();
     CameraView gc;
     gameCameraActive_ = playing() && game_.activeCamera(gc);
     if (gameCameraActive_) {
@@ -113,35 +89,25 @@ void Editor::updateView() {
     }
 }
 
+const Mat4& Editor::worldOf(EntityId id) const {
+    static const Mat4 identity;
+    int i = scene_.indexOf(id);
+    return i >= 0 && i < (int)worlds_.size() ? worlds_[(size_t)i] : identity;
+}
+
 void Editor::buildDrawItems() {
     drawItems_.clear();
-    for (int i = 0; i < (int)objects_.size(); ++i) {
-        const SceneObject& o = objects_[i];
-        if (!o.visible || o.mesh == kNoMesh) continue;
+    for (size_t i = 0; i < scene_.entities.size(); ++i) {
+        const Entity& e = scene_.entities[i];
+        if (!e.meshRenderer || !scene_.visibleInHierarchy(e.id)) continue;
         DrawItem d;
-        d.model = o.animatedMatrix(sceneTime());
-        d.mesh = o.mesh;
-        d.color = o.color;
-        d.checker = o.checker;
-        d.outlined = i == selected_ && !viewingGameCamera();
+        d.model = worlds_[i];
+        d.mesh = e.meshRenderer->mesh;
+        d.color = e.meshRenderer->color;
+        d.checker = e.meshRenderer->checker;
+        d.outlined = e.id == selected_ && !viewingGameCamera();
         drawItems_.push_back(d);
     }
-}
-
-bool Editor::viewportHovered() const {
-    ImVec2 mp = ImGui::GetIO().MousePos;
-    bool inViewport = mp.x >= vx_ && mp.x < vx_ + vw_ && mp.y >= vy_ && mp.y < vy_ + vh_;
-    return inViewport && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) && !ImGui::IsAnyItemActive();
-}
-
-bool Editor::worldToScreen(Vec3 p, ImVec2& out) const {
-    const float* m = viewProj_.m;
-    float x = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12];
-    float y = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13];
-    float w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
-    if (w < 1e-4f) return false;
-    out = ImVec2(vx_ + (x / w * 0.5f + 0.5f) * vw_, vy_ + (y / w * 0.5f + 0.5f) * vh_);   // Vulkan clip: Y down
-    return true;
 }
 
 SceneRenderInfo Editor::renderInfo() const {
@@ -156,754 +122,23 @@ SceneRenderInfo Editor::renderInfo() const {
     return info;
 }
 
-void Editor::track() {
-    if (ImGui::IsItemActivated()) editBegan_ = true;
-}
-
 // ---------------------------------------------------------------------------------------------
-// Panels
+// Play mode
 // ---------------------------------------------------------------------------------------------
-void Editor::drawMenuBar() {
-    if (!ImGui::BeginMainMenuBar()) return;
-    if (ImGui::BeginMenu("File")) {
-        ImGui::SetNextItemWidth(px(220.f));
-        ImGui::InputText("Scene file", scenePath_, sizeof(scenePath_));
-        ImGui::BeginDisabled(playing());   // stop first: the scene on screen is the throwaway play copy
-        if (ImGui::MenuItem("Save", "Ctrl+S")) saveToFile();
-        if (ImGui::MenuItem("Load", "Ctrl+O")) loadFromFile();
-        if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
-        ImGui::Separator();
-        if (ImGui::MenuItem("New (ground only)")) {
-            pushUndo();
-            objects_.resize(1);
-            objects_[0] = buildDefaultScene()[0];
-            selected_ = -1;
-        }
-        if (ImGui::MenuItem("Reset to demo scene")) {
-            pushUndo();
-            objects_ = buildDefaultScene();
-            selected_ = -1;
-        }
-        ImGui::EndDisabled();
-        ImGui::Separator();
-        if (ImGui::MenuItem("Quit", "Ctrl+Q")) quit_ = true;
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Edit")) {
-        if (ImGui::MenuItem("Undo", "Ctrl+Z", false, !undo_.empty())) undo();
-        if (ImGui::MenuItem("Redo", "Ctrl+Shift+Z", false, !redo_.empty())) redo();
-        ImGui::Separator();
-        if (ImGui::MenuItem("Duplicate", "Shift+D", false, hasSelection())) duplicateSelected();
-        if (ImGui::MenuItem("Delete", "X / Del", false, hasSelection())) deleteSelected();
-        if (ImGui::MenuItem("Drop to ground", "End", false, hasSelection())) dropSelectedToGround();
-        ImGui::Separator();
-        if (ImGui::MenuItem("Hide / show selected", "H", false, hasSelection())) toggleHideSelected();
-        if (ImGui::MenuItem("Unhide all", "Alt+H")) unhideAll();
-        if (ImGui::MenuItem("Deselect", "Esc", false, hasSelection())) selected_ = -1;
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Add")) {
-        drawAddMenuItems();
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Game")) {
-        if (ImGui::MenuItem(playing() ? "Stop" : "Play", "Ctrl+P")) playing() ? stopPlay() : startPlay();
-        if (ImGui::MenuItem("Pause", "Ctrl+Shift+P", playing() && game_.paused(), playing())) togglePause();
-        if (ImGui::MenuItem("Step one tick", nullptr, false, playing() && game_.paused())) game_.step();
-        ImGui::Separator();
-        ImGui::MenuItem("Maximize viewport on play", nullptr, &maximizeOnPlay_);
-        ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("View")) {
-        ImGui::MenuItem("Outliner", nullptr, &showOutliner_);
-        ImGui::MenuItem("Inspector", nullptr, &showInspector_);
-        ImGui::Separator();
-        if (ImGui::MenuItem("Focus selected", "F", false, hasSelection())) focusSelected();
-        if (ImGui::MenuItem("Reset camera")) cam_ = EditorCamera{};
-        ImGui::Separator();
-        ImGui::MenuItem("Controls help", "F1", &showHelp_);
-        ImGui::EndMenu();
-    }
-    ImGui::EndMainMenuBar();
-}
-
-void Editor::drawToolbar() {
-    ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()));
-    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, topH_ - ImGui::GetFrameHeight()));
-    ImGui::Begin("##toolbar", nullptr, kBarFlags);
-
-    auto toolButton = [&](const char* label, Tool t, const char* tip) {
-        bool active = tool_ == t;
-        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button(label)) tool_ = t;
-        if (active) ImGui::PopStyleColor();
-        tooltip(tip);
-        ImGui::SameLine();
-    };
-    toolButton("Select", Tool::Select, "Select only, no gizmo (Q)");
-    toolButton("Move", Tool::Move, "Translate gizmo (G)");
-    toolButton("Rotate", Tool::Rotate, "Rotate gizmo (R)");
-    toolButton("Scale", Tool::Scale, "Scale gizmo (S)");
-
-    verticalSeparator();
-    if (ImGui::Button(localSpace_ ? "Local" : "World")) localSpace_ = !localSpace_;
-    tooltip("Gizmo orientation: world or object axes (L)");
-    ImGui::SameLine();
-    ImGui::Checkbox("Snap", &snap_);
-    tooltip("Snap gizmo moves to increments. Holding Ctrl while dragging inverts this.");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(px(70.f));
-    if (tool_ == Tool::Rotate) ImGui::DragFloat("##snap", &snapRotate_, 0.5f, 1.f, 180.f, "%.0f deg");
-    else if (tool_ == Tool::Scale) ImGui::DragFloat("##snap", &snapScale_, 0.01f, 0.01f, 10.f, "%.2f x");
-    else ImGui::DragFloat("##snap", &snapMove_, 0.05f, 0.05f, 100.f, "%.2f m");
-    tooltip("Snap increment for the current tool");
-
-    verticalSeparator();
-    if (ImGui::Button("Add...")) openAddMenu_ = true;
-    tooltip("Add a new object in front of the camera (Shift+A)");
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!hasSelection());
-    if (ImGui::Button("Duplicate")) duplicateSelected();
-    tooltip("Shift+D");
-    ImGui::SameLine();
-    if (ImGui::Button("Delete")) deleteSelected();
-    tooltip("X / Delete");
-    ImGui::SameLine();
-    if (ImGui::Button("Focus")) focusSelected();
-    tooltip("Frame the selected object (F)");
-    ImGui::EndDisabled();
-
-    verticalSeparator();
-    ImGui::BeginDisabled(undo_.empty());
-    if (ImGui::Button("Undo")) undo();
-    tooltip("Ctrl+Z");
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::BeginDisabled(redo_.empty());
-    if (ImGui::Button("Redo")) redo();
-    tooltip("Ctrl+Shift+Z / Ctrl+Y");
-    ImGui::EndDisabled();
-
-    verticalSeparator();
-    {
-        bool p = playing();
-        if (p) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.75f, 0.25f, 0.2f, 1.f));
-        else ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.55f, 0.25f, 1.f));
-        if (ImGui::Button(p ? "Stop" : "Play")) p ? stopPlay() : startPlay();
-        ImGui::PopStyleColor();
-        tooltip(p ? "Stop and restore the scene (Ctrl+P)" : "Run the game from this scene (Ctrl+P)");
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!p);
-        bool paused = p && game_.paused();
-        if (paused) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button("Pause")) togglePause();
-        if (paused) ImGui::PopStyleColor();
-        tooltip("Ctrl+Shift+P");
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!paused);
-        if (ImGui::Button("Step")) game_.step();
-        tooltip("Advance one fixed update (1/60 s) while paused");
-        ImGui::EndDisabled();
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-    }
-    ImGui::SetNextItemWidth(px(140.f));
-    ImGui::SliderFloat("Fly speed", &cam_.speed, 1.f, 200.f, "%.0f", ImGuiSliderFlags_Logarithmic);
-    ImGui::End();
-}
-
-void Editor::drawOutliner() {
-    ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(0, topH_));
-    ImGui::SetNextWindowSize(ImVec2(px(kLeftPanelW), io.DisplaySize.y - topH_ - statusH_));
-    ImGui::Begin("Outliner", nullptr, kPanelFlags);
-
-    filter_.Draw("Filter", -px(50.f));
-    ImGui::TextDisabled("%zu objects", objects_.size());
-    ImGui::Separator();
-
-    ImGui::BeginChild("##list");
-    for (int i = 0; i < (int)objects_.size(); ++i) {
-        SceneObject& o = objects_[i];
-        if (!filter_.PassFilter(o.name.c_str())) continue;
-        ImGui::PushID(i);
-        ImGui::Checkbox("##visible", &o.visible);
-        track();
-        tooltip("Visible");
-        ImGui::SameLine();
-        if (!o.visible) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        if (ImGui::Selectable(o.name.c_str(), selected_ == i)) select(i);
-        if (!o.visible) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) pendingFocus_ = i;
-        if (ImGui::BeginPopupContextItem()) {
-            ImGui::TextDisabled("%s (%s)", o.name.c_str(), o.mesh == kNoMesh ? "no mesh" : meshes_.name(o.mesh));
-            if (ImGui::MenuItem("Focus")) pendingFocus_ = i;
-            if (ImGui::MenuItem("Duplicate")) pendingDuplicate_ = i;
-            if (ImGui::MenuItem("Delete")) pendingDelete_ = i;
-            ImGui::EndPopup();
-        }
-        if (scrollToSelected_ && selected_ == i) ImGui::SetScrollHereY(0.5f);
-        ImGui::PopID();
-    }
-    scrollToSelected_ = false;
-    ImGui::EndChild();
-    ImGui::End();
-}
-
-void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats) {
-    ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - px(kRightPanelW), topH_));
-    ImGui::SetNextWindowSize(ImVec2(px(kRightPanelW), io.DisplaySize.y - topH_ - statusH_));
-    ImGui::Begin("Inspector", nullptr, kPanelFlags);
-    ImGui::PushItemWidth(-px(110.f));
-
-    if (!hasSelection()) {
-        ImGui::TextWrapped("Nothing selected.");
-        ImGui::TextDisabled("Click an object in the viewport\nor pick one in the outliner.");
-    } else {
-        SceneObject& o = objects_[selected_];
-        ImGui::InputText("Name", &o.name);
-        track();
-        int meshItem = o.mesh + 1;   // item 0 = no mesh
-        if (ImGui::Combo(
-                "Mesh", &meshItem,
-                [](void* lib, int i) { return i == 0 ? "(none)" : ((const MeshLibrary*)lib)->name(i - 1); }, &meshes_,
-                meshes_.count() + 1))
-            o.mesh = meshItem - 1;
-        track();
-
-        ImGui::SeparatorText("Transform");
-        ImGui::DragFloat3("Position", o.position, 0.05f, 0.f, 0.f, "%.2f");
-        track();
-        ImGui::DragFloat3("Rotation", o.rotation, 0.5f, 0.f, 0.f, "%.1f");
-        track();
-        ImGui::DragFloat3("Scale", o.scale, 0.01f, 0.001f, 10000.f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-        track();
-        float uniform = (o.scale[0] + o.scale[1] + o.scale[2]) / 3.f, before = uniform;
-        if (ImGui::DragFloat("Uniform scale", &uniform, 0.01f, 0.001f, 10000.f, "%.3f", ImGuiSliderFlags_AlwaysClamp) &&
-            before > 0.f)
-            for (float& s : o.scale) s = std::max(s * uniform / before, 0.001f);
-        track();
-        if (ImGui::Button("Reset rot")) { pushUndo(); o.rotation[0] = o.rotation[1] = o.rotation[2] = 0.f; }
-        ImGui::SameLine();
-        if (ImGui::Button("Reset scale")) { pushUndo(); o.scale[0] = o.scale[1] = o.scale[2] = 1.f; }
-        ImGui::SameLine();
-        if (ImGui::Button("Drop to ground")) dropSelectedToGround();
-
-        ImGui::SeparatorText("Material");
-        ImGui::ColorEdit3("Color", &o.color.x);
-        track();
-        ImGui::Checkbox("Checker pattern", &o.checker);
-        track();
-
-        ImGui::SeparatorText("Flags");
-        ImGui::Checkbox("Visible", &o.visible);
-        track();
-        ImGui::SameLine();
-        ImGui::Checkbox("Locked", &o.locked);
-        track();
-        tooltip("Locked objects ignore viewport clicks (select them in the outliner)");
-
-        ImGui::SeparatorText("Animation");
-        ImGui::DragFloat("Spin (rad/s)", &o.spin, 0.01f, -20.f, 20.f, "%.2f");
-        track();
-        ImGui::DragFloat("Bob height", &o.bob, 0.01f, 0.f, 50.f, "%.2f");
-        track();
-        ImGui::SliderAngle("Phase", &o.phase, 0.f, 360.f);
-        track();
-
-        ImGui::SeparatorText("Game camera");
-        ImGui::Checkbox("Is camera", &o.camera);
-        track();
-        tooltip("In play mode the game renders through the first camera object (looking down its local -Z)");
-        if (o.camera) {
-            ImGui::SliderAngle("Field of view", &o.fovY, 20.f, 120.f);
-            track();
-        }
-
-        ImGui::SeparatorText("Info");
-        if (o.mesh != kNoMesh) ImGui::Text("Triangles: %u", meshes_.get(o.mesh).indexCount / 3);
-        ImGui::Text("Distance to camera: %.2f", length(o.pos() - cam_.pos));
-        if (ImGui::TreeNode("World matrix")) {
-            Mat4 m = o.animatedMatrix(sceneTime());
-            for (int r = 0; r < 4; ++r)
-                ImGui::Text("%8.3f %8.3f %8.3f %8.3f", m.m[r], m.m[4 + r], m.m[8 + r], m.m[12 + r]);
-            ImGui::TreePop();
-        }
-    }
-
-    ImGui::SeparatorText("Camera");
-    ImGui::DragFloat3("Cam position", &cam_.pos.x, 0.1f, 0.f, 0.f, "%.2f");
-    float yawDeg = cam_.yaw / DEG2RAD, pitchDeg = cam_.pitch / DEG2RAD;
-    if (ImGui::DragFloat("Yaw", &yawDeg, 0.5f, 0.f, 0.f, "%.1f")) cam_.yaw = yawDeg * DEG2RAD;
-    if (ImGui::DragFloat("Pitch", &pitchDeg, 0.5f, -89.f, 89.f, "%.1f")) cam_.pitch = pitchDeg * DEG2RAD;
-    ImGui::SliderAngle("FOV", &cam_.fovY, 20.f, 120.f);
-
-    ImGui::SeparatorText("Renderer");
-    ImGui::Text("GPU: %s", gpuName.c_str());
-    ImGui::Text("%.0f FPS (%.2f ms)", fps_, fps_ > 0.f ? 1000.f / fps_ : 0.f);
-    ImGui::Text("Draw calls: %u   Triangles: %u", stats.drawCalls, stats.triangles);
-    ImGui::PopItemWidth();
-    ImGui::End();
-}
-
-void Editor::drawStatusBar(const RenderStats& stats) {
-    ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(0, io.DisplaySize.y - statusH_));
-    ImGui::SetNextWindowSize(ImVec2(io.DisplaySize.x, statusH_));
-    ImGui::Begin("##status", nullptr, kBarFlags);
-    if (statusTimer_ > 0.f) {
-        ImGui::TextColored(ImVec4(1.f, 0.8f, 0.3f, 1.f), "%s", status_.c_str());
-    } else {
-        const char* hint = nav_ == Nav::Fly     ? "Flying: WASD move, E/Q up/down, Shift fast, wheel = speed"
-                           : nav_ == Nav::Orbit ? "Orbiting (Shift+MMB to pan)"
-                           : nav_ == Nav::Pan   ? "Panning"
-                           : playing()          ? "Playing: Ctrl+P stops and restores the scene, Ctrl+Shift+P pauses"
-                                                : "LMB select | RMB+WASD fly | MMB orbit | Shift+MMB pan | "
-                                                  "Wheel zoom | G/R/S tools | F focus | Shift+A add | Ctrl+P play";
-        ImGui::TextDisabled("%s", hint);
-    }
-    char right[128];
-    std::snprintf(right, sizeof(right), "%zu objects | %u draws | %u tris | %.0f FPS", objects_.size(),
-                  stats.drawCalls, stats.triangles, fps_);
-    float w = ImGui::CalcTextSize(right).x;
-    ImGui::SameLine(std::max(ImGui::GetWindowWidth() - w - ImGui::GetStyle().WindowPadding.x, 0.f));
-    ImGui::TextUnformatted(right);
-    ImGui::End();
-}
-
-void Editor::drawHelp() {
-    ImGui::SetNextWindowSize(ImVec2(px(470.f), 0), ImGuiCond_FirstUseEver);
-    ImVec2 center(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
-    ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    if (!ImGui::Begin("Controls", &showHelp_, ImGuiWindowFlags_NoSavedSettings)) { ImGui::End(); return; }
-    static const char* rows[][2] = {
-        {"Left click", "Select object (click empty space to deselect)"},
-        {"Right mouse + WASD", "Fly: mouse look, E/Q up/down, Shift faster, wheel = speed"},
-        {"Middle mouse drag", "Orbit around the point in front of the camera"},
-        {"Shift + middle drag", "Pan"},
-        {"Mouse wheel", "Zoom (dolly)"},
-        {"View cube (top-right)", "Click a face/edge to snap the view, drag to rotate"},
-        {"Q / G / R / S", "Select / Move / Rotate / Scale tool"},
-        {"L", "Toggle world/local gizmo axes"},
-        {"Ctrl while dragging", "Toggle snapping"},
-        {"F  (or double-click)", "Focus selected object"},
-        {"Shift+A", "Add object menu"},
-        {"Shift+D", "Duplicate selected"},
-        {"X / Delete", "Delete selected"},
-        {"End", "Drop selected to the ground"},
-        {"H / Alt+H", "Hide selected / unhide all"},
-        {"Esc", "Deselect"},
-        {"Ctrl+P", "Play / stop the game (the scene is restored on stop)"},
-        {"Ctrl+Shift+P", "Pause / resume the game"},
-        {"Ctrl+Z / Ctrl+Shift+Z", "Undo / redo"},
-        {"Ctrl+S / Ctrl+O", "Save / load scene file"},
-    };
-    if (ImGui::BeginTable("help", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
-        for (auto& r : rows) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(r[0]);
-            ImGui::TableNextColumn();
-            ImGui::TextWrapped("%s", r[1]);
-        }
-        ImGui::EndTable();
-    }
-    ImGui::End();
-}
-
-void Editor::drawAddPopup() {
-    if (openAddMenu_) {
-        ImGui::OpenPopup("##add");
-        openAddMenu_ = false;
-    }
-    if (ImGui::BeginPopup("##add")) {
-        ImGui::TextDisabled("Add object");
-        ImGui::Separator();
-        drawAddMenuItems();
-        ImGui::EndPopup();
-    }
-}
-
-// Built-in meshes, then imported ones, then the import dialog
-void Editor::drawAddMenuItems() {
-    for (int k = 0; k < meshes_.count(); ++k) {
-        if (k == (int)MeshKind::Count) ImGui::Separator();
-        if (ImGui::MenuItem(meshes_.name(k))) addObject(k);
-    }
-    ImGui::Separator();
-    if (ImGui::MenuItem("Camera")) addCamera();
-    if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
-}
-
-void Editor::drawImportPopup() {
-    namespace fs = std::filesystem;
-    if (openImport_) {
-        ImGui::OpenPopup("Import OBJ");
-        importError_.clear();
-        openImport_ = false;
-    }
-    ImVec2 center(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(px(520.f), 0), ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal("Import OBJ", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
-
-    ImGui::TextWrapped("Browse for a Wavefront .obj file or type its path. The mesh is centred and scaled to fit a unit cube; "
-                       "materials and textures are ignored.");
-    bool submit = false;
-    if (ImGui::Button("Browse...")) {
-        std::filesystem::path picked = platform::openFileDialog("Import OBJ model", "obj");
-        // The dialog ran its own event loop: drop key/button state ImGui may have missed the release of
-        ImGui::GetIO().ClearInputKeys();
-        ImGui::GetIO().ClearInputMouse();
-        if (!picked.empty()) {
-            importPath_ = picked.u8string();
-            submit = true;
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    submit |= ImGui::InputTextWithHint("##path", "path, e.g. ~/Downloads/model.obj", &importPath_,
-                                       ImGuiInputTextFlags_EnterReturnsTrue);
-
-    // .obj files in the working directory, for convenience
-    std::error_code ec;
-    std::vector<fs::path> found;
-    for (const auto& e : fs::directory_iterator(fs::current_path(ec), ec))
-        if (e.path().extension() == ".obj" || e.path().extension() == ".OBJ") found.push_back(e.path().filename());
-    if (!found.empty()) {
-        ImGui::TextDisabled("In %s:", fs::current_path(ec).u8string().c_str());
-        if (ImGui::BeginListBox("##found", ImVec2(-FLT_MIN, ImGui::GetTextLineHeightWithSpacing() * std::min<float>(found.size(), 6.f) + px(8.f)))) {
-            for (const auto& name : found) {
-                std::string n = name.u8string();
-                if (ImGui::Selectable(n.c_str(), importPath_ == n, ImGuiSelectableFlags_AllowDoubleClick)) {
-                    importPath_ = n;
-                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) submit = true;
-                }
-            }
-            ImGui::EndListBox();
-        }
-    }
-    if (!importError_.empty()) ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", importError_.c_str());
-
-    ImGui::Separator();
-    ImGui::BeginDisabled(importPath_.empty());
-    if (ImGui::Button("Import", ImVec2(px(100.f), 0))) submit = true;
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(px(100.f), 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
-        ImGui::CloseCurrentPopup();
-    if (submit && !importPath_.empty()) {
-        importMesh();
-        if (importError_.empty()) ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
-}
-
-void Editor::drawViewportOverlay() {
-    ImDrawList* dl = ImGui::GetBackgroundDrawList();
-    static const char* toolNames[] = {"Select", "Move", "Rotate", "Scale"};
-    char line[160];
-    if (playing()) {
-        std::snprintf(line, sizeof(line), "%s  |  t = %.2f s  |  tick %llu%s", game_.paused() ? "PAUSED" : "PLAYING",
-                      game_.time(), game_.tick(),
-                      gameCameraActive_ ? "" : "  |  no camera in the scene: editor view");
-    } else {
-        std::snprintf(line, sizeof(line), "Perspective  |  %s%s%s", toolNames[(int)tool_],
-                      tool_ == Tool::Select ? "" : (localSpace_ ? " (local)" : " (world)"), snap_ ? "  snap" : "");
-    }
-    ImVec2 p(vx_ + px(10.f), vy_ + px(8.f));
-    dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 120), line);
-    dl->AddText(p, IM_COL32(255, 255, 255, 230), line);
-    if (playing()) {   // red frame around the viewport while playing
-        dl->AddRect(ImVec2(vx_ + 1, vy_ + 1), ImVec2(vx_ + vw_ - 1, vy_ + vh_ - 1),
-                    game_.paused() ? IM_COL32(240, 190, 60, 200) : IM_COL32(220, 70, 50, 200), 0.f, 0, px(2.f));
-    }
-    if (hasSelection() && !viewingGameCamera()) {
-        const SceneObject& o = objects_[selected_];
-        std::snprintf(line, sizeof(line), "%s  (%s)", o.name.c_str(),
-                      o.camera ? "camera" : o.mesh == kNoMesh ? "no mesh" : meshes_.name(o.mesh));
-        p.y += ImGui::GetTextLineHeightWithSpacing();
-        dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 120), line);
-        dl->AddText(p, IM_COL32(255, 170, 60, 255), line);
-    }
-}
-
-// ---------------------------------------------------------------------------------------------
-// Viewport interaction
-// ---------------------------------------------------------------------------------------------
-void Editor::handleNavigation(float dt) {
-    ImGuiIO& io = ImGui::GetIO();
-    if (viewingGameCamera()) { nav_ = Nav::None; return; }   // the game owns the view (and the mouse)
-    ImVec2 mp = io.MousePos;
-    bool inViewport = mp.x >= vx_ && mp.x < vx_ + vw_ && mp.y >= vy_ && mp.y < vy_ + vh_;
-    bool overUi = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) || ImGui::IsAnyItemActive();
-    bool viewportHovered = inViewport && !overUi;
-
-    if (nav_ == Nav::None && viewportHovered && !ImGuizmo::IsUsingAny()) {
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) nav_ = Nav::Fly;
-        else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle)) nav_ = io.KeyShift ? Nav::Pan : Nav::Orbit;
-    }
-    if ((nav_ == Nav::Fly && !ImGui::IsMouseDown(ImGuiMouseButton_Right)) ||
-        ((nav_ == Nav::Orbit || nav_ == Nav::Pan) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle)))
-        nav_ = Nav::None;
-
-    const float lookSens = 0.0035f;
-    ImVec2 d = io.MouseDelta;
-    switch (nav_) {
-        case Nav::Fly: {
-            cam_.yaw += d.x * lookSens;
-            cam_.pitch = std::clamp(cam_.pitch - d.y * lookSens, -1.55f, 1.55f);
-            Vec3 move{};
-            if (ImGui::IsKeyDown(ImGuiKey_W)) move += cam_.forward();
-            if (ImGui::IsKeyDown(ImGuiKey_S)) move += cam_.forward() * -1.f;
-            if (ImGui::IsKeyDown(ImGuiKey_D)) move += cam_.right();
-            if (ImGui::IsKeyDown(ImGuiKey_A)) move += cam_.right() * -1.f;
-            if (ImGui::IsKeyDown(ImGuiKey_E) || ImGui::IsKeyDown(ImGuiKey_Space)) move += Vec3{0, 1, 0};
-            if (ImGui::IsKeyDown(ImGuiKey_Q) || ImGui::IsKeyDown(ImGuiKey_C)) move += Vec3{0, -1, 0};
-            if (length(move) > 0.f)
-                cam_.pos += normalize(move) * (cam_.speed * (io.KeyShift ? 4.f : 1.f) * dt);
-            if (io.MouseWheel != 0.f)
-                cam_.speed = std::clamp(cam_.speed * std::pow(1.2f, io.MouseWheel), 1.f, 200.f);
-            break;
-        }
-        case Nav::Orbit: {
-            Vec3 pivot = cam_.pos + cam_.forward() * cam_.orbitDistance;
-            cam_.yaw += d.x * lookSens * 1.5f;
-            cam_.pitch = std::clamp(cam_.pitch - d.y * lookSens * 1.5f, -1.55f, 1.55f);
-            cam_.pos = pivot - cam_.forward() * cam_.orbitDistance;
-            break;
-        }
-        case Nav::Pan: {
-            float k = 2.f * std::tan(cam_.fovY * 0.5f) * cam_.orbitDistance / vh_;   // world units per pixel at pivot
-            cam_.pos += cam_.right() * (-d.x * k) + cam_.up() * (d.y * k);
-            break;
-        }
-        case Nav::None:
-            if (viewportHovered && io.MouseWheel != 0.f) {
-                float step = std::max(cam_.orbitDistance * 0.15f, 0.3f) * io.MouseWheel;
-                cam_.pos += cam_.forward() * step;
-                cam_.orbitDistance = std::max(cam_.orbitDistance - step, 1.f);
-            }
-            break;
-    }
-}
-
-void Editor::handleGizmo() {
-    ImGuiIO& io = ImGui::GetIO();
-    Mat4 view = cam_.view();
-    Mat4 proj = perspective(cam_.fovY, aspect(), 0.1f, 2000.f, false);   // ImGuizmo expects GL conventions
-    ImGuizmo::SetOrthographic(false);
-    ImGuizmo::SetRect(vx_, vy_, vw_, vh_);
-
-    gizmoDrawn_ = false;
-    if (viewingGameCamera()) return;
-    if (hasSelection() && tool_ != Tool::Select && (objects_[selected_].visible || objects_[selected_].camera)) {
-        SceneObject& o = objects_[selected_];
-        ImGuizmo::OPERATION op = tool_ == Tool::Move     ? ImGuizmo::TRANSLATE
-                                 : tool_ == Tool::Rotate ? ImGuizmo::ROTATE
-                                                         : ImGuizmo::SCALE;
-        float snapValue = tool_ == Tool::Move ? snapMove_ : tool_ == Tool::Rotate ? snapRotate_ : snapScale_;
-        float snapValues[3] = {snapValue, snapValue, snapValue};
-        bool useSnap = snap_ != io.KeyCtrl;
-
-        ImGuizmo::Enable(nav_ == Nav::None);
-        Mat4 m = o.baseMatrix();
-        if (ImGuizmo::Manipulate(view.m, proj.m, op, localSpace_ ? ImGuizmo::LOCAL : ImGuizmo::WORLD, m.m, nullptr,
-                                 useSnap ? snapValues : nullptr)) {
-            ImGuizmo::DecomposeMatrixToComponents(m.m, o.position, o.rotation, o.scale);
-            for (float& s : o.scale) s = std::max(s, 0.001f);
-        }
-        gizmoDrawn_ = true;
-    }
-    bool using_ = ImGuizmo::IsUsing();
-    if (using_ && !gizmoWasUsing_) editBegan_ = true;
-    gizmoWasUsing_ = using_;
-
-    // Orientation cube in the top-right corner of the viewport
-    const float cube = px(110.f);
-    // (overload taking the projection, so it also works when no Manipulate() ran this frame)
-    Mat4 newView = view, identity;
-    ImGuizmo::ViewManipulate(newView.m, proj.m, ImGuizmo::TRANSLATE, ImGuizmo::WORLD, identity.m,
-                             cam_.orbitDistance, ImVec2(vx_ + vw_ - cube - px(8.f), vy_ + px(8.f)), ImVec2(cube, cube),
-                             IM_COL32(0, 0, 0, 40));
-    if (std::memcmp(newView.m, view.m, sizeof(view.m)) != 0) setCameraFromView(newView);
-}
-
-void Editor::handlePicking() {
-    ImGuiIO& io = ImGui::GetIO();
-    if (viewingGameCamera() || nav_ != Nav::None || !ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
-    ImVec2 mp = io.MousePos;
-    bool inViewport = mp.x >= vx_ && mp.x < vx_ + vw_ && mp.y >= vy_ && mp.y < vy_ + vh_;
-    if (!inViewport || ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) || ImGui::IsAnyItemActive()) return;
-    if (ImGuizmo::IsUsingAny() || ImGuizmo::IsViewManipulateHovered() || (gizmoDrawn_ && ImGuizmo::IsOver())) return;
-
-    // Camera ray through the mouse position
-    float nx = (mp.x - vx_) / vw_ * 2.f - 1.f, ny = 1.f - (mp.y - vy_) / vh_ * 2.f;
-    float th = std::tan(cam_.fovY * 0.5f);
-    Vec3 dir = normalize(cam_.forward() + cam_.right() * (nx * th * aspect()) + cam_.up() * (ny * th));
-
-    int best = -1;
-    float bestT = FLT_MAX;
-    for (int i = 0; i < (int)objects_.size(); ++i) {
-        const SceneObject& o = objects_[i];
-        if (o.locked) continue;
-        Mat4 world = o.animatedMatrix(sceneTime());
-        if (o.mesh == kNoMesh) {
-            // No geometry (e.g. a camera): pick its icon, a small circle around the projected origin
-            Vec3 pos{world.m[12], world.m[13], world.m[14]};
-            ImVec2 sp;
-            if (!worldToScreen(pos, sp)) continue;
-            float dx = sp.x - mp.x, dy = sp.y - mp.y;
-            float t = length(pos - cam_.pos);
-            if (dx * dx + dy * dy < px(14.f) * px(14.f) && t < bestT) { bestT = t; best = i; }
-            continue;
-        }
-        if (!o.visible) continue;
-        // Transform the ray into object space; t stays comparable because dir isn't renormalised
-        Mat4 inv = inverseAffine(world);
-        float t = intersectMesh(meshes_, o.mesh, transformPoint(inv, cam_.pos), transformDir(inv, dir));
-        if (t > 0.f && t < bestT) { bestT = t; best = i; }
-    }
-    if (best >= 0) select(best);
-    else selected_ = -1;
-}
-
-void Editor::handleShortcuts() {
-    ImGuiIO& io = ImGui::GetIO();
-    if (io.WantTextInput || ImGui::IsAnyItemActive() || nav_ == Nav::Fly) return;
-    bool ctrl = io.KeyCtrl, shift = io.KeyShift, alt = io.KeyAlt;
-
-    if (ctrl && keyPressed(ImGuiKey_P)) {
-        if (shift) togglePause();
-        else playing() ? stopPlay() : startPlay();
-        return;
-    }
-    if (keyPressed(ImGuiKey_F1)) showHelp_ = !showHelp_;
-    if (playing()) return;   // everything else belongs to the game while it runs
-
-    if (ctrl) {
-        if (keyPressed(ImGuiKey_Z)) shift ? redo() : undo();
-        if (keyPressed(ImGuiKey_Y)) redo();
-        if (keyPressed(ImGuiKey_S)) saveToFile();
-        if (keyPressed(ImGuiKey_O)) loadFromFile();
-        if (keyPressed(ImGuiKey_Q)) quit_ = true;
-        if (keyPressed(ImGuiKey_D)) duplicateSelected();
-        return;
-    }
-    if (shift) {
-        if (keyPressed(ImGuiKey_A)) openAddMenu_ = true;
-        if (keyPressed(ImGuiKey_D)) duplicateSelected();
-        return;
-    }
-    if (alt) {
-        if (keyPressed(ImGuiKey_H)) unhideAll();
-        return;
-    }
-    if (keyPressed(ImGuiKey_Q)) tool_ = Tool::Select;
-    if (keyPressed(ImGuiKey_G) || keyPressed(ImGuiKey_W)) tool_ = Tool::Move;
-    if (keyPressed(ImGuiKey_R) || keyPressed(ImGuiKey_E)) tool_ = Tool::Rotate;
-    if (keyPressed(ImGuiKey_S)) tool_ = Tool::Scale;
-    if (keyPressed(ImGuiKey_L)) localSpace_ = !localSpace_;
-    if (keyPressed(ImGuiKey_F) || keyPressed(ImGuiKey_KeypadDecimal)) focusSelected();
-    if (keyPressed(ImGuiKey_X) || keyPressed(ImGuiKey_Delete)) deleteSelected();
-    if (keyPressed(ImGuiKey_H)) toggleHideSelected();
-    if (keyPressed(ImGuiKey_End)) dropSelectedToGround();
-    if (keyPressed(ImGuiKey_Escape)) selected_ = -1;
-}
-
-void Editor::setCameraFromView(const Mat4& v) {
-    // Rows of the view rotation are the camera's right / up / back axes
-    Vec3 right{v.m[0], v.m[4], v.m[8]}, up{v.m[1], v.m[5], v.m[9]}, back{v.m[2], v.m[6], v.m[10]};
-    Vec3 t{v.m[12], v.m[13], v.m[14]};
-    cam_.pos = (right * t.x + up * t.y + back * t.z) * -1.f;
-    Vec3 fwd = back * -1.f;
-    cam_.pitch = std::clamp(std::asin(std::clamp(fwd.y, -1.f, 1.f)), -1.55f, 1.55f);
-    if (std::fabs(right.x) + std::fabs(right.z) > 1e-4f) cam_.yaw = std::atan2(-right.x, right.z);
-}
-
-// ---------------------------------------------------------------------------------------------
-// Operations
-// ---------------------------------------------------------------------------------------------
-void Editor::select(int index) {
-    selected_ = index;
-    scrollToSelected_ = true;
-}
-
-std::string Editor::uniqueName(const std::string& wanted) const {
-    std::set<std::string> names;
-    for (const auto& o : objects_) names.insert(o.name);
-    if (!names.count(wanted)) return wanted;
-    // Strip a trailing ".NNN" and find the next free number, Blender style
-    std::string base = wanted;
-    size_t dot = base.find_last_of('.');
-    if (dot != std::string::npos && dot + 1 < base.size() &&
-        base.find_first_not_of("0123456789", dot + 1) == std::string::npos)
-        base = base.substr(0, dot);
-    for (int n = 1;; ++n) {
-        char buf[16];
-        std::snprintf(buf, sizeof(buf), ".%03d", n);
-        if (!names.count(base + buf)) return base + buf;
-    }
-}
-
-void Editor::addObject(int mesh) {
-    pushUndo();
-    SceneObject o;
-    o.mesh = mesh;
-    o.name = uniqueName(std::string(meshes_.name(mesh)) + ".001");
-    float size = mesh == (int)MeshKind::Plane ? 6.f : 2.f;
-    for (float& s : o.scale) s = size;
-
-    // Drop it where the view ray hits the ground (if close enough), otherwise 10 units ahead
-    Vec3 fwd = cam_.forward(), p = cam_.pos + fwd * 10.f;
-    if (fwd.y < -0.05f) {
-        float t = -cam_.pos.y / fwd.y;
-        if (t > 0.f && t < 60.f) p = cam_.pos + fwd * t;
-    }
-    p.y = std::max(p.y, std::max(-meshes_.get(mesh).boundsMin.y * size, 0.f) + 0.01f);   // rest on the ground
-    o.position[0] = p.x; o.position[1] = p.y; o.position[2] = p.z;
-
-    static const Vec3 palette[] = {{0.90f, 0.45f, 0.35f}, {0.40f, 0.70f, 0.95f}, {0.55f, 0.85f, 0.45f},
-                                   {0.95f, 0.80f, 0.35f}, {0.75f, 0.50f, 0.90f}};
-    o.color = palette[objects_.size() % 5];
-    objects_.push_back(o);
-    select((int)objects_.size() - 1);
-    setStatus("Added " + o.name);
-}
-
-void Editor::addCamera() {
-    pushUndo();
-    SceneObject o;
-    o.name = uniqueName("Camera.001");
-    o.mesh = kNoMesh;
-    o.camera = true;
-    o.fovY = cam_.fovY;
-    // Start where the editor camera is, looking the same way
-    Mat4 world = inverseAffine(cam_.view());
-    ImGuizmo::DecomposeMatrixToComponents(world.m, o.position, o.rotation, o.scale);
-    o.scale[0] = o.scale[1] = o.scale[2] = 1.f;
-    objects_.push_back(o);
-    select((int)objects_.size() - 1);
-    setStatus("Added " + o.name + " at the current view");
-}
-
 void Editor::startPlay() {
     if (playing()) return;
-    editObjects_ = objects_;
+    editScene_ = scene_;
     editSelected_ = selected_;
     nav_ = Nav::None;
-    game_.start(objects_);
+    game_.start(scene_);
     setStatus("Playing. Ctrl+P stops and restores the scene.");
 }
 
 void Editor::stopPlay() {
     if (!playing()) return;
     game_.stop();
-    objects_ = std::move(editObjects_);
-    editObjects_.clear();
+    scene_ = std::move(editScene_);
+    editScene_ = Scene{};
     selected_ = editSelected_;
     gizmoWasUsing_ = false;
     setStatus("Stopped: scene restored");
@@ -913,111 +148,63 @@ void Editor::togglePause() {
     if (playing()) game_.setPaused(!game_.paused());
 }
 
-// Camera objects have no mesh: draw their view frustum (and an icon to click) as overlay lines
-void Editor::drawCameraGizmos() {
-    ImDrawList* dl = ImGui::GetBackgroundDrawList();
-    dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
-    for (int i = 0; i < (int)objects_.size(); ++i) {
-        const SceneObject& o = objects_[i];
-        if (!o.camera || (viewingGameCamera())) continue;
-        Mat4 m = o.animatedMatrix(sceneTime());
-        Vec3 x = normalize(transformDir(m, {1, 0, 0})), y = normalize(transformDir(m, {0, 1, 0}));
-        Vec3 z = normalize(cross(x, y)), pos{m.m[12], m.m[13], m.m[14]};
-        float d = 1.5f, h = std::tan(o.fovY * 0.5f) * d, w = h * 16.f / 9.f;
-        Vec3 c[4] = {pos - z * d - x * w - y * h, pos - z * d + x * w - y * h, pos - z * d + x * w + y * h,
-                     pos - z * d - x * w + y * h};
-        ImU32 col = i == selected_ ? IM_COL32(255, 170, 60, 255) : IM_COL32(220, 220, 230, 200);
-        ImVec2 sp, sc[4];
-        if (!worldToScreen(pos, sp)) continue;
-        bool ok = true;
-        for (int k = 0; k < 4; ++k) ok = ok && worldToScreen(c[k], sc[k]);
-        if (ok) {
-            for (int k = 0; k < 4; ++k) {
-                dl->AddLine(sp, sc[k], col, px(1.5f));
-                dl->AddLine(sc[k], sc[(k + 1) % 4], col, px(1.5f));
-            }
-            ImVec2 up;   // little triangle marks the top edge
-            if (worldToScreen(pos - z * d + y * (h * 1.4f), up)) dl->AddTriangleFilled(sc[2], sc[3], up, col);
-        }
-        dl->AddCircleFilled(sp, px(5.f), col);
+// ---------------------------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------------------------
+void Editor::select(EntityId id) {
+    selected_ = id;
+    scrollToSelected_ = true;
+}
+
+Vec3 Editor::spawnPoint(float lift) const {
+    // Where the view ray hits the ground (if close enough), otherwise 10 units ahead
+    Vec3 fwd = cam_.forward(), p = cam_.pos + fwd * 10.f;
+    if (fwd.y < -0.05f) {
+        float t = -cam_.pos.y / fwd.y;
+        if (t > 0.f && t < 60.f) p = cam_.pos + fwd * t;
     }
-    dl->PopClipRect();
+    p.y = std::max(p.y, lift);
+    return p;
 }
 
-void Editor::duplicateSelected() {
-    if (!hasSelection()) return;
+void Editor::addObject(int mesh) {
     pushUndo();
-    SceneObject copy = objects_[selected_];
-    copy.name = uniqueName(copy.name);
-    Vec3 offset = cam_.right() * std::max(copy.scale[0], 1.f);
-    copy.position[0] += offset.x;
-    copy.position[2] += offset.z;
-    objects_.insert(objects_.begin() + selected_ + 1, copy);
-    select(selected_ + 1);
-    setStatus("Duplicated as " + copy.name);
+    Entity& e = scene_.create(scene_.uniqueName(std::string(meshes_.name(mesh)) + ".001"));
+    MeshRenderer mr;
+    mr.mesh = mesh;
+    static const Vec3 palette[] = {{0.90f, 0.45f, 0.35f}, {0.40f, 0.70f, 0.95f}, {0.55f, 0.85f, 0.45f},
+                                   {0.95f, 0.80f, 0.35f}, {0.75f, 0.50f, 0.90f}};
+    mr.color = palette[scene_.entities.size() % 5];
+    e.meshRenderer = mr;
+    float size = mesh == (int)MeshKind::Plane ? 6.f : 2.f;
+    for (float& s : e.transform.scale) s = size;
+    // rest on the ground
+    Vec3 p = spawnPoint(std::max(-meshes_.get(mesh).boundsMin.y * size, 0.f) + 0.01f);
+    e.transform.position[0] = p.x; e.transform.position[1] = p.y; e.transform.position[2] = p.z;
+    select(e.id);
+    setStatus("Added " + e.name);
 }
 
-void Editor::deleteSelected() {
-    if (!hasSelection()) return;
+void Editor::addEmpty() {
     pushUndo();
-    setStatus("Deleted " + objects_[selected_].name);
-    objects_.erase(objects_.begin() + selected_);
-    selected_ = -1;
+    Entity& e = scene_.create(scene_.uniqueName("Empty.001"));
+    Vec3 p = spawnPoint(0.f);
+    e.transform.position[0] = p.x; e.transform.position[1] = p.y; e.transform.position[2] = p.z;
+    select(e.id);
+    setStatus("Added " + e.name + " (an empty: group objects under it in the outliner)");
 }
 
-void Editor::toggleHideSelected() {
-    if (!hasSelection()) return;
+void Editor::addCamera() {
     pushUndo();
-    objects_[selected_].visible = !objects_[selected_].visible;
-}
-
-void Editor::unhideAll() {
-    pushUndo();
-    for (auto& o : objects_) o.visible = true;
-}
-
-void Editor::focusSelected() {
-    if (!hasSelection()) return;
-    const SceneObject& o = objects_[selected_];
-    Mat4 m = o.animatedMatrix(sceneTime());
-    Vec3 center = transformPoint(m, Vec3{0, 0, 0});
-    if (o.mesh != kNoMesh) {
-        const Mesh& mesh = meshes_.get(o.mesh);
-        center = transformPoint(m, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
-    }
-    float radius = 0.75f * std::max({std::fabs(o.scale[0]), std::fabs(o.scale[1]), std::fabs(o.scale[2])});
-    float dist = std::max(radius / std::tan(cam_.fovY * 0.5f) * 1.3f, 1.f);
-    cam_.pos = center - cam_.forward() * dist;
-    cam_.orbitDistance = dist;
-}
-
-void Editor::dropSelectedToGround() {
-    if (!hasSelection() || objects_[selected_].mesh == kNoMesh) return;
-    pushUndo();
-    SceneObject& o = objects_[selected_];
-    // Lowest point of the mesh under the current rotation/scale
-    Mat4 m = o.baseMatrix();
-    const Mesh& mesh = meshes_.get(o.mesh);
-    float minY = FLT_MAX;
-    for (uint32_t i = 0; i < mesh.indexCount; ++i)
-        minY = std::min(minY, transformPoint(m, meshes_.vertices[mesh.vertexOffset + meshes_.indices[mesh.firstIndex + i]].pos).y);
-    o.position[1] -= minY;
-}
-
-void Editor::saveToFile() {
-    std::string error;
-    if (saveScene(scenePath_, objects_, meshes_, error)) setStatus(std::string("Saved ") + scenePath_);
-    else setStatus("Save failed: " + error);
-}
-
-void Editor::loadFromFile() {
-    std::vector<SceneObject> loaded;
-    std::string error;
-    if (!loadScene(scenePath_, loaded, meshes_, error)) { setStatus("Load failed: " + error); return; }
-    pushUndo();
-    objects_ = std::move(loaded);
-    selected_ = -1;
-    setStatus(std::string("Loaded ") + scenePath_);
+    Entity& e = scene_.create(scene_.uniqueName("Camera.001"));
+    Camera cam;
+    cam.fovY = cam_.fovY;
+    e.camera = cam;
+    // Start where the editor camera is, looking the same way
+    e.transform.setMatrix(inverseAffine(cam_.view()));
+    e.transform.scale[0] = e.transform.scale[1] = e.transform.scale[2] = 1.f;
+    select(e.id);
+    setStatus("Added " + e.name + " at the current view");
 }
 
 void Editor::importMesh() {
@@ -1034,25 +221,136 @@ void Editor::importMesh() {
               std::to_string(m.indexCount / 3) + " triangles)");
 }
 
+void Editor::duplicateSelected() {
+    Entity* e = selection();
+    if (!e) return;
+    pushUndo();
+    float offsetBy = std::max(e->transform.scale[0], 1.f);
+    EntityId copy = scene_.duplicate(e->id);
+    Entity* c = scene_.find(copy);
+    // Shift it sideways (in the parent's space) so it doesn't sit exactly on the original
+    Vec3 offset = transformDir(inverseAffine(scene_.parentWorldMatrix(copy)), cam_.right() * offsetBy);
+    c->transform.position[0] += offset.x;
+    c->transform.position[2] += offset.z;
+    select(copy);
+    setStatus("Duplicated as " + c->name);
+}
+
+void Editor::deleteSelected() {
+    Entity* e = selection();
+    if (!e) return;
+    pushUndo();
+    size_t count = scene_.subtree(e->id).size();
+    setStatus("Deleted " + e->name + (count > 1 ? " and " + std::to_string(count - 1) + " children" : ""));
+    scene_.remove(e->id);
+    selected_ = kNoEntity;
+}
+
+void Editor::reparent(EntityId id, EntityId newParent) {
+    Entity* e = scene_.find(id);
+    if (!e || e->parent == newParent) return;
+    if (scene_.isAncestor(id, newParent) || id == newParent) {
+        setStatus("Can't parent an object to itself or to one of its children");
+        return;
+    }
+    pushUndo();
+    scene_.setParent(id, newParent, true);
+    const Entity* p = scene_.find(newParent);
+    setStatus(e->name + (p ? " is now a child of " + p->name : " is now at the root"));
+}
+
+void Editor::toggleHideSelected() {
+    Entity* e = selection();
+    if (!e) return;
+    pushUndo();
+    e->visible = !e->visible;
+}
+
+void Editor::unhideAll() {
+    pushUndo();
+    for (auto& e : scene_.entities) e.visible = true;
+}
+
+void Editor::focusSelected() {
+    Entity* e = selection();
+    if (!e) return;
+    const Mat4& m = worldOf(e->id);
+    Vec3 center = transformPoint(m, {0, 0, 0});
+    float radius = 1.f;
+    if (e->meshRenderer) {
+        const Mesh& mesh = meshes_.get(e->meshRenderer->mesh);
+        center = transformPoint(m, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
+        float sx = length(transformDir(m, {1, 0, 0})), sy = length(transformDir(m, {0, 1, 0})),
+              sz = length(transformDir(m, {0, 0, 1}));
+        radius = 0.75f * std::max({sx, sy, sz});
+    }
+    float dist = std::max(radius / std::tan(cam_.fovY * 0.5f) * 1.3f, 1.f);
+    cam_.pos = center - cam_.forward() * dist;
+    cam_.orbitDistance = dist;
+}
+
+void Editor::dropSelectedToGround() {
+    Entity* e = selection();
+    if (!e || !e->meshRenderer) return;
+    pushUndo();
+    // Lowest point of the mesh in the world, then move the entity (in its parent's space) by that much
+    Mat4 world = scene_.worldMatrix(e->id);
+    const Mesh& mesh = meshes_.get(e->meshRenderer->mesh);
+    float minY = FLT_MAX;
+    for (uint32_t i = 0; i < mesh.indexCount; ++i)
+        minY = std::min(minY, transformPoint(world, meshes_.vertices[mesh.vertexOffset + meshes_.indices[mesh.firstIndex + i]].pos).y);
+    Mat4 moved = translate({0, -minY, 0}) * world;
+    e->transform.setMatrix(inverseAffine(scene_.parentWorldMatrix(e->id)) * moved);
+}
+
+void Editor::newScene(bool demo) {
+    pushUndo();
+    if (demo) {
+        scene_ = buildDefaultScene();
+    } else {   // ground + camera
+        Scene fresh = buildDefaultScene(), keep;
+        for (const Entity& e : fresh.entities)
+            if (e.name == "Ground" || e.name == "Main Camera") keep.add(e);
+        scene_ = std::move(keep);
+    }
+    selected_ = kNoEntity;
+}
+
+void Editor::saveToFile() {
+    std::string error;
+    if (saveScene(scenePath_, scene_, meshes_, error)) setStatus(std::string("Saved ") + scenePath_);
+    else setStatus("Save failed: " + error);
+}
+
+void Editor::loadFromFile() {
+    Scene loaded;
+    std::string error;
+    if (!loadScene(scenePath_, loaded, meshes_, error)) { setStatus("Load failed: " + error); return; }
+    pushUndo();
+    scene_ = std::move(loaded);
+    selected_ = kNoEntity;
+    setStatus(std::string("Loaded ") + scenePath_);
+}
+
 void Editor::setStatus(const std::string& msg) {
     status_ = msg;
     statusTimer_ = 4.f;
 }
 
 // ---------------------------------------------------------------------------------------------
-// Undo / redo (whole-scene snapshots; the scene is tiny)
+// Undo / redo
 // ---------------------------------------------------------------------------------------------
 void Editor::pushUndo() {
     if (playing()) return;   // play-mode edits are discarded on Stop
-    undo_.push_back({objects_, selected_});
+    undo_.push_back({scene_, selected_});
     if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
     redo_.clear();
 }
 
 void Editor::undo() {
-    if (undo_.empty()) return;
-    redo_.push_back({objects_, selected_});
-    objects_ = std::move(undo_.back().objects);
+    if (undo_.empty() || playing()) return;
+    redo_.push_back({scene_, selected_});
+    scene_ = std::move(undo_.back().scene);
     selected_ = undo_.back().selected;
     undo_.pop_back();
     editBegan_ = false;
@@ -1060,9 +358,9 @@ void Editor::undo() {
 }
 
 void Editor::redo() {
-    if (redo_.empty()) return;
-    undo_.push_back({objects_, selected_});
-    objects_ = std::move(redo_.back().objects);
+    if (redo_.empty() || playing()) return;
+    undo_.push_back({scene_, selected_});
+    scene_ = std::move(redo_.back().scene);
     selected_ = redo_.back().selected;
     redo_.pop_back();
     editBegan_ = false;
