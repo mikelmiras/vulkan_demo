@@ -31,7 +31,7 @@ struct EditorCamera {
 class Editor {
 public:
     // meshes: imports are appended to it. uiScale: DPI scale for fixed pixel sizes (1.0 at 96 DPI).
-    Editor(MeshLibrary& meshes, TextureLibrary& textures, float uiScale);
+    Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale);
 
     // Builds the UI and handles viewport input. Call between ImGui::NewFrame() and ImGui::Render().
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
@@ -129,6 +129,7 @@ private:
 
     MeshLibrary& meshes_;
     TextureLibrary& textures_;
+    AudioEngine* audio_ = nullptr;   // may be null or not ready (no sound)
     float uiScale_ = 1.f;
     Scene scene_;
     EntityId selected_ = kNoEntity;

@@ -4,7 +4,8 @@ A small Vulkan 1.3 3D scene with a Blender-style editing UI, in C++17.
 
 - Runs on **Linux** (X11 / XWayland, via raw XCB), **Windows** (Win32) and **macOS** (Cocoa + MoltenVK). No GLFW/SDL needed.
 - UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo);
-  images: [stb_image](https://github.com/nothings/stb) v2.30; glTF: [cgltf](https://github.com/jkuhlmann/cgltf) v1.14.
+  images: [stb_image](https://github.com/nothings/stb) v2.30; glTF: [cgltf](https://github.com/jkuhlmann/cgltf) v1.14;
+  audio: [miniaudio](https://miniaud.io) v0.11.21.
   All vendored in `third_party/` and compiled into the binary.
 
 ## Build & run
@@ -109,6 +110,7 @@ it; hiding, deleting or duplicating a parent includes its children) and a **tran
 | Camera          | The game renders through the first entity that has one               |
 | Collider        | Box, sphere, capsule or mesh shape; solid or trigger (see Collision) |
 | Rigid Body      | Falls, bounces, slides, gets pushed and knocked (see Collision)      |
+| Audio Source    | Plays a sound: on start (looping ones follow the entity), on impact  |
 | Behaviours      | Game logic (any number per entity), see below                       |
 
 An entity without components is an **empty**: a handle for grouping others (Add > Empty). Cameras and empties
@@ -156,6 +158,19 @@ dropping on the right.
 - **Shadows**: one 2048x2048 shadow map for the sun, covering about 90 m around the camera, filtered 3x3, snapped
   to texels so edges don't shimmer.
 - 4x MSAA, distance fog, the selection outline, and a little dithering against banding.
+
+## Audio
+
+Sound goes through [miniaudio](https://miniaud.io) (vendored v0.11.21). A clip is either one of the built-in
+synthesised sounds (Pickup, Shot, Bounce, Thud, Break, Jump, Hum, Beep: no sound files needed) or the path of a
+WAV / MP3 / FLAC file.
+
+- **Audio Source** component: clip, volume, loop, 3D (fades with distance from the camera and pans) with a
+  distance range, play on start, play on impact (when its rigid body hits something, louder for harder hits).
+  Inspector > Preview plays it.
+- Game code: `ctx.playSound("Shot", position)` / `ctx.playSound2D("Beep")`. The built-in behaviours make noise:
+  pickups, shots, things breaking, jumping. In the demo the centrepiece hums, crates thud and balls bounce.
+- The listener is the game's camera. Without an audio device everything just stays silent.
 
 ## Collision
 
@@ -275,6 +290,7 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
+| `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid-body motion (`dynamics.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking |

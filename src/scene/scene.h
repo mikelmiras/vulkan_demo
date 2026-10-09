@@ -85,6 +85,17 @@ struct PrefabLink {
     EntityId source = kNoEntity;   // the entity in the prefab this one was copied from
 };
 
+// Plays a sound clip from the entity: a built-in name ("Hum", "Bounce", ...) or a sound file path
+struct AudioSource {
+    std::string clip = "Hum";
+    float volume = 1.f;
+    bool loop = true;
+    bool playOnStart = true;      // when Play is pressed (a looping one follows the entity around)
+    bool playOnImpact = false;    // when its rigid body hits something (louder for harder hits)
+    bool spatial = true;          // fades with distance from the listener and pans
+    float minDistance = 2.f, maxDistance = 40.f;
+};
+
 struct Entity {
     EntityId id = kNoEntity;
     std::string name;
@@ -98,6 +109,7 @@ struct Entity {
     std::optional<Collider> collider;
     std::optional<Light> light;
     std::optional<RigidBody> rigidBody;
+    std::optional<AudioSource> audioSource;
     std::optional<PrefabLink> prefab;
     std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
 

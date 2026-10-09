@@ -595,6 +595,50 @@ void Editor::drawComponents(Entity& e) {
             else ImGui::TextDisabled("Inactive: %s comes first", first ? first->name.c_str() : "?");
         }
     }
+    if (e.audioSource) {
+        if (!componentHeader("Audio Source", open)) { pushUndo(); e.audioSource.reset(); }
+        else if (open) {
+            AudioSource& a = *e.audioSource;
+            if (ImGui::BeginCombo("Clip", a.clip.c_str())) {
+                for (const std::string& name : AudioEngine::builtinClips())
+                    if (ImGui::Selectable(name.c_str(), a.clip == name)) { pushUndo(); a.clip = name; }
+                ImGui::EndCombo();
+            }
+            ImGui::InputText("Clip file", &a.clip);
+            track();
+            if (ImGui::SmallButton("Browse...")) {
+                std::filesystem::path path = platform::openFileDialog("Sound file", "wav,mp3,flac");
+                ImGui::GetIO().ClearInputKeys();
+                ImGui::GetIO().ClearInputMouse();
+                if (!path.empty()) { pushUndo(); a.clip = path.u8string(); }
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Preview") && audio_) {
+                AudioEngine::PlayParams p;
+                p.volume = a.volume;
+                if (!audio_->play(a.clip, p)) setStatus("Can't play " + a.clip + ": " + audio_->error());
+            }
+            ImGui::SliderFloat("Volume", &a.volume, 0.f, 2.f, "%.2f");
+            track();
+            ImGui::Checkbox("Loop", &a.loop);
+            track();
+            ImGui::SameLine();
+            ImGui::Checkbox("3D", &a.spatial);
+            track();
+            tooltip("Fades with distance from the camera and pans left/right");
+            ImGui::Checkbox("Play on start", &a.playOnStart);
+            track();
+            ImGui::SameLine();
+            ImGui::Checkbox("Play on impact", &a.playOnImpact);
+            track();
+            tooltip("When its rigid body hits something; louder for harder hits");
+            if (a.spatial) {
+                ImGui::DragFloatRange2("Distance", &a.minDistance, &a.maxDistance, 0.1f, 0.f, 1000.f, "%.1f", "%.1f");
+                track();
+            }
+            if (!audio_ || !audio_->ready()) ImGui::TextDisabled("(no audio device: silent)");
+        }
+    }
     if (e.rigidBody) {
         if (!componentHeader("Rigid Body", open)) { pushUndo(); e.rigidBody.reset(); }
         else if (open) {
@@ -698,6 +742,7 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Mesh Renderer", nullptr, false, !e.meshRenderer)) { pushUndo(); e.meshRenderer = MeshRenderer{}; }
         if (ImGui::MenuItem("Camera", nullptr, false, !e.camera)) { pushUndo(); e.camera = Camera{}; }
         if (ImGui::MenuItem("Light", nullptr, false, !e.light)) { pushUndo(); e.light = Light{}; }
+        if (ImGui::MenuItem("Audio Source", nullptr, false, !e.audioSource)) { pushUndo(); e.audioSource = AudioSource{}; }
         if (ImGui::MenuItem("Rigid Body", nullptr, false, !e.rigidBody)) {
             pushUndo();
             e.rigidBody = RigidBody{};

@@ -10,5 +10,13 @@ struct DynamicsSettings {
     int maxSubsteps = 16;
 };
 
-// One fixed update for every entity with a RigidBody and a solid collider
-void stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings = {});
+// A body hitting something hard enough to hear
+struct Impact {
+    EntityId entity;
+    Vec3 position;
+    float speed;   // closing speed along the contact normal, m/s
+};
+
+// One fixed update for every entity with a RigidBody and a solid collider; returns the impacts (one per body at
+// most, faster than 1.5 m/s)
+std::vector<Impact> stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings = {});

@@ -11,6 +11,7 @@
 #include <filesystem>
 
 #include "app/application.h"
+#include "audio/audio.h"
 #include "assets/meshes.h"
 #include "game/game.h"
 #include "imgui.h"
@@ -69,7 +70,10 @@ int main(int argc, char** argv) {
 
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
+    AudioEngine audio;
+    if (!audio.init()) std::fprintf(stderr, "%s\n", audio.error().c_str());
     Game game;
+    game.setAudio(&audio);
     game.start(scene, meshes);
     if (options.screenshotPath.empty()) platform::setCursorCaptured(true);
 

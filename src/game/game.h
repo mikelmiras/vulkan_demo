@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "audio/audio.h"
 #include "core/vecmath.h"
 #include "game/input.h"
 #include "physics/physics_world.h"
@@ -47,6 +48,10 @@ public:
     // its behaviours' start() runs; the returned id works with find() right away. kNoEntity if there's no prefab.
     EntityId spawn(const std::string& prefab, Vec3 position, Vec3 forward = {0, 0, -1}, EntityId parent = kNoEntity);
 
+    // Sounds (no-ops without an audio engine): a clip name or file, at a place in the world or in stereo
+    void playSound(const std::string& clip, Vec3 position, float volume = 1.f);
+    void playSound2D(const std::string& clip, float volume = 1.f);
+
     // Removes the entity (and its children) once every behaviour has run this update, so references stay valid
     void destroy(EntityId id);
     bool isDestroyed(EntityId id) const;   // queued this update
@@ -57,6 +62,7 @@ private:
     Scene* scene_ = nullptr;
     const InputMap* input_ = nullptr;
     const PhysicsWorld* physics_ = nullptr;
+    AudioEngine* audio_ = nullptr;
     float time_ = 0.f, dt_ = 0.f;
     std::vector<EntityId> destroyQueue_;
     std::vector<Entity> spawnQueue_;
@@ -80,6 +86,8 @@ public:
     void frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta);
     void frame(float dt, bool keyboard, bool mouse) { frame(dt, keyboard, mouse, ImGui::GetIO().MouseDelta); }
     void setPaused(bool paused) { paused_ = paused; }
+    // Optional: with an audio engine, AudioSources play and ctx.playSound() is heard. Set before start().
+    void setAudio(AudioEngine* audio) { audio_ = audio; }
     bool paused() const { return paused_; }
     void step();   // run exactly one fixed update (frame stepping while paused)
 
@@ -100,12 +108,17 @@ private:
     void flushSpawned();
     void flushQueues() { flushSpawned(); flushDestroyed(); }
     void updateTriggers();
+    void startAudio();
+    void updateAudio();
+    void playImpacts(const std::vector<struct Impact>& impacts);
 
     Scene* scene_ = nullptr;
     const MeshLibrary* meshes_ = nullptr;
     InputMap input_;
     PhysicsWorld physics_;
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
+    AudioEngine* audio_ = nullptr;
+    std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity
     GameContext ctx_;
     std::vector<std::pair<float, std::string>> log_;
     float accumulator_ = 0.f, time_ = 0.f;

@@ -10,7 +10,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 7;   // 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 8;   // 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -163,6 +163,18 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("near", e.camera->zNear);
         c.set("far", e.camera->zFar);
     }
+    if (e.audioSource) {
+        const AudioSource& a = *e.audioSource;
+        json::Value& c = v.set("audioSource", json::Value::object());
+        c.set("clip", a.clip);
+        c.set("volume", a.volume);
+        c.set("loop", a.loop);
+        c.set("playOnStart", a.playOnStart);
+        c.set("playOnImpact", a.playOnImpact);
+        c.set("spatial", a.spatial);
+        c.set("minDistance", a.minDistance);
+        c.set("maxDistance", a.maxDistance);
+    }
     if (e.rigidBody) {
         const RigidBody& rb = *e.rigidBody;
         json::Value& c = v.set("rigidBody", json::Value::object());
@@ -243,6 +255,18 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         cam.zNear = c["near"].asFloat(cam.zNear);
         cam.zFar = c["far"].asFloat(cam.zFar);
         e.camera = cam;
+    }
+    if (const json::Value& c = v["audioSource"]; c.isObject()) {
+        AudioSource a;
+        a.clip = c["clip"].asString();
+        a.volume = c["volume"].asFloat(a.volume);
+        a.loop = c["loop"].asBool(a.loop);
+        a.playOnStart = c["playOnStart"].asBool(a.playOnStart);
+        a.playOnImpact = c["playOnImpact"].asBool(a.playOnImpact);
+        a.spatial = c["spatial"].asBool(a.spatial);
+        a.minDistance = c["minDistance"].asFloat(a.minDistance);
+        a.maxDistance = c["maxDistance"].asFloat(a.maxDistance);
+        e.audioSource = a;
     }
     if (const json::Value& c = v["rigidBody"]; c.isObject()) {
         RigidBody rb;

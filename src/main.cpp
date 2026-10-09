@@ -10,6 +10,7 @@
 
 #include "app/application.h"
 #include "assets/meshes.h"
+#include "audio/audio.h"
 #include "editor/editor.h"
 
 int main(int argc, char** argv) {
@@ -30,7 +31,9 @@ int main(int argc, char** argv) {
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
 
-    Editor editor(meshes, textures, app.uiScale());
+    AudioEngine audio;
+    if (!audio.init()) std::fprintf(stderr, "%s\n", audio.error().c_str());
+    Editor editor(meshes, textures, &audio, app.uiScale());
     if (scenePath) editor.openScene(scenePath);
     if (selectName && !editor.selectByName(selectName)) std::fprintf(stderr, "no entity named %s\n", selectName);
     if (play) editor.play();

@@ -458,6 +458,11 @@ Scene buildDefaultScene() {
         l.intensity = 2.5f;
         l.range = 22.f;
         glow.light = l;
+        AudioSource hum;   // the centrepiece hums: louder as you get close
+        hum.volume = 0.6f;
+        hum.minDistance = 3.f;
+        hum.maxDistance = 30.f;
+        glow.audioSource = hum;
     }
 
     // Prefabs: templates that game code spawns (and the gems below are made from). Each is built as an entity,
@@ -495,6 +500,11 @@ Scene buildDefaultScene() {
         rb.friction = 0.3f;
         rb.mass = 0.5f;
         b.rigidBody = rb;
+        AudioSource boing;
+        boing.clip = "Bounce";
+        boing.loop = boing.playOnStart = false;
+        boing.playOnImpact = true;
+        b.audioSource = boing;
         EntityId id = b.id;
         scene.addPrefab(scene.makePrefab(id, "Ball"));
         scene.remove(id);
@@ -508,6 +518,11 @@ Scene buildDefaultScene() {
                              {(i - (2 - row) * 0.5f) * 1.05f, 0.5f + row * 1.0f, 0}, {1, 1, 1}, {0.85f, 0.65f, 0.4f});
             c.meshRenderer->texture = 2;   // built-in "Tiles"
             c.rigidBody = RigidBody{};
+            AudioSource thud;
+            thud.clip = "Thud";
+            thud.loop = thud.playOnStart = false;
+            thud.playOnImpact = true;
+            c.audioSource = thud;
         }
     {
         Entity& sp = group(scene, "Ball Spawner", {6, 7, 25});

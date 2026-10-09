@@ -109,6 +109,7 @@ struct PlayerController : BehaviourBase<PlayerController> {
     float gravity = 18.f;
     float respawnBelow = -50.f;      // falling under this height puts the player back at the start
     bool fly = false;                // no gravity or collision; E / Q move up and down
+    std::string jumpSound = "Jump";
     // runtime state
     float yaw = 0.f, pitch = 0.f, vy = 0.f;
     bool grounded = false;
@@ -123,6 +124,7 @@ struct PlayerController : BehaviourBase<PlayerController> {
         v.field("gravity", gravity, 0.1f, 0.f, 200.f);
         v.field("respawnBelow", respawnBelow, 0.5f);
         v.field("fly", fly);
+        v.field("jumpSound", jumpSound);
     }
 
     // The entity that looks up and down: the first child with a camera, else the body itself
@@ -164,7 +166,10 @@ struct PlayerController : BehaviourBase<PlayerController> {
             movePosition(self.transform, (move + Vec3{0, in.axis("move_down", "move_up") * speed, 0}) * dt);
             vy = 0.f;
         } else {
-            if (grounded && in.pressed("jump")) vy = jumpSpeed;
+            if (grounded && in.pressed("jump")) {
+                vy = jumpSpeed;
+                ctx.playSound2D(jumpSound, 0.5f);
+            }
             vy -= gravity * dt;
             Vec3 delta = (move + Vec3{0, vy, 0}) * dt;
             if (self.collider) {
@@ -218,6 +223,7 @@ struct Pickup : BehaviourBase<Pickup> {
     void collect(GameContext& ctx, Entity& self) {
         if (collected) return;
         collected = true;
+        ctx.playSound("Pickup", ctx.worldPosition(self.id));
         ctx.destroy(self.id);
         int left = 0;
         for (Entity& e : ctx.scene().entities)
@@ -252,6 +258,7 @@ struct Destructible : BehaviourBase<Destructible> {
         Vec3 at = ctx.worldPosition(self.id);
         std::string name = self.name;   // spawn() below may move `self` if it's still in the spawn queue
         ctx.destroy(self.id);
+        ctx.playSound("Break", at);
         if (!dropPrefab.empty()) ctx.spawn(dropPrefab, at);
         ctx.log("Destroyed " + name);
     }
@@ -327,6 +334,7 @@ struct Shooter : BehaviourBase<Shooter> {
         for (Entity* e = &self; e; e = ctx.find(e->parent))
             if (e->collider) { owner = e->id; break; }
         EntityId shot = ctx.spawn(prefab, pos + fwd * muzzle, fwd);
+        ctx.playSound("Shot", pos, 0.6f);
         if (Entity* e = ctx.find(shot))
             if (Projectile* p = e->behaviour<Projectile>()) p->owner = owner;
     }

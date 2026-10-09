@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VulkanWorld CXX)
+project(VulkanWorld C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -59,6 +59,8 @@ add_library(engine STATIC
   src/physics/collision.cpp
   src/physics/physics_world.cpp
   src/physics/dynamics.cpp
+  src/audio/audio.cpp
+  src/audio/miniaudio_impl.c
   src/game/input.cpp
   src/game/game.cpp
   src/game/builtin_behaviours.cpp
@@ -67,7 +69,12 @@ add_library(engine STATIC
   src/app/application.cpp)
 target_include_directories(engine PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # Vendored single-header libraries (implementations compiled in assets/): stb_image v2.30, cgltf v1.14
-target_include_directories(engine PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb ${CMAKE_SOURCE_DIR}/third_party/cgltf)
+target_include_directories(engine PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb ${CMAKE_SOURCE_DIR}/third_party/cgltf
+                                          ${CMAKE_SOURCE_DIR}/third_party/miniaudio)
+# miniaudio v0.11.21 (third-party code: no warnings from it)
+set_source_files_properties(src/audio/miniaudio_impl.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
+find_package(Threads REQUIRED)
+target_link_libraries(engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 target_link_libraries(engine PUBLIC imgui)
 add_dependencies(engine shaders)
 
@@ -99,11 +106,12 @@ elseif(APPLE)
   target_link_libraries(imgui PUBLIC "-framework Cocoa" "-framework GameController")
   target_sources(engine PRIVATE src/platform/platform_macos.mm)
   target_compile_options(engine PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
-  target_link_libraries(engine PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework UniformTypeIdentifiers")
+  target_link_libraries(engine PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework UniformTypeIdentifiers"
+                                      "-framework CoreAudio" "-framework AudioToolbox" "-framework CoreFoundation")
 else()
   find_library(XCB_LIBRARY xcb REQUIRED)
   target_sources(engine PRIVATE src/platform/platform_xcb.cpp src/platform/imgui_impl_xcb.cpp)
-  target_link_libraries(engine PUBLIC ${XCB_LIBRARY})
+  target_link_libraries(engine PUBLIC ${XCB_LIBRARY} m)
 endif()
 
 # Tests: `make engine_tests && ctest` (or run ./engine_tests [name filter])
@@ -118,7 +126,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_game.cpp
     tests/test_physics.cpp
     tests/test_prefabs.cpp
-    tests/test_rendering_assets.cpp)
+    tests/test_rendering_assets.cpp
+    tests/test_audio.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   add_test(NAME engine_tests COMMAND engine_tests)
 endif()

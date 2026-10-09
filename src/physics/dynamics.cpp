@@ -23,7 +23,8 @@ Vec3 respond(Vec3 v, Vec3 n, Vec3 other, const RigidBody& rb) {
 
 }  // namespace
 
-void stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings) {
+std::vector<Impact> stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings) {
+    std::vector<Impact> impacts;
     PhysicsWorld world;
     world.build(scene, meshes);
     std::vector<PhysicsWorld::Body>& bodies = world.bodies();
@@ -41,6 +42,7 @@ void stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const Dynam
                      : self.shape == Collider::Shape::Capsule ? self.capsule.radius
                                                               : std::min({self.box.half.x, self.box.half.y, self.box.half.z});
         Vec3 start = self.box.center;
+        float hardest = 0.f;   // fastest closing speed of this update's contacts
         Vec3 groundNormal;
         bool grounded = false;
         float remaining = dt;
@@ -65,6 +67,7 @@ void stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const Dynam
                 PhysicsWorld::Body& other = bodies[hit];
                 Vec3 n = deepest.normal;
                 if (n.y > 0.7f) { grounded = true; groundNormal = n; }
+                hardest = std::max(hardest, -dot(rb.velocity, n));
                 Entity* oe = other.dynamic ? scene.find(other.entity) : nullptr;
                 if (oe && oe->rigidBody) {
                     // Two bodies: split the separation and exchange momentum by their masses
@@ -86,6 +89,7 @@ void stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const Dynam
             }
         }
         if (grounded && length(rb.velocity) < 0.05f) rb.velocity = {};   // at rest
+        if (hardest > 1.5f) impacts.push_back({self.entity, self.box.center, hardest});
 
         // Write the motion back to the entity (and the other bodies it shoved, through their own update)
         Vec3 moved = self.box.center - start;
@@ -118,4 +122,5 @@ void stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const Dynam
         e->transform.position[1] += local.y;
         e->transform.position[2] += local.z;
     }
+    return impacts;
 }

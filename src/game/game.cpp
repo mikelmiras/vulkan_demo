@@ -73,6 +73,22 @@ CharacterMove GameContext::moveCharacter(Entity& self, Vec3 delta) {
     return result;
 }
 
+void GameContext::playSound(const std::string& clip, Vec3 position, float volume) {
+    if (!audio_) return;
+    AudioEngine::PlayParams p;
+    p.volume = volume;
+    p.spatial = true;
+    p.position = position;
+    audio_->play(clip, p);
+}
+
+void GameContext::playSound2D(const std::string& clip, float volume) {
+    if (!audio_) return;
+    AudioEngine::PlayParams p;
+    p.volume = volume;
+    audio_->play(clip, p);
+}
+
 void GameContext::destroy(EntityId id) {
     if (!isDestroyed(id)) destroyQueue_.push_back(id);
 }
@@ -105,6 +121,7 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
 
     physics_.build(*scene_, *meshes_);
     prepareContext(0.f);
+    startAudio();
     // Index loops: behaviours may look entities up, but nothing is added or removed until flushDestroyed()
     for (size_t i = 0; i < scene_->entities.size(); ++i)
         for (size_t b = 0; b < scene_->entities[i].behaviours.size(); ++b)
@@ -112,7 +129,12 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     flushQueues();
 }
 
-void Game::stop() { scene_ = nullptr; }
+void Game::stop() {
+    if (audio_)
+        for (const auto& a : attached_) audio_->stop(a.second);
+    attached_.clear();
+    scene_ = nullptr;
+}
 
 void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     if (!running()) return;
@@ -126,6 +148,7 @@ void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
         ++steps;
     }
     if (steps == kMaxStepsPerFrame) accumulator_ = 0.f;
+    updateAudio();
 }
 
 void Game::step() {
@@ -136,6 +159,7 @@ void Game::prepareContext(float dt) {
     ctx_.scene_ = scene_;
     ctx_.input_ = &input_;
     ctx_.physics_ = &physics_;
+    ctx_.audio_ = audio_ && audio_->ready() ? audio_ : nullptr;
     ctx_.time_ = time_;
     ctx_.dt_ = dt;
     ctx_.log_ = &log_;
@@ -152,10 +176,66 @@ void Game::fixedUpdate(float dt) {
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
     }
     flushQueues();
-    stepDynamics(*scene_, *meshes_, dt);
+    playImpacts(stepDynamics(*scene_, *meshes_, dt));
     updateTriggers();
     flushQueues();
     input_.endFixedStep();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Audio
+// ---------------------------------------------------------------------------------------------
+void Game::startAudio() {
+    attached_.clear();
+    if (!audio_ || !audio_->ready()) return;
+    std::vector<Mat4> worlds = scene_->worldMatrices();
+    for (size_t i = 0; i < scene_->entities.size(); ++i) {
+        const Entity& e = scene_->entities[i];
+        if (!e.audioSource || !e.audioSource->playOnStart || !scene_->visibleInHierarchy(e.id)) continue;
+        const AudioSource& a = *e.audioSource;
+        AudioEngine::PlayParams p;
+        p.volume = a.volume;
+        p.loop = a.loop;
+        p.spatial = a.spatial;
+        p.position = {worlds[i].m[12], worlds[i].m[13], worlds[i].m[14]};
+        p.minDistance = a.minDistance;
+        p.maxDistance = a.maxDistance;
+        if (AudioEngine::Sound s = audio_->play(a.clip, p)) attached_.emplace_back(e.id, s);
+    }
+}
+
+// Once per frame: the listener is the camera, looping sounds follow their entities, finished sounds are freed
+void Game::updateAudio() {
+    if (!audio_ || !audio_->ready()) return;
+    CameraView cam;
+    if (activeCamera(cam)) audio_->setListener(cam.position, normalize(transformDir(inverseAffine(cam.view), {0, 0, -1})));
+    for (auto it = attached_.begin(); it != attached_.end();) {
+        const Entity* e = scene_->find(it->first);
+        if (!e || !audio_->playing(it->second)) {   // destroyed entity or finished sound
+            audio_->stop(it->second);
+            it = attached_.erase(it);
+            continue;
+        }
+        audio_->setPosition(it->second, ctx_.worldPosition(e->id));
+        ++it;
+    }
+    audio_->update();
+}
+
+void Game::playImpacts(const std::vector<Impact>& impacts) {
+    if (!ctx_.audio_) return;
+    for (const Impact& i : impacts) {
+        const Entity* e = scene_->find(i.entity);
+        if (!e || !e->audioSource || !e->audioSource->playOnImpact) continue;
+        const AudioSource& a = *e->audioSource;
+        AudioEngine::PlayParams p;
+        p.volume = a.volume * std::min(1.f, i.speed / 8.f);
+        p.spatial = a.spatial;
+        p.position = i.position;
+        p.minDistance = a.minDistance;
+        p.maxDistance = a.maxDistance;
+        ctx_.audio_->play(a.clip, p);
+    }
 }
 
 // Compares this step's trigger overlaps with the previous step's and sends enter / exit to both entities

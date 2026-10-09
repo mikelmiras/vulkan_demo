@@ -16,8 +16,10 @@ namespace {
 constexpr size_t kMaxUndo = 200;
 }
 
-Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, float uiScale)
-    : meshes_(meshes), textures_(textures), uiScale_(uiScale), scene_(buildDefaultScene()) {}
+Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale)
+    : meshes_(meshes), textures_(textures), audio_(audio), uiScale_(uiScale), scene_(buildDefaultScene()) {
+    game_.setAudio(audio);
+}
 
 // ---------------------------------------------------------------------------------------------
 // Frame
@@ -39,6 +41,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     game_.input().setMouseCaptured(captured);
     game_.frame(dt, !io.WantTextInput, captured || viewportHovered(), captured ? ImVec2(mdx, mdy) : io.MouseDelta);
     keyTakenByBindings_ = false;
+    if (audio_ && !playing()) audio_->update();   // (while playing, the game does it)
     frameStart_ = {scene_, selected_};
     editBegan_ = false;
     if (statusTimer_ > 0.f) statusTimer_ -= dt;
