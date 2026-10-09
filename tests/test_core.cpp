@@ -6,7 +6,9 @@
 TEST(json_roundtrip_escapes_and_unicode) {
     json::Value v;
     std::string err;
-    REQUIRE(json::parse(R"({"s":"a\"b\\c\né😀","n":-1.5e2,"t":true,"z":null,"a":[]})", v, err));
+    // A plain string (not raw) outside the macro: MSVC's legacy preprocessor can't stringize raw strings
+    const char* text = "{\"s\":\"a\\\"b\\\\c\\n\\u00e9\\ud83d\\ude00\",\"n\":-1.5e2,\"t\":true,\"z\":null,\"a\":[]}";
+    REQUIRE(json::parse(text, v, err));
     CHECK(v["s"].asString() == "a\"b\\c\n\xc3\xa9\xf0\x9f\x98\x80");
     CHECK_NEAR(v["n"].asNumber(), -150.0, 1e-9);
     CHECK(v["t"].asBool());
@@ -20,7 +22,7 @@ TEST(json_roundtrip_escapes_and_unicode) {
 TEST(json_missing_keys_give_defaults) {
     json::Value v;
     std::string err;
-    REQUIRE(json::parse(R"({"x": 1})", v, err));
+    REQUIRE(json::parse("{\"x\": 1}", v, err));
     CHECK(v["nope"].isNull());
     CHECK(v["nope"]["deeper"].asInt(7) == 7);
     CHECK(v["x"].asString().empty());   // wrong type -> default
