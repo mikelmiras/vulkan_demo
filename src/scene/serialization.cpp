@@ -10,7 +10,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 6;   // 6: linked prefab instances; 5: textures, lights; 4: prefabs; 3: entities (JSON)
+constexpr int kVersion = 7;   // 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -163,6 +163,16 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("near", e.camera->zNear);
         c.set("far", e.camera->zFar);
     }
+    if (e.rigidBody) {
+        const RigidBody& rb = *e.rigidBody;
+        json::Value& c = v.set("rigidBody", json::Value::object());
+        c.set("mass", rb.mass);
+        c.set("useGravity", rb.useGravity);
+        c.set("bounciness", rb.bounciness);
+        c.set("friction", rb.friction);
+        c.set("damping", rb.damping);
+        if (length(rb.velocity) > 0.f) c.set("velocity", vec3(rb.velocity));
+    }
     if (e.light) {
         const Light& l = *e.light;
         json::Value& c = v.set("light", json::Value::object());
@@ -233,6 +243,16 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         cam.zNear = c["near"].asFloat(cam.zNear);
         cam.zFar = c["far"].asFloat(cam.zFar);
         e.camera = cam;
+    }
+    if (const json::Value& c = v["rigidBody"]; c.isObject()) {
+        RigidBody rb;
+        rb.mass = std::max(c["mass"].asFloat(rb.mass), 0.001f);
+        rb.useGravity = c["useGravity"].asBool(true);
+        rb.bounciness = c["bounciness"].asFloat(rb.bounciness);
+        rb.friction = c["friction"].asFloat(rb.friction);
+        rb.damping = c["damping"].asFloat(rb.damping);
+        rb.velocity = readVec3(c["velocity"], {});
+        e.rigidBody = rb;
     }
     if (const json::Value& c = v["light"]; c.isObject()) {
         Light l;

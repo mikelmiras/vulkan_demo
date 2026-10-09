@@ -64,6 +64,17 @@ struct Collider {
     bool trigger = false;
 };
 const char* colliderShapeName(Collider::Shape shape);
+
+// Simulated motion for an entity with a (solid) collider: gravity, bouncing, sliding, being pushed and knocked.
+// Bodies don't rotate (spheres roll visually).
+struct RigidBody {
+    float mass = 1.f;
+    bool useGravity = true;
+    float bounciness = 0.3f;   // 0 = dead stop, 1 = keeps all its speed
+    float friction = 0.4f;
+    float damping = 0.05f;     // air drag: fraction of the speed lost per second
+    Vec3 velocity;             // the starting velocity; changes while playing
+};
 // Box for cubes and planes (a slab under the plane, so things can't fall through it), sphere for spheres,
 // mesh for everything else
 Collider fitCollider(const MeshLibrary& meshes, int mesh);
@@ -86,6 +97,7 @@ struct Entity {
     std::optional<Camera> camera;
     std::optional<Collider> collider;
     std::optional<Light> light;
+    std::optional<RigidBody> rigidBody;
     std::optional<PrefabLink> prefab;
     std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
 

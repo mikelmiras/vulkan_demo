@@ -21,6 +21,8 @@ struct CharacterMove {
     bool grounded = false;      // stood on something walkable (normal pointing up)
     bool hitCeiling = false;
     bool hitWall = false;
+    // Rigid bodies it ran into, with the direction from the character into the body: GameContext pushes them
+    std::vector<std::pair<EntityId, Vec3>> touched;
 };
 
 class PhysicsWorld {
@@ -36,10 +38,14 @@ public:
         const Mesh* mesh = nullptr;
         Mat4 world;
         Vec3 aabbMin, aabbMax;        // world-space bounds, for quick rejection
+        bool dynamic = false;         // has a RigidBody
+
+        void translate(Vec3 d);       // moves the shape (and its bounds)
     };
 
     void build(const Scene& scene, const MeshLibrary& meshes);
     const std::vector<Body>& bodies() const { return bodies_; }
+    std::vector<Body>& bodies() { return bodies_; }
     const Body* find(EntityId id) const;
 
     // Closest solid collider along the ray (dir need not be normalised); triggers are ignored
@@ -56,9 +62,13 @@ public:
     // World-space capsule of an entity's capsule collider (or a sphere's as a zero-length capsule)
     static bool capsuleOf(const Body& b, collision::Capsule& out);
 
-private:
-    // Deepest contact of a sphere against one solid body; false if none
+    // Deepest contact of a sphere against one body; false if none
     bool contact(const collision::Sphere& s, const Body& b, collision::Contact& out) const;
+    // Deepest contact of body `a` against body `b` (normal pushes `a` out); boxes and meshes as their boxes
+    // against other boxes, as clusters of spheres against anything else
+    bool contact(const Body& a, const Body& b, collision::Contact& out) const;
+
+private:
     bool overlaps(const Body& a, const Body& b) const;
 
     const MeshLibrary* meshes_ = nullptr;

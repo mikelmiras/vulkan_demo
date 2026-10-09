@@ -39,6 +39,7 @@ bool sphereVsObb(const Sphere& s, const Obb& box, Contact& out);
 bool sphereVsTriangle(const Sphere& s, Vec3 a, Vec3 b, Vec3 c, Contact& out);
 bool sphereVsCapsule(const Sphere& s, const Capsule& c, Contact& out);
 bool obbVsObb(const Obb& a, const Obb& b);   // overlap only (separating axis test)
+bool obbContact(const Obb& a, const Obb& b, Contact& out);   // with the axis of least overlap as the normal
 
 // Capsules are tested as a row of spheres along the segment (exact enough for characters and triggers);
 // calls fn(sphere) for each and stops early if it returns false

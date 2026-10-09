@@ -120,6 +120,37 @@ bool obbVsObb(const Obb& a, const Obb& b) {
     return true;
 }
 
+bool obbContact(const Obb& a, const Obb& b, Contact& out) {
+    Vec3 axes[15];
+    int n = 0;
+    for (int i = 0; i < 3; ++i) axes[n++] = a.axis[i];
+    for (int i = 0; i < 3; ++i) axes[n++] = b.axis[i];
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j) {
+            Vec3 c = cross(a.axis[i], b.axis[j]);
+            if (dot(c, c) > 1e-6f) axes[n++] = normalize(c);
+        }
+    Vec3 d = a.center - b.center;
+    const float ha[3] = {a.half.x, a.half.y, a.half.z}, hb[3] = {b.half.x, b.half.y, b.half.z};
+    float best = FLT_MAX;
+    for (int k = 0; k < n; ++k) {
+        float ra = 0.f, rb = 0.f;
+        for (int i = 0; i < 3; ++i) {
+            ra += ha[i] * std::fabs(dot(a.axis[i], axes[k]));
+            rb += hb[i] * std::fabs(dot(b.axis[i], axes[k]));
+        }
+        float dist = dot(d, axes[k]), overlap = ra + rb - std::fabs(dist);
+        if (overlap <= 0.f) return false;   // separated along this axis
+        // Face axes win ties against edge axes (k < 6): resting boxes get clean up/down normals
+        if (overlap < best - (k < 6 ? 0.f : 1e-4f)) {
+            best = overlap;
+            out.normal = dist >= 0.f ? axes[k] : axes[k] * -1.f;
+        }
+    }
+    out.depth = best;
+    return true;
+}
+
 float rayVsSphere(Vec3 origin, Vec3 dir, const Sphere& s, Vec3& normal) {
     Vec3 m = origin - s.center;
     float b = dot(m, dir), c = dot(m, m) - s.radius * s.radius;

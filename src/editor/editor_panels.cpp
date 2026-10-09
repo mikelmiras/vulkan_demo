@@ -595,6 +595,26 @@ void Editor::drawComponents(Entity& e) {
             else ImGui::TextDisabled("Inactive: %s comes first", first ? first->name.c_str() : "?");
         }
     }
+    if (e.rigidBody) {
+        if (!componentHeader("Rigid Body", open)) { pushUndo(); e.rigidBody.reset(); }
+        else if (open) {
+            RigidBody& rb = *e.rigidBody;
+            ImGui::DragFloat("Mass", &rb.mass, 0.05f, 0.01f, 10000.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::Checkbox("Gravity", &rb.useGravity);
+            track();
+            ImGui::SliderFloat("Bounciness", &rb.bounciness, 0.f, 1.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Friction", &rb.friction, 0.f, 2.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Damping", &rb.damping, 0.f, 5.f, "%.2f");
+            track();
+            ImGui::DragFloat3(playing() ? "Velocity" : "Start velocity", &rb.velocity.x, 0.05f, 0.f, 0.f, "%.2f");
+            track();
+            if (!e.collider || e.collider->trigger)
+                ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a solid collider to be simulated");
+        }
+    }
     if (e.light) {
         if (!componentHeader("Light", open)) { pushUndo(); e.light.reset(); }
         else if (open) {
@@ -678,6 +698,11 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Mesh Renderer", nullptr, false, !e.meshRenderer)) { pushUndo(); e.meshRenderer = MeshRenderer{}; }
         if (ImGui::MenuItem("Camera", nullptr, false, !e.camera)) { pushUndo(); e.camera = Camera{}; }
         if (ImGui::MenuItem("Light", nullptr, false, !e.light)) { pushUndo(); e.light = Light{}; }
+        if (ImGui::MenuItem("Rigid Body", nullptr, false, !e.rigidBody)) {
+            pushUndo();
+            e.rigidBody = RigidBody{};
+            if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
+        }
         if (ImGui::MenuItem("Collider", nullptr, false, !e.collider)) {
             pushUndo();
             e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};

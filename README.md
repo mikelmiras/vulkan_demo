@@ -108,6 +108,7 @@ it; hiding, deleting or duplicating a parent includes its children) and a **tran
 | Light           | Directional (the sun, with shadows) or point light                   |
 | Camera          | The game renders through the first entity that has one               |
 | Collider        | Box, sphere, capsule or mesh shape; solid or trigger (see Collision) |
+| Rigid Body      | Falls, bounces, slides, gets pushed and knocked (see Collision)      |
 | Behaviours      | Game logic (any number per entity), see below                       |
 
 An entity without components is an **empty**: a handle for grouping others (Add > Empty). Cameras and empties
@@ -125,7 +126,8 @@ The demo scene is a tiny game: you are the **Player** (a capsule body with a Pla
 Walk with WASD / arrow keys or the left stick, look with the mouse (click the view to capture it, or hold the right
 button) or the right stick, Space / A to jump, Shift to sprint, and collect the
 8 floating gems. You bump into the pillars and can jump onto things. Left click shoots: the scattered objects
-break, and cubes leave a gem behind.
+break, and cubes leave a gem behind. On the left there's a stack of crates to push over or shoot, and balls keep
+dropping on the right.
 
 - The game updates at a fixed **60 Hz**, independent of the frame rate (several updates per frame on a slow
   machine, none on some frames of a fast one; a long hitch is capped at 8 updates).
@@ -163,8 +165,10 @@ colliders draws them all (blue = solid, green = trigger).
 
 - **Solid** colliders block characters and rays. **Triggers** block nothing and instead tell the behaviours on
   both entities when something enters or leaves them (`onTriggerEnter` / `onTriggerExit`).
-- Everything is kinematic for now: colliders go wherever their entities are (spinning, bobbing, moved by
-  behaviours); there are no rigid-body dynamics.
+- Entities with a **Rigid Body** (and a solid collider) are simulated: gravity, bounciness, friction, damping,
+  mass. They collide with everything, exchange momentum with each other, come to rest, get pushed by the player
+  and knocked by projectiles. Motion is linear only: bodies don't tip over (spheres do roll visually).
+  Everything else is kinematic: its collider goes wherever the entity is (spinning, bobbing, moved by behaviours).
 - Game code can `raycast`, `overlapSphere` and `moveCharacter` (move a capsule, sliding along walls, landing on
   floors, sub-stepped so fast moves can't skip through thin walls) through `GameContext`.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
@@ -206,7 +210,7 @@ Behaviours are C++ classes attached to entities as components (Inspector > Add c
 | Shooter          | Fires a prefab along its -Z while the fire action (left mouse) is held      |
 | Projectile       | Flies forward, stops at the first solid collider and damages Destructibles   |
 | Destructible     | Destroyed after enough hits, optionally leaving a prefab behind              |
-| Spawner          | Spawns a prefab every few seconds, up to a maximum alive at once             |
+| Spawner          | Spawns a prefab every few seconds (with a little random spread), up to a maximum alive at once |
 
 Writing one (see `src/game/builtin_behaviours.cpp` for complete examples):
 
@@ -271,7 +275,7 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
-| `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world: raycasts, overlaps, character movement, triggers (`physics_world.*`) |
+| `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid-body motion (`dynamics.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |

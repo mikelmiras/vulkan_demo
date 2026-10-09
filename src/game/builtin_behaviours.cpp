@@ -265,6 +265,7 @@ struct Projectile : BehaviourBase<Projectile> {
     float gravity = 0.f;
     float lifetime = 3.f;      // seconds, then it disappears
     float damage = 1.f;
+    float impulse = 6.f;       // speed change given to a rigid body of mass 1 it hits
     // runtime state
     EntityId owner = kNoEntity;   // never hits this one (set by whoever fires it)
     Vec3 velocity;
@@ -275,6 +276,7 @@ struct Projectile : BehaviourBase<Projectile> {
         v.field("gravity", gravity, 0.1f);
         v.field("lifetime", lifetime, 0.05f, 0.f, 1000.f);
         v.field("damage", damage, 0.1f);
+        v.field("impulse", impulse, 0.1f, 0.f, 1000.f);
     }
     void start(GameContext& ctx, Entity& self) override {
         velocity = normalize(transformDir(ctx.scene().worldMatrix(self.id), {0, 0, -1})) * speed;
@@ -289,8 +291,10 @@ struct Projectile : BehaviourBase<Projectile> {
         RaycastHit hit;
         if (ctx.raycast(from, step, length(step), hit, owner)) {
             ctx.destroy(self.id);
-            if (Entity* target = ctx.find(hit.entity))
+            if (Entity* target = ctx.find(hit.entity)) {
+                if (target->rigidBody) target->rigidBody->velocity += normalize(velocity) * (impulse / target->rigidBody->mass);
                 if (Destructible* d = target->behaviour<Destructible>()) d->hit(ctx, *target, damage);
+            }
             return;
         }
         Vec3 local = transformDir(inverseAffine(ctx.scene().parentWorldMatrix(self.id)), step);
@@ -335,17 +339,27 @@ struct Spawner : BehaviourBase<Spawner> {
     std::string prefab;
     float interval = 2.f;
     float maxAlive = 5.f;
+    float spread = 0.5f;                // random offset (radius, horizontal) so spawns don't land on each other
     float timer = 0.f;                  // runtime state
     std::vector<EntityId> alive;
+    uint32_t rng = 0;
 
     void fields(FieldVisitor& v) override {
         v.field("prefab", prefab);
         v.field("interval", interval, 0.05f, 0.01f, 3600.f);
         v.field("maxAlive", maxAlive, 1.f, 0.f, 10000.f);
+        v.field("spread", spread, 0.05f, 0.f, 1000.f);
     }
-    void start(GameContext&, Entity&) override {
+    void start(GameContext&, Entity& self) override {
         timer = 0.f;
         alive.clear();
+        rng = self.id * 2654435761u + 1u;   // deterministic per spawner
+    }
+    float random01() {   // xorshift
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        return (float)(rng & 0xFFFFFF) / (float)0x1000000;
     }
     void update(GameContext& ctx, Entity& self) override {
         alive.erase(std::remove_if(alive.begin(), alive.end(),
@@ -355,7 +369,9 @@ struct Spawner : BehaviourBase<Spawner> {
         if (timer > 0.f || prefab.empty() || (float)alive.size() >= maxAlive) return;
         timer = interval;
         Mat4 m = ctx.scene().worldMatrix(self.id);
-        EntityId id = ctx.spawn(prefab, {m.m[12], m.m[13], m.m[14]}, transformDir(m, {0, 0, -1}));
+        float a = random01() * 2.f * PI, r = std::sqrt(random01()) * spread;
+        Vec3 at{m.m[12] + std::cos(a) * r, m.m[13], m.m[14] + std::sin(a) * r};
+        EntityId id = ctx.spawn(prefab, at, transformDir(m, {0, 0, -1}));
         if (id != kNoEntity) alive.push_back(id);
     }
 };

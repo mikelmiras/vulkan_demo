@@ -486,6 +486,37 @@ Scene buildDefaultScene() {
         scene.remove(id);
     }
 
+    {   // A bouncy ball, dropped by the spawner below
+        Entity& b = make(scene, "Ball", kNoEntity, MeshKind::Sphere, {}, {0.8f, 0.8f, 0.8f}, {0.95f, 0.3f, 0.25f});
+        b.meshRenderer->texture = 0;   // built-in "Checker": shows it rolling
+        b.meshRenderer->color = {1.f, 0.45f, 0.35f};
+        RigidBody rb;
+        rb.bounciness = 0.75f;
+        rb.friction = 0.3f;
+        rb.mass = 0.5f;
+        b.rigidBody = rb;
+        EntityId id = b.id;
+        scene.addPrefab(scene.makePrefab(id, "Ball"));
+        scene.remove(id);
+    }
+
+    // Physics playground near the start: a stack of crates to push and shoot, and balls raining down
+    EntityId playground = group(scene, "Playground", {-7, 0, 25}).id;
+    for (int row = 0, n = 0; row < 3; ++row)
+        for (int i = 0; i < 3 - row; ++i, ++n) {
+            Entity& c = make(scene, numbered("Crate", n + 1), playground, MeshKind::Cube,
+                             {(i - (2 - row) * 0.5f) * 1.05f, 0.5f + row * 1.0f, 0}, {1, 1, 1}, {0.85f, 0.65f, 0.4f});
+            c.meshRenderer->texture = 2;   // built-in "Tiles"
+            c.rigidBody = RigidBody{};
+        }
+    {
+        Entity& sp = group(scene, "Ball Spawner", {6, 7, 25});
+        addBehaviour(sp, "Spawner");
+        setField(*sp.behaviours.back(), "prefab", std::string("Ball"));
+        setField(*sp.behaviours.back(), "interval", 2.5f);
+        setField(*sp.behaviours.back(), "maxAlive", 6.f);
+    }
+
     // Gems to collect: walk into them
     EntityId gems = group(scene, "Gems").id;
     for (int i = 0; i < 8; ++i) {

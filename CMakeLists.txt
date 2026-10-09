@@ -58,6 +58,7 @@ add_library(engine STATIC
   src/scene/prefab_sync.cpp
   src/physics/collision.cpp
   src/physics/physics_world.cpp
+  src/physics/dynamics.cpp
   src/game/input.cpp
   src/game/game.cpp
   src/game/builtin_behaviours.cpp

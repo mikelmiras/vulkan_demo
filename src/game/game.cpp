@@ -1,5 +1,7 @@
 #include "game/game.h"
 
+#include "physics/dynamics.h"
+
 #include <algorithm>
 #include <cstdio>
 
@@ -53,6 +55,15 @@ CharacterMove GameContext::moveCharacter(Entity& self, Vec3 delta) {
         capsule.a += shift;
         capsule.b += shift;
         result = physics_->moveCapsule(capsule, delta, self.id);
+        // Push the rigid bodies it walked into, up to its own speed (lighter ones more easily)
+        Vec3 velocity = delta * (dt_ > 0.f ? 1.f / dt_ : 0.f);
+        for (const auto& [id, into] : result.touched) {
+            Entity* body = scene_->find(id);
+            if (!body || !body->rigidBody) continue;
+            Vec3 dir = normalize(Vec3{into.x, 0.f, into.z});
+            float want = dot(velocity, dir), have = dot(body->rigidBody->velocity, dir);
+            if (want > have) body->rigidBody->velocity += dir * ((want - have) * std::min(1.f, 2.f / body->rigidBody->mass));
+        }
     }
     // World-space displacement -> the entity's parent space
     Vec3 local = transformDir(inverseAffine(scene_->parentWorldMatrix(self.id)), result.displacement);
@@ -141,6 +152,7 @@ void Game::fixedUpdate(float dt) {
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
     }
     flushQueues();
+    stepDynamics(*scene_, *meshes_, dt);
     updateTriggers();
     flushQueues();
     input_.endFixedStep();

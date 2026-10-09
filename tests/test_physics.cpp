@@ -4,6 +4,7 @@
 #include "game/game.h"
 #include "imgui.h"
 #include "physics/collision.h"
+#include "physics/dynamics.h"
 #include "physics/physics_world.h"
 
 using namespace collision;
@@ -205,4 +206,134 @@ TEST(physics_trigger_enter_and_exit_once) {
     CHECK(counter(moverId)->exits == 1);
     stepTo(0, 1);
     CHECK(counter(zoneId)->enters == 2);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Rigid bodies
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+Scene floorScene() {
+    Scene s;
+    box(s, "Floor", {0, -0.5f, 0}, {100, 1, 100});
+    return s;
+}
+
+EntityId addBody(Scene& s, const char* name, Vec3 pos, Collider::Shape shape, float bounciness = 0.f) {
+    EntityId id = s.create(name).id;
+    Entity& e = *s.find(id);
+    e.transform.position[0] = pos.x; e.transform.position[1] = pos.y; e.transform.position[2] = pos.z;
+    Collider c;
+    c.shape = shape;
+    e.collider = c;   // unit box / radius 0.5 sphere
+    RigidBody rb;
+    rb.bounciness = bounciness;
+    e.rigidBody = rb;
+    return id;
+}
+
+void simulate(Scene& s, float seconds) {
+    for (int i = 0; i < (int)(seconds * 60.f); ++i) stepDynamics(s, meshes(), 1.f / 60.f);
+}
+
+Vec3 pos(const Scene& s, EntityId id) { return s.find(id)->transform.pos(); }
+
+}  // namespace
+
+TEST(rigid_body_falls_and_rests) {
+    Scene s = floorScene();
+    EntityId b = addBody(s, "Box", {0, 5, 0}, Collider::Shape::Box);
+    simulate(s, 0.25f);
+    CHECK(pos(s, b).y < 5.f - 0.4f);   // ~ g t^2 / 2 = 0.56
+    simulate(s, 3.f);
+    CHECK_NEAR(pos(s, b).y, 0.5f, 0.01);   // resting on the floor
+    CHECK(length(s.find(b)->rigidBody->velocity) < 1e-3f);
+}
+
+TEST(rigid_body_bounces_and_settles) {
+    Scene s = floorScene();
+    EntityId ball = addBody(s, "Ball", {0, 4, 0}, Collider::Shape::Sphere, 0.8f);
+    float lowest = 10.f, peakAfterBounce = 0.f;
+    bool bounced = false;
+    for (int i = 0; i < 240; ++i) {
+        stepDynamics(s, meshes(), 1.f / 60.f);
+        float y = pos(s, ball).y;
+        if (!bounced) {
+            lowest = std::min(lowest, y);
+            bounced = s.find(ball)->rigidBody->velocity.y > 0.f;
+        } else {
+            peakAfterBounce = std::max(peakAfterBounce, y);
+        }
+    }
+    CHECK(lowest > 0.45f);             // never sank into the floor
+    CHECK(peakAfterBounce > 2.f);      // came back up (0.8 restitution from 3.5 m)
+    simulate(s, 10.f);
+    CHECK_NEAR(pos(s, ball).y, 0.5f, 0.02);   // eventually at rest
+}
+
+TEST(rigid_body_stack_is_stable) {
+    Scene s = floorScene();
+    EntityId a = addBody(s, "A", {0, 0.5f, 0}, Collider::Shape::Box);
+    EntityId b = addBody(s, "B", {0, 1.5f, 0}, Collider::Shape::Box);
+    EntityId c = addBody(s, "C", {0, 2.5f, 0}, Collider::Shape::Box);
+    simulate(s, 5.f);
+    CHECK_NEAR(pos(s, a).y, 0.5f, 0.03);
+    CHECK_NEAR(pos(s, b).y, 1.5f, 0.05);
+    CHECK_NEAR(pos(s, c).y, 2.5f, 0.07);
+    CHECK(std::fabs(pos(s, c).x) < 0.01f);
+}
+
+TEST(rigid_body_momentum_exchange) {
+    Scene s;   // no gravity, no floor: a moving ball hits a resting one of the same mass head-on
+    EntityId moving = addBody(s, "Moving", {0, 0, 0}, Collider::Shape::Sphere, 1.f);
+    EntityId resting = addBody(s, "Resting", {3, 0, 0}, Collider::Shape::Sphere, 1.f);
+    for (EntityId id : {moving, resting}) {
+        s.find(id)->rigidBody->useGravity = false;
+        s.find(id)->rigidBody->damping = 0.f;
+    }
+    s.find(moving)->rigidBody->velocity = {5, 0, 0};
+    simulate(s, 1.f);
+    CHECK_NEAR(s.find(moving)->rigidBody->velocity.x, 0.f, 0.3);   // elastic, equal masses: velocities swap
+    CHECK_NEAR(s.find(resting)->rigidBody->velocity.x, 5.f, 0.3);
+}
+
+TEST(rigid_body_pushed_by_player_and_shot) {
+    test::ImGuiContextGuard imgui;
+    ImGuiIO& io = ImGui::GetIO();
+    Scene s = buildDefaultScene();
+    // A tall crate right in front of the player (tall enough to be in the line of fire at eye height)
+    EntityId crate = s.create("Test crate").id;
+    {
+        Entity& c = *s.find(crate);
+        c.transform.position[0] = 0; c.transform.position[1] = 1.5f; c.transform.position[2] = 32;
+        c.transform.scale[1] = 3.f;
+        c.meshRenderer = MeshRenderer{};
+        c.collider = Collider{};
+        c.rigidBody = RigidBody{};
+    }
+    Game g;
+    g.start(s, meshes());
+    auto frame = [&](int n) {
+        for (int i = 0; i < n; ++i) {
+            io.DeltaTime = 1.f / 60.f;
+            ImGui::NewFrame();
+            g.frame(1.f / 60.f, true, true);
+            ImGui::EndFrame();
+        }
+    };
+    frame(20);
+    float z0 = pos(s, crate).z;
+    io.AddKeyEvent(ImGuiKey_W, true);
+    frame(60);
+    io.AddKeyEvent(ImGuiKey_W, false);
+    float z1 = pos(s, crate).z;
+    CHECK(z1 < z0 - 2.f);   // walked into it: pushed ahead (towards -Z)
+    frame(60);              // slides to a stop
+    float z2 = pos(s, crate).z;
+    io.AddMousePosEvent(400, 300);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);   // shoot it
+    frame(2);
+    io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    frame(30);
+    CHECK(pos(s, crate).z < z2 - 0.3f);   // knocked further
 }

@@ -92,8 +92,50 @@ void PhysicsWorld::build(const Scene& scene, const MeshLibrary& meshes) {
                 break;
             }
         }
+        b.dynamic = e.rigidBody.has_value() && !c.trigger;
         bodies_.push_back(b);
     }
+}
+
+void PhysicsWorld::Body::translate(Vec3 d) {
+    box.center += d;
+    sphere.center += d;
+    capsule.a += d;
+    capsule.b += d;
+    aabbMin += d;
+    aabbMax += d;
+    world.m[12] += d.x;
+    world.m[13] += d.y;
+    world.m[14] += d.z;
+}
+
+bool PhysicsWorld::contact(const Body& a, const Body& b, Contact& out) const {
+    if (!boundsOverlap(a.aabbMin, a.aabbMax, b.aabbMin, b.aabbMax)) return false;
+    bool aBoxy = a.shape == Collider::Shape::Box || a.shape == Collider::Shape::Mesh;
+    bool bBoxy = b.shape == Collider::Shape::Box;
+    if (aBoxy && bBoxy) return obbContact(a.box, b.box, out);
+    Contact deepest;
+    auto test = [&](const Sphere& s) {
+        Contact c;
+        if (contact(s, b, c) && c.depth > deepest.depth) deepest = c;
+        return true;
+    };
+    Capsule cap;
+    if (capsuleOf(a, cap)) {
+        forEachCapsuleSphere(cap, test);
+    } else {   // a box against a sphere / capsule / mesh: spheres in its corners and middle
+        float r = std::min({a.box.half.x, a.box.half.y, a.box.half.z});
+        test(Sphere{a.box.center, r});
+        for (int i = 0; i < 8; ++i) {
+            Vec3 p = a.box.center;
+            const float h[3] = {a.box.half.x - r * 0.5f, a.box.half.y - r * 0.5f, a.box.half.z - r * 0.5f};
+            for (int k = 0; k < 3; ++k) p += a.box.axis[k] * (((i >> k) & 1) ? h[k] : -h[k]);
+            test(Sphere{p, r * 0.5f});
+        }
+    }
+    if (deepest.depth <= 0.f) return false;
+    out = deepest;
+    return true;
 }
 
 const PhysicsWorld::Body* PhysicsWorld::find(EntityId id) const {
@@ -222,13 +264,22 @@ CharacterMove PhysicsWorld::moveCapsule(const Capsule& capsule, Vec3 delta, Enti
         c.b += step;
         for (int iter = 0; iter < 4; ++iter) {   // resolve the deepest contact, a few times
             Contact deepest;
+            const Body* deepestBody = nullptr;
             for (const Body& b : bodies_) {
                 if (b.trigger || b.entity == ignore) continue;
                 forEachCapsuleSphere(c, [&](const Sphere& sp) {
                     Contact ct;
-                    if (contact(sp, b, ct) && ct.depth > deepest.depth) deepest = ct;
+                    if (contact(sp, b, ct) && ct.depth > deepest.depth) {
+                        deepest = ct;
+                        deepestBody = &b;
+                    }
                     return true;
                 });
+            }
+            if (deepestBody && deepestBody->dynamic) {
+                bool known = false;
+                for (const auto& t : result.touched) known |= t.first == deepestBody->entity;
+                if (!known) result.touched.emplace_back(deepestBody->entity, deepest.normal * -1.f);
             }
             if (deepest.depth <= 0.f) break;
             Vec3 push = deepest.normal * (deepest.depth + kSkin);

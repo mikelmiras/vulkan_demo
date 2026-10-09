@@ -41,6 +41,17 @@ inline Mat4 rotateY(float a) {
     return r;
 }
 
+// Rotation by `angle` radians around the unit vector `axis`
+inline Mat4 rotateAxis(Vec3 axis, float angle) {
+    float c = std::cos(angle), s = std::sin(angle), t = 1.f - c;
+    float x = axis.x, y = axis.y, z = axis.z;
+    Mat4 r;
+    r.m[0] = t * x * x + c;     r.m[4] = t * x * y - s * z; r.m[8] = t * x * z + s * y;
+    r.m[1] = t * x * y + s * z; r.m[5] = t * y * y + c;     r.m[9] = t * y * z - s * x;
+    r.m[2] = t * x * z - s * y; r.m[6] = t * y * z + s * x; r.m[10] = t * z * z + c;
+    return r;
+}
+
 // vulkanClip = true: Y down, depth [0,1]. false: OpenGL convention (what ImGuizmo expects).
 inline Mat4 perspective(float fovy, float aspect, float zn, float zf, bool vulkanClip) {
     Mat4 r;

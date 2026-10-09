@@ -178,14 +178,19 @@ TEST(behaviours_pickup_destroys_and_logs) {
     Scene s = buildDefaultScene();
     Game g;
     g.start(s, meshes());
-    size_t before = s.entities.size();
+    auto gems = [&] {   // (not all entities: the demo's spawner adds balls)
+        int n = 0;
+        for (const Entity& e : s.entities) n += e.name.rfind("Gem.", 0) == 0;
+        return n;
+    };
+    int before = gems();
     Vec3 gem = worldPos(s, "Gem.003");
     Entity* player = s.findByName("Player");
     player->transform.position[0] = gem.x;
     player->transform.position[2] = gem.z;
     run(g, 2);   // the gem's trigger sphere now overlaps the player's capsule
     CHECK(!s.findByName("Gem.003"));
-    CHECK(s.entities.size() == before - 1);
+    CHECK(gems() == before - 1);
     REQUIRE(!g.log().empty());
     CHECK(g.log().back().second == "Collected Gem.003 (7 left)");
 }
