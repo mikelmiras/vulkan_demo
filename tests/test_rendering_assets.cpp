@@ -120,7 +120,7 @@ TEST(gltf_import_as_prefab) {
 
     // In a scene: saved by source and re-imported into fresh libraries
     Scene s;
-    s.prefabs.push_back(p);
+    s.addPrefab(p);
     for (Entity& e : s.instantiate(s.prefabs[0])) s.add(std::move(e));
     auto scenePath = test::tempPath("gltf.vkw").string();
     REQUIRE(saveScene(scenePath, s, meshes, texs, err));

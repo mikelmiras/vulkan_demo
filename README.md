@@ -175,9 +175,13 @@ A **prefab** is a saved entity tree used as a template: build something in the s
 collider and behaviours), then Outliner > **Prefabs** tab > **From selection** (or right-click > Create prefab).
 Prefabs are saved in the scene file.
 
-- **Add to scene** (or double-click) places a copy in front of the camera; **Update from selection** replaces the
-  prefab with the selected entity. Copies are independent: updating a prefab doesn't change copies already in
-  the scene.
+- **Add to scene** (or double-click) places a copy in front of the camera. Copies (*instances*) stay **linked**
+  to their prefab: they show in blue in the outliner, and the Inspector lists what an instance changed (its
+  *overrides*: position, colour, a behaviour field, a removed component...).
+- **Apply** (Inspector, or Prefabs tab > Apply selection to prefab) makes the prefab match an instance; every other
+  instance follows, **keeping its own overrides**. Entities added to or removed from the prefab are added to or
+  removed from all instances. **Revert** drops an instance's overrides (it stays where it was placed);
+  **Unlink** turns it into ordinary entities.
 - **Export** writes `<name>.prefab` to the working directory and **Import...** loads one, to share between scenes.
 - Game code creates copies while playing with `ctx.spawn("Bullet", position, forward)`. The copy joins the scene
   after the current update (so nothing moves under other behaviours' feet) and its behaviours start then; the

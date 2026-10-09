@@ -8,6 +8,7 @@
 
 #include "ImGuizmo.h"
 #include "render/scene_draw.h"
+#include "scene/prefab_sync.h"
 #include "platform/platform.h"
 #include "scene/serialization.h"
 
@@ -251,7 +252,7 @@ void Editor::importModel() {
         if (!importGltfPrefab(path, meshes_, textures_, p, importError_, warning)) return;
         pushUndo();
         p.name = scene_.uniquePrefabName(p.name);
-        scene_.prefabs.push_back(std::move(p));
+        scene_.addPrefab(std::move(p));
         instantiatePrefab((int)scene_.prefabs.size() - 1);
         setStatus("Imported " + scene_.prefabs.back().name + " as a prefab (" +
                   std::to_string(scene_.prefabs.back().entities.size()) + " entities)" +
@@ -275,7 +276,7 @@ void Editor::createPrefabFromSelection() {
     if (!e) return;
     pushUndo();
     std::string name = scene_.uniquePrefabName(e->name);
-    scene_.prefabs.push_back(scene_.makePrefab(e->id, name));
+    scene_.addPrefab(scene_.makePrefab(e->id, name));
     selectedPrefab_ = (int)scene_.prefabs.size() - 1;
     showPrefabsTab_ = true;
     setStatus("Created prefab " + name + " (" + std::to_string(scene_.prefabs.back().entities.size()) + " entities)");
@@ -301,15 +302,23 @@ void Editor::updatePrefabFromSelection(int index) {
     Entity* e = selection();
     if (!e || index < 0 || index >= (int)scene_.prefabs.size()) return;
     pushUndo();
-    Prefab& p = scene_.prefabs[(size_t)index];
-    p = scene_.makePrefab(e->id, p.name);
-    setStatus("Prefab " + p.name + " updated from " + e->name + " (instances already in the scene don't change)");
+    const Prefab& p = scene_.prefabs[(size_t)index];
+    std::string name = p.name, from = e->name;
+    // From an instance: apply its changes. From anything else: it becomes the prefab (and an instance of it).
+    EntityId root = instanceRoot(scene_, e->id);
+    if (root == kNoEntity || scene_.find(root)->prefab->prefab != p.id) root = e->id;
+    int updated = applyToPrefab(scene_, root, p.id, meshes_, textures_);
+    setStatus("Prefab " + name + " updated from " + from + "; " + std::to_string(std::max(updated, 0)) +
+              " other instance(s) followed (their own changes were kept)");
 }
 
 void Editor::deletePrefab(int index) {
     if (index < 0 || index >= (int)scene_.prefabs.size()) return;
     pushUndo();
-    setStatus("Deleted prefab " + scene_.prefabs[(size_t)index].name);
+    setStatus("Deleted prefab " + scene_.prefabs[(size_t)index].name + " (its instances are now ordinary entities)");
+    uint32_t id = scene_.prefabs[(size_t)index].id;
+    for (Entity& e : scene_.entities)
+        if (e.prefab && e.prefab->prefab == id) e.prefab.reset();
     scene_.prefabs.erase(scene_.prefabs.begin() + index);
     selectedPrefab_ = -1;
 }
@@ -332,7 +341,7 @@ void Editor::importPrefab() {
     if (!loadPrefab(path.u8string(), p, meshes_, textures_, error)) { setStatus("Import failed: " + error); return; }
     pushUndo();
     p.name = scene_.uniquePrefabName(p.name);
-    scene_.prefabs.push_back(std::move(p));
+    scene_.addPrefab(std::move(p));
     selectedPrefab_ = (int)scene_.prefabs.size() - 1;
     setStatus("Imported prefab " + scene_.prefabs.back().name);
 }
@@ -437,6 +446,12 @@ void Editor::saveToFile() {
     std::string error;
     if (saveScene(scenePath_, scene_, meshes_, textures_, error)) setStatus(std::string("Saved ") + scenePath_);
     else setStatus("Save failed: " + error);
+}
+
+bool Editor::selectByName(const std::string& name) {
+    const Entity* e = scene_.findByName(name);
+    if (e) select(e->id);
+    return e != nullptr;
 }
 
 void Editor::openScene(const std::string& path) {

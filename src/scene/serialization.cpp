@@ -10,7 +10,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 5;   // 5: textures, lights; 4: prefabs; 3: entities/components (JSON)
+constexpr int kVersion = 6;   // 6: linked prefab instances; 5: textures, lights; 4: prefabs; 3: entities (JSON)
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -135,6 +135,11 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
     v.set("id", e.id);
     v.set("name", e.name);
     if (e.parent != kNoEntity) v.set("parent", e.parent);
+    if (e.prefab) {
+        json::Value& link = v.set("prefab", json::Value::object());
+        link.set("id", e.prefab->prefab);
+        link.set("source", e.prefab->source);
+    }
     if (!e.visible) v.set("visible", false);
     if (e.locked) v.set("locked", true);
 
@@ -197,6 +202,8 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
     e.id = (EntityId)v["id"].asNumber(0);
     e.name = v["name"].asString();
     e.parent = (EntityId)v["parent"].asNumber(0);
+    if (const json::Value& link = v["prefab"]; link.isObject())
+        e.prefab = PrefabLink{(uint32_t)link["id"].asNumber(0), (EntityId)link["source"].asNumber(0)};
     e.visible = v["visible"].asBool(true);
     e.locked = v["locked"].asBool(false);
 
@@ -316,6 +323,7 @@ bool assetListsFromJson(const json::Value& doc, MeshLibrary& meshes, TextureLibr
 
 json::Value prefabToJson(const Prefab& p, const MeshLibrary& meshes, const TextureLibrary& textures) {
     json::Value v = json::Value::object();
+    v.set("id", p.id);
     v.set("name", p.name);
     json::Value& ents = v.set("entities", json::Value::array());
     for (const Entity& e : p.entities) ents.push(entityToJson(e, meshes, textures));
@@ -324,6 +332,7 @@ json::Value prefabToJson(const Prefab& p, const MeshLibrary& meshes, const Textu
 
 bool prefabFromJson(const json::Value& v, const AssetIds& ids, Prefab& out, std::string& error) {
     Prefab p;
+    p.id = (uint32_t)v["id"].asNumber(0);
     p.name = v["name"].asString();
     for (const json::Value& ev : v["entities"].elements()) {
         Entity e;
@@ -421,7 +430,7 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, Textu
         Prefab p;
         if (!prefabFromJson(v, ids, p, error)) { error = path + ": " + error; return false; }
         p.name = result.uniquePrefabName(p.name);
-        result.prefabs.push_back(std::move(p));
+        result.addPrefab(std::move(p));
     }
     if (const json::Value& input = doc["settings"]["input"]; input.isArray()) {   // else: the defaults
         result.inputActions.clear();

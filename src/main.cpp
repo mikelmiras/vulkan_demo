@@ -1,8 +1,9 @@
 // Vulkan World Editor: a small Vulkan 3D scene with a Blender-style editing UI.
 //
-//   vkworld [scene.vkw] [--play] [--fullscreen] [--screenshot out.png [--frames N]]
+//   vkworld [scene.vkw] [--play] [--select <entity>] [--fullscreen] [--screenshot out.png [--frames N]]
 //
-// --play starts play mode right away; --screenshot saves frame N (default 30) and quits.
+// --play starts play mode right away; --select selects an entity by name; --screenshot saves frame N (default
+// 30) and quits.
 
 #include <cstdio>
 #include <cstring>
@@ -16,9 +17,11 @@ int main(int argc, char** argv) {
     defaults.title = "Vulkan World Editor";
     Application::Options options = Application::parseArgs(argc, argv, defaults);
     const char* scenePath = nullptr;
+    const char* selectName = nullptr;
     bool play = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--play")) play = true;
+        else if (!std::strcmp(argv[i], "--select") && i + 1 < argc) selectName = argv[++i];
         else scenePath = argv[i];
     }
 
@@ -29,6 +32,7 @@ int main(int argc, char** argv) {
 
     Editor editor(meshes, textures, app.uiScale());
     if (scenePath) editor.openScene(scenePath);
+    if (selectName && !editor.selectByName(selectName)) std::fprintf(stderr, "no entity named %s\n", selectName);
     if (play) editor.play();
 
     float dt = 0.f;

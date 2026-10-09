@@ -55,6 +55,7 @@ add_library(engine STATIC
   src/scene/input_bindings.cpp
   src/scene/scene.cpp
   src/scene/serialization.cpp
+  src/scene/prefab_sync.cpp
   src/physics/collision.cpp
   src/physics/physics_world.cpp
   src/game/input.cpp

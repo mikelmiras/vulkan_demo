@@ -10,6 +10,7 @@
 
 #include "misc/cpp/imgui_stdlib.h"
 #include "platform/platform.h"
+#include "scene/prefab_sync.h"
 
 namespace {
 
@@ -330,12 +331,16 @@ void Editor::drawPrefabs() {
         scene_.prefabs[(size_t)selectedPrefab_].name = scene_.uniquePrefabName(name);
     }
     tooltip("Rename (Enter). Behaviours refer to prefabs by this name, e.g. Shooter's \"prefab\" field.");
-    ImGui::TextDisabled("%zu entities, root: %s", p.entities.size(), p.entities.empty() ? "-" : p.entities[0].name.c_str());
+    int instances = 0;
+    for (const Entity& e : scene_.entities)
+        instances += e.prefab && e.prefab->prefab == p.id && !p.entities.empty() && e.prefab->source == p.entities[0].id;
+    ImGui::TextDisabled("%zu entities, %d instance(s) in the scene", p.entities.size(), instances);
     float w = ImGui::GetContentRegionAvail().x;
     if (ImGui::Button("Add to scene", ImVec2(w, 0))) instantiatePrefab(selectedPrefab_);
     ImGui::BeginDisabled(selection() == nullptr);
-    if (ImGui::Button("Update from selection", ImVec2(w, 0))) updatePrefabFromSelection(selectedPrefab_);
-    tooltip("Replace this prefab with the selected entity and its children");
+    if (ImGui::Button("Apply selection to prefab", ImVec2(w, 0))) updatePrefabFromSelection(selectedPrefab_);
+    tooltip("Make the prefab match the selected instance (or entity tree). Every other instance follows, keeping "
+            "its own changes (overrides).");
     ImGui::EndDisabled();
     if (ImGui::Button("Export", ImVec2(w * 0.5f - 2.f, 0))) exportPrefab(selectedPrefab_);
     tooltip("Save as <name>.prefab in the working directory");
@@ -360,12 +365,18 @@ void Editor::drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityI
     if (kids.empty()) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     if (e.id == selected_) flags |= ImGuiTreeNodeFlags_Selected;
     bool dim = !scene_.visibleInHierarchy(e.id);
+    bool linked = e.prefab.has_value();
     if (dim) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    const char* tag = e.camera ? "  [cam]" : e.light ? "  [light]" : (!e.meshRenderer && kids.empty()) ? "  [empty]" : "";
+    else if (linked) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.75f, 1.f, 1.f));   // prefab instances: blue
+    const char* tag = linked && instanceRoot(scene_, e.id) == e.id ? "  [prefab]"
+                      : e.camera                                  ? "  [cam]"
+                      : e.light                                   ? "  [light]"
+                      : (!e.meshRenderer && kids.empty())         ? "  [empty]"
+                                                                  : "";
     ImGui::PopID();   // an open tree node pushes its own ID: keep the ID stack balanced around it
     if (scrollToSelected_ && scene_.isAncestor(e.id, selected_)) ImGui::SetNextItemOpen(true);   // reveal selection
     bool open = ImGui::TreeNodeEx((void*)(uintptr_t)e.id, flags, "%s%s", e.name.c_str(), tag);
-    if (dim) ImGui::PopStyleColor();
+    if (dim || linked) ImGui::PopStyleColor();
 
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) select(e.id);
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) pendingFocus_ = e.id;
@@ -451,11 +462,57 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         if (ImGui::Button("Drop to ground")) dropSelectedToGround();
         ImGui::EndDisabled();
 
-        drawComponents(e);
+        // Prefab instance: where it comes from, what it changed, and the instance operations
+        if (e.prefab) {
+            const Prefab* pf = scene_.findPrefab(e.prefab->prefab);
+            EntityId root = instanceRoot(scene_, e.id);
+            ImGui::SeparatorText("Prefab instance");
+            if (!pf || root == kNoEntity) {
+                ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Its prefab is gone");
+                if (ImGui::SmallButton("Unlink")) { pushUndo(); e.prefab.reset(); }
+            } else {
+                ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.f, 1.f), "Of prefab \"%s\"%s", pf->name.c_str(),
+                                   root == e.id ? "" : " (part of it)");
+                std::vector<std::string> overrides = instanceOverrides(scene_, e.id, meshes_, textures_);
+                if (overrides.empty()) {
+                    ImGui::TextDisabled("Same as the prefab");
+                } else {
+                    std::string list;
+                    for (const std::string& o : overrides) list += (list.empty() ? "" : ", ") + o;
+                    ImGui::TextWrapped("Overrides: %s", list.c_str());
+                }
+                if (root != e.id && ImGui::SmallButton("Select root")) select(root);
+                if (root != e.id) ImGui::SameLine();
+                int index = (int)(pf - scene_.prefabs.data());
+                if (ImGui::SmallButton("Apply")) {
+                    select(root);
+                    updatePrefabFromSelection(index);
+                }
+                tooltip("Make the prefab like this instance; the other instances follow");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Revert")) {
+                    pushUndo();
+                    revertInstance(scene_, root, meshes_, textures_);
+                    setStatus("Reverted to prefab " + pf->name);
+                }
+                tooltip("Drop this instance's overrides (it stays where it is)");
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Unlink")) {
+                    pushUndo();
+                    unlinkInstance(scene_, root);
+                    setStatus("Unlinked: ordinary entities now");
+                }
+                tooltip("Stop following the prefab");
+            }
+        }
+
+        // (Apply / Revert above can add entities, which may move them in memory: look the selection up again)
+        Entity& cur = *selection();
+        drawComponents(cur);
 
         ImGui::SeparatorText("Info");
-        ImGui::TextDisabled("Entity id %u", e.id);
-        Vec3 wp = transformPoint(worldOf(e.id), {0, 0, 0});
+        ImGui::TextDisabled("Entity id %u", cur.id);
+        Vec3 wp = transformPoint(worldOf(cur.id), {0, 0, 0});
         ImGui::Text("World position: %.2f %.2f %.2f", wp.x, wp.y, wp.z);
         ImGui::Text("Distance to camera: %.2f", length(wp - cam_.pos));
     } else {

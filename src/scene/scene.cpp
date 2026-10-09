@@ -289,6 +289,23 @@ std::vector<BehaviourPtr> motionBehaviours(float spin, float bob, float phase) {
 // ---------------------------------------------------------------------------------------------
 // Prefabs
 // ---------------------------------------------------------------------------------------------
+Prefab& Scene::addPrefab(Prefab p) {
+    if (p.id == 0 || findPrefab(p.id)) p.id = nextPrefabId_;
+    nextPrefabId_ = std::max(nextPrefabId_, p.id + 1);
+    prefabs.push_back(std::move(p));
+    return prefabs.back();
+}
+
+Prefab* Scene::findPrefab(uint32_t id) {
+    return const_cast<Prefab*>(static_cast<const Scene*>(this)->findPrefab(id));
+}
+
+const Prefab* Scene::findPrefab(uint32_t id) const {
+    for (const Prefab& p : prefabs)
+        if (p.id == id) return &p;
+    return nullptr;
+}
+
 Prefab* Scene::findPrefab(const std::string& name) {
     return const_cast<Prefab*>(static_cast<const Scene*>(this)->findPrefab(name));
 }
@@ -302,7 +319,10 @@ const Prefab* Scene::findPrefab(const std::string& name) const {
 Prefab Scene::makePrefab(EntityId root, const std::string& name) const {
     Prefab p;
     p.name = name;
-    for (EntityId id : subtree(root)) p.entities.push_back(*find(id));
+    for (EntityId id : subtree(root)) {
+        p.entities.push_back(*find(id));
+        p.entities.back().prefab.reset();
+    }
     if (!p.entities.empty()) {
         Entity& r = p.entities[0];
         r.parent = kNoEntity;
@@ -319,6 +339,7 @@ std::vector<Entity> Scene::instantiate(const Prefab& prefab, EntityId parent) {
         Entity e = prefab.entities[i];
         e.id = remap[e.id];
         e.parent = i == 0 ? parent : remap.count(e.parent) ? remap[e.parent] : kNoEntity;
+        e.prefab = PrefabLink{prefab.id, prefab.entities[i].id};
         out.push_back(std::move(e));
     }
     if (!out.empty()) out[0].name = uniqueName(prefab.name);
@@ -446,7 +467,7 @@ Scene buildDefaultScene() {
         b.collider.reset();   // it finds what it hits by raycasting
         addBehaviour(b, "Projectile");
         EntityId id = b.id;
-        scene.prefabs.push_back(scene.makePrefab(id, "Bullet"));
+        scene.addPrefab(scene.makePrefab(id, "Bullet"));
         scene.remove(id);
     }
     {
@@ -461,7 +482,7 @@ Scene buildDefaultScene() {
         g.collider = trigger;
         addBehaviour(g, "Pickup");
         EntityId id = g.id;
-        scene.prefabs.push_back(scene.makePrefab(id, "Gem"));
+        scene.addPrefab(scene.makePrefab(id, "Gem"));
         scene.remove(id);
     }
 

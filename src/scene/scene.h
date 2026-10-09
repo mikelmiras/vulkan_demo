@@ -68,6 +68,12 @@ const char* colliderShapeName(Collider::Shape shape);
 // mesh for everything else
 Collider fitCollider(const MeshLibrary& meshes, int mesh);
 
+// Marks an entity as part of a copy ("instance") of a prefab
+struct PrefabLink {
+    uint32_t prefab = 0;           // Prefab::id
+    EntityId source = kNoEntity;   // the entity in the prefab this one was copied from
+};
+
 struct Entity {
     EntityId id = kNoEntity;
     std::string name;
@@ -80,6 +86,7 @@ struct Entity {
     std::optional<Camera> camera;
     std::optional<Collider> collider;
     std::optional<Light> light;
+    std::optional<PrefabLink> prefab;
     std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
 
     template <class T> T* behaviour() {   // first behaviour of type T, or nullptr
@@ -92,6 +99,7 @@ struct Entity {
 // A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.
 // entities[0] is the root (no parent); parents of the others refer to ids inside the prefab.
 struct Prefab {
+    uint32_t id = 0;   // stable (names can change): what instances link to
     std::string name;
     std::vector<Entity> entities;
 };
@@ -128,17 +136,23 @@ public:
     std::string uniqueName(const std::string& wanted) const;   // "Cube.001" -> "Cube.002" if taken, Blender style
 
     // ---- Prefabs
+    Prefab& addPrefab(Prefab p);   // keeps p.id if it's free, otherwise assigns one
     Prefab* findPrefab(const std::string& name);
     const Prefab* findPrefab(const std::string& name) const;
-    // Copies the subtree under `root` into a prefab (the root's position is zeroed: instances are placed anew)
+    Prefab* findPrefab(uint32_t id);
+    const Prefab* findPrefab(uint32_t id) const;
+    // Copies the subtree under `root` into a prefab (the root's position is zeroed: instances are placed anew).
+    // The copies lose any prefab links of their own.
     Prefab makePrefab(EntityId root, const std::string& name) const;
-    // Copies of the prefab's entities with fresh ids, the root under `parent`. Not added to the scene: pass them
-    // to add() (in order). Ids are reserved, so they stay unique even if added later.
+    // Copies of the prefab's entities with fresh ids, linked to the prefab, the root under `parent`. Not added to
+    // the scene: pass them to add() (in order). Ids are reserved, so they stay unique even if added later.
     std::vector<Entity> instantiate(const Prefab& prefab, EntityId parent = kNoEntity);
+    EntityId reserveId() { return nextId_++; }
     std::string uniquePrefabName(const std::string& wanted) const;
 
 private:
     EntityId nextId_ = 1;
+    uint32_t nextPrefabId_ = 1;
 };
 
 Scene buildDefaultScene();

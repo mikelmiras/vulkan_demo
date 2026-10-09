@@ -39,6 +39,7 @@ public:
     bool quitRequested() const { return quit_; }
     void openScene(const std::string& path);   // like File > Load
     void play() { startPlay(); }
+    bool selectByName(const std::string& name);
 
 private:
     enum class Tool { Select, Move, Rotate, Scale };
