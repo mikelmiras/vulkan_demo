@@ -102,7 +102,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_assets.cpp
     tests/test_scene.cpp
     tests/test_game.cpp
-    tests/test_physics.cpp)
+    tests/test_physics.cpp
+    tests/test_prefabs.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   add_test(NAME engine_tests COMMAND engine_tests)
 endif()

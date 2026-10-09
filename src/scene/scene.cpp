@@ -234,6 +234,51 @@ std::vector<BehaviourPtr> motionBehaviours(float spin, float bob, float phase) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Prefabs
+// ---------------------------------------------------------------------------------------------
+Prefab* Scene::findPrefab(const std::string& name) {
+    return const_cast<Prefab*>(static_cast<const Scene*>(this)->findPrefab(name));
+}
+
+const Prefab* Scene::findPrefab(const std::string& name) const {
+    for (const Prefab& p : prefabs)
+        if (p.name == name) return &p;
+    return nullptr;
+}
+
+Prefab Scene::makePrefab(EntityId root, const std::string& name) const {
+    Prefab p;
+    p.name = name;
+    for (EntityId id : subtree(root)) p.entities.push_back(*find(id));
+    if (!p.entities.empty()) {
+        Entity& r = p.entities[0];
+        r.parent = kNoEntity;
+        r.transform.position[0] = r.transform.position[1] = r.transform.position[2] = 0.f;
+    }
+    return p;
+}
+
+std::vector<Entity> Scene::instantiate(const Prefab& prefab, EntityId parent) {
+    std::unordered_map<EntityId, EntityId> remap;
+    for (const Entity& e : prefab.entities) remap[e.id] = nextId_++;
+    std::vector<Entity> out;
+    for (size_t i = 0; i < prefab.entities.size(); ++i) {
+        Entity e = prefab.entities[i];
+        e.id = remap[e.id];
+        e.parent = i == 0 ? parent : remap.count(e.parent) ? remap[e.parent] : kNoEntity;
+        out.push_back(std::move(e));
+    }
+    if (!out.empty()) out[0].name = uniqueName(prefab.name);
+    return out;
+}
+
+std::string Scene::uniquePrefabName(const std::string& wanted) const {
+    std::string base = wanted.empty() ? "Prefab" : wanted, name = base;
+    for (int n = 2; findPrefab(name); ++n) name = base + " " + std::to_string(n);
+    return name;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Default scene
 // ---------------------------------------------------------------------------------------------
 namespace {
@@ -308,6 +353,7 @@ Scene buildDefaultScene() {
     Entity& eyes = scene.create("Player Camera", playerId);   // invalidates `player`: use the id from here on
     eyes.camera = Camera{};
     eyes.transform.position[1] = 1.65f;
+    addBehaviour(eyes, "Shooter");   // left mouse fires the Bullet prefab
 
     Entity& ground = make(scene, "Ground", kNoEntity, MeshKind::Plane, {0, 0, 0}, {600, 1, 600}, {0.42f, 0.55f, 0.38f});
     ground.meshRenderer->checker = true;
@@ -320,21 +366,45 @@ Scene buildDefaultScene() {
     torus.transform.rotation[0] = 0.6f / DEG2RAD;
     animate(torus, 0.8f, 0.4f);
 
-    // Gems to collect: walk into them
-    EntityId gems = group(scene, "Gems").id;
-    for (int i = 0; i < 8; ++i) {
-        float a = i * 2.f * PI / 8 + PI / 8;
-        Entity& g = make(scene, numbered("Gem", i + 1), gems, MeshKind::Cube, {std::cos(a) * 26.f, 1.2f, std::sin(a) * 26.f},
-                         {0.7f, 0.7f, 0.7f}, hsv(0.5f + 0.06f * (i % 3), 0.75f, 1.f));
+    // Prefabs: templates that game code spawns (and the gems below are made from). Each is built as an entity,
+    // turned into a prefab, and removed again.
+    {
+        Entity& b = make(scene, "Bullet", kNoEntity, MeshKind::Sphere, {}, {0.2f, 0.2f, 0.2f}, {1.f, 0.55f, 0.15f});
+        b.collider.reset();   // it finds what it hits by raycasting
+        addBehaviour(b, "Projectile");
+        EntityId id = b.id;
+        scene.prefabs.push_back(scene.makePrefab(id, "Bullet"));
+        scene.remove(id);
+    }
+    {
+        Entity& g = make(scene, "Gem", kNoEntity, MeshKind::Cube, {}, {0.7f, 0.7f, 0.7f}, hsv(0.5f, 0.75f, 1.f));
         g.transform.rotation[0] = 45.f;
         g.transform.rotation[2] = 35.f;
-        animate(g, 120.f * DEG2RAD, 0.25f, a);
+        animate(g, 120.f * DEG2RAD, 0.25f);
         Collider trigger;   // a generous sphere around the gem
         trigger.shape = Collider::Shape::Sphere;
         trigger.radius = 1.6f;
         trigger.trigger = true;
         g.collider = trigger;
         addBehaviour(g, "Pickup");
+        EntityId id = g.id;
+        scene.prefabs.push_back(scene.makePrefab(id, "Gem"));
+        scene.remove(id);
+    }
+
+    // Gems to collect: walk into them
+    EntityId gems = group(scene, "Gems").id;
+    for (int i = 0; i < 8; ++i) {
+        float a = i * 2.f * PI / 8 + PI / 8;
+        std::vector<Entity> copy = scene.instantiate(*scene.findPrefab("Gem"), gems);
+        Entity& g = copy[0];
+        g.name = numbered("Gem", i + 1);
+        g.transform.position[0] = std::cos(a) * 26.f;
+        g.transform.position[1] = 1.2f;
+        g.transform.position[2] = std::sin(a) * 26.f;
+        g.meshRenderer->color = hsv(0.5f + 0.06f * (i % 3), 0.75f, 1.f);
+        for (BehaviourPtr& b : g.behaviours) setField(*b, "phase", a / DEG2RAD);   // Bob: out of step with each other
+        for (Entity& e : copy) scene.add(std::move(e));
     }
 
     // Ring of pillars, each with a floating spinning cube on top
@@ -386,6 +456,9 @@ Scene buildDefaultScene() {
             t.rotation[0] = 0.6f / DEG2RAD;
             animate(o, 0.7f, 0.5f, phase);
         }
+        // Shoot them: cubes leave a gem behind
+        addBehaviour(o, "Destructible");
+        if (k == 0) setField(*o.behaviours.back(), "dropPrefab", std::string("Gem"));
     }
     return scene;
 }

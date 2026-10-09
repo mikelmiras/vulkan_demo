@@ -1,5 +1,7 @@
 #include "scene/behaviour.h"
 
+#include <type_traits>
+
 namespace {
 
 std::vector<BehaviourType>& registry() {
@@ -32,19 +34,36 @@ std::unique_ptr<Behaviour> createBehaviour(const std::string& typeName) {
     return nullptr;
 }
 
-bool setField(Behaviour& b, const std::string& name, float value) {
-    struct Setter : FieldVisitor {
-        const std::string& name;
-        float value;
-        bool found = false;
-        Setter(const std::string& n, float v) : name(n), value(v) {}
-        void field(const char* n, float& v, float, float, float) override {
+namespace {
+
+// Assigns `value` to the field called `name` if it has type T
+template <class T>
+struct FieldSetter : FieldVisitor {
+    const std::string& name;
+    const T& value;
+    bool found = false;
+    FieldSetter(const std::string& n, const T& v) : name(n), value(v) {}
+    template <class U>
+    void set(const char* n, U& v) {
+        if constexpr (std::is_same_v<T, U>)
             if (name == n) { v = value; found = true; }
-        }
-        void field(const char*, bool&) override {}
-        void field(const char*, Vec3&, float) override {}
-        void field(const char*, std::string&) override {}
-    } setter(name, value);
+    }
+    void field(const char* n, float& v, float, float, float) override { set(n, v); }
+    void field(const char* n, bool& v) override { set(n, v); }
+    void field(const char* n, Vec3& v, float) override { set(n, v); }
+    void field(const char* n, std::string& v) override { set(n, v); }
+};
+
+}  // namespace
+
+bool setField(Behaviour& b, const std::string& name, float value) {
+    FieldSetter<float> setter(name, value);
+    b.fields(setter);
+    return setter.found;
+}
+
+bool setField(Behaviour& b, const std::string& name, const std::string& value) {
+    FieldSetter<std::string> setter(name, value);
     b.fields(setter);
     return setter.found;
 }

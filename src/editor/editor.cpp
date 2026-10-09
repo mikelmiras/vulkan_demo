@@ -2,8 +2,10 @@
 
 #include <cfloat>
 #include <cstdlib>
+#include <filesystem>
 
 #include "ImGuizmo.h"
+#include "platform/platform.h"
 #include "scene/serialization.h"
 
 namespace {
@@ -65,7 +67,8 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (pendingDuplicate_) { select(pendingDuplicate_); duplicateSelected(); }
     if (pendingDelete_) { select(pendingDelete_); deleteSelected(); }
     if (pendingReparent_) reparent(pendingReparent_, pendingParent_);
-    pendingFocus_ = pendingDuplicate_ = pendingDelete_ = pendingReparent_ = pendingParent_ = kNoEntity;
+    if (pendingPrefab_) { select(pendingPrefab_); createPrefabFromSelection(); }
+    pendingFocus_ = pendingDuplicate_ = pendingDelete_ = pendingReparent_ = pendingParent_ = pendingPrefab_ = kNoEntity;
 
     if (editBegan_ && !playing()) {   // play-mode edits are thrown away on Stop: no undo
         undo_.push_back(std::move(frameStart_));
@@ -220,6 +223,76 @@ void Editor::importMesh() {
     const Mesh& m = meshes_.get(id);
     setStatus((meshes_.count() > before ? "Imported " : "Already imported: ") + m.name + " (" +
               std::to_string(m.indexCount / 3) + " triangles)");
+}
+
+// ---------------------------------------------------------------------------------------------
+// Prefabs
+// ---------------------------------------------------------------------------------------------
+void Editor::createPrefabFromSelection() {
+    Entity* e = selection();
+    if (!e) return;
+    pushUndo();
+    std::string name = scene_.uniquePrefabName(e->name);
+    scene_.prefabs.push_back(scene_.makePrefab(e->id, name));
+    selectedPrefab_ = (int)scene_.prefabs.size() - 1;
+    showPrefabsTab_ = true;
+    setStatus("Created prefab " + name + " (" + std::to_string(scene_.prefabs.back().entities.size()) + " entities)");
+}
+
+void Editor::instantiatePrefab(int index) {
+    if (index < 0 || index >= (int)scene_.prefabs.size()) return;
+    pushUndo();
+    const Prefab& p = scene_.prefabs[(size_t)index];
+    std::vector<Entity> copies = scene_.instantiate(p);
+    Transform& t = copies[0].transform;
+    float lift = 0.01f;   // rest a mesh root on the ground
+    if (copies[0].meshRenderer) lift += std::max(-meshes_.get(copies[0].meshRenderer->mesh).boundsMin.y * t.scale[1], 0.f);
+    Vec3 at = spawnPoint(lift);
+    t.position[0] = at.x; t.position[1] = at.y; t.position[2] = at.z;
+    EntityId root = copies[0].id;
+    for (Entity& e : copies) scene_.add(std::move(e));
+    select(root);
+    setStatus("Added " + scene_.find(root)->name + " from prefab " + p.name);
+}
+
+void Editor::updatePrefabFromSelection(int index) {
+    Entity* e = selection();
+    if (!e || index < 0 || index >= (int)scene_.prefabs.size()) return;
+    pushUndo();
+    Prefab& p = scene_.prefabs[(size_t)index];
+    p = scene_.makePrefab(e->id, p.name);
+    setStatus("Prefab " + p.name + " updated from " + e->name + " (instances already in the scene don't change)");
+}
+
+void Editor::deletePrefab(int index) {
+    if (index < 0 || index >= (int)scene_.prefabs.size()) return;
+    pushUndo();
+    setStatus("Deleted prefab " + scene_.prefabs[(size_t)index].name);
+    scene_.prefabs.erase(scene_.prefabs.begin() + index);
+    selectedPrefab_ = -1;
+}
+
+void Editor::exportPrefab(int index) {
+    if (index < 0 || index >= (int)scene_.prefabs.size()) return;
+    const Prefab& p = scene_.prefabs[(size_t)index];
+    std::string path = p.name + ".prefab", error;
+    if (savePrefab(path, p, meshes_, error)) setStatus("Exported " + path + " (in the working directory)");
+    else setStatus("Export failed: " + error);
+}
+
+void Editor::importPrefab() {
+    std::filesystem::path path = platform::openFileDialog("Import prefab", "prefab");
+    ImGui::GetIO().ClearInputKeys();   // the dialog ran its own event loop
+    ImGui::GetIO().ClearInputMouse();
+    if (path.empty()) return;
+    Prefab p;
+    std::string error;
+    if (!loadPrefab(path.u8string(), p, meshes_, error)) { setStatus("Import failed: " + error); return; }
+    pushUndo();
+    p.name = scene_.uniquePrefabName(p.name);
+    scene_.prefabs.push_back(std::move(p));
+    selectedPrefab_ = (int)scene_.prefabs.size() - 1;
+    setStatus("Imported prefab " + scene_.prefabs.back().name);
 }
 
 void Editor::duplicateSelected() {

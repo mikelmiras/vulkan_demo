@@ -50,6 +50,7 @@ private:
     void drawMenuBar();
     void drawToolbar();
     void drawOutliner();
+    void drawPrefabs();
     void drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityId>>& children,
                           const std::vector<int>& indexOf);
     void drawInspector(const std::string& gpuName, const RenderStats& stats);
@@ -96,6 +97,13 @@ private:
     void addEmpty();
     void addCamera();
     void importMesh();
+    // Prefabs (index into scene_.prefabs)
+    void createPrefabFromSelection();
+    void instantiatePrefab(int index);
+    void updatePrefabFromSelection(int index);
+    void deletePrefab(int index);
+    void exportPrefab(int index);
+    void importPrefab();
     void duplicateSelected();
     void deleteSelected();
     void reparent(EntityId id, EntityId newParent);
@@ -148,7 +156,10 @@ private:
     bool openAddMenu_ = false, scrollToSelected_ = false;
     EntityId pendingDelete_ = kNoEntity, pendingDuplicate_ = kNoEntity, pendingFocus_ = kNoEntity;
     EntityId pendingReparent_ = kNoEntity, pendingParent_ = kNoEntity;   // drag & drop in the outliner
+    EntityId pendingPrefab_ = kNoEntity;
     ImGuiTextFilter filter_;
+    int selectedPrefab_ = -1;
+    bool showPrefabsTab_ = false;   // switch the outliner to the Prefabs tab next frame
     char scenePath_[256] = "scene.vkw";
     bool openImport_ = false;
     std::string importPath_, importError_;

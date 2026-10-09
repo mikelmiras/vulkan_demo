@@ -10,7 +10,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 3;
+constexpr int kVersion = 4;   // 4: prefabs; 3: entities/components (JSON)
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -230,31 +230,102 @@ bool entityFromJson(const json::Value& v, const std::map<std::string, int>& mesh
 }
 
 // ---------------------------------------------------------------------------------------------
+// Shared by scene and prefab files
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+// "meshes": imported meshes the entities use, by name and OBJ path
+json::Value meshListToJson(const std::vector<const std::vector<Entity>*>& lists, const MeshLibrary& meshes) {
+    std::set<int> used;
+    for (const auto* list : lists)
+        for (const Entity& e : *list)
+            if (e.meshRenderer && e.meshRenderer->mesh >= (int)MeshKind::Count) used.insert(e.meshRenderer->mesh);
+    json::Value out = json::Value::array();
+    for (int id : used) {
+        json::Value m = json::Value::object();
+        m.set("name", meshes.name(id));
+        m.set("source", meshes.get(id).source);
+        out.push(std::move(m));
+    }
+    return out;
+}
+
+// Imports the listed meshes; fills the file's mesh names -> library ids
+bool meshListFromJson(const json::Value& list, MeshLibrary& meshes, std::map<std::string, int>& meshIds,
+                      std::string& error) {
+    meshIds = builtinMeshIds(meshes);
+    for (const json::Value& m : list.elements()) {
+        int id = importObj(meshes, m["source"].asString(), error);
+        if (id < 0) return false;
+        meshIds[m["name"].asString()] = id;
+    }
+    return true;
+}
+
+json::Value prefabToJson(const Prefab& p, const MeshLibrary& meshes) {
+    json::Value v = json::Value::object();
+    v.set("name", p.name);
+    json::Value& ents = v.set("entities", json::Value::array());
+    for (const Entity& e : p.entities) ents.push(entityToJson(e, meshes));
+    return v;
+}
+
+bool prefabFromJson(const json::Value& v, const std::map<std::string, int>& meshIds, Prefab& out, std::string& error) {
+    Prefab p;
+    p.name = v["name"].asString();
+    for (const json::Value& ev : v["entities"].elements()) {
+        Entity e;
+        if (!entityFromJson(ev, meshIds, e, error)) { error = "prefab '" + p.name + "': " + error; return false; }
+        p.entities.push_back(std::move(e));
+    }
+    if (p.entities.empty()) { error = "prefab '" + p.name + "' has no entities"; return false; }
+    p.entities[0].parent = kNoEntity;
+    out = std::move(p);
+    return true;
+}
+
+bool writeJson(const std::string& path, const json::Value& doc, std::string& error) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f) { error = "cannot write " + path; return false; }
+    f << json::write(doc);
+    if (!f) { error = "write failed for " + path; return false; }
+    return true;
+}
+
+bool readJson(const std::string& path, const char* format, int maxVersion, json::Value& doc, std::string& error) {
+    std::string text;
+    if (!readFile(path, text)) { error = "cannot open " + path; return false; }
+    if (!json::parse(text, doc, error)) { error = path + ": " + error; return false; }
+    if (doc["format"].asString() != format) { error = path + ": not a " + std::string(format) + " file"; return false; }
+    if (doc["version"].asInt() > maxVersion) {
+        error = path + ": made by a newer version (format " + std::to_string(doc["version"].asInt()) + ")";
+        return false;
+    }
+    return true;
+}
+
+constexpr const char* kPrefabFormat = "vkworld-prefab";
+constexpr int kPrefabVersion = 1;
+
+}  // namespace
+
+// ---------------------------------------------------------------------------------------------
 // Scenes
 // ---------------------------------------------------------------------------------------------
 bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& meshes, std::string& error) {
     json::Value doc = json::Value::object();
     doc.set("format", kFormat);
     doc.set("version", kVersion);
-
-    std::set<int> used;
-    for (const Entity& e : scene.entities)
-        if (e.meshRenderer && e.meshRenderer->mesh >= (int)MeshKind::Count) used.insert(e.meshRenderer->mesh);
-    json::Value& list = doc.set("meshes", json::Value::array());
-    for (int id : used) {
-        json::Value m = json::Value::object();
-        m.set("name", meshes.name(id));
-        m.set("source", meshes.get(id).source);
-        list.push(std::move(m));
-    }
+    std::vector<const std::vector<Entity>*> lists = {&scene.entities};
+    for (const Prefab& p : scene.prefabs) lists.push_back(&p.entities);
+    doc.set("meshes", meshListToJson(lists, meshes));
     json::Value& ents = doc.set("entities", json::Value::array());
     for (const Entity& e : scene.entities) ents.push(entityToJson(e, meshes));
-
-    std::ofstream f(path, std::ios::binary);
-    if (!f) { error = "cannot write " + path; return false; }
-    f << json::write(doc);
-    if (!f) { error = "write failed for " + path; return false; }
-    return true;
+    if (!scene.prefabs.empty()) {
+        json::Value& prefabs = doc.set("prefabs", json::Value::array());
+        for (const Prefab& p : scene.prefabs) prefabs.push(prefabToJson(p, meshes));
+    }
+    return writeJson(path, doc, error);
 }
 
 bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, std::string& error) {
@@ -264,20 +335,9 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, std::
     if (first == std::string::npos || text[first] != '{') return loadLegacy(path, text, scene, meshes, error);
 
     json::Value doc;
-    if (!json::parse(text, doc, error)) { error = path + ": " + error; return false; }
-    if (doc["format"].asString() != kFormat) { error = path + ": not a vkworld scene"; return false; }
-    if (doc["version"].asInt() > kVersion) {
-        error = path + ": made by a newer version (scene format " + std::to_string(doc["version"].asInt()) + ")";
-        return false;
-    }
-
-    std::map<std::string, int> meshIds = builtinMeshIds(meshes);
-    for (const json::Value& m : doc["meshes"].elements()) {
-        std::string importError;
-        int id = importObj(meshes, m["source"].asString(), importError);
-        if (id < 0) { error = path + ": " + importError; return false; }
-        meshIds[m["name"].asString()] = id;
-    }
+    if (!readJson(path, kFormat, kVersion, doc, error)) return false;
+    std::map<std::string, int> meshIds;
+    if (!meshListFromJson(doc["meshes"], meshes, meshIds, error)) { error = path + ": " + error; return false; }
 
     Scene result;
     for (const json::Value& v : doc["entities"].elements()) {
@@ -294,6 +354,33 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, std::
         if (e.parent != kNoEntity && !result.find(e.parent)) e.parent = kNoEntity;
         if (e.parent != kNoEntity && result.isAncestor(e.id, e.parent)) e.parent = kNoEntity;
     }
+    for (const json::Value& v : doc["prefabs"].elements()) {
+        Prefab p;
+        if (!prefabFromJson(v, meshIds, p, error)) { error = path + ": " + error; return false; }
+        p.name = result.uniquePrefabName(p.name);
+        result.prefabs.push_back(std::move(p));
+    }
     scene = std::move(result);
+    return true;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Prefab files
+// ---------------------------------------------------------------------------------------------
+bool savePrefab(const std::string& path, const Prefab& prefab, const MeshLibrary& meshes, std::string& error) {
+    json::Value doc = json::Value::object();
+    doc.set("format", kPrefabFormat);
+    doc.set("version", kPrefabVersion);
+    doc.set("meshes", meshListToJson({&prefab.entities}, meshes));
+    doc.set("prefab", prefabToJson(prefab, meshes));
+    return writeJson(path, doc, error);
+}
+
+bool loadPrefab(const std::string& path, Prefab& prefab, MeshLibrary& meshes, std::string& error) {
+    json::Value doc;
+    if (!readJson(path, kPrefabFormat, kPrefabVersion, doc, error)) return false;
+    std::map<std::string, int> meshIds;
+    if (!meshListFromJson(doc["meshes"], meshes, meshIds, error)) { error = path + ": " + error; return false; }
+    if (!prefabFromJson(doc["prefab"], meshIds, prefab, error)) { error = path + ": " + error; return false; }
     return true;
 }

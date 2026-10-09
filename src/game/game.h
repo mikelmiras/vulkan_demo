@@ -26,8 +26,9 @@ public:
     float time() const { return time_; }   // seconds since Play
     float dt() const { return dt_; }       // length of this update (Game::kFixedDt)
 
-    Entity* find(EntityId id) { return scene_->find(id); }
-    Entity* find(const std::string& name) { return scene_->findByName(name); }
+    // Also finds entities spawned during this update; a pointer to one of those lasts until the next spawn()
+    Entity* find(EntityId id);
+    Entity* find(const std::string& name);
     Vec3 worldPosition(EntityId id) const;
 
     // Collision (see physics/physics_world.h). The world is a snapshot taken at the start of the update, so it
@@ -41,6 +42,11 @@ public:
     // Without such a collider it just moves.
     CharacterMove moveCharacter(Entity& self, Vec3 delta);
 
+    // Creates a copy of the scene's prefab at `position` (world space), turned so its -Z faces `forward` (on top of
+    // the prefab's own rotation and scale), under `parent` if given. It joins the scene after this update, when
+    // its behaviours' start() runs; the returned id works with find() right away. kNoEntity if there's no prefab.
+    EntityId spawn(const std::string& prefab, Vec3 position, Vec3 forward = {0, 0, -1}, EntityId parent = kNoEntity);
+
     // Removes the entity (and its children) once every behaviour has run this update, so references stay valid
     void destroy(EntityId id);
     bool isDestroyed(EntityId id) const;   // queued this update
@@ -53,6 +59,7 @@ private:
     const PhysicsWorld* physics_ = nullptr;
     float time_ = 0.f, dt_ = 0.f;
     std::vector<EntityId> destroyQueue_;
+    std::vector<Entity> spawnQueue_;
     std::vector<std::pair<float, std::string>>* log_ = nullptr;
 };
 
@@ -88,6 +95,8 @@ private:
     void fixedUpdate(float dt);
     void prepareContext(float dt);
     void flushDestroyed();
+    void flushSpawned();
+    void flushQueues() { flushSpawned(); flushDestroyed(); }
     void updateTriggers();
 
     Scene* scene_ = nullptr;

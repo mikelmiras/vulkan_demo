@@ -101,3 +101,13 @@ inline Vec3 transformDir(const Mat4& a, Vec3 d) {
             a.m[1] * d.x + a.m[5] * d.y + a.m[9] * d.z,
             a.m[2] * d.x + a.m[6] * d.y + a.m[10] * d.z};
 }
+
+// Model matrix at `pos` whose local -Z points along `forward` (Y up where possible), with the given scale
+inline Mat4 lookRotation(Vec3 pos, Vec3 forward, const float scale[3]) {
+    Vec3 f = normalize(forward);
+    Vec3 up = std::fabs(f.y) > 0.999f ? Vec3{0, 0, f.y > 0.f ? 1.f : -1.f} : Vec3{0, 1, 0};   // straight up/down
+    Mat4 m = inverseAffine(lookAt(pos, pos + f, up));
+    for (int c = 0; c < 3; ++c)
+        for (int r = 0; r < 3; ++r) m.m[c * 4 + r] *= scale[c];
+    return m;
+}

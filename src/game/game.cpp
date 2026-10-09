@@ -11,6 +11,36 @@ Vec3 GameContext::worldPosition(EntityId id) const {
     return {m.m[12], m.m[13], m.m[14]};
 }
 
+Entity* GameContext::find(EntityId id) {
+    if (Entity* e = scene_->find(id)) return e;
+    for (Entity& e : spawnQueue_)
+        if (e.id == id) return &e;
+    return nullptr;
+}
+
+Entity* GameContext::find(const std::string& name) {
+    if (Entity* e = scene_->findByName(name)) return e;
+    for (Entity& e : spawnQueue_)
+        if (e.name == name) return &e;
+    return nullptr;
+}
+
+EntityId GameContext::spawn(const std::string& prefab, Vec3 position, Vec3 forward, EntityId parent) {
+    const Prefab* p = scene_->findPrefab(prefab);
+    if (!p || p->entities.empty()) {
+        log("spawn: no prefab named '" + prefab + "'");
+        return kNoEntity;
+    }
+    std::vector<Entity> copies = scene_->instantiate(*p, parent);
+    Transform& root = copies[0].transform;
+    const float unit[3] = {1, 1, 1};
+    Mat4 world = lookRotation(position, forward, unit) * root.matrix();
+    root.setMatrix(inverseAffine(scene_->worldMatrix(parent)) * world);
+    EntityId id = copies[0].id;
+    for (Entity& e : copies) spawnQueue_.push_back(std::move(e));
+    return id;
+}
+
 CharacterMove GameContext::moveCharacter(Entity& self, Vec3 delta) {
     CharacterMove result;
     result.displacement = delta;
@@ -54,6 +84,8 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     scene_ = &scene;
     meshes_ = &meshes;
     triggerPairs_.clear();
+    ctx_.spawnQueue_.clear();
+    ctx_.destroyQueue_.clear();
     accumulator_ = time_ = 0.f;
     tick_ = 0;
     paused_ = false;
@@ -66,7 +98,7 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     for (size_t i = 0; i < scene_->entities.size(); ++i)
         for (size_t b = 0; b < scene_->entities[i].behaviours.size(); ++b)
             scene_->entities[i].behaviours[b]->start(ctx_, scene_->entities[i]);
-    flushDestroyed();
+    flushQueues();
 }
 
 void Game::stop() { scene_ = nullptr; }
@@ -108,9 +140,9 @@ void Game::fixedUpdate(float dt) {
         if (ctx_.isDestroyed(e.id)) continue;
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
     }
-    flushDestroyed();
+    flushQueues();
     updateTriggers();
-    flushDestroyed();
+    flushQueues();
     input_.endFixedStep();
 }
 
@@ -138,6 +170,23 @@ void Game::updateTriggers() {
     for (const auto& p : triggerPairs_)
         if (!contains(now, p)) notify(p, false);   // also when one of them was destroyed: then nobody is told
     triggerPairs_ = std::move(now);
+}
+
+// Adds spawned entities to the scene and starts their behaviours (which may spawn more: a few rounds of that)
+void Game::flushSpawned() {
+    for (int round = 0; round < 8 && !ctx_.spawnQueue_.empty(); ++round) {
+        std::vector<Entity> batch = std::move(ctx_.spawnQueue_);
+        ctx_.spawnQueue_.clear();
+        std::vector<EntityId> ids;
+        for (Entity& e : batch) {
+            ids.push_back(e.id);
+            scene_->add(std::move(e));
+        }
+        for (EntityId id : ids)   // by id: start() may spawn, but adding only happens in the next round
+            if (Entity* e = scene_->find(id))
+                for (size_t b = 0; b < e->behaviours.size(); ++b) e->behaviours[b]->start(ctx_, *e);
+    }
+    ctx_.spawnQueue_.clear();   // runaway spawning from start(): drop the rest
 }
 
 void Game::flushDestroyed() {

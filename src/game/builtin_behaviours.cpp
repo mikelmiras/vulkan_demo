@@ -14,13 +14,6 @@ void movePosition(Transform& t, Vec3 d) {
     t.position[2] += d.z;
 }
 
-// Builds a rigid "look along `forward`" matrix at `pos` with the given scale (the entity looks down its -Z)
-Mat4 lookMatrix(Vec3 pos, Vec3 forward, const float scale[3]) {
-    Mat4 m = inverseAffine(lookAt(pos, pos + forward, {0, 1, 0}));
-    for (int c = 0; c < 3; ++c)
-        for (int r = 0; r < 3; ++r) m.m[c * 4 + r] *= scale[c];
-    return m;
-}
 
 // ---------------------------------------------------------------------------------------------
 struct Spin : BehaviourBase<Spin> {
@@ -97,7 +90,7 @@ struct LookAt : BehaviourBase<LookAt> {
         Vec3 from = ctx.worldPosition(self.id), dir = ctx.worldPosition(t->id) - from;
         if (yawOnly) dir.y = 0.f;
         if (length(dir) < 1e-4f || length(cross(normalize(dir), {0, 1, 0})) < 1e-4f) return;   // on top: no heading
-        Mat4 world = lookMatrix(from, normalize(dir), self.transform.scale);
+        Mat4 world = lookRotation(from, normalize(dir), self.transform.scale);
         self.transform.setMatrix(inverseAffine(ctx.scene().parentWorldMatrix(self.id)) * world);
     }
 };
@@ -186,7 +179,7 @@ struct PlayerController : BehaviourBase<PlayerController> {
         // Body: yaw only. Head: pitch (or both, when the body is the camera)
         Entity* h = head(ctx, self);
         Vec3 forward{std::cos(pitch) * flat.x, std::sin(pitch), std::cos(pitch) * flat.z};
-        self.transform.setMatrix(lookMatrix(self.transform.pos(), h == &self ? forward : flat, self.transform.scale));
+        self.transform.setMatrix(lookRotation(self.transform.pos(), h == &self ? forward : flat, self.transform.scale));
         if (h != &self) {
             h->transform.rotation[0] = pitch / DEG2RAD;
             h->transform.rotation[1] = h->transform.rotation[2] = 0.f;
@@ -226,6 +219,140 @@ struct Pickup : BehaviourBase<Pickup> {
     }
 };
 
+// ---------------------------------------------------------------------------------------------
+// Takes hits (from Projectile, or any behaviour calling hit()); destroyed when they run out, optionally leaving a
+// prefab behind
+struct Destructible : BehaviourBase<Destructible> {
+    static constexpr const char* kTypeName = "Destructible";
+    float hits = 1.f;          // how many it takes
+    std::string dropPrefab;    // spawned where it was destroyed (empty: nothing)
+    float remaining = 0.f;     // runtime state
+    bool destroyed = false;
+
+    void fields(FieldVisitor& v) override {
+        v.field("hits", hits, 0.1f, 0.f, 1000.f);
+        v.field("dropPrefab", dropPrefab);
+    }
+    void start(GameContext&, Entity&) override {
+        remaining = hits;
+        destroyed = false;
+    }
+    void hit(GameContext& ctx, Entity& self, float damage) {
+        if (destroyed) return;
+        remaining -= damage;
+        if (remaining > 0.f) return;
+        destroyed = true;
+        Vec3 at = ctx.worldPosition(self.id);
+        std::string name = self.name;   // spawn() below may move `self` if it's still in the spawn queue
+        ctx.destroy(self.id);
+        if (!dropPrefab.empty()) ctx.spawn(dropPrefab, at);
+        ctx.log("Destroyed " + name);
+    }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Flies along its -Z; anything solid it reaches stops it (and takes a hit if it's Destructible)
+struct Projectile : BehaviourBase<Projectile> {
+    static constexpr const char* kTypeName = "Projectile";
+    float speed = 40.f;
+    float gravity = 0.f;
+    float lifetime = 3.f;      // seconds, then it disappears
+    float damage = 1.f;
+    // runtime state
+    EntityId owner = kNoEntity;   // never hits this one (set by whoever fires it)
+    Vec3 velocity;
+    float age = 0.f;
+
+    void fields(FieldVisitor& v) override {
+        v.field("speed", speed, 0.1f, 0.f, 10000.f);
+        v.field("gravity", gravity, 0.1f);
+        v.field("lifetime", lifetime, 0.05f, 0.f, 1000.f);
+        v.field("damage", damage, 0.1f);
+    }
+    void start(GameContext& ctx, Entity& self) override {
+        velocity = normalize(transformDir(ctx.scene().worldMatrix(self.id), {0, 0, -1})) * speed;
+        age = 0.f;
+    }
+    void update(GameContext& ctx, Entity& self) override {
+        float dt = ctx.dt();
+        age += dt;
+        if (age > lifetime) { ctx.destroy(self.id); return; }
+        velocity.y -= gravity * dt;
+        Vec3 from = ctx.worldPosition(self.id), step = velocity * dt;
+        RaycastHit hit;
+        if (ctx.raycast(from, step, length(step), hit, owner)) {
+            ctx.destroy(self.id);
+            if (Entity* target = ctx.find(hit.entity))
+                if (Destructible* d = target->behaviour<Destructible>()) d->hit(ctx, *target, damage);
+            return;
+        }
+        Vec3 local = transformDir(inverseAffine(ctx.scene().parentWorldMatrix(self.id)), step);
+        movePosition(self.transform, local);
+    }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Fires a prefab (usually one with a Projectile) along its -Z while the "fire" action is held. Put it on a camera.
+struct Shooter : BehaviourBase<Shooter> {
+    static constexpr const char* kTypeName = "Shooter";
+    std::string prefab = "Bullet";
+    float cooldown = 0.15f;     // seconds between shots
+    float muzzle = 0.6f;        // spawn this far in front
+    float nextShot = 0.f;       // runtime state
+
+    void fields(FieldVisitor& v) override {
+        v.field("prefab", prefab);
+        v.field("cooldown", cooldown, 0.01f, 0.f, 60.f);
+        v.field("muzzle", muzzle, 0.01f, 0.f, 100.f);
+    }
+    void start(GameContext&, Entity&) override { nextShot = 0.f; }
+    void update(GameContext& ctx, Entity& self) override {
+        if (!ctx.input().down("fire") || ctx.time() < nextShot) return;
+        nextShot = ctx.time() + cooldown;
+        Mat4 m = ctx.scene().worldMatrix(self.id);
+        Vec3 pos{m.m[12], m.m[13], m.m[14]}, fwd = normalize(transformDir(m, {0, 0, -1}));
+        // The shooter's body (first entity up the tree with a collider) must not stop its own bullets
+        EntityId owner = self.id;
+        for (Entity* e = &self; e; e = ctx.find(e->parent))
+            if (e->collider) { owner = e->id; break; }
+        EntityId shot = ctx.spawn(prefab, pos + fwd * muzzle, fwd);
+        if (Entity* e = ctx.find(shot))
+            if (Projectile* p = e->behaviour<Projectile>()) p->owner = owner;
+    }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Spawns a prefab at its position (facing its -Z) every `interval` seconds, keeping at most `maxAlive` around
+struct Spawner : BehaviourBase<Spawner> {
+    static constexpr const char* kTypeName = "Spawner";
+    std::string prefab;
+    float interval = 2.f;
+    float maxAlive = 5.f;
+    float timer = 0.f;                  // runtime state
+    std::vector<EntityId> alive;
+
+    void fields(FieldVisitor& v) override {
+        v.field("prefab", prefab);
+        v.field("interval", interval, 0.05f, 0.01f, 3600.f);
+        v.field("maxAlive", maxAlive, 1.f, 0.f, 10000.f);
+    }
+    void start(GameContext&, Entity&) override {
+        timer = 0.f;
+        alive.clear();
+    }
+    void update(GameContext& ctx, Entity& self) override {
+        alive.erase(std::remove_if(alive.begin(), alive.end(),
+                                   [&](EntityId id) { return !ctx.find(id) || ctx.isDestroyed(id); }),
+                    alive.end());
+        timer -= ctx.dt();
+        if (timer > 0.f || prefab.empty() || (float)alive.size() >= maxAlive) return;
+        timer = interval;
+        Mat4 m = ctx.scene().worldMatrix(self.id);
+        EntityId id = ctx.spawn(prefab, {m.m[12], m.m[13], m.m[14]}, transformDir(m, {0, 0, -1}));
+        if (id != kNoEntity) alive.push_back(id);
+    }
+};
+
 }  // namespace
 
 void registerBuiltinBehaviours() {
@@ -237,4 +364,8 @@ void registerBuiltinBehaviours() {
         "First-person walking: WASD / arrows to move, hold the right mouse button to look, Space to jump, Shift to "
         "sprint. Put it on a body with a capsule collider and a camera child at eye height.");
     registerBehaviour<Pickup>("Collected when the collector entity (by name) touches its trigger collider");
+    registerBehaviour<Shooter>("Fires a prefab along its -Z while the fire action (left mouse) is held");
+    registerBehaviour<Projectile>("Flies along its -Z and stops at the first solid collider, damaging Destructibles");
+    registerBehaviour<Destructible>("Destroyed after enough hits, optionally leaving a prefab behind");
+    registerBehaviour<Spawner>("Spawns a prefab every few seconds, up to a maximum alive at once");
 }

@@ -95,8 +95,9 @@ void registerBehaviour(const char* description) {
 const std::vector<BehaviourType>& behaviourTypes();
 std::unique_ptr<Behaviour> createBehaviour(const std::string& typeName);   // nullptr if unknown
 
-// Sets a float field by name through fields(); false if the behaviour has no such float field
+// Set a field by name through fields(); false if the behaviour has no such field of that type
 bool setField(Behaviour& b, const std::string& name, float value);
+bool setField(Behaviour& b, const std::string& name, const std::string& value);
 
 // The engine's own behaviours (game/builtin_behaviours.cpp); registered automatically on first use of the registry.
 void registerBuiltinBehaviours();

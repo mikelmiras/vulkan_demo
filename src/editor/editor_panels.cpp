@@ -105,6 +105,7 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem("Drop to ground", "End", false, sel)) dropSelectedToGround();
         if (ImGui::MenuItem("Unparent", nullptr, false, sel && selection()->parent != kNoEntity))
             reparent(selected_, kNoEntity);
+        if (ImGui::MenuItem("Create prefab from selection", nullptr, false, sel)) createPrefabFromSelection();
         ImGui::Separator();
         if (ImGui::MenuItem("Hide / show selected", "H", false, sel)) toggleHideSelected();
         if (ImGui::MenuItem("Unhide all", "Alt+H")) unhideAll();
@@ -229,6 +230,17 @@ void Editor::drawOutliner() {
     ImGui::SetNextWindowPos(ImVec2(0, topH_));
     ImGui::SetNextWindowSize(ImVec2(vx_, io.DisplaySize.y - topH_ - statusH_));
     ImGui::Begin("Outliner", nullptr, kPanelFlags);
+    if (!ImGui::BeginTabBar("##outliner-tabs")) { ImGui::End(); return; }
+    if (ImGui::BeginTabItem("Prefabs", nullptr, showPrefabsTab_ ? ImGuiTabItemFlags_SetSelected : 0)) {
+        drawPrefabs();
+        ImGui::EndTabItem();
+    }
+    showPrefabsTab_ = false;
+    if (!ImGui::BeginTabItem("Scene", nullptr, ImGuiTabItemFlags_Leading)) {
+        ImGui::EndTabBar();
+        ImGui::End();
+        return;
+    }
 
     filter_.Draw("Filter", -px(50.f));
     ImGui::TextDisabled("%zu entities", scene_.entities.size());
@@ -271,7 +283,58 @@ void Editor::drawOutliner() {
     }
     scrollToSelected_ = false;
     ImGui::EndChild();
+    ImGui::EndTabItem();
+    ImGui::EndTabBar();
     ImGui::End();
+}
+
+// Prefabs: templates of entity trees, saved with the scene; game code spawns them by name
+void Editor::drawPrefabs() {
+    if (ImGui::Button("From selection")) createPrefabFromSelection();
+    tooltip("Make a prefab from the selected entity and its children");
+    ImGui::SameLine();
+    if (ImGui::Button("Import...")) importPrefab();
+    tooltip("Load a .prefab file");
+    ImGui::Separator();
+
+    ImGui::BeginChild("##prefab-list", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.55f), ImGuiChildFlags_Borders);
+    if (scene_.prefabs.empty()) ImGui::TextDisabled("No prefabs yet.\nSelect an entity and press\n\"From selection\".");
+    for (int i = 0; i < (int)scene_.prefabs.size(); ++i) {
+        const Prefab& p = scene_.prefabs[(size_t)i];
+        ImGui::PushID(i);
+        if (ImGui::Selectable(p.name.c_str(), selectedPrefab_ == i, ImGuiSelectableFlags_AllowDoubleClick)) {
+            selectedPrefab_ = i;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) instantiatePrefab(i);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+            ImGui::SetTooltip("%zu entities. Double-click to add one to the scene.", p.entities.size());
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    if (selectedPrefab_ < 0 || selectedPrefab_ >= (int)scene_.prefabs.size()) {
+        selectedPrefab_ = -1;
+        return;
+    }
+    Prefab& p = scene_.prefabs[(size_t)selectedPrefab_];
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    std::string name = p.name;
+    if (ImGui::InputText("##name", &name, ImGuiInputTextFlags_EnterReturnsTrue) && !name.empty() && name != p.name) {
+        pushUndo();
+        scene_.prefabs[(size_t)selectedPrefab_].name = scene_.uniquePrefabName(name);
+    }
+    tooltip("Rename (Enter). Behaviours refer to prefabs by this name, e.g. Shooter's \"prefab\" field.");
+    ImGui::TextDisabled("%zu entities, root: %s", p.entities.size(), p.entities.empty() ? "-" : p.entities[0].name.c_str());
+    float w = ImGui::GetContentRegionAvail().x;
+    if (ImGui::Button("Add to scene", ImVec2(w, 0))) instantiatePrefab(selectedPrefab_);
+    ImGui::BeginDisabled(selection() == nullptr);
+    if (ImGui::Button("Update from selection", ImVec2(w, 0))) updatePrefabFromSelection(selectedPrefab_);
+    tooltip("Replace this prefab with the selected entity and its children");
+    ImGui::EndDisabled();
+    if (ImGui::Button("Export", ImVec2(w * 0.5f - 2.f, 0))) exportPrefab(selectedPrefab_);
+    tooltip("Save as <name>.prefab in the working directory");
+    ImGui::SameLine();
+    if (ImGui::Button("Delete", ImVec2(-FLT_MIN, 0))) deletePrefab(selectedPrefab_);
 }
 
 void Editor::drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityId>>& children,
@@ -322,6 +385,7 @@ void Editor::drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityI
             pendingReparent_ = e.id;
             pendingParent_ = kNoEntity;
         }
+        if (ImGui::MenuItem("Create prefab")) pendingPrefab_ = e.id;
         ImGui::EndPopup();
     }
     if (scrollToSelected_ && selected_ == e.id) ImGui::SetScrollHereY(0.5f);

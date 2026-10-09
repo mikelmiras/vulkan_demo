@@ -73,9 +73,17 @@ struct Entity {
     }
 };
 
+// A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.
+// entities[0] is the root (no parent); parents of the others refer to ids inside the prefab.
+struct Prefab {
+    std::string name;
+    std::vector<Entity> entities;
+};
+
 class Scene {
 public:
     std::vector<Entity> entities;   // flat; the hierarchy is given by Entity::parent
+    std::vector<Prefab> prefabs;    // saved with the scene
 
     Entity& create(const std::string& name, EntityId parent = kNoEntity);   // appended with a fresh id
     Entity& add(Entity e);   // keeps e.id if it's free, otherwise assigns a new one
@@ -101,6 +109,16 @@ public:
     EntityId duplicate(EntityId id);    // deep copy of the subtree with fresh ids, same parent; returns the copy
 
     std::string uniqueName(const std::string& wanted) const;   // "Cube.001" -> "Cube.002" if taken, Blender style
+
+    // ---- Prefabs
+    Prefab* findPrefab(const std::string& name);
+    const Prefab* findPrefab(const std::string& name) const;
+    // Copies the subtree under `root` into a prefab (the root's position is zeroed: instances are placed anew)
+    Prefab makePrefab(EntityId root, const std::string& name) const;
+    // Copies of the prefab's entities with fresh ids, the root under `parent`. Not added to the scene: pass them
+    // to add() (in order). Ids are reserved, so they stay unique even if added later.
+    std::vector<Entity> instantiate(const Prefab& prefab, EntityId parent = kNoEntity);
+    std::string uniquePrefabName(const std::string& wanted) const;
 
 private:
     EntityId nextId_ = 1;

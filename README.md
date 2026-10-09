@@ -49,7 +49,8 @@ The editor renders at one pixel per point (no Retina scaling). Shortcuts listed 
 ### Tests
 
 The engine has unit tests (`tests/`, no external framework): JSON, OBJ import, scene hierarchy and
-serialization, collision and character movement, the game loop, input actions and the built-in behaviours. They run headless, without a GPU.
+serialization, collision and character movement, prefabs and spawning, the game loop, input actions and the
+built-in behaviours. They run headless, without a GPU.
 
 ```sh
 make engine_tests && make test     # or: ctest, or ./engine_tests <name filter> for detailed output
@@ -103,7 +104,8 @@ the scene exactly as it was, so anything changed while playing is temporary (and
 
 The demo scene is a tiny game: you are the **Player** (a capsule body with a PlayerController and a camera child).
 Walk with WASD / arrow keys, hold the right mouse button to look, Space to jump, Shift to sprint, and collect the
-8 floating gems. You bump into the pillars and can jump onto things.
+8 floating gems. You bump into the pillars and can jump onto things. Left click shoots: the scattered objects
+break, and cubes leave a gem behind.
 
 - The game updates at a fixed **60 Hz**, independent of the frame rate (several updates per frame on a slow
   machine, none on some frames of a fast one; a long hitch is capped at 8 updates).
@@ -130,6 +132,23 @@ colliders draws them all (blue = solid, green = trigger).
   floors, sub-stepped so fast moves can't skip through thin walls) through `GameContext`.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
 
+## Prefabs
+
+A **prefab** is a saved entity tree used as a template: build something in the scene (say a gem with its
+collider and behaviours), then Outliner > **Prefabs** tab > **From selection** (or right-click > Create prefab).
+Prefabs are saved in the scene file.
+
+- **Add to scene** (or double-click) places a copy in front of the camera; **Update from selection** replaces the
+  prefab with the selected entity. Copies are independent: updating a prefab doesn't change copies already in
+  the scene.
+- **Export** writes `<name>.prefab` to the working directory and **Import...** loads one, to share between scenes.
+- Game code creates copies while playing with `ctx.spawn("Bullet", position, forward)`. The copy joins the scene
+  after the current update (so nothing moves under other behaviours' feet) and its behaviours start then; the
+  returned id works with `ctx.find()` straight away.
+
+The demo scene has two: **Bullet** (fired by the Shooter on the player's camera) and **Gem** (the gems are made
+from it, and destroyed cubes drop one).
+
 ## Behaviours
 
 Behaviours are C++ classes attached to entities as components (Inspector > Add component). Each has editable
@@ -143,6 +162,10 @@ Behaviours are C++ classes attached to entities as components (Inspector > Add c
 | LookAt           | Turns to face another entity (by name)                                       |
 | PlayerController | First-person walking, mouse look, jumping; collides through its capsule collider |
 | Pickup           | Collected when the collector touches its trigger collider; logs how many are left |
+| Shooter          | Fires a prefab along its -Z while the fire action (left mouse) is held      |
+| Projectile       | Flies forward, stops at the first solid collider and damages Destructibles   |
+| Destructible     | Destroyed after enough hits, optionally leaving a prefab behind              |
+| Spawner          | Spawns a prefab every few seconds, up to a maximum alive at once             |
 
 Writing one (see `src/game/builtin_behaviours.cpp` for complete examples):
 
@@ -164,7 +187,7 @@ registerBehaviour<Hover>("Floats up and down");           // at startup, before 
 ```
 
 `GameContext` gives access to the scene, input actions, time, entity lookup by name or id, world positions,
-collision queries, deferred `destroy()` and `log()`. Behaviours also get `onTriggerEnter` / `onTriggerExit`.
+collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also get `onTriggerEnter` / `onTriggerExit`.
 
 ## Controls
 
