@@ -6,6 +6,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <commdlg.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 
@@ -150,6 +151,23 @@ void imguiInit() { ImGui_ImplWin32_Init(g_hwnd); }
 void imguiNewFrame(float) { ImGui_ImplWin32_NewFrame(); }   // the backend measures size and time itself
 
 void imguiShutdown() { ImGui_ImplWin32_Shutdown(); }
+
+std::filesystem::path openFileDialog(const char* title, const char* extension) {
+    std::wstring ext = widen(extension), wtitle = widen(title);
+    // Filter: "OBJ files (*.obj)\0*.obj\0All files\0*.*\0\0"
+    std::wstring filter = ext + L" files (*." + ext + L")" + L'\0' + L"*." + ext + L'\0' + L"All files" + L'\0' + L"*.*" + L'\0';
+    wchar_t file[MAX_PATH * 4] = {};
+    OPENFILENAMEW ofn{};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_hwnd;
+    ofn.lpstrFilter = filter.c_str();
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = (DWORD)(sizeof(file) / sizeof(file[0]));
+    ofn.lpstrTitle = wtitle.c_str();
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR | OFN_EXPLORER;
+    if (!GetOpenFileNameW(&ofn)) return {};
+    return std::filesystem::path(file);
+}
 
 std::filesystem::path executableDir() {
     std::wstring buf(MAX_PATH, L'\0');

@@ -9,7 +9,7 @@
 
 struct SceneObject {
     std::string name;
-    MeshKind mesh = MeshKind::Cube;
+    int mesh = (int)MeshKind::Cube;   // id in the MeshLibrary
     float position[3] = {0, 0, 0};
     float rotation[3] = {0, 0, 0};   // Euler degrees (ImGuizmo convention)
     float scale[3] = {1, 1, 1};
@@ -28,5 +28,7 @@ struct SceneObject {
 
 std::vector<SceneObject> buildDefaultScene();
 
-bool saveScene(const std::string& path, const std::vector<SceneObject>& objects, std::string& error);
-bool loadScene(const std::string& path, std::vector<SceneObject>& objects, std::string& error);
+// Imported meshes are saved as their OBJ paths and re-imported into `meshes` on load.
+bool saveScene(const std::string& path, const std::vector<SceneObject>& objects, const MeshLibrary& meshes,
+               std::string& error);
+bool loadScene(const std::string& path, std::vector<SceneObject>& objects, MeshLibrary& meshes, std::string& error);

@@ -1,7 +1,8 @@
-// Procedural meshes, kept on the CPU too so the editor can ray-pick against real triangles.
+// Procedural and imported (OBJ) meshes, kept on the CPU too so the editor can ray-pick against real triangles.
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "vecmath.h"
@@ -11,22 +12,33 @@ struct Vertex { Vec3 pos, normal; };
 struct Mesh {
     uint32_t firstIndex = 0, indexCount = 0;
     int32_t vertexOffset = 0;
+    Vec3 boundsMin, boundsMax;   // local-space bounding box
+    std::string name;
+    std::string source;          // OBJ file it was imported from; empty for built-in meshes
 };
 
+// Built-in meshes: their ids in the library. Imported meshes get ids from MeshKind::Count up.
 enum class MeshKind : int { Plane, Cube, Sphere, Pyramid, Torus, Count };
 
-const char* meshKindName(MeshKind kind);
-
-// All meshes share one vertex buffer and one index buffer.
+// All meshes share one vertex buffer and one index buffer. Meshes are only ever appended, so ids stay valid.
 struct MeshLibrary {
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
-    Mesh meshes[(int)MeshKind::Count];
+    std::vector<Mesh> meshes;
+    uint32_t version = 0;   // bumped whenever meshes are added (the renderer re-uploads)
 
-    const Mesh& get(MeshKind kind) const { return meshes[(int)kind]; }
+    int count() const { return (int)meshes.size(); }
+    const Mesh& get(int id) const { return meshes[(size_t)id]; }
+    const char* name(int id) const { return meshes[(size_t)id].name.c_str(); }
+    int find(const std::string& name) const;   // -1 if missing
 };
 
 MeshLibrary buildMeshLibrary();
 
+// Loads a Wavefront OBJ (positions, optional normals; polygons are triangulated) and appends it to the library,
+// recentred and scaled to fit a unit cube like the built-in meshes. Re-importing the same file returns the
+// existing id. Returns the new mesh id, or -1 with `error` set.
+int importObj(MeshLibrary& lib, const std::string& path, std::string& error);
+
 // Ray vs. mesh in the mesh's local space. Returns the ray parameter t of the closest hit, or -1.
-float intersectMesh(const MeshLibrary& lib, MeshKind kind, Vec3 origin, Vec3 dir);
+float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir);

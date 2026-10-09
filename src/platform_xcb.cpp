@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "imgui_impl_xcb.h"
 
@@ -127,6 +128,28 @@ void imguiNewFrame(float deltaTime) { ImGui_ImplXcb_NewFrame((float)g_width, (fl
 void imguiShutdown() {
     ImGui_ImplXcb_Shutdown();
     g_imguiReady = false;
+}
+
+std::filesystem::path openFileDialog(const char* title, const char* extension) {
+    // No toolkit here: borrow the desktop's dialog helper if one is installed
+    std::string t = title, e = extension;
+    for (char& c : t) if (c == '\'' ) c = ' ';
+    const std::string cmds[] = {
+        "zenity --file-selection --title='" + t + "' --file-filter='*." + e + "' --file-filter='*' 2>/dev/null",
+        "kdialog --getopenfilename . '*." + e + "' --title '" + t + "' 2>/dev/null"};
+    for (const std::string& cmd : cmds) {
+        std::string tool = cmd.substr(0, cmd.find(' '));
+        if (std::system(("command -v " + tool + " >/dev/null 2>&1").c_str()) != 0) continue;
+        FILE* p = popen(cmd.c_str(), "r");
+        if (!p) continue;
+        std::string out;
+        char buf[512];
+        while (std::fgets(buf, sizeof(buf), p)) out += buf;
+        pclose(p);
+        while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+        return out;   // empty when cancelled
+    }
+    return {};
 }
 
 std::filesystem::path executableDir() {

@@ -3,10 +3,13 @@
 #include <cfloat>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
+#include <filesystem>
 #include <set>
 
 #include "ImGuizmo.h"
 #include "misc/cpp/imgui_stdlib.h"
+#include "platform.h"
 
 namespace {
 
@@ -33,7 +36,7 @@ bool keyPressed(ImGuiKey key) { return ImGui::IsKeyPressed(key, false); }
 
 }  // namespace
 
-Editor::Editor(const MeshLibrary& meshes, float uiScale)
+Editor::Editor(MeshLibrary& meshes, float uiScale)
     : meshes_(meshes), uiScale_(uiScale), objects_(buildDefaultScene()) {}
 
 // ---------------------------------------------------------------------------------------------
@@ -70,6 +73,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawStatusBar(stats);
     if (showHelp_) drawHelp();
     drawAddPopup();
+    drawImportPopup();
 
     handleNavigation(dt);
     handleGizmo();
@@ -119,6 +123,7 @@ void Editor::drawMenuBar() {
         ImGui::InputText("Scene file", scenePath_, sizeof(scenePath_));
         if (ImGui::MenuItem("Save", "Ctrl+S")) saveToFile();
         if (ImGui::MenuItem("Load", "Ctrl+O")) loadFromFile();
+        if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
         ImGui::Separator();
         if (ImGui::MenuItem("New (ground only)")) {
             pushUndo();
@@ -149,8 +154,7 @@ void Editor::drawMenuBar() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Add")) {
-        for (int k = 0; k < (int)MeshKind::Count; ++k)
-            if (ImGui::MenuItem(meshKindName((MeshKind)k))) addObject((MeshKind)k);
+        drawAddMenuItems();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
@@ -258,7 +262,7 @@ void Editor::drawOutliner() {
         if (!o.visible) ImGui::PopStyleColor();
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) pendingFocus_ = i;
         if (ImGui::BeginPopupContextItem()) {
-            ImGui::TextDisabled("%s (%s)", o.name.c_str(), meshKindName(o.mesh));
+            ImGui::TextDisabled("%s (%s)", o.name.c_str(), meshes_.name(o.mesh));
             if (ImGui::MenuItem("Focus")) pendingFocus_ = i;
             if (ImGui::MenuItem("Duplicate")) pendingDuplicate_ = i;
             if (ImGui::MenuItem("Delete")) pendingDelete_ = i;
@@ -286,10 +290,9 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         SceneObject& o = objects_[selected_];
         ImGui::InputText("Name", &o.name);
         track();
-        int kind = (int)o.mesh;
-        if (ImGui::Combo("Mesh", &kind, [](void*, int i) { return meshKindName((MeshKind)i); }, nullptr,
-                         (int)MeshKind::Count))
-            o.mesh = (MeshKind)kind;
+        ImGui::Combo(
+            "Mesh", &o.mesh, [](void* lib, int i) { return ((const MeshLibrary*)lib)->name(i); }, &meshes_,
+            meshes_.count());
         track();
 
         ImGui::SeparatorText("Transform");
@@ -430,10 +433,84 @@ void Editor::drawAddPopup() {
     if (ImGui::BeginPopup("##add")) {
         ImGui::TextDisabled("Add object");
         ImGui::Separator();
-        for (int k = 0; k < (int)MeshKind::Count; ++k)
-            if (ImGui::MenuItem(meshKindName((MeshKind)k))) addObject((MeshKind)k);
+        drawAddMenuItems();
         ImGui::EndPopup();
     }
+}
+
+// Built-in meshes, then imported ones, then the import dialog
+void Editor::drawAddMenuItems() {
+    for (int k = 0; k < meshes_.count(); ++k) {
+        if (k == (int)MeshKind::Count) ImGui::Separator();
+        if (ImGui::MenuItem(meshes_.name(k))) addObject(k);
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Import OBJ...")) openImport_ = true;
+}
+
+void Editor::drawImportPopup() {
+    namespace fs = std::filesystem;
+    if (openImport_) {
+        ImGui::OpenPopup("Import OBJ");
+        importError_.clear();
+        openImport_ = false;
+    }
+    ImVec2 center(ImGui::GetIO().DisplaySize.x * 0.5f, ImGui::GetIO().DisplaySize.y * 0.5f);
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(px(520.f), 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal("Import OBJ", nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
+
+    ImGui::TextWrapped("Browse for a Wavefront .obj file or type its path. The mesh is centred and scaled to fit a unit cube; "
+                       "materials and textures are ignored.");
+    bool submit = false;
+    if (ImGui::Button("Browse...")) {
+        std::filesystem::path picked = platform::openFileDialog("Import OBJ model", "obj");
+        // The dialog ran its own event loop: drop key/button state ImGui may have missed the release of
+        ImGui::GetIO().ClearInputKeys();
+        ImGui::GetIO().ClearInputMouse();
+        if (!picked.empty()) {
+            importPath_ = picked.u8string();
+            submit = true;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    submit |= ImGui::InputTextWithHint("##path", "path, e.g. ~/Downloads/model.obj", &importPath_,
+                                       ImGuiInputTextFlags_EnterReturnsTrue);
+
+    // .obj files in the working directory, for convenience
+    std::error_code ec;
+    std::vector<fs::path> found;
+    for (const auto& e : fs::directory_iterator(fs::current_path(ec), ec))
+        if (e.path().extension() == ".obj" || e.path().extension() == ".OBJ") found.push_back(e.path().filename());
+    if (!found.empty()) {
+        ImGui::TextDisabled("In %s:", fs::current_path(ec).u8string().c_str());
+        if (ImGui::BeginListBox("##found", ImVec2(-FLT_MIN, ImGui::GetTextLineHeightWithSpacing() * std::min<float>(found.size(), 6.f) + px(8.f)))) {
+            for (const auto& name : found) {
+                std::string n = name.u8string();
+                if (ImGui::Selectable(n.c_str(), importPath_ == n, ImGuiSelectableFlags_AllowDoubleClick)) {
+                    importPath_ = n;
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) submit = true;
+                }
+            }
+            ImGui::EndListBox();
+        }
+    }
+    if (!importError_.empty()) ImGui::TextColored(ImVec4(1.f, 0.45f, 0.4f, 1.f), "%s", importError_.c_str());
+
+    ImGui::Separator();
+    ImGui::BeginDisabled(importPath_.empty());
+    if (ImGui::Button("Import", ImVec2(px(100.f), 0))) submit = true;
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(px(100.f), 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        ImGui::CloseCurrentPopup();
+    if (submit && !importPath_.empty()) {
+        importMesh();
+        if (importError_.empty()) ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 void Editor::drawViewportOverlay() {
@@ -448,7 +525,7 @@ void Editor::drawViewportOverlay() {
     dl->AddText(p, IM_COL32(255, 255, 255, 230), line);
     if (hasSelection()) {
         const SceneObject& o = objects_[selected_];
-        std::snprintf(line, sizeof(line), "%s  (%s)", o.name.c_str(), meshKindName(o.mesh));
+        std::snprintf(line, sizeof(line), "%s  (%s)", o.name.c_str(), meshes_.name(o.mesh));
         p.y += ImGui::GetTextLineHeightWithSpacing();
         dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 120), line);
         dl->AddText(p, IM_COL32(255, 170, 60, 255), line);
@@ -653,12 +730,12 @@ std::string Editor::uniqueName(const std::string& wanted) const {
     }
 }
 
-void Editor::addObject(MeshKind kind) {
+void Editor::addObject(int mesh) {
     pushUndo();
     SceneObject o;
-    o.mesh = kind;
-    o.name = uniqueName(std::string(meshKindName(kind)) + ".001");
-    float size = kind == MeshKind::Plane ? 6.f : 2.f;
+    o.mesh = mesh;
+    o.name = uniqueName(std::string(meshes_.name(mesh)) + ".001");
+    float size = mesh == (int)MeshKind::Plane ? 6.f : 2.f;
     for (float& s : o.scale) s = size;
 
     // Drop it where the view ray hits the ground (if close enough), otherwise 10 units ahead
@@ -667,8 +744,7 @@ void Editor::addObject(MeshKind kind) {
         float t = -cam_.pos.y / fwd.y;
         if (t > 0.f && t < 60.f) p = cam_.pos + fwd * t;
     }
-    if (kind == MeshKind::Cube || kind == MeshKind::Sphere || kind == MeshKind::Torus) p.y = std::max(p.y, size * 0.5f);
-    if (kind == MeshKind::Plane) p.y = std::max(p.y, 0.01f);
+    p.y = std::max(p.y, std::max(-meshes_.get(mesh).boundsMin.y * size, 0.f) + 0.01f);   // rest on the ground
     o.position[0] = p.x; o.position[1] = p.y; o.position[2] = p.z;
 
     static const Vec3 palette[] = {{0.90f, 0.45f, 0.35f}, {0.40f, 0.70f, 0.95f}, {0.55f, 0.85f, 0.45f},
@@ -715,7 +791,8 @@ void Editor::focusSelected() {
     if (!hasSelection()) return;
     const SceneObject& o = objects_[selected_];
     Mat4 m = o.animatedMatrix(animTime_);
-    Vec3 center = transformPoint(m, o.mesh == MeshKind::Pyramid ? Vec3{0, 0.5f, 0} : Vec3{0, 0, 0});
+    const Mesh& mesh = meshes_.get(o.mesh);
+    Vec3 center = transformPoint(m, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
     float radius = 0.75f * std::max({std::fabs(o.scale[0]), std::fabs(o.scale[1]), std::fabs(o.scale[2])});
     float dist = std::max(radius / std::tan(cam_.fovY * 0.5f) * 1.3f, 1.f);
     cam_.pos = center - cam_.forward() * dist;
@@ -737,18 +814,32 @@ void Editor::dropSelectedToGround() {
 
 void Editor::saveToFile() {
     std::string error;
-    if (saveScene(scenePath_, objects_, error)) setStatus(std::string("Saved ") + scenePath_);
+    if (saveScene(scenePath_, objects_, meshes_, error)) setStatus(std::string("Saved ") + scenePath_);
     else setStatus("Save failed: " + error);
 }
 
 void Editor::loadFromFile() {
     std::vector<SceneObject> loaded;
     std::string error;
-    if (!loadScene(scenePath_, loaded, error)) { setStatus("Load failed: " + error); return; }
+    if (!loadScene(scenePath_, loaded, meshes_, error)) { setStatus("Load failed: " + error); return; }
     pushUndo();
     objects_ = std::move(loaded);
     selected_ = -1;
     setStatus(std::string("Loaded ") + scenePath_);
+}
+
+void Editor::importMesh() {
+    std::string path = importPath_;
+    if (path.size() >= 2 && path[0] == '~' && (path[1] == '/' || path[1] == '\\'))
+        if (const char* home = std::getenv("HOME")) path = home + path.substr(1);
+    int before = meshes_.count();
+    importError_.clear();
+    int id = importObj(meshes_, path, importError_);
+    if (id < 0) return;
+    addObject(id);
+    const Mesh& m = meshes_.get(id);
+    setStatus((meshes_.count() > before ? "Imported " : "Already imported: ") + m.name + " (" +
+              std::to_string(m.indexCount / 3) + " triangles)");
 }
 
 void Editor::setStatus(const std::string& msg) {

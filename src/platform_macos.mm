@@ -3,6 +3,7 @@
 // match ImGui's DisplaySize.
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #define VK_USE_PLATFORM_METAL_EXT
 #include <vulkan/vulkan.h>
 
@@ -148,6 +149,23 @@ void imguiNewFrame(float) {
 }
 
 void imguiShutdown() { ImGui_ImplOSX_Shutdown(); }
+
+std::filesystem::path openFileDialog(const char* title, const char* extension) {
+    @autoreleasepool {
+        NSOpenPanel* panel = [NSOpenPanel openPanel];
+        panel.message = [NSString stringWithUTF8String:title];
+        panel.canChooseFiles = YES;
+        panel.canChooseDirectories = NO;
+        panel.allowsMultipleSelection = NO;
+        // .obj has no system-wide type on macOS: filter by extension, falling back to "any file"
+        if (UTType* type = [UTType typeWithFilenameExtension:[NSString stringWithUTF8String:extension]])
+            panel.allowedContentTypes = @[type];
+        NSModalResponse r = [panel runModal];
+        [g_window makeKeyAndOrderFront:nil];
+        if (r != NSModalResponseOK || !panel.URL) return {};
+        return std::filesystem::u8path(panel.URL.fileSystemRepresentation);
+    }
+}
 
 std::filesystem::path executableDir() {
     uint32_t size = 0;

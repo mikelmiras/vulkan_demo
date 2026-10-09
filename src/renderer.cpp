@@ -553,11 +553,21 @@ void Renderer::createPipelines() {
                                        true, VK_COMPARE_OP_NOT_EQUAL, VK_STENCIL_OP_KEEP, 0});
 }
 
-void Renderer::createResources(const MeshLibrary& meshes) {
-    vertexBuffer_ = createBuffer(meshes.vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                 meshes.vertices.data());
-    indexBuffer_ = createBuffer(meshes.indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                meshes.indices.data());
+void Renderer::uploadMeshes() {
+    if (vertexBuffer_.buffer) {   // replacing: the old buffers may still be in use by frames in flight
+        vkDeviceWaitIdle(device_);
+        destroyBuffer(vertexBuffer_);
+        destroyBuffer(indexBuffer_);
+    }
+    vertexBuffer_ = createBuffer(meshes_->vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                 meshes_->vertices.data());
+    indexBuffer_ = createBuffer(meshes_->indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                meshes_->indices.data());
+    uploadedMeshVersion_ = meshes_->version;
+}
+
+void Renderer::createResources(const MeshLibrary&) {
+    uploadMeshes();
 
     VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -751,6 +761,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (width_ == 0 || height_ == 0) return;
     if (resized_) recreateSwapchain();
+    if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
 
     VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
 

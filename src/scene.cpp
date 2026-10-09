@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
+#include <map>
 #include <sstream>
 
 #include "imgui.h"
@@ -46,7 +47,7 @@ Vec3 hsv(float h, float s, float v) {
 SceneObject make(std::string name, MeshKind mesh, Vec3 pos, Vec3 size, Vec3 color) {
     SceneObject o;
     o.name = std::move(name);
-    o.mesh = mesh;
+    o.mesh = (int)mesh;
     o.position[0] = pos.x; o.position[1] = pos.y; o.position[2] = pos.z;
     o.scale[0] = size.x; o.scale[1] = size.y; o.scale[2] = size.z;
     o.color = color;
@@ -107,12 +108,13 @@ std::vector<SceneObject> buildDefaultScene() {
 
     // Random scattered objects
     const MeshKind kinds[4] = {MeshKind::Cube, MeshKind::Sphere, MeshKind::Pyramid, MeshKind::Torus};
+    const char* kNames[4] = {"Cube", "Sphere", "Pyramid", "Torus"};
     int counters[4] = {};
     for (int i = 0; i < 120; ++i) {
         float a = rng.range(0, 2 * PI), d = rng.range(28, 100);
         int k = (int)(rng.next() * 4) % 4;
         float s = rng.range(1.f, 4.f);
-        SceneObject o = make(numbered(meshKindName(kinds[k]), ++counters[k]), kinds[k],
+        SceneObject o = make(numbered(kNames[k], ++counters[k]), kinds[k],
                              {std::cos(a) * d, 0, std::sin(a) * d}, {s, s, s},
                              hsv(rng.next(), rng.range(0.4f, 0.8f), rng.range(0.7f, 0.95f)));
         o.phase = rng.range(0, 2 * PI);
@@ -132,17 +134,24 @@ std::vector<SceneObject> buildDefaultScene() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Save / load: one object per line, whitespace-separated, name quoted.
+// Save / load: one object per line, whitespace-separated, names quoted. Imported meshes are listed first
+// as `mesh "name" "path"` lines (v2); v1 files have only objects with built-in meshes.
 // ---------------------------------------------------------------------------------------------
-static const char* kHeader = "# vkworld scene v1";
+static const char* kHeader = "# vkworld scene v2";
 
-bool saveScene(const std::string& path, const std::vector<SceneObject>& objects, std::string& error) {
+bool saveScene(const std::string& path, const std::vector<SceneObject>& objects, const MeshLibrary& meshes,
+               std::string& error) {
     std::ofstream f(path);
     if (!f) { error = "cannot write " + path; return false; }
-    f << kHeader << "\n# name mesh pos[3] rot[3] scale[3] color[3] checker visible locked spin bob phase\n";
+    f << kHeader << "\n";
+    std::vector<bool> used((size_t)meshes.count(), false);
+    for (const SceneObject& o : objects) used[(size_t)o.mesh] = true;
+    for (int i = (int)MeshKind::Count; i < meshes.count(); ++i)
+        if (used[(size_t)i]) f << "mesh " << std::quoted(meshes.name(i)) << ' ' << std::quoted(meshes.get(i).source) << '\n';
+    f << "# name mesh pos[3] rot[3] scale[3] color[3] checker visible locked spin bob phase\n";
     f << std::setprecision(6);
     for (const SceneObject& o : objects) {
-        f << std::quoted(o.name) << ' ' << meshKindName(o.mesh);
+        f << std::quoted(o.name) << ' ' << std::quoted(meshes.name(o.mesh));
         for (float v : o.position) f << ' ' << v;
         for (float v : o.rotation) f << ' ' << v;
         for (float v : o.scale) f << ' ' << v;
@@ -153,28 +162,40 @@ bool saveScene(const std::string& path, const std::vector<SceneObject>& objects,
     return true;
 }
 
-bool loadScene(const std::string& path, std::vector<SceneObject>& objects, std::string& error) {
+bool loadScene(const std::string& path, std::vector<SceneObject>& objects, MeshLibrary& meshes, std::string& error) {
     std::ifstream f(path);
     if (!f) { error = "cannot open " + path; return false; }
     std::vector<SceneObject> result;
+    std::map<std::string, int> fileMeshes;   // mesh name in this file -> library id (names may differ if renamed on import)
+    for (int i = 0; i < (int)MeshKind::Count; ++i) fileMeshes[meshes.name(i)] = i;
     std::string line;
     int lineNo = 0;
     while (std::getline(f, line)) {
         ++lineNo;
         if (line.empty() || line[0] == '#') continue;
         std::istringstream in(line);
+        auto fail = [&](const std::string& msg) { error = path + ":" + std::to_string(lineNo) + ": " + msg; return false; };
+        if (line.compare(0, 5, "mesh ") == 0) {
+            std::string keyword, name, source;
+            in >> keyword >> std::quoted(name) >> std::quoted(source);
+            if (!in) return fail("malformed mesh line");
+            std::string importError;
+            int id = importObj(meshes, source, importError);
+            if (id < 0) return fail(importError);
+            fileMeshes[name] = id;
+            continue;
+        }
         SceneObject o;
         std::string mesh;
-        in >> std::quoted(o.name) >> mesh;
+        in >> std::quoted(o.name) >> std::quoted(mesh);
         for (float& v : o.position) in >> v;
         for (float& v : o.rotation) in >> v;
         for (float& v : o.scale) in >> v;
         in >> o.color.x >> o.color.y >> o.color.z >> o.checker >> o.visible >> o.locked >> o.spin >> o.bob >> o.phase;
-        if (!in) { error = path + ":" + std::to_string(lineNo) + ": malformed line"; return false; }
-        bool found = false;
-        for (int k = 0; k < (int)MeshKind::Count; ++k)
-            if (mesh == meshKindName((MeshKind)k)) { o.mesh = (MeshKind)k; found = true; }
-        if (!found) { error = path + ":" + std::to_string(lineNo) + ": unknown mesh '" + mesh + "'"; return false; }
+        if (!in) return fail("malformed line");
+        auto it = fileMeshes.find(mesh);
+        if (it == fileMeshes.end()) return fail("unknown mesh '" + mesh + "'");
+        o.mesh = it->second;
         result.push_back(std::move(o));
     }
     objects = std::move(result);

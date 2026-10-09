@@ -53,7 +53,10 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
 
 ## Layout
 
-- **Menu bar**: File (save/load scene, reset), Edit, Add, View.
+- **Menu bar**: File (save/load scene, import OBJ, reset), Edit, Add, View.
+- **Importing models**: File / Add > Import OBJ... loads a Wavefront `.obj` (triangles or polygons, with or without
+  normals; materials/textures ignored). It's centred and scaled to fit a unit cube, then shows up in the Add menu and
+  the Inspector's mesh list. Saved scenes reference the `.obj` by absolute path and re-import it on load.
 - **Toolbar**: Select/Move/Rotate/Scale tools, world/local axes, snapping, add/duplicate/delete/focus, undo/redo,
   play/pause animation, fly speed.
 - **Outliner** (left): every object, with visibility toggles, filter, right-click menu, double-click to focus.
@@ -97,7 +100,7 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
 | `src/editor.*`             | Camera navigation, picking, gizmos, undo/redo, all UI panels    |
 | `src/renderer.*`           | Vulkan: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
 | `src/scene.*`              | Scene objects, default scene, save/load text format             |
-| `src/geometry.*`           | Procedural meshes and ray/triangle picking                      |
+| `src/geometry.*`           | Procedural meshes, OBJ import and ray/triangle picking          |
 | `src/imgui_impl_xcb.*`     | Dear ImGui platform backend for XCB (Linux only)                |
 | `src/vecmath.h`            | Small vector/matrix helpers                                     |
 | `shaders/scene.*`          | Lit objects, checker ground, fog                                |

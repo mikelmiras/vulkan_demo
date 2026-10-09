@@ -1,20 +1,42 @@
 #include "geometry.h"
 
+#include <cfloat>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <sstream>
 #include <utility>
 
-const char* meshKindName(MeshKind kind) {
-    static const char* names[] = {"Plane", "Cube", "Sphere", "Pyramid", "Torus"};
-    return names[(int)kind];
+int MeshLibrary::find(const std::string& name) const {
+    for (int i = 0; i < count(); ++i)
+        if (meshes[(size_t)i].name == name) return i;
+    return -1;
 }
 
 namespace {
+
+void computeBounds(const MeshLibrary& lib, Mesh& m) {
+    m.boundsMin = {FLT_MAX, FLT_MAX, FLT_MAX};
+    m.boundsMax = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (size_t i = (size_t)m.vertexOffset; i < lib.vertices.size(); ++i) {
+        const Vec3& p = lib.vertices[i].pos;
+        m.boundsMin = {std::min(m.boundsMin.x, p.x), std::min(m.boundsMin.y, p.y), std::min(m.boundsMin.z, p.z)};
+        m.boundsMax = {std::max(m.boundsMax.x, p.x), std::max(m.boundsMax.y, p.y), std::max(m.boundsMax.z, p.z)};
+    }
+}
 
 struct Builder {
     MeshLibrary& lib;
     Mesh current{};
 
     void begin() { current = {(uint32_t)lib.indices.size(), 0, (int32_t)lib.vertices.size()}; }
-    Mesh end() { current.indexCount = (uint32_t)lib.indices.size() - current.firstIndex; return current; }
+    void end(const char* name) {
+        current.indexCount = (uint32_t)lib.indices.size() - current.firstIndex;
+        current.name = name;
+        computeBounds(lib, current);
+        lib.meshes.push_back(current);
+    }
     uint32_t base() const { return (uint32_t)lib.vertices.size() - (uint32_t)current.vertexOffset; }
 
     // Flat-shaded triangle, wound counter-clockwise when seen from outside (away from `inside`)
@@ -60,7 +82,7 @@ MeshLibrary buildMeshLibrary() {
     Vec3 p0{-.5f, 0, -.5f}, p1{.5f, 0, -.5f}, p2{.5f, 0, .5f}, p3{-.5f, 0, .5f};
     g.flatTri(p0, p1, p2, {0, -1, 0});
     g.flatTri(p0, p2, p3, {0, -1, 0});
-    lib.meshes[(int)MeshKind::Plane] = g.end();
+    g.end("Plane");
 
     // Unit cube centred at the origin
     g.begin();
@@ -72,7 +94,7 @@ MeshLibrary buildMeshLibrary() {
             g.flatTri(c - u - v, c + u - v, c + u + v, O);
             g.flatTri(c - u - v, c + u + v, c - u + v, O);
         }
-    lib.meshes[(int)MeshKind::Cube] = g.end();
+    g.end("Cube");
 
     // Sphere, radius 0.5
     g.begin();
@@ -81,7 +103,7 @@ MeshLibrary buildMeshLibrary() {
         Vec3 n{std::sin(th) * std::cos(ph), std::cos(th), std::sin(th) * std::sin(ph)};
         return Vertex{n * 0.5f, n};
     });
-    lib.meshes[(int)MeshKind::Sphere] = g.end();
+    g.end("Sphere");
 
     // Square pyramid, base on y=0, apex at y=1
     g.begin();
@@ -90,7 +112,7 @@ MeshLibrary buildMeshLibrary() {
     for (int i = 0; i < 4; ++i) g.flatTri(b[i], b[(i + 1) % 4], apex, inside);
     g.flatTri(b[0], b[1], b[2], inside);
     g.flatTri(b[0], b[2], b[3], inside);
-    lib.meshes[(int)MeshKind::Pyramid] = g.end();
+    g.end("Pyramid");
 
     // Torus around Y, outer radius 0.5
     g.begin();
@@ -101,14 +123,128 @@ MeshLibrary buildMeshLibrary() {
         Vec3 n = ring * std::cos(b2) + Vec3{0, std::sin(b2), 0};
         return Vertex{ring * R + n * r, n};
     });
-    lib.meshes[(int)MeshKind::Torus] = g.end();
+    g.end("Torus");
     return lib;
 }
 
-float intersectMesh(const MeshLibrary& lib, MeshKind kind, Vec3 origin, Vec3 dir) {
-    // Every mesh fits in the [-0.5, 1]^3 box: cheap slab test first
+// ---------------------------------------------------------------------------------------------
+// OBJ import
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+// OBJ indices are 1-based, or negative = relative to the end of the list so far. Returns 0-based or -1.
+int resolveIndex(const char* s, char** end, size_t count) {
+    long i = std::strtol(s, end, 10);
+    if (*end == s) return -1;
+    long r = i > 0 ? i - 1 : (long)count + i;
+    return r >= 0 && r < (long)count ? (int)r : -1;
+}
+
+}  // namespace
+
+int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path abs = fs::weakly_canonical(fs::absolute(path, ec), ec);
+    std::string source = (ec ? fs::path(path) : abs).u8string();
+    for (int i = 0; i < lib.count(); ++i)
+        if (lib.meshes[(size_t)i].source == source) return i;
+
+    std::ifstream f(path);
+    if (!f) { error = "cannot open " + path; return -1; }
+
+    std::vector<Vec3> positions, normals;
+    struct Corner { int v, n; };
+    std::vector<Corner> tris;   // 3 corners per triangle
+    std::vector<Corner> face;
+    std::string line;
+    while (std::getline(f, line)) {
+        const char* p = line.c_str();
+        while (*p == ' ' || *p == '\t') ++p;
+        if (p[0] == 'v' && (p[1] == ' ' || p[1] == '\t')) {
+            Vec3 v;
+            char* e;
+            v.x = std::strtof(p + 2, &e); v.y = std::strtof(e, &e); v.z = std::strtof(e, &e);
+            positions.push_back(v);
+        } else if (p[0] == 'v' && p[1] == 'n') {
+            Vec3 n;
+            char* e;
+            n.x = std::strtof(p + 2, &e); n.y = std::strtof(e, &e); n.z = std::strtof(e, &e);
+            normals.push_back(n);
+        } else if (p[0] == 'f' && (p[1] == ' ' || p[1] == '\t')) {
+            // f v  |  v/vt  |  v//vn  |  v/vt/vn
+            face.clear();
+            char* e = (char*)p + 1;
+            for (;;) {
+                while (*e == ' ' || *e == '\t') ++e;
+                if (!*e || *e == '\r' || *e == '#') break;
+                Corner c{resolveIndex(e, &e, positions.size()), -1};
+                if (c.v < 0) { error = path + ": bad face index"; return -1; }
+                if (*e == '/') {
+                    ++e;
+                    if (*e != '/') std::strtol(e, &e, 10);   // texture coordinate: unused
+                    if (*e == '/') { ++e; c.n = resolveIndex(e, &e, normals.size()); }
+                }
+                while (*e && *e != ' ' && *e != '\t') ++e;   // skip anything unexpected in this token
+                face.push_back(c);
+            }
+            for (size_t i = 2; i < face.size(); ++i) tris.insert(tris.end(), {face[0], face[i - 1], face[i]});
+        }
+    }
+    if (tris.empty()) { error = path + ": no faces found"; return -1; }
+
+    // Recentre and scale to fit the unit cube (largest side = 1), like the built-in meshes
+    Vec3 lo{FLT_MAX, FLT_MAX, FLT_MAX}, hi{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (const Corner& c : tris) {
+        const Vec3& v = positions[(size_t)c.v];
+        lo = {std::min(lo.x, v.x), std::min(lo.y, v.y), std::min(lo.z, v.z)};
+        hi = {std::max(hi.x, v.x), std::max(hi.y, v.y), std::max(hi.z, v.z)};
+    }
+    Vec3 center = (lo + hi) * 0.5f;
+    float extent = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
+    float scale = extent > 0.f ? 1.f / extent : 1.f;
+
+    Mesh m;
+    m.firstIndex = (uint32_t)lib.indices.size();
+    m.vertexOffset = (int32_t)lib.vertices.size();
+    std::map<std::pair<int, int>, uint32_t> shared;   // (position, normal) -> vertex, for smooth corners
+    for (size_t t = 0; t < tris.size(); t += 3) {
+        Vec3 p[3];
+        for (int k = 0; k < 3; ++k) p[k] = (positions[(size_t)tris[t + k].v] - center) * scale;
+        Vec3 faceN = cross(p[1] - p[0], p[2] - p[0]);
+        if (length(faceN) < 1e-12f) continue;   // degenerate
+        faceN = normalize(faceN);
+        for (int k = 0; k < 3; ++k) {
+            const Corner& c = tris[t + k];
+            if (c.n >= 0) {
+                auto [it, added] = shared.try_emplace({c.v, c.n}, (uint32_t)(lib.vertices.size() - (size_t)m.vertexOffset));
+                if (added) lib.vertices.push_back({p[k], normalize(normals[(size_t)c.n])});
+                lib.indices.push_back(it->second);
+            } else {   // no normal in the file: flat shading
+                lib.indices.push_back((uint32_t)(lib.vertices.size() - (size_t)m.vertexOffset));
+                lib.vertices.push_back({p[k], faceN});
+            }
+        }
+    }
+    m.indexCount = (uint32_t)lib.indices.size() - m.firstIndex;
+    if (m.indexCount == 0) { error = path + ": only degenerate faces"; return -1; }
+    computeBounds(lib, m);
+
+    std::string base = fs::path(path).stem().u8string(), name = base;
+    for (int n = 2; lib.find(name) >= 0; ++n) name = base + " " + std::to_string(n);
+    m.name = name;
+    m.source = source;
+    lib.meshes.push_back(m);
+    ++lib.version;
+    return lib.count() - 1;
+}
+
+float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir) {
+    const Mesh& m = lib.get(mesh);
+    // Cheap slab test against the (slightly padded) bounding box first
     float tmin = -1e30f, tmax = 1e30f;
-    const float lo[3] = {-0.51f, -0.51f, -0.51f}, hi[3] = {0.51f, 1.01f, 0.51f};
+    const float lo[3] = {m.boundsMin.x - 0.01f, m.boundsMin.y - 0.01f, m.boundsMin.z - 0.01f};
+    const float hi[3] = {m.boundsMax.x + 0.01f, m.boundsMax.y + 0.01f, m.boundsMax.z + 0.01f};
     const float o[3] = {origin.x, origin.y, origin.z}, d[3] = {dir.x, dir.y, dir.z};
     for (int i = 0; i < 3; ++i) {
         if (std::fabs(d[i]) < 1e-12f) {
@@ -123,7 +259,6 @@ float intersectMesh(const MeshLibrary& lib, MeshKind kind, Vec3 origin, Vec3 dir
     if (tmax < std::max(tmin, 0.f)) return -1.f;
 
     // Möller–Trumbore against every triangle (double-sided)
-    const Mesh& m = lib.get(kind);
     const Vertex* v = &lib.vertices[m.vertexOffset];
     float best = -1.f;
     for (uint32_t i = 0; i < m.indexCount; i += 3) {

@@ -28,6 +28,7 @@ struct RenderStats {
 class Renderer {
 public:
     // The platform window must exist (platform::createWindow) before init().
+    // `meshes` must outlive the renderer; meshes added to it later are uploaded automatically.
     void init(uint32_t width, uint32_t height, const MeshLibrary& meshes);
     void initImGui();   // call after ImGui::CreateContext()
     void shutdown();
@@ -64,6 +65,7 @@ private:
     void createPipelines();
     VkPipeline createPipeline(const PipelineDesc& desc);
     void createResources(const MeshLibrary& meshes);
+    void uploadMeshes();   // (re)creates the vertex/index buffers from meshes_
     void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui);
 
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props);
@@ -79,6 +81,7 @@ private:
     std::string gpuName_;
     RenderStats stats_;
     const MeshLibrary* meshes_ = nullptr;
+    uint32_t uploadedMeshVersion_ = 0;
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;

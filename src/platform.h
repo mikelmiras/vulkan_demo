@@ -32,6 +32,10 @@ void imguiInit();
 void imguiNewFrame(float deltaTime);
 void imguiShutdown();
 
+// Native "open file" dialog filtered to one extension (e.g. "obj"); blocks until closed.
+// Returns an empty path when cancelled or when no dialog is available (Linux without zenity/kdialog).
+std::filesystem::path openFileDialog(const char* title, const char* extension);
+
 std::filesystem::path executableDir();
 std::vector<std::filesystem::path> uiFontCandidates();
 

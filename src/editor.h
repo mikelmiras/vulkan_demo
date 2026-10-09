@@ -27,7 +27,7 @@ struct EditorCamera {
 class Editor {
 public:
     // uiScale: DPI scale for fixed pixel sizes (panel widths etc.), 1.0 at 96 DPI
-    Editor(const MeshLibrary& meshes, float uiScale);
+    Editor(MeshLibrary& meshes, float uiScale);   // meshes: imports are appended to it
 
     // Builds the UI and handles viewport input. Call between ImGui::NewFrame() and ImGui::Render().
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
@@ -50,6 +50,8 @@ private:
     void drawStatusBar(const RenderStats& stats);
     void drawHelp();
     void drawAddPopup();
+    void drawAddMenuItems();
+    void drawImportPopup();
     void drawViewportOverlay();
     void track();   // call after an editing widget: records an undo step when the edit starts
 
@@ -65,7 +67,8 @@ private:
     // Operations
     void select(int index);
     bool hasSelection() const { return selected_ >= 0 && selected_ < (int)objects_.size(); }
-    void addObject(MeshKind kind);
+    void addObject(int mesh);
+    void importMesh();
     void duplicateSelected();
     void deleteSelected();
     void toggleHideSelected();
@@ -82,7 +85,7 @@ private:
     void undo();
     void redo();
 
-    const MeshLibrary& meshes_;
+    MeshLibrary& meshes_;
     float uiScale_ = 1.f;
     std::vector<SceneObject> objects_;
     int selected_ = -1;
@@ -107,6 +110,8 @@ private:
     int pendingDelete_ = -1, pendingDuplicate_ = -1, pendingFocus_ = -1;
     ImGuiTextFilter filter_;
     char scenePath_[256] = "scene.vkw";
+    bool openImport_ = false;
+    std::string importPath_, importError_;
     std::string status_;
     float statusTimer_ = 0.f;
     float fps_ = 0.f;
