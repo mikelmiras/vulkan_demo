@@ -59,7 +59,11 @@ const Entity* Scene::find(EntityId id) const {
 }
 
 Entity* Scene::findByName(const std::string& name) {
-    for (Entity& e : entities)
+    return const_cast<Entity*>(static_cast<const Scene*>(this)->findByName(name));
+}
+
+const Entity* Scene::findByName(const std::string& name) const {
+    for (const Entity& e : entities)
         if (e.name == name) return &e;
     return nullptr;
 }

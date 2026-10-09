@@ -12,6 +12,8 @@ compile_commands.json
 /Makefile
 /libimgui.a
 /vkworld
+/engine_tests
+/Testing/
 
 # Compiled shaders and objects
 *.spv

@@ -1,0 +1,60 @@
+// core/: JSON and vector maths
+#include "test.h"
+
+#include "core/json.h"
+
+TEST(json_roundtrip_escapes_and_unicode) {
+    json::Value v;
+    std::string err;
+    REQUIRE(json::parse(R"({"s":"a\"b\\c\né😀","n":-1.5e2,"t":true,"z":null,"a":[]})", v, err));
+    CHECK(v["s"].asString() == "a\"b\\c\n\xc3\xa9\xf0\x9f\x98\x80");
+    CHECK_NEAR(v["n"].asNumber(), -150.0, 1e-9);
+    CHECK(v["t"].asBool());
+    CHECK(v["z"].isNull());
+    CHECK(v["a"].isArray() && v["a"].size() == 0);
+    json::Value back;
+    REQUIRE(json::parse(json::write(v), back, err));
+    CHECK(json::write(back) == json::write(v));
+}
+
+TEST(json_missing_keys_give_defaults) {
+    json::Value v;
+    std::string err;
+    REQUIRE(json::parse(R"({"x": 1})", v, err));
+    CHECK(v["nope"].isNull());
+    CHECK(v["nope"]["deeper"].asInt(7) == 7);
+    CHECK(v["x"].asString().empty());   // wrong type -> default
+    float vec[3] = {1, 2, 3};
+    v["x"].readVec3(vec);                // not an array -> unchanged
+    CHECK(vec[0] == 1 && vec[2] == 3);
+}
+
+TEST(json_rejects_malformed_input) {
+    json::Value v;
+    std::string err;
+    CHECK(!json::parse("{\"a\": [1, 2,", v, err));
+    CHECK(!err.empty());
+    CHECK(!json::parse("{\"a\": 1} trailing", v, err));
+    CHECK(!json::parse("{'a': 1}", v, err));
+    CHECK(!json::parse("", v, err));
+}
+
+TEST(json_numbers_keep_precision) {
+    json::Value v = json::Value::object();
+    v.set("big", 123456789.0);
+    v.set("small", 0.1f);
+    v.set("int", 42);
+    json::Value back;
+    std::string err;
+    REQUIRE(json::parse(json::write(v), back, err));
+    CHECK_NEAR(back["big"].asNumber(), 123456789.0, 1e-6);
+    CHECK_NEAR(back["small"].asFloat(), 0.1f, 1e-7);
+    CHECK(back["int"].asInt() == 42);
+}
+
+TEST(vecmath_inverse_affine) {
+    Mat4 m = translate({1, 2, 3}) * rotateY(0.7f);
+    m.m[0] *= 2.f; m.m[1] *= 2.f; m.m[2] *= 2.f;   // scale X
+    Mat4 id = inverseAffine(m) * m;
+    for (int i = 0; i < 16; ++i) CHECK_NEAR(id.m[i], (i % 5 == 0) ? 1.f : 0.f, 1e-5);
+}

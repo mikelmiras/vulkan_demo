@@ -67,6 +67,7 @@ public:
     Entity* find(EntityId id);
     const Entity* find(EntityId id) const;
     Entity* findByName(const std::string& name);
+    const Entity* findByName(const std::string& name) const;
 
     std::vector<Mat4> worldMatrices() const;      // for every entity, aligned with `entities`
     Mat4 worldMatrix(EntityId id) const;

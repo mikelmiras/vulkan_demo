@@ -90,16 +90,34 @@ else()
   target_link_libraries(engine PUBLIC ${XCB_LIBRARY})
 endif()
 
+# Tests: `make engine_tests && ctest` (or run ./engine_tests [name filter])
+option(VKWORLD_BUILD_TESTS "Build the engine unit tests" ON)
+if(VKWORLD_BUILD_TESTS)
+  enable_testing()
+  add_executable(engine_tests
+    tests/test_main.cpp
+    tests/test_core.cpp
+    tests/test_assets.cpp
+    tests/test_scene.cpp
+    tests/test_game.cpp)
+  target_link_libraries(engine_tests PRIVATE engine)
+  add_test(NAME engine_tests COMMAND engine_tests)
+endif()
+
 # Warnings
+set(OWN_TARGETS engine vkworld)
+if(VKWORLD_BUILD_TESTS)
+  list(APPEND OWN_TARGETS engine_tests)
+endif()
 if(MSVC)
   target_compile_options(imgui PRIVATE /utf-8)
-  foreach(t engine vkworld)
+  foreach(t ${OWN_TARGETS})
     target_compile_options(${t} PRIVATE /W4 /permissive- /utf-8)
     target_compile_definitions(${t} PRIVATE _CRT_SECURE_NO_WARNINGS)
   endforeach()
   set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT vkworld)
 else()
-  foreach(t engine vkworld)
+  foreach(t ${OWN_TARGETS})
     target_compile_options(${t} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
   endforeach()
 endif()

@@ -46,6 +46,17 @@ cmake --build build -j
 
 The editor renders at one pixel per point (no Retina scaling). Shortcuts listed with Ctrl use Cmd.
 
+### Tests
+
+The engine has unit tests (`tests/`, no external framework): JSON, OBJ import, scene hierarchy and
+serialization, the game loop, input actions and the built-in behaviours. They run headless, without a GPU.
+
+```sh
+make engine_tests && make test     # or: ctest, or ./engine_tests <name filter> for detailed output
+```
+
+Turn them off with `-DVKWORLD_BUILD_TESTS=OFF`.
+
 ### Validation layer
 
 Set `VKWORLD_VALIDATION=1` to enable the Khronos validation layer (on by default in Debug builds,
@@ -178,5 +189,6 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking |
+| `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `shaders/scene.*`          | Lit objects, checker ground, fog                                |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |
