@@ -39,6 +39,14 @@ bool eq(const AudioSource& a, const AudioSource& b) {
            a.playOnImpact == b.playOnImpact && a.spatial == b.spatial && a.minDistance == b.minDistance &&
            a.maxDistance == b.maxDistance;
 }
+bool eq(const ParticleEmitter& a, const ParticleEmitter& b) {
+    return a.rate == b.rate && a.burst == b.burst && a.playOnStart == b.playOnStart && a.duration == b.duration &&
+           a.lifetime == b.lifetime && a.lifetimeRandom == b.lifetimeRandom && a.speed == b.speed &&
+           a.speedRandom == b.speedRandom && a.spread == b.spread && a.radius == b.radius && a.gravity == b.gravity &&
+           a.drag == b.drag && a.startSize == b.startSize && a.endSize == b.endSize && eq(a.startColor, b.startColor) &&
+           eq(a.endColor, b.endColor) && a.startAlpha == b.startAlpha && a.endAlpha == b.endAlpha &&
+           a.intensity == b.intensity && a.additive == b.additive && a.maxParticles == b.maxParticles;
+}
 bool eq(const PrefabLink& a, const PrefabLink& b) { return a.prefab == b.prefab && a.source == b.source; }
 bool eq(const Skin& a, const Skin& b) {
     if (a.joints != b.joints || a.inverseBind.size() != b.inverseBind.size()) return false;
@@ -85,7 +93,8 @@ bool sameEntity(const Entity& a, const Entity& b) {
         return false;
     if (!eq(a.meshRenderer, b.meshRenderer) || !eq(a.camera, b.camera) || !eq(a.collider, b.collider) ||
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.audioSource, b.audioSource) ||
-        !eq(a.prefab, b.prefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator))
+        !eq(a.prefab, b.prefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
+        !eq(a.particleEmitter, b.particleEmitter))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;
     for (size_t i = 0; i < a.behaviours.size(); ++i) {

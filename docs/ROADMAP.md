@@ -64,7 +64,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 10 (done) | Check the Windows and macOS builds in CI and fix what breaks | Round 1 was only built and run on Linux: the shared engine (exported symbols on Windows), module loading, Jolt on Apple silicon and the new shaders are untested there |
 | 11 (done) | Editor performance on big scenes: no whole-scene copy every frame, undo as diffs or commands | The editor copies the scene each frame (for undo); the stress scene runs the editor far slower than the game |
 | 12 (done) | One physics world: queries, triggers and the character on Jolt (CharacterVirtual: slopes, stairs, moving platforms), retire the duplicate PhysicsWorld snapshot | Two worlds are rebuilt per update (most of the 7 ms stress update); characters don't ride platforms |
-| 13 | Particles: GPU or CPU emitters (sparks, smoke, pickups), a component with an editor | The most visible missing engine feature for games |
+| 13 (done) | Particles: GPU or CPU emitters (sparks, smoke, pickups), a component with an editor | The most visible missing engine feature for games |
 | 14 | Shadows and sky: cascaded sun shadows, point / spot light shadows, a sky and image-based lighting | One 90 m shadow map; hemisphere ambient only |
 | 15 | Transparency: glTF alpha modes (mask, blend), sorted transparent pass | Every material is opaque today |
 | 16 | Single-file shipping: assets packed into one archive, optional static engine, icons / app bundles | Exports are a folder of loose files |
@@ -84,3 +84,6 @@ Working list for turning the renderer demo into a small game engine. Each task i
   triggers as sensor bodies with enter/exit computed by CollideShape after each step (same-step semantics as
   before), characters as CharacterVirtual (inner body for queries; stairs, stick to floor, ground velocity).
   Stress fixed update 5.9 -> 2.9 ms. The editor draws collider wireframes from the components.
+- Task 13: ParticleEmitter component (scene format 13), game/particles (CPU, fixed update, world space, orphaned
+  particles live on), renderer billboards from a storage buffer (binding 4) in the HDR pass: alpha (sorted) and
+  additive pipelines, premultiplied, depth-tested without writing. Editor preview system. Module API 7.

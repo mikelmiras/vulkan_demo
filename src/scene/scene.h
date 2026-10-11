@@ -129,6 +129,30 @@ struct Animator {
     void stop() { playing = false; fadeFrom.clear(); }
 };
 
+// Emits particles (sparks, smoke, embers, sparkles): camera-facing glowing or see-through dots that rise, fall and
+// fade. They go out along the entity's +Y axis (in a cone) and stay where they were emitted.
+struct ParticleEmitter {
+    float rate = 20.f;              // particles per second (0: only bursts)
+    int burst = 0;                  // all at once when it starts, and on ctx.emitParticles(id)
+    bool playOnStart = true;        // emits from Play (otherwise only when game code asks)
+    float duration = 0.f;           // seconds of emitting (0: for ever)
+    float lifetime = 1.5f;          // seconds a particle lasts
+    float lifetimeRandom = 0.3f;    // +- this fraction
+    float speed = 2.f;              // metres per second, out along +Y
+    float speedRandom = 0.5f;       // +- this fraction
+    float spread = 25.f;            // half-angle of the cone, degrees (180: every direction)
+    float radius = 0.f;             // emitted from anywhere inside a sphere this big
+    float gravity = 0.f;            // pulls them down, m/s^2 (negative: they rise faster)
+    float drag = 0.f;               // fraction of the speed lost per second
+    float startSize = 0.2f, endSize = 0.05f;      // metres, over its life
+    Vec3 startColor{1.f, 0.8f, 0.3f};             // sRGB, over its life
+    Vec3 endColor{1.f, 0.25f, 0.05f};
+    float startAlpha = 1.f, endAlpha = 0.f;
+    float intensity = 1.f;          // brightness: above 1 glows (bloom)
+    bool additive = true;           // light adds up (fire, sparks); else see-through (smoke, dust)
+    int maxParticles = 500;
+};
+
 // Marks an entity as part of a copy ("instance") of a prefab
 struct PrefabLink {
     uint32_t prefab = 0;           // Prefab::id
@@ -162,6 +186,7 @@ struct Entity {
     std::optional<AudioSource> audioSource;
     std::optional<Skin> skin;
     std::optional<Animator> animator;
+    std::optional<ParticleEmitter> particleEmitter;
     std::optional<PrefabLink> prefab;
     std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
 

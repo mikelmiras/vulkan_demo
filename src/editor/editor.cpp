@@ -66,6 +66,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     editBegan_ = false;
     if (statusTimer_ > 0.f) statusTimer_ -= dt;
     fps_ = fps_ * 0.95f + (dt > 0.f ? 1.f / dt : 0.f) * 0.05f;
+    frameDt_ = dt;
 
     // Must come first: creates the full-screen pass-through window the gizmos draw into,
     // so it stays underneath every panel.
@@ -144,6 +145,16 @@ const Mat4& Editor::worldOf(EntityId id) const {
 void Editor::buildDrawItems() {
     drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_, &joints_, &meshes_);
     lights_ = collectLights(scene_, worlds_);
+    particles_.clear();
+    if (playing()) {
+        previewParticles_.clear();
+        game_.particles().collect(particles_);
+    } else if (previewParticles_on_) {   // emitters run in the editor too, so their look can be tuned
+        previewParticles_.update(scene_, worlds_, std::min(frameDt_, 0.1f));
+        previewParticles_.collect(particles_);
+    } else {
+        previewParticles_.clear();
+    }
 }
 
 SceneRenderInfo Editor::renderInfo() const {
@@ -151,6 +162,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.items = &drawItems_;
     info.lights = &lights_;
     info.joints = &joints_;
+    info.particles = &particles_;
     const RenderSettings& r = scene_.render;
     info.sky = r.sky;
     info.fogDensity = r.fogDensity;

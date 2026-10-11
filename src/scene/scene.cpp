@@ -573,6 +573,17 @@ Scene buildDefaultScene() {
         hum.minDistance = 3.f;
         hum.maxDistance = 30.f;
         glow.audioSource = hum;
+        ParticleEmitter embers;   // rising from the centre
+        embers.rate = 14.f;
+        embers.radius = 1.2f;
+        embers.speed = 1.2f;
+        embers.spread = 20.f;
+        embers.gravity = -0.6f;
+        embers.lifetime = 2.5f;
+        embers.startSize = 0.12f;
+        embers.endSize = 0.02f;
+        embers.intensity = 3.f;
+        glow.particleEmitter = embers;
     }
 
     // Prefabs: templates that game code spawns (and the gems below are made from). Each is built as an entity,
@@ -596,6 +607,20 @@ Scene buildDefaultScene() {
         trigger.trigger = true;
         g.collider = trigger;
         addBehaviour(g, "Pickup");
+        ParticleEmitter sparkle;   // burst when it's picked up
+        sparkle.rate = 0.f;
+        sparkle.burst = 30;
+        sparkle.playOnStart = false;
+        sparkle.spread = 180.f;
+        sparkle.speed = 3.5f;
+        sparkle.gravity = 6.f;
+        sparkle.drag = 1.f;
+        sparkle.lifetime = 0.8f;
+        sparkle.startSize = 0.15f;
+        sparkle.startColor = {0.6f, 1.f, 0.95f};
+        sparkle.endColor = {0.2f, 0.6f, 1.f};
+        sparkle.intensity = 4.f;
+        g.particleEmitter = sparkle;
         EntityId id = g.id;
         scene.addPrefab(scene.makePrefab(id, "Gem"));
         scene.remove(id);

@@ -13,7 +13,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 12;  // 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 13;  // 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -306,6 +306,31 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             }
         }
     }
+    if (e.particleEmitter) {
+        const ParticleEmitter& p = *e.particleEmitter;
+        json::Value& c = v.set("particles", json::Value::object());
+        c.set("rate", p.rate);
+        c.set("burst", p.burst);
+        c.set("playOnStart", p.playOnStart);
+        c.set("duration", p.duration);
+        c.set("lifetime", p.lifetime);
+        c.set("lifetimeRandom", p.lifetimeRandom);
+        c.set("speed", p.speed);
+        c.set("speedRandom", p.speedRandom);
+        c.set("spread", p.spread);
+        c.set("radius", p.radius);
+        c.set("gravity", p.gravity);
+        c.set("drag", p.drag);
+        c.set("startSize", p.startSize);
+        c.set("endSize", p.endSize);
+        c.set("startColor", vec3(p.startColor));
+        c.set("endColor", vec3(p.endColor));
+        c.set("startAlpha", p.startAlpha);
+        c.set("endAlpha", p.endAlpha);
+        c.set("intensity", p.intensity);
+        c.set("additive", p.additive);
+        c.set("maxParticles", p.maxParticles);
+    }
     if (e.rigidBody) {
         const RigidBody& rb = *e.rigidBody;
         json::Value& c = v.set("rigidBody", json::Value::object());
@@ -433,6 +458,31 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         a.fade = c["fade"].asFloat(0.f);
         a.fadeLength = c["fadeLength"].asFloat(0.f);
         e.animator = a;
+    }
+    if (const json::Value& c = v["particles"]; c.isObject()) {
+        ParticleEmitter p;
+        p.rate = c["rate"].asFloat(p.rate);
+        p.burst = c["burst"].asInt(p.burst);
+        p.playOnStart = c["playOnStart"].asBool(p.playOnStart);
+        p.duration = c["duration"].asFloat(p.duration);
+        p.lifetime = c["lifetime"].asFloat(p.lifetime);
+        p.lifetimeRandom = c["lifetimeRandom"].asFloat(p.lifetimeRandom);
+        p.speed = c["speed"].asFloat(p.speed);
+        p.speedRandom = c["speedRandom"].asFloat(p.speedRandom);
+        p.spread = c["spread"].asFloat(p.spread);
+        p.radius = c["radius"].asFloat(p.radius);
+        p.gravity = c["gravity"].asFloat(p.gravity);
+        p.drag = c["drag"].asFloat(p.drag);
+        p.startSize = c["startSize"].asFloat(p.startSize);
+        p.endSize = c["endSize"].asFloat(p.endSize);
+        p.startColor = readVec3(c["startColor"], p.startColor);
+        p.endColor = readVec3(c["endColor"], p.endColor);
+        p.startAlpha = c["startAlpha"].asFloat(p.startAlpha);
+        p.endAlpha = c["endAlpha"].asFloat(p.endAlpha);
+        p.intensity = c["intensity"].asFloat(p.intensity);
+        p.additive = c["additive"].asBool(p.additive);
+        p.maxParticles = std::max(1, c["maxParticles"].asInt(p.maxParticles));
+        e.particleEmitter = p;
     }
     if (const json::Value& c = v["rigidBody"]; c.isObject()) {
         RigidBody rb;

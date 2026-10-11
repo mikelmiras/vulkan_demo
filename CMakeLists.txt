@@ -18,7 +18,8 @@ find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/Bin REQUIRE
 # (the executable looks in <exe dir>/shaders and <exe dir>/../shaders, which covers
 #  single-config builds and Visual Studio's <build>/Debug, <build>/Release folders)
 set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag shaders/shadow.vert
-                   shaders/post.vert shaders/bloom_down.frag shaders/bloom_up.frag shaders/composite.frag)
+                   shaders/post.vert shaders/bloom_down.frag shaders/bloom_up.frag shaders/composite.frag
+                   shaders/particle.vert shaders/particle.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -87,6 +88,7 @@ add_library(engine SHARED
   src/game/module.cpp
   src/game/ui.cpp
   src/game/animation.cpp
+  src/game/particles.cpp
   src/render/renderer.cpp
   src/render/renderer_textures.cpp
   src/render/renderer_instances.cpp
@@ -212,7 +214,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_ui.cpp
     tests/test_animation.cpp
     tests/test_formats.cpp
-    tests/test_scene_diff.cpp)
+    tests/test_scene_diff.cpp
+    tests/test_particles.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

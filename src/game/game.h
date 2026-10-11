@@ -11,6 +11,7 @@
 #include "core/json.h"
 #include "core/vecmath.h"
 #include "game/input.h"
+#include "game/particles.h"
 #include "game/ui.h"
 #include "physics/physics.h"
 #include "scene/scene.h"
@@ -83,6 +84,10 @@ public:
     // Sounds (no-ops without an audio engine): a clip name or file, at a place in the world or in stereo
     void playSound(const std::string& clip, Vec3 position, float volume = 1.f);
     void playSound2D(const std::string& clip, float volume = 1.f);
+
+    // Particles: a burst from the entity's ParticleEmitter (`count`, or its burst size), or any look anywhere
+    void emitParticles(EntityId id, int count = -1);
+    void emitParticles(const ParticleEmitter& look, Vec3 position, int count, Vec3 up = {0, 1, 0});
 
     // Removes the entity (and its children) once every behaviour has run this update, so references stay valid
     void destroy(EntityId id);
@@ -166,6 +171,7 @@ public:
 
     std::vector<Mat4> worldMatrices() const;      // aligned with scene.entities
     const Physics& physics() const { return physics_; }
+    const ParticleSystem& particles() const { return particles_; }
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
 
 private:
@@ -187,6 +193,7 @@ private:
     const MeshLibrary* meshes_ = nullptr;
     InputMap input_;
     Physics physics_;   // (Jolt) bodies persist between updates: made again on a new scene
+    ParticleSystem particles_;
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity

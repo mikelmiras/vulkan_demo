@@ -106,6 +106,7 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
         ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
+        ImGui::MenuItem("Preview particles", nullptr, &previewParticles_on_);
         ImGui::Separator();
         if (ImGui::MenuItem("Focus selected", "F", false, selection() != nullptr)) focusSelected();
         if (ImGui::MenuItem("Reset camera")) cam_ = EditorCamera{};

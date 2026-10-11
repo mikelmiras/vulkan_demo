@@ -279,6 +279,51 @@ void Editor::drawComponents(Entity& e) {
                     "animator->play(\"Clip\", fadeSeconds)");
         }
     }
+    if (e.particleEmitter) {
+        if (!componentHeader("Particle Emitter", open)) { pushUndo(); e.particleEmitter.reset(); }
+        else if (open) {
+            ParticleEmitter& p = *e.particleEmitter;
+            ImGui::DragFloat("Rate", &p.rate, 0.5f, 0.f, 10000.f, "%.1f /s");
+            track();
+            ImGui::DragInt("Burst", &p.burst, 0.5f, 0, 10000);
+            track();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Preview burst")) previewParticles_.burst(scene_, e.id);
+            ImGui::Checkbox("Play on start", &p.playOnStart);
+            track();
+            ImGui::SameLine();
+            ImGui::Checkbox("Additive", &p.additive);
+            track();
+            tooltip("Light adds up (fire, sparks, magic); off: see-through (smoke, dust)");
+            ImGui::DragFloat("Duration", &p.duration, 0.05f, 0.f, 1000.f, p.duration > 0.f ? "%.2f s" : "for ever");
+            track();
+            ImGui::DragFloat("Lifetime", &p.lifetime, 0.01f, 0.05f, 60.f, "%.2f s");
+            track();
+            ImGui::DragFloat("Speed", &p.speed, 0.05f, 0.f, 200.f, "%.2f m/s");
+            track();
+            ImGui::SliderFloat("Spread", &p.spread, 0.f, 180.f, "%.0f deg");
+            track();
+            ImGui::DragFloat("Radius", &p.radius, 0.01f, 0.f, 100.f, "%.2f m");
+            track();
+            ImGui::DragFloat("Gravity", &p.gravity, 0.05f, -100.f, 100.f, "%.2f");
+            track();
+            ImGui::DragFloat("Drag", &p.drag, 0.01f, 0.f, 20.f, "%.2f");
+            track();
+            ImGui::DragFloat2("Size (start, end)", &p.startSize, 0.005f, 0.f, 50.f, "%.3f");
+            track();
+            ImGui::ColorEdit3("Start colour", &p.startColor.x);
+            track();
+            ImGui::ColorEdit3("End colour", &p.endColor.x);
+            track();
+            ImGui::DragFloat2("Opacity (start, end)", &p.startAlpha, 0.01f, 0.f, 1.f, "%.2f");
+            track();
+            ImGui::DragFloat("Brightness", &p.intensity, 0.05f, 0.f, 100.f, "%.2f");
+            track();
+            tooltip("Above 1 they glow (bloom)");
+            ImGui::DragInt("Max particles", &p.maxParticles, 1.f, 1, 100000);
+            track();
+        }
+    }
     if (e.skin) {
         if (!componentHeader("Skin", open)) { pushUndo(); e.skin.reset(); }
         else if (open) {
@@ -453,6 +498,7 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Light", nullptr, false, !e.light)) { pushUndo(); e.light = Light{}; }
         if (ImGui::MenuItem("Audio Source", nullptr, false, !e.audioSource)) { pushUndo(); e.audioSource = AudioSource{}; }
         if (ImGui::MenuItem("Animator", nullptr, false, !e.animator)) { pushUndo(); e.animator = Animator{}; }
+        if (ImGui::MenuItem("Particle Emitter", nullptr, false, !e.particleEmitter)) { pushUndo(); e.particleEmitter = ParticleEmitter{}; }
         if (ImGui::MenuItem("Rigid Body", nullptr, false, !e.rigidBody)) {
             pushUndo();
             e.rigidBody = RigidBody{};

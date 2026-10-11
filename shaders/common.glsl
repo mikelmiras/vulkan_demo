@@ -12,6 +12,8 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 ambient;         // rgb = ambient strength, w = number of point lights
     vec4 pointPos[8];     // xyz = position, w = range
     vec4 pointColor[8];   // rgb = colour * intensity (linear)
+    vec4 camRight;        // the camera's axes in the world: billboards face it
+    vec4 camUp;
 } frame;
 
 // One per drawn object; draws are instanced, gl_InstanceIndex picks the object

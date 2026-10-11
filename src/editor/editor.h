@@ -204,6 +204,10 @@ private:
     std::vector<Mat4> worlds_;
     std::vector<DrawItem> drawItems_;
     std::vector<Mat4> joints_;   // skinned meshes' joint matrices (see DrawItem::jointOffset)
+    std::vector<ParticleDraw> particles_;
+    ParticleSystem previewParticles_;   // emitters outside Play (View > Preview particles)
+    bool previewParticles_on_ = true;
+    float frameDt_ = 0.f;
 
     std::vector<UndoStep> undo_, redo_;
     std::optional<Scene> undoBefore_;     // pushUndo()'s copy, until the end of the frame

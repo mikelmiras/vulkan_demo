@@ -237,6 +237,7 @@ struct Pickup : BehaviourBase<Pickup> {
         if (collected) return;
         collected = true;
         ctx.playSound("Pickup", ctx.worldPosition(self.id));
+        if (self.particleEmitter) ctx.emitParticles(self.id);   // (they outlive the entity)
         ctx.destroy(self.id);
         int left = 0;
         for (Entity& e : ctx.scene().entities)
@@ -274,6 +275,22 @@ struct Destructible : BehaviourBase<Destructible> {
         destroyed = true;
         Vec3 at = ctx.worldPosition(self.id);
         std::string name = self.name;   // spawn() below may move `self` if it's still in the spawn queue
+        if (self.particleEmitter) ctx.emitParticles(self.id);
+        else {   // a puff of dust and chips
+            ParticleEmitter dust;
+            dust.spread = 180.f;
+            dust.speed = 3.f;
+            dust.radius = 0.3f;
+            dust.gravity = 6.f;
+            dust.drag = 1.5f;
+            dust.lifetime = 0.9f;
+            dust.startSize = 0.25f;
+            dust.endSize = 0.5f;
+            dust.startColor = dust.endColor = {0.75f, 0.7f, 0.62f};
+            dust.startAlpha = 0.8f;
+            dust.additive = false;
+            ctx.emitParticles(dust, at, 30);
+        }
         ctx.destroy(self.id);
         ctx.playSound("Break", at);
         if (!dropPrefab.empty()) ctx.spawn(dropPrefab, at);

@@ -146,10 +146,13 @@ int main(int argc, char** argv) {
         std::vector<Mat4> joints;
         std::vector<DrawItem> items = collectDrawItems(scene, worlds, kNoEntity, &joints, &meshes);
         std::vector<LightInfo> lights = collectLights(scene, worlds);
+        std::vector<ParticleDraw> particles;
+        game.particles().collect(particles);
         SceneRenderInfo info;
         info.items = &items;
         info.lights = &lights;
         info.joints = &joints;
+        info.particles = &particles;
         info.sky = scene.render.sky;
         info.fogDensity = scene.render.fogDensity;
         info.ambient = scene.render.ambient;

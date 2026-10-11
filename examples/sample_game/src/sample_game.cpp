@@ -81,6 +81,15 @@ struct Coin : BehaviourBase<Coin> {
         taken = true;
         if (ScoreKeeper* s = scoreKeeper(ctx)) s->add(ctx, points);
         ctx.playSound("Pickup", ctx.worldPosition(self.id));
+        ParticleEmitter sparkle;   // gold sparkles, no component needed
+        sparkle.spread = 180.f;
+        sparkle.speed = 3.f;
+        sparkle.gravity = 5.f;
+        sparkle.lifetime = 0.7f;
+        sparkle.startSize = 0.18f;
+        sparkle.startColor = {1.f, 0.9f, 0.4f};
+        sparkle.intensity = 4.f;
+        ctx.emitParticles(sparkle, ctx.worldPosition(self.id), 24);
         ctx.destroy(self.id);
     }
 };

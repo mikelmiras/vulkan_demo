@@ -34,6 +34,7 @@ struct FrameUBO {
     float ambient[4];    // rgb, w = point light count
     float pointPos[kMaxPointLights][4];     // xyz, w = range
     float pointColor[kMaxPointLights][4];   // rgb linear * intensity
+    float camRight[4], camUp[4];
 };
 
 struct InstanceData {

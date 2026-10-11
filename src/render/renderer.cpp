@@ -533,14 +533,15 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[4] = {
+    VkDescriptorSetLayoutBinding frameBindings[5] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // joint matrices
+        {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // particles
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 4;
+    dslci.bindingCount = 5;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // One texture alone (Dear ImGui's layout, for UI images)
@@ -594,6 +595,72 @@ void Renderer::createPipelines() {
     bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
+    particleAlphaPipeline_ = createParticlePipeline(false);
+    particleAdditivePipeline_ = createParticlePipeline(true);
+}
+
+VkPipeline Renderer::createParticlePipeline(bool additive) {
+    VkShaderModule vs = loadShader("particle.vert.spv"), fs = loadShader("particle.frag.spv");
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr},
+    };
+    VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    vp.viewportCount = 1;
+    vp.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rs.polygonMode = VK_POLYGON_MODE_FILL;
+    rs.cullMode = VK_CULL_MODE_NONE;
+    rs.lineWidth = 1.f;
+    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    ms.rasterizationSamples = samples_;
+    VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    ds.depthTestEnable = VK_TRUE;    // hidden behind things
+    ds.depthWriteEnable = VK_FALSE;  // but they don't hide each other
+    ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    // Premultiplied colour; the alpha channel (the outline marker) is left alone
+    VkPipelineColorBlendAttachmentState cba{};
+    cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    cba.blendEnable = VK_TRUE;
+    cba.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    cba.dstColorBlendFactor = additive ? VK_BLEND_FACTOR_ONE : VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    cba.colorBlendOp = VK_BLEND_OP_ADD;
+    cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    cba.alphaBlendOp = VK_BLEND_OP_ADD;
+    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    cb.attachmentCount = 1;
+    cb.pAttachments = &cba;
+    VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dy.dynamicStateCount = 2;
+    dy.pDynamicStates = dyn;
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = &hdrFormat_;
+    rci.depthAttachmentFormat = depthFormat_;
+    rci.stencilAttachmentFormat = depthFormat_;
+    VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    ci.pNext = &rci;
+    ci.stageCount = 2;
+    ci.pStages = stages;
+    ci.pVertexInputState = &vi;
+    ci.pInputAssemblyState = &ia;
+    ci.pViewportState = &vp;
+    ci.pRasterizationState = &rs;
+    ci.pMultisampleState = &ms;
+    ci.pDepthStencilState = &ds;
+    ci.pColorBlendState = &cb;
+    ci.pDynamicState = &dy;
+    ci.layout = pipelineLayout_;
+    VkPipeline pipeline;
+    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
+    vkDestroyShaderModule(device_, vs, nullptr);
+    vkDestroyShaderModule(device_, fs, nullptr);
+    return pipeline;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -687,7 +754,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
@@ -769,7 +836,8 @@ void Renderer::createResources(const MeshLibrary&) {
     for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) {
         ensureInstanceCapacity(1024);
         SceneRenderInfo none;
-        uploadJoints(none);   // a one-matrix buffer, so binding 3 is always valid
+        uploadJoints(none);      // small buffers, so bindings 3 and 4 are always valid
+        uploadParticles(none);
     }
     frame_ = 0;
 
@@ -928,6 +996,16 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             stats_.triangles += meshes_->get(b.mesh).indexCount / 3 * b.count;
         }
 
+        // Particles: see-through ones (sorted back to front), then the additive ones
+        if (particleAlpha_) {
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAlphaPipeline_);
+            vkCmdDraw(cb, 6, particleAlpha_, 0, 0);
+        }
+        if (particleAdditive_) {
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAdditivePipeline_);
+            vkCmdDraw(cb, 6, particleAdditive_, 0, particleAlpha_);
+        }
+
         for (const Batch& b : outlineBatches_) {
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, stencilPipeline_);
             draw(b);
@@ -1056,6 +1134,12 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     set4(u.sunDir, normalize(sun.direction), frameShadows_ ? 1.f : 0.f);
     set4(u.sunColor, srgbToLinear(sun.color) * sun.intensity, 0.f);
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
+    {   // the camera's axes, for billboards (no roll: up is as close to the world's up as the view allows)
+        Vec3 f = normalize(info.camForward);
+        Vec3 right = std::fabs(f.y) > 0.999f ? Vec3{1, 0, 0} : normalize(cross(f, {0, 1, 0}));
+        set4(u.camRight, right, 0.f);
+        set4(u.camUp, cross(right, f), 0.f);
+    }
     for (size_t i = 0; i < points.size(); ++i) {
         set4(u.pointPos[i], points[i]->position, std::max(points[i]->range, 0.01f));
         set4(u.pointColor[i], srgbToLinear(points[i]->color) * points[i]->intensity, 0.f);
@@ -1063,6 +1147,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
     prepareInstances(info, u.lightViewProj);
     uploadJoints(info);
+    uploadParticles(info);
 
     VK_CHECK(vkResetCommandBuffer(cmd_[frame_], 0));
     recordCommands(cmd_[frame_], imageIndex, info, ui);
@@ -1098,7 +1183,7 @@ void Renderer::shutdown() {
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     for (VkPipeline p : {scenePipeline_, stencilPipeline_, outlinePipeline_, shadowPipeline_, bloomDownPipeline_,
-                         bloomUpPipeline_, compositePipeline_})
+                         bloomUpPipeline_, compositePipeline_, particleAlphaPipeline_, particleAdditivePipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     destroyPostImages();
     vkDestroyPipelineLayout(device_, postLayout_, nullptr);
@@ -1126,6 +1211,7 @@ void Renderer::shutdown() {
         destroyBuffer(ubo_[i]);
         destroyBuffer(instances_[i]);
         destroyBuffer(joints_[i]);
+        destroyBuffer(particles_[i]);
         vkDestroySemaphore(device_, imageAvailable_[i], nullptr);
         vkDestroyFence(device_, inFlight_[i], nullptr);
     }

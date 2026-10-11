@@ -127,6 +127,12 @@ void GameContext::playSound2D(const std::string& clip, float volume) {
     audio_->play(clip, p);
 }
 
+void GameContext::emitParticles(EntityId id, int count) { game_->particles_.burst(*scene_, id, count); }
+
+void GameContext::emitParticles(const ParticleEmitter& look, Vec3 position, int count, Vec3 up) {
+    game_->particles_.emit(look, position, count, up);
+}
+
 void GameContext::destroy(EntityId id) {
     if (!isDestroyed(id)) destroyQueue_.push_back(id);
 }
@@ -177,6 +183,7 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
 
 void Game::begin(bool fresh) {
     physics_.clear();
+    particles_.clear();
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();
@@ -210,6 +217,7 @@ void Game::stop() {
     stopSounds();
     physics_.clear();
     scene_ = nullptr;
+    particles_.clear();
 }
 
 void Game::stopSounds() {
@@ -277,6 +285,7 @@ void Game::fixedUpdate(float dt) {
     }
     flushQueues();
     playImpacts(physics_.step(*scene_, *meshes_, dt));
+    particles_.update(*scene_, scene_->worldMatrices(), dt);
     updateTriggers();
     flushQueues();
     input_.endFixedStep();

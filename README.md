@@ -251,6 +251,23 @@ if (self.animator) self.animator->play(running ? "Fox/Run" : "Fox/Survey", 0.3f)
 The sample game's tentacles (`examples/sample_game/models/tentacle.gltf`) curl, and stretch towards the player
 when it comes close (its `Lurker` behaviour).
 
+## Particles
+
+A **Particle Emitter** component sends out camera-facing dots: a rate per second and/or bursts, lifetime, speed,
+a cone around the entity's +Y, an emitting sphere, gravity, drag, size, colour and opacity over life, brightness
+(above 1 they glow through the bloom), and **additive** (fire, sparks, magic) or see-through (smoke, dust)
+blending. Particles stay where they were emitted and outlive their entity. The editor previews emitters outside
+Play (View > Preview particles; Inspector > Preview burst). Game code bursts an entity's emitter or emits any look
+anywhere:
+
+```cpp
+ctx.emitParticles(self.id);                        // its emitter's burst
+ctx.emitParticles(sparkleLook, position, 24);      // a ParticleEmitter as a description, no component needed
+```
+
+Pickups burst their emitter when collected (the demo's gems sparkle), Destructibles throw dust, the centrepiece
+gives off embers.
+
 ## Audio
 
 Sound goes through [miniaudio](https://miniaud.io) (vendored v0.11.21). A clip is either one of the built-in

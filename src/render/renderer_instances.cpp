@@ -108,3 +108,43 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
     stats_.objects = (uint32_t)visible.size();
     stats_.shadowCasters = (uint32_t)casters.size();
 }
+
+void Renderer::uploadParticles(const SceneRenderInfo& info) {
+    struct Gpu {
+        float posSize[4], color[4];
+    };
+    std::vector<const ParticleDraw*> alpha, additive;
+    if (info.particles)
+        for (const ParticleDraw& p : *info.particles) (p.additive ? additive : alpha).push_back(&p);
+    // See-through ones blend correctly only back to front
+    std::sort(alpha.begin(), alpha.end(), [&](const ParticleDraw* a, const ParticleDraw* b) {
+        Vec3 da = a->position - info.camPos, db = b->position - info.camPos;
+        return dot(da, da) > dot(db, db);
+    });
+    size_t count = alpha.size() + additive.size();
+    Buffer& buf = particles_[frame_];
+    if (!buf.buffer || buf.size < std::max<size_t>(count, 1) * sizeof(Gpu)) {
+        // This frame's fence has been waited on: its old buffer and descriptor set are free
+        if (buf.buffer) destroyBuffer(buf);
+        size_t capacity = 256;
+        while (capacity < count) capacity *= 2;
+        buf = createBuffer(capacity * sizeof(Gpu), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        buf.size = capacity * sizeof(Gpu);
+        VkDescriptorBufferInfo bi{buf.buffer, 0, VK_WHOLE_SIZE};
+        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w.dstSet = descSets_[frame_];
+        w.dstBinding = 4;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        w.pBufferInfo = &bi;
+        vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+    }
+    Gpu* out = static_cast<Gpu*>(buf.mapped);
+    size_t n = 0;
+    for (const auto* list : {&alpha, &additive})
+        for (const ParticleDraw* p : *list) {
+            out[n++] = {{p->position.x, p->position.y, p->position.z, p->size}, {p->color[0], p->color[1], p->color[2], p->color[3]}};
+        }
+    particleAlpha_ = (uint32_t)alpha.size();
+    particleAdditive_ = (uint32_t)additive.size();
+}

@@ -32,6 +32,14 @@ struct DrawItem {
     Vec3 emissive;              // linear, times its strength
 };
 
+// One particle to draw: a camera-facing dot
+struct ParticleDraw {
+    Vec3 position;
+    float size = 0.1f;      // metres across
+    float color[4];         // rgb linear (times its brightness), alpha
+    bool additive = true;   // light adds up; else blended over what's behind
+};
+
 struct LightInfo {
     bool directional = false;
     Vec3 position;              // point lights
@@ -46,6 +54,7 @@ struct SceneRenderInfo {
     const std::vector<DrawItem>* items = nullptr;
     const std::vector<LightInfo>* lights = nullptr;   // no directional light: a default sun is used
     const std::vector<Mat4>* joints = nullptr;        // skinning matrices of every skinned item (see DrawItem)
+    const std::vector<ParticleDraw>* particles = nullptr;
     Mat4 viewProj;
     Vec3 camPos;
     Vec3 camForward{0, 0, -1};   // the shadow map covers the area in front of the camera
@@ -134,6 +143,9 @@ private:
     void prepareInstances(const SceneRenderInfo& info, const Mat4& lightViewProj);
     void ensureInstanceCapacity(size_t count);
     void uploadJoints(const SceneRenderInfo& info);   // this frame's joint matrices into its storage buffer
+    void uploadParticles(const SceneRenderInfo& info);   // sorted: see-through ones back to front, then additive
+    uint32_t particleAlpha_ = 0, particleAdditive_ = 0;  // this frame's counts
+    VkPipeline createParticlePipeline(bool additive);
     Mat4 shadowMatrix(const SceneRenderInfo& info, Vec3 sunDir) const;
     void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui);
 
@@ -203,6 +215,8 @@ private:
     Buffer vertexBuffer_, indexBuffer_, ubo_[MAX_FRAMES];
     Buffer instances_[MAX_FRAMES];   // InstanceData for every object drawn in the frame (storage buffer)
     Buffer joints_[MAX_FRAMES];      // skinning matrices (storage buffer)
+    Buffer particles_[MAX_FRAMES];   // particles to draw (storage buffer)
+    VkPipeline particleAlphaPipeline_ = VK_NULL_HANDLE, particleAdditivePipeline_ = VK_NULL_HANDLE;
     Buffer skinBuffer_;              // SkinVertex per vertex (vertex buffer, binding 1)
     // Consecutive instances drawn with one call: same mesh and texture
     struct Batch {
