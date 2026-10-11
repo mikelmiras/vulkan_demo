@@ -85,18 +85,11 @@ jobs:
           eval $XVFB "'exported/Sample Game'" --screenshot smoke-export.png --frames 30
           python3 ../tools/check_screenshot.py smoke-game.png smoke-editor.png smoke-export.png
 
-      # macOS: the runners have Metal, so MoltenVK renders for real (and the Cocoa platform layer runs)
-      - name: Smoke test (macOS, MoltenVK)
-        if: runner.os == 'macOS'
-        run: |
-          cd build
-          ./vkgame --screenshot smoke-game.png --frames 30
-          ./vkworld ../examples/sample_game --export exported
-          "exported/Sample Game" --screenshot smoke-export.png --frames 30
-          python3 ../tools/check_screenshot.py smoke-game.png smoke-export.png
+      # (No smoke test on macOS: the runners' paravirtual GPU lacks Metal argument encoders, and MoltenVK aborts
+      # in vkCreateInstance. Windows runners have no Vulkan driver at all.)
 
       - name: Upload smoke test screenshots
-        if: runner.os != 'Windows' && always()
+        if: runner.os == 'Linux' && always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-screenshots-${{ runner.os }}
