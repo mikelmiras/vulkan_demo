@@ -12,7 +12,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 8;   // 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 9;   // 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -158,6 +158,18 @@ std::unique_ptr<Behaviour> behaviourFromJson(const json::Value& bv) {
     for (const auto& [key, value] : bv.members())
         if (key != "type") kept.set(key, value);
     return std::make_unique<MissingBehaviour>(type, json::write(kept));
+}
+
+json::Value behaviourStateToJson(Behaviour& b) {
+    json::Value v = json::Value::object();
+    FieldWriter writer(v);
+    b.state(writer);
+    return v;
+}
+
+void behaviourStateFromJson(Behaviour& b, const json::Value& v) {
+    FieldReader reader(v);
+    b.state(reader);
 }
 
 namespace {
@@ -482,6 +494,10 @@ constexpr int kPrefabVersion = 1;
 // ---------------------------------------------------------------------------------------------
 bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& meshes, const TextureLibrary& textures,
                std::string& error) {
+    return writeJson(path, sceneToJson(scene, meshes, textures), error);
+}
+
+json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const TextureLibrary& textures) {
     json::Value doc = json::Value::object();
     doc.set("format", kFormat);
     doc.set("version", kVersion);
@@ -504,7 +520,7 @@ bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& m
         if (a.mouseButton >= 0) av.set("mouseButton", a.mouseButton);
         input.push(std::move(av));
     }
-    return writeJson(path, doc, error);
+    return doc;
 }
 
 bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, TextureLibrary& textures, std::string& error) {
@@ -515,16 +531,23 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, Textu
 
     json::Value doc;
     if (!readJson(path, kFormat, kVersion, doc, error)) return false;
+    if (!sceneFromJson(doc, scene, meshes, textures, error)) { error = path + ": " + error; return false; }
+    return true;
+}
+
+bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, TextureLibrary& textures, std::string& error) {
+    if (doc["format"].asString() != kFormat) { error = "not a vkworld scene"; return false; }
+    if (doc["version"].asInt(0) > kVersion) { error = "made by a newer version (format " + std::to_string(doc["version"].asInt(0)) + ")"; return false; }
     AssetIds ids;
-    if (!assetListsFromJson(doc, meshes, textures, ids, error)) { error = path + ": " + error; return false; }
+    if (!assetListsFromJson(doc, meshes, textures, ids, error)) return false;
 
     Scene result;
     for (const json::Value& v : doc["entities"].elements()) {
         Entity e;
-        if (!entityFromJson(v, ids, e, error)) { error = path + ": " + error; return false; }
+        if (!entityFromJson(v, ids, e, error)) { return false; }
         EntityId fileId = e.id;
         if (result.add(std::move(e)).id != fileId && fileId != kNoEntity) {   // id-less entities just get a new one
-            error = path + ": duplicate entity id " + std::to_string(fileId);
+            error = "duplicate entity id " + std::to_string(fileId);
             return false;
         }
     }
@@ -535,7 +558,7 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, Textu
     }
     for (const json::Value& v : doc["prefabs"].elements()) {
         Prefab p;
-        if (!prefabFromJson(v, ids, p, error)) { error = path + ": " + error; return false; }
+        if (!prefabFromJson(v, ids, p, error)) { return false; }
         p.name = result.uniquePrefabName(p.name);
         result.addPrefab(std::move(p));
     }
@@ -549,6 +572,14 @@ bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, Textu
             a.mouseButton = av["mouseButton"].asInt(-1);
             if (!a.name.empty()) result.inputActions.push_back(std::move(a));
         }
+        // Actions the engine added since the file was saved get their default bindings
+        std::vector<std::string> added;
+        if (doc["version"].asInt(0) < 9) added = {"quicksave", "quickload"};
+        for (const InputAction& d : defaultInputActions())
+            if (std::find(added.begin(), added.end(), d.name) != added.end() &&
+                std::none_of(result.inputActions.begin(), result.inputActions.end(),
+                             [&](const InputAction& a) { return a.name == d.name; }))
+                result.inputActions.push_back(d);
     }
     scene = std::move(result);
     return true;

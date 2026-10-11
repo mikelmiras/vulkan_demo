@@ -14,18 +14,33 @@ namespace {
 
 struct ScoreKeeper : BehaviourBase<ScoreKeeper> {
     static constexpr const char* kTypeName = "ScoreKeeper";
-    float target = 10.f;   // points to win
-    float score = 0.f;     // runtime state (not a field: starts at 0 every Play)
-    bool won = false;
+    float target = 10.f;     // points (in total, over all levels so far) to finish this level
+    std::string nextScene;   // where to go then; empty: the game is won
+    float wonAt = -1.f;      // runtime state: when the target was reached
 
-    void fields(FieldVisitor& v) override { v.field("target", target, 1.f, 1.f, 1000.f); }
-    void start(GameContext& ctx, Entity&) override { ctx.log("Collect " + std::to_string((int)target) + " points!"); }
+    void fields(FieldVisitor& v) override {
+        v.field("target", target, 1.f, 1.f, 1000.f);
+        v.field("nextScene", nextScene);
+    }
+    void state(FieldVisitor& v) override { v.field("wonAt", wonAt); }
+    // The score lives in the game state, so it carries over to the next level (and into save games)
+    void start(GameContext& ctx, Entity&) override {
+        ctx.log("Level " + std::to_string((int)ctx.state().add("level", 1.f)) + ": reach " +
+                std::to_string((int)target) + " points! (F5 saves, F9 loads)");
+    }
+    void update(GameContext& ctx, Entity&) override {
+        if (wonAt >= 0.f && ctx.time() - wonAt > 2.f && !nextScene.empty()) {
+            wonAt = -1.f;
+            ctx.loadScene(nextScene);
+        }
+    }
     void add(GameContext& ctx, float points) {
-        score = std::max(0.f, score + points);
+        float score = std::max(0.f, ctx.state().number("score") + points);
+        ctx.state().setNumber("score", score);
         ctx.log("Score: " + std::to_string((int)score) + " / " + std::to_string((int)target));
-        if (!won && score >= target) {
-            won = true;
-            ctx.log("You win!");
+        if (wonAt < 0.f && score >= target) {
+            wonAt = ctx.time();
+            ctx.log(nextScene.empty() ? "You win!" : "Level complete!");
             ctx.playSound2D("Beep");
         }
     }

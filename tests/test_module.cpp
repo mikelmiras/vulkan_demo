@@ -63,7 +63,7 @@ TEST(module_behaviours_play) {
         CHECK(countMissingBehaviours(s) == 0);
         Game g;
         g.start(s, meshes());
-        CHECK(logged(g, "Collect 10 points"));
+        CHECK(logged(g, "reach 8 points"));
         const Entity* coin = s.findByName("Coin.001");
         REQUIRE(coin);
         EntityId coinId = coin->id;
@@ -78,10 +78,55 @@ TEST(module_behaviours_play) {
             g.step();
             ImGui::EndFrame();
         }
-        CHECK(logged(g, "Score: 1 / 10"));
+        CHECK(logged(g, "Score: 1 / 8"));
         CHECK(!s.find(coinId));   // collected
         g.stop();
     }   // the scene (and its behaviours) go before the module
+}
+
+// Collecting enough coins finishes level 1; level 2 loads with the score carried over
+TEST(module_sample_levels_and_score_carry_over) {
+    test::ImGuiContextGuard imgui;
+    GameModule module;
+    std::string error;
+    REQUIRE(module.load(sampleModule(), error));
+    MeshLibrary meshes = buildMeshLibrary();
+    {
+        Scene s;
+        REQUIRE(loadSampleScene(s));
+        project::setRoot(fs::u8path(VKWORLD_SAMPLE_GAME));
+        Game g;
+        g.setAssetLibraries(meshes, textures());
+        g.setScenePath("scenes/main.vkw");
+        g.start(s, meshes);
+        auto step = [&](int n) {
+            for (int i = 0; i < n; ++i) {
+                ImGui::NewFrame();
+                g.step();
+                ImGui::EndFrame();
+            }
+        };
+        for (int c = 1; c <= 8; ++c) {   // teleport the player onto 8 coins
+            char name[16];
+            std::snprintf(name, sizeof(name), "Coin.%03d", c);
+            const Entity* coin = s.findByName(name);
+            REQUIRE(coin);
+            Mat4 m = s.worldMatrix(coin->id);
+            Entity* player = s.findByName("Player");
+            player->transform.position[0] = m.m[12];
+            player->transform.position[1] = 0.f;
+            player->transform.position[2] = m.m[14];
+            step(3);
+        }
+        CHECK(logged(g, "Level complete!"));
+        step(150);   // 2 s later: the next level
+        project::setRoot(fs::current_path());
+        CHECK(g.scenePath() == "scenes/level2.vkw");
+        CHECK(logged(g, "Level 2"));
+        CHECK_NEAR(g.state().number("score"), 8.0, 1.0);   // carried over (a drone may have taken one)
+        CHECK(s.findByName("Drone.3") != nullptr);           // level 2 has three
+        g.stop();
+    }
 }
 
 // What the editor does when the module is rebuilt: behaviours keep their (edited) fields across the swap

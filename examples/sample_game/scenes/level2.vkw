@@ -1,0 +1,782 @@
+{
+  "format": "vkworld-scene",
+  "version": 9,
+  "meshes": [],
+  "textures": [],
+  "entities": [
+    {
+      "id": 3,
+      "name": "Sun",
+      "transform": {
+        "position": [9.536743e-07, 40, -0],
+        "rotation": [-61.59407, 56.30993, 0],
+        "scale": [1, 1, 1]
+      },
+      "light": {
+        "type": "directional",
+        "color": [1, 0.95, 0.85],
+        "intensity": 1,
+        "castShadows": true
+      }
+    },
+    {
+      "id": 4,
+      "name": "Ground",
+      "locked": true,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [80, 1, 80]
+      },
+      "meshRenderer": {
+        "mesh": "Plane",
+        "color": [0.42, 0.55, 0.38],
+        "checker": true
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, -0.5, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 1,
+      "name": "Player",
+      "transform": {
+        "position": [0, 0.05, 12],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "collider": {
+        "shape": "capsule",
+        "center": [0, 0.9, 0],
+        "radius": 0.35,
+        "height": 1.8
+      },
+      "behaviours": [
+        {
+          "type": "PlayerController",
+          "moveSpeed": 6,
+          "sprintMultiplier": 2,
+          "lookSensitivity": 0.15,
+          "stickLookSpeed": 150,
+          "jumpSpeed": 6.5,
+          "gravity": 18,
+          "respawnBelow": -50,
+          "fly": false,
+          "jumpSound": "Jump"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Player Camera",
+      "parent": 1,
+      "transform": {
+        "position": [0, 1.65, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "camera": {
+        "fov": 60,
+        "near": 0.1,
+        "far": 2000
+      },
+      "behaviours": [
+        {
+          "type": "Shooter",
+          "prefab": "Bullet",
+          "cooldown": 0.15,
+          "muzzle": 0.6
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Score",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "ScoreKeeper",
+          "target": 20,
+          "nextScene": ""
+        },
+        {
+          "type": "SaveLoadKeys",
+          "slot": "quicksave",
+          "saveAction": "quicksave",
+          "loadAction": "quickload"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Coins",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 7,
+      "name": "Coin.001",
+      "parent": 6,
+      "transform": {
+        "position": [17.39502, 1, 4.62745],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Coin.002",
+      "parent": 6,
+      "transform": {
+        "position": [4.958646, 1, 4.940833],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Coin.003",
+      "parent": 6,
+      "transform": {
+        "position": [1.823897, 1, 6.75821],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "Coin.004",
+      "parent": 6,
+      "transform": {
+        "position": [-4.62745, 1, 17.39502],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Coin.005",
+      "parent": 6,
+      "transform": {
+        "position": [-4.940833, 1, 4.958646],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "Coin.006",
+      "parent": 6,
+      "transform": {
+        "position": [-6.75821, 1, 1.823896],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "Coin.007",
+      "parent": 6,
+      "transform": {
+        "position": [-17.39502, 1, -4.627451],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "Coin.008",
+      "parent": 6,
+      "transform": {
+        "position": [-4.958645, 1, -4.940834],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Coin.009",
+      "parent": 6,
+      "transform": {
+        "position": [-1.823895, 1, -6.75821],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Coin.010",
+      "parent": 6,
+      "transform": {
+        "position": [4.627454, 1, -17.39502],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Coin.011",
+      "parent": 6,
+      "transform": {
+        "position": [4.940834, 1, -4.958645],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Coin.012",
+      "parent": 6,
+      "transform": {
+        "position": [6.75821, 1, -1.823897],
+        "rotation": [90, 0, 0],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.8, 0.2]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.8,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Coin",
+          "points": 1,
+          "spin": 180
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "Drones",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 20,
+      "name": "Drone.1",
+      "parent": 19,
+      "transform": {
+        "position": [18, 0.6, -6],
+        "rotation": [0, 0, 0],
+        "scale": [1.2, 1.2, 1.2]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.8, 0.2, 0.3]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Chaser",
+          "speed": 3.5,
+          "range": 18,
+          "penalty": 2
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "Drone.2",
+      "parent": 19,
+      "transform": {
+        "position": [-18, 0.6, 2],
+        "rotation": [0, 0, 0],
+        "scale": [1.2, 1.2, 1.2]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.8, 0.2, 0.3]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Chaser",
+          "speed": 3.5,
+          "range": 18,
+          "penalty": 2
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "Drone.3",
+      "parent": 19,
+      "transform": {
+        "position": [18, 0.6, 10],
+        "rotation": [0, 0, 0],
+        "scale": [1.2, 1.2, 1.2]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.8, 0.2, 0.3]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Chaser",
+          "speed": 3.5,
+          "range": 18,
+          "penalty": 2
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "Obstacles",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 24,
+      "name": "Block.001",
+      "parent": 23,
+      "transform": {
+        "position": [8.36048, 1, 8.608273],
+        "rotation": [0, 0, 0],
+        "scale": [2, 2, 2]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.55, 0.6, 0.7],
+        "texture": "Tiles"
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 25,
+      "name": "Block.002",
+      "parent": 23,
+      "transform": {
+        "position": [-3.274743, 1, 11.54453],
+        "rotation": [0, 0, 0],
+        "scale": [2, 2, 2]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.55, 0.6, 0.7],
+        "texture": "Tiles"
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 26,
+      "name": "Block.003",
+      "parent": 23,
+      "transform": {
+        "position": [-11.63522, 1, 2.936252],
+        "rotation": [0, 0, 0],
+        "scale": [2, 2, 2]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.55, 0.6, 0.7],
+        "texture": "Tiles"
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 27,
+      "name": "Block.004",
+      "parent": 23,
+      "transform": {
+        "position": [-8.360479, 1, -8.608274],
+        "rotation": [0, 0, 0],
+        "scale": [2, 2, 2]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.55, 0.6, 0.7],
+        "texture": "Tiles"
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 28,
+      "name": "Block.005",
+      "parent": 23,
+      "transform": {
+        "position": [3.274746, 1, -11.54452],
+        "rotation": [0, 0, 0],
+        "scale": [2, 2, 2]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.55, 0.6, 0.7],
+        "texture": "Tiles"
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 29,
+      "name": "Block.006",
+      "parent": 23,
+      "transform": {
+        "position": [11.63523, 1, -2.936245],
+        "rotation": [0, 0, 0],
+        "scale": [2, 2, 2]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.55, 0.6, 0.7],
+        "texture": "Tiles"
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    }
+  ],
+  "settings": {
+    "input": [
+      {
+        "name": "move_forward",
+        "keys": [
+          "W",
+          "UpArrow",
+          "GamepadLStickUp"
+        ]
+      },
+      {
+        "name": "move_back",
+        "keys": [
+          "S",
+          "DownArrow",
+          "GamepadLStickDown"
+        ]
+      },
+      {
+        "name": "move_left",
+        "keys": [
+          "A",
+          "LeftArrow",
+          "GamepadLStickLeft"
+        ]
+      },
+      {
+        "name": "move_right",
+        "keys": [
+          "D",
+          "RightArrow",
+          "GamepadLStickRight"
+        ]
+      },
+      {
+        "name": "move_up",
+        "keys": [
+          "E",
+          "GamepadR1"
+        ]
+      },
+      {
+        "name": "move_down",
+        "keys": [
+          "Q",
+          "GamepadL1"
+        ]
+      },
+      {
+        "name": "jump",
+        "keys": [
+          "Space",
+          "GamepadFaceDown"
+        ]
+      },
+      {
+        "name": "sprint",
+        "keys": [
+          "LeftShift",
+          "RightShift",
+          "GamepadL3"
+        ]
+      },
+      {
+        "name": "look",
+        "keys": [],
+        "mouseButton": 1
+      },
+      {
+        "name": "look_left",
+        "keys": [
+          "GamepadRStickLeft"
+        ]
+      },
+      {
+        "name": "look_right",
+        "keys": [
+          "GamepadRStickRight"
+        ]
+      },
+      {
+        "name": "look_up",
+        "keys": [
+          "GamepadRStickUp"
+        ]
+      },
+      {
+        "name": "look_down",
+        "keys": [
+          "GamepadRStickDown"
+        ]
+      },
+      {
+        "name": "fire",
+        "keys": [
+          "GamepadR2"
+        ],
+        "mouseButton": 0
+      },
+      {
+        "name": "quicksave",
+        "keys": [
+          "F5"
+        ]
+      },
+      {
+        "name": "quickload",
+        "keys": [
+          "F9"
+        ]
+      }
+    ]
+  }
+}

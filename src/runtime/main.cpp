@@ -107,11 +107,14 @@ int main(int argc, char** argv) {
     if (!audio.init()) std::fprintf(stderr, "%s\n", audio.error().c_str());
     Game game;
     game.setAudio(&audio);
+    game.setAssetLibraries(meshes, textures);
+    game.setScenePath(path.empty() ? "" : project::toStored(path));
+    game.setSaveDirectory(project::saveDir(settings.name.empty() ? "Untitled" : settings.name));
     game.start(scene, meshes);
     if (options.screenshotPath.empty()) platform::setCursorCaptured(true);
 
     float dt = 0.f;
-    while (app.beginFrame(dt)) {
+    while (!game.quitRequested() && app.beginFrame(dt)) {
         ImGuiIO& io = ImGui::GetIO();
         if (platform::cursorCaptured() && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) platform::setCursorCaptured(false);
         else if (!platform::cursorCaptured() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) platform::setCursorCaptured(true);

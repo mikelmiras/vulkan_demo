@@ -1,6 +1,6 @@
 {
   "format": "vkworld-scene",
-  "version": 8,
+  "version": 9,
   "meshes": [],
   "textures": [],
   "entities": [
@@ -102,7 +102,14 @@
       "behaviours": [
         {
           "type": "ScoreKeeper",
-          "target": 10
+          "target": 8,
+          "nextScene": "scenes/level2.vkw"
+        },
+        {
+          "type": "SaveLoadKeys",
+          "slot": "quicksave",
+          "saveAction": "quicksave",
+          "loadAction": "quickload"
         }
       ]
     },
@@ -450,7 +457,7 @@
     },
     {
       "id": 20,
-      "name": "Drone.001",
+      "name": "Drone.1",
       "parent": 19,
       "transform": {
         "position": [18, 0.6, -6],
@@ -477,10 +484,10 @@
     },
     {
       "id": 21,
-      "name": "Drone.002",
+      "name": "Drone.2",
       "parent": 19,
       "transform": {
-        "position": [-18, 0.6, -6],
+        "position": [-18, 0.6, 2],
         "rotation": [0, 0, 0],
         "scale": [1.2, 1.2, 1.2]
       },
@@ -730,6 +737,18 @@
           "GamepadR2"
         ],
         "mouseButton": 0
+      },
+      {
+        "name": "quicksave",
+        "keys": [
+          "F5"
+        ]
+      },
+      {
+        "name": "quickload",
+        "keys": [
+          "F9"
+        ]
       }
     ]
   }

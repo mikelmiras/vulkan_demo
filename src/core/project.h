@@ -29,6 +29,10 @@ std::string toStored(const std::string& path);
 std::string resolve(const std::string& stored);
 
 bool exists(const std::filesystem::path& dir);   // has a project.json
+
+// Where a game's save games go: <user data>/vkworld/<project name>/saves (~/.local/share on Linux, %APPDATA% on
+// Windows, ~/Library/Application Support on macOS). VKWORLD_SAVE_DIR overrides it.
+std::filesystem::path saveDir(const std::string& projectName);
 bool load(const std::filesystem::path& dir, Settings& out, std::string& error);
 bool save(const std::filesystem::path& dir, const Settings& settings, std::string& error);
 

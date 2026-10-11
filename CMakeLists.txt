@@ -182,7 +182,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_rendering_assets.cpp
     tests/test_audio.cpp
     tests/test_project.cpp
-    tests/test_module.cpp)
+    tests/test_module.cpp
+    tests/test_scene_flow.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module
     add_dependencies(engine_tests sample_game)

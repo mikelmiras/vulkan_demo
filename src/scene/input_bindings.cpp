@@ -16,6 +16,8 @@ std::vector<InputAction> defaultInputActions() {
         {"look_up", {ImGuiKey_GamepadRStickUp}},
         {"look_down", {ImGuiKey_GamepadRStickDown}},
         {"fire", {ImGuiKey_GamepadR2}, ImGuiMouseButton_Left},
+        {"quicksave", {ImGuiKey_F5}},
+        {"quickload", {ImGuiKey_F9}},
     };
 }
 

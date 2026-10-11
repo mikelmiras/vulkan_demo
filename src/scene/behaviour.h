@@ -14,6 +14,7 @@
 // state they keep in member variables is per play session and starts fresh on every Play.
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -32,6 +33,12 @@ public:
     virtual void field(const char* name, bool& v) = 0;
     virtual void field(const char* name, Vec3& v, float speed = 0.05f) = 0;
     virtual void field(const char* name, std::string& v) = 0;
+    // Entity ids (runtime state): stored as numbers, exact up to 2^24
+    void field(const char* name, uint32_t& id) {
+        float f = (float)id;
+        field(name, f, 1.f);
+        id = f >= 0.f ? (uint32_t)(f + 0.5f) : 0u;
+    }
 };
 
 class Behaviour {
@@ -41,6 +48,10 @@ public:
     virtual std::unique_ptr<Behaviour> clone() const = 0;
 
     virtual void fields(FieldVisitor&) {}
+    // Runtime state worth keeping in a save game (what start() and update() build up: timers, counters, where it
+    // started), visited like fields() but never shown in the inspector or saved in scene files. A loaded save
+    // calls start() first, then restores this.
+    virtual void state(FieldVisitor&) {}
     virtual void start(GameContext&, Entity& /*self*/) {}    // when Play is pressed
     virtual void update(GameContext&, Entity& /*self*/) {}   // every fixed update; ctx.dt() is the step length
     // A trigger collider started / stopped overlapping another collider. Called on the behaviours of both entities

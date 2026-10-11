@@ -49,6 +49,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     keyTakenByBindings_ = false;
     if (audio_ && !playing()) audio_->update();   // (while playing, the game does it)
     pollGameModule();
+    if (playing() && game_.quitRequested()) stopPlay();   // the game asked to quit: back to editing
     frameStart_ = {scene_, selected_};
     editBegan_ = false;
     if (statusTimer_ > 0.f) statusTimer_ -= dt;
@@ -159,6 +160,9 @@ void Editor::startPlay() {
     editScene_ = scene_;
     editSelected_ = selected_;
     nav_ = Nav::None;
+    game_.setAssetLibraries(meshes_, textures_);
+    game_.setScenePath(scenePath_);
+    game_.setSaveDirectory(project::saveDir(project_.name));
     game_.start(scene_, meshes_);
     setStatus("Playing. Ctrl+P stops and restores the scene.");
 }

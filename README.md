@@ -260,6 +260,8 @@ Behaviours are C++ classes attached to entities as components (Inspector > Add c
 | Projectile       | Flies forward, stops at the first solid collider and damages Destructibles   |
 | Destructible     | Destroyed after enough hits, optionally leaving a prefab behind              |
 | Spawner          | Spawns a prefab every few seconds (with a little random spread), up to a maximum alive at once |
+| SceneExit        | Goes to another scene when the collector touches its trigger collider        |
+| SaveLoadKeys     | Quicksave / quickload on the `quicksave` (F5) / `quickload` (F9) actions      |
 
 Writing one (see `src/game/builtin_behaviours.cpp` for complete examples):
 
@@ -282,6 +284,24 @@ registerBehaviour<Hover>("Floats up and down");           // at startup, before 
 
 `GameContext` gives access to the scene, input actions, time, entity lookup by name or id, world positions,
 collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also get `onTriggerEnter` / `onTriggerExit`.
+
+### Scene flow and save games
+
+Game code moves between scenes and keeps progress through the `GameContext`:
+
+```cpp
+ctx.loadScene("scenes/level2.vkw");    // replaces the scene at the end of the update (path relative to the project)
+ctx.state().add("score", 10.f);        // GameState: numbers, texts and flags that survive scene changes
+ctx.saveGame("slot1");                 // the scene as it is, the game state and the clock
+ctx.loadGame("slot1");
+ctx.quit();                            // vkgame exits; in the editor, play mode stops
+```
+
+Save games go to the user's data folder (`~/.local/share/vkworld/<project>/saves`, `%APPDATA%\vkworld\...`,
+`~/Library/Application Support/vkworld/...`; `VKWORLD_SAVE_DIR` overrides it). They hold the whole scene
+(entities, behaviours' fields, rigid-body velocities) and each behaviour's **runtime state**: what a behaviour
+builds up while playing goes in an optional `state(FieldVisitor&)` next to `fields()`, and is restored after
+`start()` when a save is loaded. In the editor, Stop still restores the scene you were editing.
 
 ### Game modules: a project's own code
 

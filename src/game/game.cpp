@@ -1,10 +1,46 @@
 #include "game/game.h"
 
 #include "physics/dynamics.h"
+#include "core/project.h"
+#include "scene/serialization.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <fstream>
+#include <sstream>
+
+namespace fs = std::filesystem;
+
+// ---------------------------------------------------------------------------------------------
+// GameState
+// ---------------------------------------------------------------------------------------------
+float GameState::number(const std::string& key, float fallback) const {
+    auto it = values_.find(key);
+    return it != values_.end() ? it->second.asFloat(fallback) : fallback;
+}
+
+std::string GameState::text(const std::string& key, const std::string& fallback) const {
+    auto it = values_.find(key);
+    return it != values_.end() && it->second.type() == json::Value::Type::String ? it->second.asString() : fallback;
+}
+
+bool GameState::flag(const std::string& key, bool fallback) const {
+    auto it = values_.find(key);
+    return it != values_.end() ? it->second.asBool(fallback) : fallback;
+}
+
+json::Value GameState::toJson() const {
+    json::Value v = json::Value::object();
+    for (const auto& [key, value] : values_) v.set(key, value);
+    return v;
+}
+
+void GameState::fromJson(const json::Value& v) {
+    values_.clear();
+    for (const auto& [key, value] : v.members()) values_[key] = value;
+}
 
 // ---------------------------------------------------------------------------------------------
 // GameContext
@@ -98,6 +134,18 @@ bool GameContext::isDestroyed(EntityId id) const {
     return std::find(destroyQueue_.begin(), destroyQueue_.end(), id) != destroyQueue_.end();
 }
 
+void GameContext::loadScene(const std::string& path) { game_->pendingScene_ = path; }
+void GameContext::quit() { game_->quit_ = true; }
+GameState& GameContext::state() { return game_->state_; }
+void GameContext::saveGame(const std::string& slot) { game_->pendingSave_ = slot; }
+void GameContext::loadGame(const std::string& slot) { game_->pendingLoad_ = slot; }
+const std::string& GameContext::scenePath() const { return game_->scenePath_; }
+
+bool GameContext::hasSaveGame(const std::string& slot) const {
+    std::error_code ec;
+    return fs::is_regular_file(game_->saveGamePath(slot), ec);
+}
+
 void GameContext::log(const std::string& message) {
     std::printf("[game %7.2fs] %s\n", time_, message.c_str());
     std::fflush(stdout);
@@ -111,15 +159,24 @@ void GameContext::log(const std::string& message) {
 void Game::start(Scene& scene, const MeshLibrary& meshes) {
     scene_ = &scene;
     meshes_ = &meshes;
-    triggerPairs_.clear();
-    ctx_.spawnQueue_.clear();
-    ctx_.destroyQueue_.clear();
     accumulator_ = time_ = updateMs_ = 0.f;
     tick_ = 0;
     paused_ = false;
-    input_ = InputMap(scene.inputActions);
     log_.clear();
+    state_.clear();
+    pendingScene_.clear();
+    pendingSave_.clear();
+    pendingLoad_.clear();
+    quit_ = false;
+    begin();
+    applyRequests();   // a scene may move on right away (a splash screen, say)
+}
 
+void Game::begin() {
+    triggerPairs_.clear();
+    ctx_.spawnQueue_.clear();
+    ctx_.destroyQueue_.clear();
+    input_ = InputMap(scene_->inputActions);
     physics_.build(*scene_, *meshes_);
     prepareContext(0.f);
     startAudio();
@@ -138,10 +195,14 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
 }
 
 void Game::stop() {
+    stopSounds();
+    scene_ = nullptr;
+}
+
+void Game::stopSounds() {
     if (audio_)
         for (const auto& a : attached_) audio_->stop(a.second);
     attached_.clear();
-    scene_ = nullptr;
 }
 
 void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
@@ -171,6 +232,7 @@ void Game::prepareContext(float dt) {
     ctx_.time_ = time_;
     ctx_.dt_ = dt;
     ctx_.log_ = &log_;
+    ctx_.game_ = this;
 }
 
 void Game::fixedUpdate(float dt) {
@@ -189,6 +251,7 @@ void Game::fixedUpdate(float dt) {
     updateTriggers();
     flushQueues();
     input_.endFixedStep();
+    applyRequests();
     float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count();
     updateMs_ = updateMs_ > 0.f ? updateMs_ * 0.9f + ms * 0.1f : ms;
 }
@@ -323,4 +386,129 @@ bool Game::activeCamera(CameraView& out) const {
         return true;
     }
     return false;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Scene flow and save games
+// ---------------------------------------------------------------------------------------------
+void Game::applyRequests() {
+    std::string error;
+    if (!pendingSave_.empty()) {
+        std::string slot = std::move(pendingSave_);
+        pendingSave_.clear();
+        if (saveGame(slot, error)) ctx_.log("Saved '" + slot + "'");
+        else ctx_.log("Save failed: " + error);
+    }
+    if (!pendingLoad_.empty()) {
+        std::string slot = std::move(pendingLoad_);
+        pendingLoad_.clear();
+        pendingScene_.clear();   // loading a save wins over a scene change asked for in the same update
+        if (loadGame(slot, error)) ctx_.log("Loaded '" + slot + "'");
+        else ctx_.log("Load failed: " + error);
+    } else if (!pendingScene_.empty()) {
+        std::string path = std::move(pendingScene_);
+        pendingScene_.clear();
+        if (!changeScene(path, error)) ctx_.log("loadScene: " + error);
+    }
+}
+
+bool Game::changeScene(const std::string& path, std::string& error) {
+    if (!running()) { error = "the game isn't running"; return false; }
+    if (!meshLib_ || !texLib_) { error = "no asset libraries to load scenes into"; return false; }
+    Scene next;
+    if (!loadScene(project::resolve(path), next, *meshLib_, *texLib_, error)) return false;
+    stopSounds();
+    *scene_ = std::move(next);
+    scenePath_ = path;
+    begin();
+    return true;
+}
+
+fs::path Game::saveGamePath(const std::string& slot) const {
+    std::string file;
+    for (char c : slot) file += (std::isalnum((unsigned char)c) || c == '-' || c == '_') ? c : '_';
+    return (saveDir_.empty() ? project::saveDir("Untitled") : saveDir_) / (file + ".save");
+}
+
+bool Game::saveGame(const std::string& slot, std::string& error) {
+    if (!running()) { error = "the game isn't running"; return false; }
+    if (!meshes_ || !texLib_) { error = "no asset libraries"; return false; }
+    json::Value doc = json::Value::object();
+    doc.set("format", "vkworld-save");
+    doc.set("version", 1);
+    doc.set("scene", scenePath_);
+    doc.set("time", time_);
+    doc.set("tick", (double)tick_);
+    doc.set("state", state_.toJson());
+    doc.set("world", sceneToJson(*scene_, *meshes_, *texLib_));
+    json::Value& states = doc.set("behaviours", json::Value::array());   // runtime state() of every behaviour
+    for (Entity& e : scene_->entities)
+        for (size_t i = 0; i < e.behaviours.size(); ++i) {
+            json::Value st = behaviourStateToJson(*e.behaviours[i]);
+            if (st.members().empty()) continue;
+            json::Value rec = json::Value::object();
+            rec.set("entity", e.id);
+            rec.set("index", (int)i);
+            rec.set("type", e.behaviours[i]->typeName());
+            rec.set("state", std::move(st));
+            states.push(std::move(rec));
+        }
+    json::Value& triggers = doc.set("triggers", json::Value::array());   // overlaps already reported (no re-enter)
+    for (const auto& [a, b] : triggerPairs_) {
+        json::Value pair = json::Value::array();
+        pair.push(a);
+        pair.push(b);
+        triggers.push(std::move(pair));
+    }
+
+    fs::path path = saveGamePath(slot);
+    std::error_code ec;
+    fs::create_directories(path.parent_path(), ec);
+    fs::path temp = path;
+    temp += ".tmp";
+    {
+        std::ofstream f(temp, std::ios::binary);
+        if (!f) { error = "cannot write " + temp.u8string(); return false; }
+        f << json::write(doc);
+        if (!f) { error = "cannot write " + temp.u8string(); return false; }
+    }
+    fs::rename(temp, path, ec);   // a crash mid-save leaves the old save intact
+    if (ec) { error = "cannot write " + path.u8string() + ": " + ec.message(); return false; }
+    return true;
+}
+
+bool Game::loadGame(const std::string& slot, std::string& error) {
+    if (!running()) { error = "the game isn't running"; return false; }
+    if (!meshLib_ || !texLib_) { error = "no asset libraries to load scenes into"; return false; }
+    fs::path path = saveGamePath(slot);
+    std::ifstream f(path, std::ios::binary);
+    if (!f) { error = "no save game '" + slot + "'"; return false; }
+    std::stringstream ss;
+    ss << f.rdbuf();
+    json::Value doc;
+    if (!json::parse(ss.str(), doc, error)) { error = path.u8string() + ": " + error; return false; }
+    if (doc["format"].asString() != "vkworld-save") { error = path.u8string() + ": not a save game"; return false; }
+    if (doc["version"].asInt(0) > 1) { error = path.u8string() + ": made by a newer version"; return false; }
+    Scene next;
+    if (!sceneFromJson(doc["world"], next, *meshLib_, *texLib_, error)) { error = path.u8string() + ": " + error; return false; }
+
+    stopSounds();
+    *scene_ = std::move(next);
+    scenePath_ = doc["scene"].asString();
+    time_ = doc["time"].asFloat(0.f);
+    tick_ = (unsigned long long)doc["tick"].asNumber(0);
+    accumulator_ = 0.f;
+    state_.fromJson(doc["state"]);
+    begin();   // start() everything, then put back what it had built up
+    for (const json::Value& rec : doc["behaviours"].elements()) {
+        Entity* e = scene_->find((EntityId)rec["entity"].asNumber(0));
+        size_t i = (size_t)rec["index"].asInt(-1);
+        if (!e || i >= e->behaviours.size() || rec["type"].asString() != e->behaviours[i]->typeName()) continue;
+        behaviourStateFromJson(*e->behaviours[i], rec["state"]);
+    }
+    triggerPairs_.clear();
+    for (const json::Value& pair : doc["triggers"].elements())
+        if (pair.elements().size() == 2)
+            triggerPairs_.emplace_back((EntityId)pair.elements()[0].asNumber(0), (EntityId)pair.elements()[1].asNumber(0));
+    return true;
 }

@@ -1,6 +1,7 @@
 // The engine's built-in behaviours. A game adds its own the same way (see scene/behaviour.h).
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 
 #include "game/game.h"
 #include "scene/behaviour.h"
@@ -34,6 +35,7 @@ struct Spin : BehaviourBase<Spin> {
 // ---------------------------------------------------------------------------------------------
 struct Bob : BehaviourBase<Bob> {
     static constexpr const char* kTypeName = "Bob";
+    void state(FieldVisitor& v) override { v.field("baseY", baseY); }
     float height = 0.5f;   // amplitude
     float speed = 1.5f;    // radians per second
     float phase = 0.f;     // degrees
@@ -55,6 +57,7 @@ struct Bob : BehaviourBase<Bob> {
 // ---------------------------------------------------------------------------------------------
 struct Patrol : BehaviourBase<Patrol> {
     static constexpr const char* kTypeName = "Patrol";
+    void state(FieldVisitor& v) override { v.field("origin", origin); }
     Vec3 offset{0, 0, 6};   // goes back and forth between its start and start + offset (parent space)
     float speed = 3.f;      // units per second
     Vec3 origin;
@@ -101,6 +104,13 @@ struct LookAt : BehaviourBase<LookAt> {
 // stays upright. Walking slides along solid colliders; without a collider it walks at its starting height.
 struct PlayerController : BehaviourBase<PlayerController> {
     static constexpr const char* kTypeName = "PlayerController";
+    void state(FieldVisitor& v) override {
+        v.field("yaw", yaw);
+        v.field("pitch", pitch);
+        v.field("vy", vy);
+        v.field("grounded", grounded);
+        v.field("spawn", spawn);
+    }
     float moveSpeed = 6.f;
     float sprintMultiplier = 2.f;
     float lookSensitivity = 0.15f;   // degrees per pixel
@@ -204,6 +214,7 @@ struct PlayerController : BehaviourBase<PlayerController> {
 // reacts to trigger overlaps; without one it checks the distance to the collector every update.
 struct Pickup : BehaviourBase<Pickup> {
     static constexpr const char* kTypeName = "Pickup";
+    void state(FieldVisitor& v) override { v.field("collected", collected); }
     std::string collector = "Player";   // entity name
     float radius = 1.8f;                // only used without a trigger collider
     bool collected = false;             // runtime state
@@ -237,6 +248,10 @@ struct Pickup : BehaviourBase<Pickup> {
 // prefab behind
 struct Destructible : BehaviourBase<Destructible> {
     static constexpr const char* kTypeName = "Destructible";
+    void state(FieldVisitor& v) override {
+        v.field("remaining", remaining);
+        v.field("destroyed", destroyed);
+    }
     float hits = 1.f;          // how many it takes
     std::string dropPrefab;    // spawned where it was destroyed (empty: nothing)
     float remaining = 0.f;     // runtime state
@@ -268,6 +283,11 @@ struct Destructible : BehaviourBase<Destructible> {
 // Flies along its -Z; anything solid it reaches stops it (and takes a hit if it's Destructible)
 struct Projectile : BehaviourBase<Projectile> {
     static constexpr const char* kTypeName = "Projectile";
+    void state(FieldVisitor& v) override {
+        v.field("owner", owner);
+        v.field("velocity", velocity);
+        v.field("age", age);
+    }
     float speed = 40.f;
     float gravity = 0.f;
     float lifetime = 3.f;      // seconds, then it disappears
@@ -313,6 +333,7 @@ struct Projectile : BehaviourBase<Projectile> {
 // Fires a prefab (usually one with a Projectile) along its -Z while the "fire" action is held. Put it on a camera.
 struct Shooter : BehaviourBase<Shooter> {
     static constexpr const char* kTypeName = "Shooter";
+    void state(FieldVisitor& v) override { v.field("nextShot", nextShot); }
     std::string prefab = "Bullet";
     float cooldown = 0.15f;     // seconds between shots
     float muzzle = 0.6f;        // spawn this far in front
@@ -344,6 +365,15 @@ struct Shooter : BehaviourBase<Shooter> {
 // Spawns a prefab at its position (facing its -Z) every `interval` seconds, keeping at most `maxAlive` around
 struct Spawner : BehaviourBase<Spawner> {
     static constexpr const char* kTypeName = "Spawner";
+    void state(FieldVisitor& v) override {
+        v.field("timer", timer);
+        std::string ids;   // the spawned entities still alive, as "12 15 31"
+        for (EntityId id : alive) ids += (ids.empty() ? "" : " ") + std::to_string(id);
+        v.field("alive", ids);
+        alive.clear();
+        std::istringstream in(ids);
+        for (EntityId id; in >> id;) alive.push_back(id);
+    }
     std::string prefab;
     float interval = 2.f;
     float maxAlive = 5.f;
@@ -386,6 +416,44 @@ struct Spawner : BehaviourBase<Spawner> {
 
 }  // namespace
 
+// ---------------------------------------------------------------------------------------------
+// Scene flow
+// ---------------------------------------------------------------------------------------------
+struct SceneExit : BehaviourBase<SceneExit> {
+    static constexpr const char* kTypeName = "SceneExit";
+    std::string scene;                  // the scene file to go to (relative to the project)
+    std::string collector = "Player";   // who sets it off, by touching its trigger collider
+    void fields(FieldVisitor& v) override {
+        v.field("scene", scene);
+        v.field("collector", collector);
+    }
+    void start(GameContext& ctx, Entity& self) override {
+        if (!self.collider || !self.collider->trigger) ctx.log(self.name + ": SceneExit needs a trigger collider");
+    }
+    void onTriggerEnter(GameContext& ctx, Entity&, Entity& other) override {
+        if (other.name == collector && !scene.empty()) ctx.loadScene(scene);
+    }
+};
+
+struct SaveLoadKeys : BehaviourBase<SaveLoadKeys> {
+    static constexpr const char* kTypeName = "SaveLoadKeys";
+    std::string slot = "quicksave";
+    std::string saveAction = "quicksave";   // F5 by default
+    std::string loadAction = "quickload";   // F9
+    void fields(FieldVisitor& v) override {
+        v.field("slot", slot);
+        v.field("saveAction", saveAction);
+        v.field("loadAction", loadAction);
+    }
+    void update(GameContext& ctx, Entity&) override {
+        if (ctx.input().pressed(saveAction)) ctx.saveGame(slot);
+        if (ctx.input().pressed(loadAction)) {
+            if (ctx.hasSaveGame(slot)) ctx.loadGame(slot);
+            else ctx.log("No save game '" + slot + "' yet");
+        }
+    }
+};
+
 void registerBuiltinBehaviours() {
     registerBehaviour<Spin>("Rotates around the parent's Y axis (degrees per second)");
     registerBehaviour<Bob>("Floats up and down around its starting height");
@@ -399,4 +467,6 @@ void registerBuiltinBehaviours() {
     registerBehaviour<Projectile>("Flies along its -Z and stops at the first solid collider, damaging Destructibles");
     registerBehaviour<Destructible>("Destroyed after enough hits, optionally leaving a prefab behind");
     registerBehaviour<Spawner>("Spawns a prefab every few seconds, up to a maximum alive at once");
+    registerBehaviour<SceneExit>("Goes to another scene when the collector touches its trigger collider");
+    registerBehaviour<SaveLoadKeys>("Saves the game on the save action (F5) and loads it on the load action (F9)");
 }

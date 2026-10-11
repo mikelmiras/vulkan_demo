@@ -1,11 +1,14 @@
 // Game runtime: runs the scene's behaviours with a fixed timestep, independent of the frame rate.
 #pragma once
 
+#include <filesystem>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "audio/audio.h"
+#include "core/json.h"
 #include "core/vecmath.h"
 #include "game/input.h"
 #include "physics/physics_world.h"
@@ -17,6 +20,32 @@ struct CameraView {
     Vec3 position;
     float fovY = 60.f * DEG2RAD;
     float zNear = 0.1f, zFar = 2000.f;
+};
+
+class Game;
+
+// Values that outlive a scene (score, lives, inventory, progress): kept when ctx.loadScene() changes the scene,
+// saved in save games, empty when the game starts
+class GameState {
+public:
+    float number(const std::string& key, float fallback = 0.f) const;
+    std::string text(const std::string& key, const std::string& fallback = "") const;
+    bool flag(const std::string& key, bool fallback = false) const;
+    void setNumber(const std::string& key, float value) { values_[key] = value; }
+    void setText(const std::string& key, const std::string& value) { values_[key] = value; }
+    void setFlag(const std::string& key, bool value) { values_[key] = value; }
+    float add(const std::string& key, float amount) {   // number += amount; returns the new value
+        setNumber(key, number(key) + amount);
+        return number(key);
+    }
+    bool has(const std::string& key) const { return values_.count(key) > 0; }
+    void erase(const std::string& key) { values_.erase(key); }
+    void clear() { values_.clear(); }
+    json::Value toJson() const;
+    void fromJson(const json::Value& v);
+
+private:
+    std::map<std::string, json::Value> values_;
 };
 
 // Everything a behaviour can reach while it runs
@@ -57,8 +86,21 @@ public:
     bool isDestroyed(EntityId id) const;   // queued this update
     void log(const std::string& message);  // shown in the viewport and printed to stdout
 
+    // ---- Scene flow. These take effect at the end of the update (after every behaviour has run).
+    // Replaces the scene with another scene file (relative to the project). state() and the clock carry on.
+    void loadScene(const std::string& path);
+    void quit();                                       // vkgame exits; the editor stops playing
+    GameState& state();                                // what survives scene changes
+    // Save games: the scene as it is now (entities, behaviours' fields and state(), rigid-body velocities), state()
+    // and the clock, in the project's save folder (project::saveDir). Loading replaces the scene with the saved one.
+    void saveGame(const std::string& slot = "quicksave");
+    void loadGame(const std::string& slot = "quicksave");
+    bool hasSaveGame(const std::string& slot = "quicksave") const;
+    const std::string& scenePath() const;              // the current scene's file ("" for a scene built in code)
+
 private:
     friend class Game;
+    Game* game_ = nullptr;
     Scene* scene_ = nullptr;
     const InputMap* input_ = nullptr;
     const PhysicsWorld* physics_ = nullptr;
@@ -88,6 +130,21 @@ public:
     void setPaused(bool paused) { paused_ = paused; }
     // Optional: with an audio engine, AudioSources play and ctx.playSound() is heard. Set before start().
     void setAudio(AudioEngine* audio) { audio_ = audio; }
+    // For ctx.loadScene() / loadGame(): the libraries scenes load into (imports are appended). Without them, scene
+    // changes fail (logged). The meshes must be the ones given to start().
+    void setAssetLibraries(MeshLibrary& meshes, TextureLibrary& textures) { meshLib_ = &meshes; texLib_ = &textures; }
+    void setScenePath(const std::string& path) { scenePath_ = path; }   // the scene's file, recorded in save games
+    const std::string& scenePath() const { return scenePath_; }
+    void setSaveDirectory(const std::filesystem::path& dir) { saveDir_ = dir; }
+    const std::filesystem::path& saveDirectory() const { return saveDir_; }
+    bool quitRequested() const { return quit_; }
+    GameState& state() { return state_; }
+
+    // The same as the GameContext requests, done right away (between updates)
+    bool changeScene(const std::string& path, std::string& error);
+    bool saveGame(const std::string& slot, std::string& error);
+    bool loadGame(const std::string& slot, std::string& error);
+    std::filesystem::path saveGamePath(const std::string& slot) const;
     bool paused() const { return paused_; }
     void step();   // run exactly one fixed update (frame stepping while paused)
 
@@ -103,6 +160,10 @@ public:
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
 
 private:
+    friend class GameContext;
+    void begin();           // starts the current scene: physics, sounds, behaviours' start()
+    void stopSounds();
+    void applyRequests();   // scene changes, saves and quitting asked for during the update
     void fixedUpdate(float dt);
     void prepareContext(float dt);
     void flushDestroyed();
@@ -125,4 +186,12 @@ private:
     float accumulator_ = 0.f, time_ = 0.f, updateMs_ = 0.f;
     unsigned long long tick_ = 0;
     bool paused_ = false;
+
+    MeshLibrary* meshLib_ = nullptr;
+    TextureLibrary* texLib_ = nullptr;
+    std::string scenePath_;
+    std::filesystem::path saveDir_;
+    GameState state_;
+    std::string pendingScene_, pendingSave_, pendingLoad_;
+    bool quit_ = false;
 };

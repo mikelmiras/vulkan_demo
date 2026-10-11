@@ -16,6 +16,10 @@ bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& m
                std::string& error);
 bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, TextureLibrary& textures, std::string& error);
 
+// The same as JSON documents (what a scene file holds); save games embed one
+json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const TextureLibrary& textures);
+bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, TextureLibrary& textures, std::string& error);
+
 // Prefab files (.prefab): one prefab plus the imported meshes and textures it uses
 bool savePrefab(const std::string& path, const Prefab& prefab, const MeshLibrary& meshes, const TextureLibrary& textures,
                 std::string& error);
@@ -32,6 +36,10 @@ AssetIds builtinAssetIds(const MeshLibrary& meshes, const TextureLibrary& textur
 // back exactly what it was loaded from.
 json::Value behaviourToJson(const Behaviour& b);
 std::unique_ptr<Behaviour> behaviourFromJson(const json::Value& v);
+
+// A behaviour's runtime state() <-> JSON object (save games)
+json::Value behaviourStateToJson(Behaviour& b);
+void behaviourStateFromJson(Behaviour& b, const json::Value& v);
 
 // Game module reloading: behaviours of the given types become MissingBehaviours (keeping their fields), before the
 // code they live in is unloaded; afterwards, MissingBehaviours whose type is registered again become the real thing.

@@ -1,5 +1,7 @@
 #include "core/project.h"
 
+#include <cctype>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -56,6 +58,25 @@ std::string resolve(const std::string& stored) {
     fs::path p = fs::u8path(file);
     if (p.is_relative()) p = root() / p;
     return normal(p).u8string() + fragment;
+}
+
+fs::path saveDir(const std::string& projectName) {
+    if (const char* over = std::getenv("VKWORLD_SAVE_DIR"); over && *over) return fs::u8path(over);
+    fs::path base;
+#if defined(_WIN32)
+    if (const char* appData = std::getenv("APPDATA")) base = fs::u8path(appData);
+#elif defined(__APPLE__)
+    if (const char* home = std::getenv("HOME")) base = fs::u8path(home) / "Library" / "Application Support";
+#else
+    if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && *xdg) base = fs::u8path(xdg);
+    else if (const char* home = std::getenv("HOME")) base = fs::u8path(home) / ".local" / "share";
+#endif
+    if (base.empty()) base = fs::temp_directory_path();
+    // Keep the name usable as a folder name everywhere
+    std::string name;
+    for (char c : projectName) name += (std::isalnum((unsigned char)c) || c == '-' || c == '_' || c == ' ') ? c : '_';
+    if (name.empty()) name = "Untitled";
+    return base / "vkworld" / name / "saves";
 }
 
 bool exists(const fs::path& dir) {
