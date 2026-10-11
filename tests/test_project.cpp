@@ -119,10 +119,13 @@ TEST(export_warns_about_outside_assets) {
     fs::path proj = test::tempPath("export_proj"), out = test::tempPath("export_out");
     fs::create_directories(proj / "scenes");
     test::writeFile(proj / "project.json", R"({"format":"vkworld-project","version":1,"name":"Tiny","startScene":"scenes/a.vkw"})");
-    test::writeFile(proj / "scenes" / "a.vkw", R"({"format":"vkworld-scene","version":12,"meshes":[{"name":"Rock","source":"/nowhere/rock.obj"}],"entities":[]})");
+    // An absolute path on every platform (C:/... on Windows), outside the project
+    std::string outside = (fs::temp_directory_path() / "nowhere" / "rock.obj").generic_u8string();
+    test::writeFile(proj / "scenes" / "a.vkw", std::string(R"({"format":"vkworld-scene","version":12,"meshes":[{"name":"Rock","source":")") +
+                                                   outside + R"("}],"entities":[]})");
     ExportResult result;
     std::string error;
     REQUIRE(exportGame(proj, out, platform::executableDir(), result, error));
     REQUIRE(result.warnings.size() == 1);
-    CHECK(result.warnings[0].find("/nowhere/rock.obj") != std::string::npos);
+    CHECK(result.warnings[0].find("rock.obj") != std::string::npos);
 }
