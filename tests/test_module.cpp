@@ -43,7 +43,7 @@ TEST(module_loads_and_registers_behaviours) {
     GameModule module;
     std::string error;
     REQUIRE(module.load(sampleModule(), error));
-    CHECK(module.behaviourTypes().size() == 3);
+    CHECK(module.behaviourTypes().size() == 4);
     CHECK(createBehaviour("Coin") != nullptr);
     CHECK(createBehaviour("Spin") != nullptr);   // the built-ins are still there
     module.unload();
@@ -141,10 +141,10 @@ TEST(module_reload_keeps_behaviours) {
     REQUIRE(coin && !coin->behaviours.empty());
     CHECK(setField(*coin->behaviours[0], "points", 7.f));
 
-    CHECK(detachBehaviours(s, module.behaviourTypes()) == 15);   // 12 coins, 2 drones, the score keeper
+    CHECK(detachBehaviours(s, module.behaviourTypes()) == 19);   // 12 coins, 2 drones, 4 lurkers, the score keeper
     module.unload();
     REQUIRE(module.load(sampleModule(), error));
-    CHECK(reattachBehaviours(s) == 15);
+    CHECK(reattachBehaviours(s) == 19);
     CHECK(countMissingBehaviours(s) == 0);
     coin = s.findByName("Coin.002");
     json::Value saved = behaviourToJson(*coin->behaviours[0]);
