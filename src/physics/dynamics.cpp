@@ -25,7 +25,7 @@ namespace {
 
 // ---- Layers: things that never move don't collide with each other
 namespace Layers {
-constexpr JPH::ObjectLayer kStatic = 0, kMoving = 1, kCount = 2;
+constexpr JPH::ObjectLayer kStatic = 0, kMoving = 1;
 }
 const JPH::BroadPhaseLayer kBroadStatic(0), kBroadMoving(1);
 

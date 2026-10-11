@@ -352,11 +352,11 @@ bool PhysicsWorld::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit&
             case Collider::Shape::Mesh: {
                 Vec3 bn;
                 if (rayVsObb(origin, dir, b.box, bn) < 0.f) break;
-                Mat4 inv = inverseAffine(b.world);
-                Vec3 lo = transformPoint(inv, origin), ld = transformDir(inv, dir), ln;
+                Mat4 toLocal = inverseAffine(b.world);
+                Vec3 lo = transformPoint(toLocal, origin), ld = transformDir(toLocal, dir), ln;
                 t = intersectMesh(*meshes_, b.meshId, lo, ld, &ln);
                 if (t >= 0.f) {
-                    n = transformNormal(inv, ln);
+                    n = transformNormal(toLocal, ln);
                     if (dot(n, dir) > 0.f) n = n * -1.f;   // meshes are double-sided
                 }
                 break;

@@ -318,8 +318,8 @@ void Editor::drawEntityIcons() {
                     const Vec3 planes[3][2] = {{{1, 0, 0}, {0, 0, 1}}, {{1, 0, 0}, {0, 1, 0}}, {{0, 1, 0}, {0, 0, 1}}};
                     for (const auto& plane : planes) {
                         Vec3 u = plane[0], v = plane[1];
-                        for (int i = 0; i < n; ++i) {
-                            float a0 = 2.f * PI * i / n, a1 = 2.f * PI * (i + 1) / n;
+                        for (int k = 0; k < n; ++k) {
+                            float a0 = 2.f * PI * k / n, a1 = 2.f * PI * (k + 1) / n;
                             ImVec2 p0, p1;
                             if (worldToScreen(pos + (u * std::cos(a0) + v * std::sin(a0)) * e.light->range, p0) &&
                                 worldToScreen(pos + (u * std::cos(a1) + v * std::sin(a1)) * e.light->range, p1))

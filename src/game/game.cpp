@@ -122,11 +122,11 @@ CharacterMove GameContext::moveCharacter(Entity& self, Vec3 delta) {
         // Push the rigid bodies it walked into, up to its own speed (lighter ones more easily)
         Vec3 velocity = delta * (dt_ > 0.f ? 1.f / dt_ : 0.f);
         for (const auto& [id, into] : result.touched) {
-            Entity* body = scene_->find(id);
-            if (!body || !body->rigidBody) continue;
+            Entity* pushed = scene_->find(id);
+            if (!pushed || !pushed->rigidBody) continue;
             Vec3 dir = normalize(Vec3{into.x, 0.f, into.z});
-            float want = dot(velocity, dir), have = dot(body->rigidBody->velocity, dir);
-            if (want > have) body->rigidBody->velocity += dir * ((want - have) * std::min(1.f, 2.f / body->rigidBody->mass));
+            float want = dot(velocity, dir), have = dot(pushed->rigidBody->velocity, dir);
+            if (want > have) pushed->rigidBody->velocity += dir * ((want - have) * std::min(1.f, 2.f / pushed->rigidBody->mass));
         }
     }
     // World-space displacement -> the entity's parent space
