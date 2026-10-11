@@ -1,6 +1,8 @@
 // Scene editor: camera navigation, picking, transform gizmos, undo/redo, play mode and the ImGui panels.
 //   editor.cpp           frame loop, view, play mode, operations, undo
-//   editor_panels.cpp    menu bar, toolbar, outliner, inspector, status bar, dialogs
+//   editor_panels.cpp    menu bar, toolbar, status bar, dialogs
+//   editor_outliner.cpp  entity tree, prefabs
+//   editor_inspector.cpp components, behaviours, scene look
 //   editor_viewport.cpp  navigation, gizmos, picking, shortcuts, overlays
 #pragma once
 

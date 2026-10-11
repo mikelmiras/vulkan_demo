@@ -89,6 +89,9 @@ add_library(engine SHARED
   src/game/ui.cpp
   src/game/animation.cpp
   src/render/renderer.cpp
+  src/render/renderer_textures.cpp
+  src/render/renderer_instances.cpp
+  src/render/renderer_post.cpp
   src/render/scene_draw.cpp
   src/app/application.cpp
   src/app/export.cpp)
@@ -114,6 +117,8 @@ add_executable(vkworld
   src/main.cpp
   src/editor/editor.cpp
   src/editor/editor_panels.cpp
+  src/editor/editor_outliner.cpp
+  src/editor/editor_inspector.cpp
   src/editor/editor_viewport.cpp
   src/editor/editor_assets.cpp)
 target_link_libraries(vkworld PRIVATE engine)
@@ -202,7 +207,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_module.cpp
     tests/test_scene_flow.cpp
     tests/test_ui.cpp
-    tests/test_animation.cpp)
+    tests/test_animation.cpp
+    tests/test_formats.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

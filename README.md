@@ -94,6 +94,20 @@ make engine_tests && make test     # or: ctest, or ./engine_tests <name filter> 
 
 Turn them off with `-DVKWORLD_BUILD_TESTS=OFF`.
 
+`tests/assets/formats` holds a scene file of every format the engine has ever written, each saved by the engine
+of its time: the format tests load them all, so old projects keep opening.
+
+### Smoke test (rendering for real)
+
+CI also runs the programs on Linux with Mesa's software Vulkan driver (lavapipe) under Xvfb, with the validation
+layer: the game, the editor on the stress scene, and an exported sample game each render a few frames and save a
+screenshot, which `tools/check_screenshot.py` checks isn't blank. Programs run with `--screenshot` exit with 1 if
+the screenshot failed or the validation layer reported an error. Locally:
+
+```sh
+VKWORLD_VALIDATION=1 xvfb-run -a ./vkgame --screenshot shot.png --frames 30 && python3 ../tools/check_screenshot.py shot.png
+```
+
 ### Performance
 
 `engine_bench [statics] [bodies] [triggers] [ticks]` builds a stress scene (the demo plus, by default, 4000 static
@@ -453,15 +467,16 @@ Includes are relative to `src/`.
 | `src/app/`                 | Window + renderer + ImGui setup and frame loop shared by both   |
 | `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer, `png.*` screenshot writer, `project.*` project folder and paths |
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
-| `src/render/`              | Vulkan renderer: swapchain, 4x MSAA, depth/stencil, scene + outline + UI passes |
+| `src/render/`              | Vulkan renderer: device, swapchain, pipelines, frame (`renderer.cpp`); textures and materials (`renderer_textures.cpp`); culling, batching, skinning data (`renderer_instances.cpp`); HDR, bloom, tonemapping (`renderer_post.cpp`); scene -> draw list (`scene_draw.*`) |
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world with a bounding volume hierarchy: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid bodies on Jolt Physics (`dynamics.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
-| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project and asset browser |
+| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
+| `tools/`                   | `check_screenshot.py` (CI smoke test)                           |
 | `bench/`                   | `engine_bench`: CPU timings on the stress scene (`scene/stress_scene.*`) |
 | `shaders/common.glsl`      | Frame data (camera, sun, point lights, shadow camera) and per-object instance data shared by the shaders |
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |

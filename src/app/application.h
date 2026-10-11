@@ -26,6 +26,8 @@ public:
 
     bool init(const Options& options, MeshLibrary& meshes, TextureLibrary& textures);
     void shutdown();
+    // For automated runs (--screenshot): 1 if the screenshot failed or the validation layer reported errors
+    int exitCode() const;
 
     // Frame loop: while (app.beginFrame(dt)) { ...build the UI and the scene... app.endFrame(info); }
     // beginFrame returns false when it's time to quit; it waits (and returns true with dt = 0 skipped) while
@@ -48,6 +50,7 @@ private:
     uint32_t width_ = 0, height_ = 0;
     int frameCount_ = 0;
     bool quit_ = false;
+    int screenshotResult_ = 0;   // 1 saved, -1 failed
     bool initialized_ = false;
     double lastTime_ = 0.0;
 };

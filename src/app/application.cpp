@@ -119,7 +119,19 @@ void Application::endFrame(const SceneRenderInfo& scene) {
     if (!options_.screenshotPath.empty() && ++frameCount_ == options_.screenshotFrame)
         renderer_.requestScreenshot(options_.screenshotPath);
     renderer_.render(scene, ImGui::GetDrawData());
-    if (renderer_.screenshotDone() != 0) quit_ = true;   // screenshot mode: done
+    if (renderer_.screenshotDone() != 0) {   // screenshot mode: done
+        screenshotResult_ = renderer_.screenshotDone();
+        quit_ = true;
+    }
+}
+
+int Application::exitCode() const {
+    if (!options_.screenshotPath.empty() && screenshotResult_ < 0) return 1;
+    if (Renderer::validationErrors() > 0) {
+        std::fprintf(stderr, "%d validation errors\n", Renderer::validationErrors());
+        return 1;
+    }
+    return 0;
 }
 
 GameUI::TextureLookup Application::uiTextures(TextureLibrary& textures) {

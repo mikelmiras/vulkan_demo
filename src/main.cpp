@@ -73,6 +73,7 @@ int main(int argc, char** argv) {
         editor.frame(dt, app.renderer().gpuName(), app.renderer().stats());
         app.endFrame(editor.renderInfo());
     }
+    int code = app.exitCode();
     app.shutdown();
-    return 0;
+    return code;
 }

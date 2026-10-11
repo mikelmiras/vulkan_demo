@@ -1,5 +1,9 @@
 #include "render/renderer.h"
 
+#include <atomic>
+
+#include "render/renderer_internal.h"
+
 #include "core/png.h"
 
 #include <cstddef>
@@ -13,14 +17,6 @@
 #include "imgui_impl_vulkan.h"
 #include "platform/platform.h"
 
-#define VK_CHECK(expr)                                                                         \
-    do {                                                                                       \
-        VkResult r_ = (expr);                                                                  \
-        if (r_ != VK_SUCCESS) {                                                                \
-            std::fprintf(stderr, "Vulkan error %d at %s:%d\n  %s\n", r_, __FILE__, __LINE__, #expr); \
-            std::exit(1);                                                                      \
-        }                                                                                      \
-    } while (0)
 
 [[noreturn]] static void fatal(const char* msg) {
     std::fprintf(stderr, "fatal: %s\n", msg);
@@ -29,88 +25,17 @@
 
 namespace {
 
-// Must match shaders/common.glsl
-constexpr int kMaxPointLights = 8;
-struct FrameUBO {
-    Mat4 viewProj;
-    Mat4 lightViewProj;
-    float camPos[4];
-    float fogColor[4];   // rgb linear, w = density
-    float viewport[4];   // width, height, outline width in pixels, unused
-    float sunDir[4];     // xyz, w = 1 if it casts shadows
-    float sunColor[4];   // rgb linear * intensity
-    float ambient[4];    // rgb, w = point light count
-    float pointPos[kMaxPointLights][4];     // xyz, w = range
-    float pointColor[kMaxPointLights][4];   // rgb linear * intensity
-};
+using namespace render_detail;
 
-struct InstanceData {
-    Mat4 model;
-    float color[4];      // rgb (linear albedo; sRGB for the outline)
-    float params[4];     // x = checker ground, y = texture tiling, z = textured, w = first joint matrix or -1
-    float material[4];   // metallic, roughness, normal map strength (0: none), unused
-    float emissive[4];   // rgb (linear, times strength), unused
-};
-
-// The six planes of a view-projection's frustum (Vulkan clip space: 0 <= z <= w), as (normal, distance)
-struct Frustum {
-    float p[6][4];
-    explicit Frustum(const Mat4& vp) {
-        auto row = [&](int r, float out[4]) { for (int c = 0; c < 4; ++c) out[c] = vp.m[c * 4 + r]; };
-        float r0[4], r1[4], r2[4], r3[4];
-        row(0, r0); row(1, r1); row(2, r2); row(3, r3);
-        for (int k = 0; k < 4; ++k) {
-            p[0][k] = r3[k] + r0[k];
-            p[1][k] = r3[k] - r0[k];
-            p[2][k] = r3[k] + r1[k];
-            p[3][k] = r3[k] - r1[k];
-            p[4][k] = r2[k];
-            p[5][k] = r3[k] - r2[k];
-        }
-    }
-    // Is the mesh's bounding box, placed by `model`, at least partly inside?
-    bool visible(const Mat4& model, Vec3 lo, Vec3 hi) const {
-        Vec3 c = (lo + hi) * 0.5f, e = (hi - lo) * 0.5f;
-        Vec3 wc = transformPoint(model, c);
-        // World-space half extents of the transformed box
-        Vec3 we{std::fabs(model.m[0]) * e.x + std::fabs(model.m[4]) * e.y + std::fabs(model.m[8]) * e.z,
-                std::fabs(model.m[1]) * e.x + std::fabs(model.m[5]) * e.y + std::fabs(model.m[9]) * e.z,
-                std::fabs(model.m[2]) * e.x + std::fabs(model.m[6]) * e.y + std::fabs(model.m[10]) * e.z};
-        for (const auto& pl : p) {
-            float d = pl[0] * wc.x + pl[1] * wc.y + pl[2] * wc.z + pl[3];
-            float r = std::fabs(pl[0]) * we.x + std::fabs(pl[1]) * we.y + std::fabs(pl[2]) * we.z;
-            if (d + r < 0.f) return false;
-        }
-        return true;
-    }
-};
-
-void set4(float out[4], Vec3 v, float w) {
-    out[0] = v.x; out[1] = v.y; out[2] = v.z; out[3] = w;
-}
-
-constexpr Vec3 kOutlineSrgb{1.0f, 0.55f, 0.1f};
+std::atomic<int> g_validationErrors{0};   // reported by the validation layer (see Renderer::validationErrors)
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                              VkDebugUtilsMessageTypeFlagsEXT,
                                              const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
     if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
         std::fprintf(stderr, "[validation] %s\n", data->pMessage);
+    if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) ++g_validationErrors;
     return VK_FALSE;
-}
-
-void imageBarrier(VkCommandBuffer cb, VkImage image, VkImageAspectFlags aspect, VkImageLayout from, VkImageLayout to,
-                  VkPipelineStageFlags srcStage, VkAccessFlags srcAccess, VkPipelineStageFlags dstStage,
-                  VkAccessFlags dstAccess) {
-    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    b.srcAccessMask = srcAccess;
-    b.dstAccessMask = dstAccess;
-    b.oldLayout = from;
-    b.newLayout = to;
-    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = image;
-    b.subresourceRange = {aspect, 0, 1, 0, 1};
-    vkCmdPipelineBarrier(cb, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
 }
 
 void checkVk(VkResult r) {
@@ -671,110 +596,6 @@ void Renderer::createPipelines() {
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
 }
 
-VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format, bool additive) {
-    VkShaderModule vs = loadShader("post.vert.spv"), fs = loadShader(fragShader);
-    VkPipelineShaderStageCreateInfo stages[2] = {
-        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
-        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr},
-    };
-    VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    vp.viewportCount = 1;
-    vp.scissorCount = 1;
-    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rs.polygonMode = VK_POLYGON_MODE_FILL;
-    rs.cullMode = VK_CULL_MODE_NONE;
-    rs.lineWidth = 1.f;
-    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-    VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    VkPipelineColorBlendAttachmentState cba{};
-    cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    if (additive) {
-        cba.blendEnable = VK_TRUE;
-        cba.srcColorBlendFactor = cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-        cba.colorBlendOp = VK_BLEND_OP_ADD;
-        cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-        cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        cba.alphaBlendOp = VK_BLEND_OP_ADD;
-    }
-    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
-    cb.pAttachments = &cba;
-    VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    dy.dynamicStateCount = 2;
-    dy.pDynamicStates = dyn;
-    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rci.colorAttachmentCount = 1;
-    rci.pColorAttachmentFormats = &format;
-    VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    ci.pNext = &rci;
-    ci.stageCount = 2;
-    ci.pStages = stages;
-    ci.pVertexInputState = &vi;
-    ci.pInputAssemblyState = &ia;
-    ci.pViewportState = &vp;
-    ci.pRasterizationState = &rs;
-    ci.pMultisampleState = &ms;
-    ci.pDepthStencilState = &ds;
-    ci.pColorBlendState = &cb;
-    ci.pDynamicState = &dy;
-    ci.layout = postLayout_;
-    VkPipeline pipeline;
-    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
-    vkDestroyShaderModule(device_, vs, nullptr);
-    vkDestroyShaderModule(device_, fs, nullptr);
-    return pipeline;
-}
-
-void Renderer::createPostImages() {
-    hdr_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                       VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
-    uint32_t w = std::max(extent_.width / 2, 1u), h = std::max(extent_.height / 2, 1u);
-    bloomMips_ = 1;
-    while (bloomMips_ < kMaxBloomMips && std::min(w >> bloomMips_, h >> bloomMips_) >= 4) ++bloomMips_;
-    bloom_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                         VK_IMAGE_ASPECT_COLOR_BIT, w, h, VK_SAMPLE_COUNT_1_BIT, bloomMips_);
-    for (uint32_t m = 0; m < bloomMips_; ++m) {
-        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-        vci.image = bloom_.image;
-        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        vci.format = hdrFormat_;
-        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, m, 1, 0, 1};
-        VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &bloomViews_[m]));
-        bloomSizes_[m] = {std::max(w >> m, 1u), std::max(h >> m, 1u)};
-    }
-    // Point the post passes' descriptor sets at the new images
-    auto write = [&](VkDescriptorSet set, VkImageView a, VkImageView b) {
-        VkDescriptorImageInfo infos[2] = {{postSampler_, a, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-                                          {postSampler_, b, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
-        VkWriteDescriptorSet w2[2];
-        for (uint32_t i = 0; i < 2; ++i) {
-            w2[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-            w2[i].dstSet = set;
-            w2[i].dstBinding = i;
-            w2[i].descriptorCount = 1;
-            w2[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            w2[i].pImageInfo = &infos[i];
-        }
-        vkUpdateDescriptorSets(device_, 2, w2, 0, nullptr);
-    };
-    write(prefilterSet_, hdr_.view, hdr_.view);
-    for (uint32_t m = 1; m < bloomMips_; ++m) write(downSets_[m], bloomViews_[m - 1], bloomViews_[m - 1]);
-    for (uint32_t m = 0; m + 1 < bloomMips_; ++m) write(upSets_[m], bloomViews_[m + 1], bloomViews_[m + 1]);
-    write(compositeSet_, hdr_.view, bloomViews_[0]);
-}
-
-void Renderer::destroyPostImages() {
-    for (uint32_t m = 0; m < bloomMips_; ++m) vkDestroyImageView(device_, bloomViews_[m], nullptr);
-    bloomMips_ = 0;
-    if (bloom_.image) destroyImage(bloom_);
-    if (hdr_.image) destroyImage(hdr_);
-}
-
 // ---------------------------------------------------------------------------------------------
 // Textures and the shadow map
 // ---------------------------------------------------------------------------------------------
@@ -824,107 +645,6 @@ void Renderer::createShadowResources() {
     post.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
     post.addressModeU = post.addressModeV = post.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     VK_CHECK(vkCreateSampler(device_, &post, nullptr, &postSampler_));
-}
-
-// Uploads RGBA8 sRGB pixels to a device-local image with a full mip chain (when the format can be blitted)
-Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width, uint32_t height) {
-    const VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
-    VkFormatProperties fp;
-    vkGetPhysicalDeviceFormatProperties(gpu_, format, &fp);
-    const VkFormatFeatureFlags blit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
-                                      VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-    uint32_t mips = 1;
-    if ((fp.optimalTilingFeatures & blit) == blit)
-        while ((std::max(width, height) >> mips) > 0) ++mips;
-
-    GpuTexture t;
-    // Mutable format: an sRGB view for colour and a UNORM view of the same bytes for data (normal maps)
-    t.image = createImage(format,
-                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                          VK_IMAGE_ASPECT_COLOR_BIT, width, height, VK_SAMPLE_COUNT_1_BIT, mips,
-                          VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT);
-    t.linear = createView(t.image.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, mips);
-    Buffer staging = createBuffer((VkDeviceSize)width * height * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, rgba);
-
-    auto barrier = [&](VkCommandBuffer cb, uint32_t mip, uint32_t count, VkImageLayout from, VkImageLayout to,
-                       VkPipelineStageFlags srcStage, VkAccessFlags srcAccess, VkPipelineStageFlags dstStage,
-                       VkAccessFlags dstAccess) {
-        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        b.srcAccessMask = srcAccess;
-        b.dstAccessMask = dstAccess;
-        b.oldLayout = from;
-        b.newLayout = to;
-        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = t.image.image;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, count, 0, 1};
-        vkCmdPipelineBarrier(cb, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
-    };
-    VkCommandBuffer cb = beginOneTimeCommands();
-    barrier(cb, 0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
-    VkBufferImageCopy copy{};
-    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy.imageExtent = {width, height, 1};
-    vkCmdCopyBufferToImage(cb, staging.buffer, t.image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-    int32_t w = (int32_t)width, h = (int32_t)height;
-    for (uint32_t m = 1; m < mips; ++m) {   // each level is a filtered half-size copy of the previous one
-        barrier(cb, m - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                VK_ACCESS_TRANSFER_READ_BIT);
-        VkImageBlit region{};
-        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
-        region.srcOffsets[1] = {w, h, 1};
-        w = std::max(w / 2, 1);
-        h = std::max(h / 2, 1);
-        region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
-        region.dstOffsets[1] = {w, h, 1};
-        vkCmdBlitImage(cb, t.image.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, t.image.image,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
-        barrier(cb, m - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                VK_ACCESS_SHADER_READ_BIT);
-    }
-    barrier(cb, mips - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_ACCESS_SHADER_READ_BIT);
-    endOneTimeCommands(cb);
-    destroyBuffer(staging);
-
-    VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    dsai.descriptorPool = texturePool_;
-    dsai.descriptorSetCount = 1;
-    dsai.pSetLayouts = &textureSetLayout_;
-    VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &t.set));
-    VkDescriptorImageInfo ii{sampler_, t.linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};   // (UI: bytes as they are)
-    VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    wr.dstSet = t.set;
-    wr.descriptorCount = 1;
-    wr.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    wr.pImageInfo = &ii;
-    vkUpdateDescriptorSets(device_, 1, &wr, 0, nullptr);
-    return t;
-}
-
-void Renderer::destroyTexture(GpuTexture& t) {
-    if (t.linear) vkDestroyImageView(device_, t.linear, nullptr);
-    destroyImage(t.image);   // the descriptor set goes with its pool
-    t = {};
-}
-
-void Renderer::uploadTextures() {
-    while ((int)gpuTextures_.size() < textures_->count()) {
-        const Texture& tex = textures_->get((int)gpuTextures_.size());
-        gpuTextures_.push_back(createTexture(tex.rgba.data(), tex.width, tex.height));
-    }
-    // The shadow map starts out readable, so frames without shadows can still bind it
-    if (!shadowMapReady_) {
-        VkCommandBuffer cb = beginOneTimeCommands();
-        imageBarrier(cb, shadowMap_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
-                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
-        endOneTimeCommands(cb);
-        shadowMapReady_ = true;
-    }
 }
 
 // Orthographic camera looking along the sun, covering a square area in front of the viewer, moved in whole
@@ -1060,48 +780,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadTextures();
 }
 
-VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
-    auto valid = [&](int id) { return id >= 0 && id < (int)gpuTextures_.size() ? id : -1; };
-    int ids[4] = {valid(o.texture), valid(o.normalTexture), valid(o.metalRoughTexture), valid(o.emissiveTexture)};
-    uint64_t key = 0;
-    for (int id : ids) key = (key << 16) | (uint64_t)(uint16_t)(id + 1);
-    auto it = materialSets_.find(key);
-    if (it != materialSets_.end()) return it->second;
-
-    VkDescriptorSet set;
-    VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    dsai.descriptorPool = materialPool_;
-    dsai.descriptorSetCount = 1;
-    dsai.pSetLayouts = &materialSetLayout_;
-    if (vkAllocateDescriptorSets(device_, &dsai, &set) != VK_SUCCESS) {   // out of sets: reuse the plainest one
-        return materialSets_.empty() ? VK_NULL_HANDLE : materialSets_.begin()->second;
-    }
-    auto pick = [&](int id, bool colour, const GpuTexture& fallback) {
-        const GpuTexture& t = id >= 0 ? gpuTextures_[(size_t)id] : fallback;
-        return VkDescriptorImageInfo{sampler_, colour ? t.image.view : t.linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-    };
-    VkDescriptorImageInfo infos[4] = {pick(ids[0], true, whiteTexture_), pick(ids[1], false, flatNormal_),
-                                      pick(ids[2], false, whiteTexture_), pick(ids[3], true, whiteTexture_)};
-    VkWriteDescriptorSet w[4];
-    for (uint32_t i = 0; i < 4; ++i) {
-        w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        w[i].dstSet = set;
-        w[i].dstBinding = i;
-        w[i].descriptorCount = 1;
-        w[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        w[i].pImageInfo = &infos[i];
-    }
-    vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
-    materialSets_.emplace(key, set);
-    return set;
-}
-
-ImTextureID Renderer::uiTexture(int id) const {
-    // A texture's descriptor set layout (one combined image sampler for the fragment stage) is the same as the
-    // ImGui backend's, so its set can be handed to ImGui as is
-    if (id < 0 || id >= (int)gpuTextures_.size()) return (ImTextureID)0;
-    return (ImTextureID)gpuTextures_[(size_t)id].set;
-}
+int Renderer::validationErrors() { return g_validationErrors.load(); }
 
 void Renderer::initImGui() {
     ImGui_ImplVulkan_InitInfo info{};
@@ -1127,116 +806,6 @@ void Renderer::initImGui() {
 // ---------------------------------------------------------------------------------------------
 // Frame
 // ---------------------------------------------------------------------------------------------
-namespace {
-
-void mipBarrier(VkCommandBuffer cb, VkImage image, uint32_t mip, uint32_t count, VkImageLayout from, VkImageLayout to,
-                VkPipelineStageFlags srcStage, VkAccessFlags srcAccess, VkPipelineStageFlags dstStage,
-                VkAccessFlags dstAccess) {
-    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-    b.srcAccessMask = srcAccess;
-    b.dstAccessMask = dstAccess;
-    b.oldLayout = from;
-    b.newLayout = to;
-    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = image;
-    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, count, 0, 1};
-    vkCmdPipelineBarrier(cb, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
-}
-
-}  // namespace
-
-void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info) {
-    const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    struct Push {
-        float a[4], b[4];
-    };
-    mipBarrier(cb, hdr_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
-               VK_ACCESS_SHADER_READ_BIT);
-
-    // A full-screen pass into `view` (w x h), reading `set`
-    auto pass = [&](VkImageView view, VkExtent2D size, VkPipeline pipeline, VkDescriptorSet set, const Push& push, bool load) {
-        VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        att.imageView = view;
-        att.imageLayout = target;
-        att.loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        ri.renderArea = {{0, 0}, size};
-        ri.layerCount = 1;
-        ri.colorAttachmentCount = 1;
-        ri.pColorAttachments = &att;
-        vkCmdBeginRendering(cb, &ri);
-        VkViewport vp{0.f, 0.f, (float)size.width, (float)size.height, 0.f, 1.f};
-        VkRect2D sc{{0, 0}, size};
-        vkCmdSetViewport(cb, 0, 1, &vp);
-        vkCmdSetScissor(cb, 0, 1, &sc);
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &set, 0, nullptr);
-        vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &push);
-        vkCmdDraw(cb, 3, 1, 0, 0);
-        vkCmdEndRendering(cb);
-    };
-
-    bool bloom = info.bloomStrength > 0.f && bloomMips_ > 0;
-    // Every bloom level starts as a render target (the old contents don't matter)
-    mipBarrier(cb, bloom_.image, 0, bloomMips_, VK_IMAGE_LAYOUT_UNDEFINED, bloom ? target : readable,
-               colorStage | fragStage, 0, bloom ? colorStage : fragStage,
-               bloom ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
-    if (bloom) {
-        // Down: the HDR image (bright parts only) into level 0, then each level into the next smaller one
-        for (uint32_t m = 0; m < bloomMips_; ++m) {
-            VkExtent2D src = m == 0 ? extent_ : bloomSizes_[m - 1];
-            Push p{{1.f / (float)src.width, 1.f / (float)src.height, m == 0 ? 1.f : 0.f, info.bloomThreshold}, {}};
-            pass(bloomViews_[m], bloomSizes_[m], bloomDownPipeline_, m == 0 ? prefilterSet_ : downSets_[m], p, false);
-            mipBarrier(cb, bloom_.image, m, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                       fragStage, VK_ACCESS_SHADER_READ_BIT);
-        }
-        // Up: each level blurred onto the next larger one (added to what's there)
-        for (uint32_t m = bloomMips_ - 1; m-- > 0;) {
-            mipBarrier(cb, bloom_.image, m, 1, readable, target, fragStage, VK_ACCESS_SHADER_READ_BIT, colorStage,
-                       VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-            VkExtent2D src = bloomSizes_[m + 1];
-            Push p{{1.f / (float)src.width, 1.f / (float)src.height, 1.f, 0.f}, {}};
-            pass(bloomViews_[m], bloomSizes_[m], bloomUpPipeline_, upSets_[m], p, true);
-            mipBarrier(cb, bloom_.image, m, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                       fragStage, VK_ACCESS_SHADER_READ_BIT);
-        }
-    }
-
-    // Composite: into the scene's viewport on the swapchain image; the rest gets the sky colour (under the UI)
-    imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, target, colorStage, 0,
-                 colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-    VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    att.imageView = swapViews_[imageIndex];
-    att.imageLayout = target;
-    att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    att.clearValue.color = {{info.sky.x, info.sky.y, info.sky.z, 1.f}};
-    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-    ri.renderArea = {{0, 0}, extent_};
-    ri.layerCount = 1;
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachments = &att;
-    vkCmdBeginRendering(cb, &ri);
-    float vx = std::clamp(info.viewportX, 0.f, (float)extent_.width);
-    float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
-    float vw = std::min(info.viewportW, (float)extent_.width - vx);
-    float vh = std::min(info.viewportH, (float)extent_.height - vy);
-    if (info.items && vw >= 1.f && vh >= 1.f) {
-        VkViewport vp{vx, vy, vw, vh, 0.f, 1.f};
-        VkRect2D sc{{(int32_t)vx, (int32_t)vy}, {(uint32_t)vw, (uint32_t)vh}};
-        vkCmdSetViewport(cb, 0, 1, &vp);
-        vkCmdSetScissor(cb, 0, 1, &sc);
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline_);
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &compositeSet_, 0, nullptr);
-        Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, 0.f, 0.f}, {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}};
-        vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
-        vkCmdDraw(cb, 3, 1, 0, 0);
-    }
-    vkCmdEndRendering(cb);
-}
 
 void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui) {
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -1440,109 +1009,6 @@ void Renderer::saveScreenshot() {
     screenshotResult_ = ok ? 1 : -1;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Instances: culling and batching
-// ---------------------------------------------------------------------------------------------
-void Renderer::ensureInstanceCapacity(size_t count) {
-    Buffer& buf = instances_[frame_];
-    if (buf.buffer && buf.size >= count * sizeof(InstanceData)) return;
-    // This frame's fence has been waited on: its old buffer is no longer in use, nor is its descriptor set
-    if (buf.buffer) destroyBuffer(buf);
-    size_t capacity = 1024;
-    while (capacity < count) capacity *= 2;
-    buf = createBuffer(capacity * sizeof(InstanceData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-    buf.size = capacity * sizeof(InstanceData);
-    VkDescriptorBufferInfo bi{buf.buffer, 0, VK_WHOLE_SIZE};
-    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    w.dstSet = descSets_[frame_];
-    w.dstBinding = 2;
-    w.descriptorCount = 1;
-    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    w.pBufferInfo = &bi;
-    vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
-}
-
-void Renderer::uploadJoints(const SceneRenderInfo& info) {
-    size_t count = info.joints ? info.joints->size() : 0;
-    Buffer& buf = joints_[frame_];
-    if (!buf.buffer || buf.size < std::max<size_t>(count, 1) * sizeof(Mat4)) {
-        // This frame's fence has been waited on: its old buffer and descriptor set are free
-        if (buf.buffer) destroyBuffer(buf);
-        size_t capacity = 64;
-        while (capacity < count) capacity *= 2;
-        buf = createBuffer(capacity * sizeof(Mat4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        buf.size = capacity * sizeof(Mat4);
-        VkDescriptorBufferInfo bi{buf.buffer, 0, VK_WHOLE_SIZE};
-        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        w.dstSet = descSets_[frame_];
-        w.dstBinding = 3;
-        w.descriptorCount = 1;
-        w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        w.pBufferInfo = &bi;
-        vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
-    }
-    if (count) std::memcpy(buf.mapped, info.joints->data(), count * sizeof(Mat4));
-}
-
-void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightViewProj) {
-    sceneBatches_.clear();
-    shadowBatches_.clear();
-    outlineBatches_.clear();
-    stats_ = {};
-    if (!info.items) return;
-    const std::vector<DrawItem>& items = *info.items;
-    Frustum view(info.viewProj), light(lightViewProj);
-
-    auto textureSet = [&](const DrawItem& o) { return materialSet(o); };
-    // Visible items, sorted so that equal (texture, mesh) pairs sit together and can be drawn as one batch
-    std::vector<uint32_t> visible, casters;
-    visible.reserve(items.size());
-    for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
-        const DrawItem& o = items[i];
-        const Mesh& mesh = meshes_->get(o.mesh);
-        // Skinned meshes can move anywhere their skeleton takes them: never culled
-        bool skinned = o.jointOffset >= 0;
-        if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) visible.push_back(i);
-        else stats_.culled++;
-        if (frameShadows_ && (skinned || light.visible(o.model, mesh.boundsMin, mesh.boundsMax))) casters.push_back(i);
-    }
-    std::stable_sort(visible.begin(), visible.end(), [&](uint32_t a, uint32_t b) {
-        VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
-        if (ta != tb) return ta < tb;
-        return items[a].mesh < items[b].mesh;
-    });
-    std::stable_sort(casters.begin(), casters.end(), [&](uint32_t a, uint32_t b) { return items[a].mesh < items[b].mesh; });
-    size_t outlined = 0;
-    for (const DrawItem& o : items) outlined += o.outlined;
-
-    ensureInstanceCapacity(visible.size() + casters.size() + outlined);
-    InstanceData* out = static_cast<InstanceData*>(instances_[frame_].mapped);
-    uint32_t n = 0;
-    auto append = [&](std::vector<Batch>& batches, const DrawItem& o, Vec3 rgb, VkDescriptorSet set) {
-        bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
-        out[n] = {o.model, {rgb.x, rgb.y, rgb.z, 1.f},
-                  {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, (float)o.jointOffset},
-                  {o.metallic, o.roughness, o.normalTexture >= 0 ? o.normalScale : 0.f, 0.f},
-                  {o.emissive.x, o.emissive.y, o.emissive.z, 0.f}};
-        if (!batches.empty() && batches.back().mesh == o.mesh && batches.back().texture == set &&
-            batches.back().first + batches.back().count == n)
-            batches.back().count++;
-        else
-            batches.push_back({o.mesh, set, n, 1});
-        ++n;
-    };
-    for (uint32_t i : visible) append(sceneBatches_, items[i], srgbToLinear(items[i].color), textureSet(items[i]));
-    VkDescriptorSet plain = materialSet(DrawItem{});
-    for (uint32_t i : casters) append(shadowBatches_, items[i], {}, plain);
-    for (const DrawItem& o : items)   // each outline is drawn on its own (stencil, then hull): no merging
-        if (o.outlined) {
-            std::vector<Batch> single;
-            append(single, o, kOutlineSrgb, textureSet(o));
-            outlineBatches_.push_back(single[0]);
-        }
-    stats_.objects = (uint32_t)visible.size();
-    stats_.shadowCasters = (uint32_t)casters.size();
-}
 
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (width_ == 0 || height_ == 0) return;

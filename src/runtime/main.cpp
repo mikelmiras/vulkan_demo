@@ -165,6 +165,7 @@ int main(int argc, char** argv) {
     }
     game.stop();
     platform::setCursorCaptured(false);
+    int code = app.exitCode();
     app.shutdown();
-    return 0;
+    return code;
 }

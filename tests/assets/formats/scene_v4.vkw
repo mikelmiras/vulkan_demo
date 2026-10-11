@@ -1,0 +1,4712 @@
+{
+  "format": "vkworld-scene",
+  "version": 4,
+  "meshes": [],
+  "entities": [
+    {
+      "id": 1,
+      "name": "Player",
+      "transform": {
+        "position": [0, 0.05, 34],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "collider": {
+        "shape": "capsule",
+        "center": [0, 0.9, 0],
+        "radius": 0.35,
+        "height": 1.8
+      },
+      "behaviours": [
+        {
+          "type": "PlayerController",
+          "moveSpeed": 6,
+          "sprintMultiplier": 2,
+          "lookSensitivity": 0.15,
+          "jumpSpeed": 6.5,
+          "gravity": 18,
+          "respawnBelow": -50,
+          "fly": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Player Camera",
+      "parent": 1,
+      "transform": {
+        "position": [0, 1.65, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "camera": {
+        "fov": 60,
+        "near": 0.1,
+        "far": 2000
+      },
+      "behaviours": [
+        {
+          "type": "Shooter",
+          "prefab": "Bullet",
+          "cooldown": 0.15,
+          "muzzle": 0.6
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Ground",
+      "locked": true,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [600, 1, 600]
+      },
+      "meshRenderer": {
+        "mesh": "Plane",
+        "color": [0.42, 0.55, 0.38],
+        "checker": true
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, -0.5, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 4,
+      "name": "Centrepiece",
+      "transform": {
+        "position": [0, 5, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 5,
+      "name": "Centre Sphere",
+      "parent": 4,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [3, 3, 3]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.95, 0.75, 0.25]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.4,
+          "speed": 1.5,
+          "phase": 0
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Centre Torus",
+      "parent": 4,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [34.37747, 0, 0],
+        "scale": [7, 7, 7]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.85, 0.2, 0.25]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 45.83662
+        },
+        {
+          "type": "Bob",
+          "height": 0.4,
+          "speed": 1.5,
+          "phase": 0
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "Gems",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 10,
+      "name": "Gem.001",
+      "parent": 9,
+      "transform": {
+        "position": [24.02087, 1.2, 9.94977],
+        "rotation": [45, 0, 35],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.25, 1, 1]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 1.6,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 120
+        },
+        {
+          "type": "Bob",
+          "height": 0.25,
+          "speed": 1.5,
+          "phase": 22.5
+        },
+        {
+          "type": "Pickup",
+          "collector": "Player",
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Gem.002",
+      "parent": 9,
+      "transform": {
+        "position": [9.949769, 1.2, 24.02087],
+        "rotation": [45, 0, 35],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.25, 0.7299999, 1]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 1.6,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 120
+        },
+        {
+          "type": "Bob",
+          "height": 0.25,
+          "speed": 1.5,
+          "phase": 67.5
+        },
+        {
+          "type": "Pickup",
+          "collector": "Player",
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "Gem.003",
+      "parent": 9,
+      "transform": {
+        "position": [-9.949772, 1.2, 24.02087],
+        "rotation": [45, 0, 35],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.25, 0.4599998, 1]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 1.6,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 120
+        },
+        {
+          "type": "Bob",
+          "height": 0.25,
+          "speed": 1.5,
+          "phase": 112.5
+        },
+        {
+          "type": "Pickup",
+          "collector": "Player",
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "Gem.004",
+      "parent": 9,
+      "transform": {
+        "position": [-24.02087, 1.2, 9.949771],
+        "rotation": [45, 0, 35],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.25, 1, 1]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 1.6,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 120
+        },
+        {
+          "type": "Bob",
+          "height": 0.25,
+          "speed": 1.5,
+          "phase": 157.5
+        },
+        {
+          "type": "Pickup",
+          "collector": "Player",
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "Gem.005",
+      "parent": 9,
+      "transform": {
+        "position": [-24.02087, 1.2, -9.949769],
+        "rotation": [45, 0, 35],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.25, 0.7299999, 1]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 1.6,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 120
+        },
+        {
+          "type": "Bob",
+          "height": 0.25,
+          "speed": 1.5,
+          "phase": 202.5
+        },
+        {
+          "type": "Pickup",
+          "collector": "Player",
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "Gem.006",
+      "parent": 9,
+      "transform": {
+        "position": [-9.949761, 1.2, -24.02087],
+        "rotation": [45, 0, 35],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.25, 0.4599998, 1]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 1.6,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 120
+        },
+        {
+          "type": "Bob",
+          "height": 0.25,
+          "speed": 1.5,
+          "phase": 247.5
+        },
+        {
+          "type": "Pickup",
+          "collector": "Player",
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "Gem.007",
+      "parent": 9,
+      "transform": {
+        "position": [9.949774, 1.2, -24.02087],
+        "rotation": [45, 0, 35],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.25, 1, 1]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 1.6,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 120
+        },
+        {
+          "type": "Bob",
+          "height": 0.25,
+          "speed": 1.5,
+          "phase": 292.5
+        },
+        {
+          "type": "Pickup",
+          "collector": "Player",
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Gem.008",
+      "parent": 9,
+      "transform": {
+        "position": [24.02087, 1.2, -9.949758],
+        "rotation": [45, 0, 35],
+        "scale": [0.7, 0.7, 0.7]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.25, 0.7299999, 1]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 1.6,
+        "trigger": true
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 120
+        },
+        {
+          "type": "Bob",
+          "height": 0.25,
+          "speed": 1.5,
+          "phase": 337.5
+        },
+        {
+          "type": "Pickup",
+          "collector": "Player",
+          "radius": 1.8
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "Pillar Ring",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 19,
+      "name": "Pillar.001",
+      "parent": 18,
+      "transform": {
+        "position": [20, 4, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 8, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 20,
+      "name": "Pillar Top.001",
+      "parent": 18,
+      "transform": {
+        "position": [20, 9.8, 0],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.95, 0.285, 0.285]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 0
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "Pillar.002",
+      "parent": 18,
+      "transform": {
+        "position": [17.32051, 2.5, 10],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 5, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 22,
+      "name": "Pillar Top.002",
+      "parent": 18,
+      "transform": {
+        "position": [17.32051, 6.8, 10],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.95, 0.6175, 0.285]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 30
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "Pillar.003",
+      "parent": 18,
+      "transform": {
+        "position": [9.999999, 4, 17.32051],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 8, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 24,
+      "name": "Pillar Top.003",
+      "parent": 18,
+      "transform": {
+        "position": [9.999999, 9.8, 17.32051],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.95, 0.95, 0.285]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 60
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "name": "Pillar.004",
+      "parent": 18,
+      "transform": {
+        "position": [-8.742278e-07, 2.5, 20],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 5, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 26,
+      "name": "Pillar Top.004",
+      "parent": 18,
+      "transform": {
+        "position": [-8.742278e-07, 6.8, 20],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.6175, 0.95, 0.285]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 90
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "name": "Pillar.005",
+      "parent": 18,
+      "transform": {
+        "position": [-10, 4, 17.32051],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 8, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 28,
+      "name": "Pillar Top.005",
+      "parent": 18,
+      "transform": {
+        "position": [-10, 9.8, 17.32051],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.285, 0.95, 0.285]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 120
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "name": "Pillar.006",
+      "parent": 18,
+      "transform": {
+        "position": [-17.32051, 2.5, 9.999996],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 5, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 30,
+      "name": "Pillar Top.006",
+      "parent": 18,
+      "transform": {
+        "position": [-17.32051, 6.8, 9.999996],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.285, 0.95, 0.6175]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 150
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "name": "Pillar.007",
+      "parent": 18,
+      "transform": {
+        "position": [-20, 4, -1.748456e-06],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 8, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 32,
+      "name": "Pillar Top.007",
+      "parent": 18,
+      "transform": {
+        "position": [-20, 9.8, -1.748456e-06],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.285, 0.95, 0.95]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 180
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "name": "Pillar.008",
+      "parent": 18,
+      "transform": {
+        "position": [-17.32051, 2.5, -10],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 5, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 34,
+      "name": "Pillar Top.008",
+      "parent": 18,
+      "transform": {
+        "position": [-17.32051, 6.8, -10],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.285, 0.6175, 0.95]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 210
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "name": "Pillar.009",
+      "parent": 18,
+      "transform": {
+        "position": [-9.999998, 4, -17.32051],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 8, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 36,
+      "name": "Pillar Top.009",
+      "parent": 18,
+      "transform": {
+        "position": [-9.999998, 9.8, -17.32051],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.285, 0.285, 0.95]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 240
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "name": "Pillar.010",
+      "parent": 18,
+      "transform": {
+        "position": [2.384976e-07, 2.5, -20],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 5, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 38,
+      "name": "Pillar Top.010",
+      "parent": 18,
+      "transform": {
+        "position": [2.384976e-07, 6.8, -20],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.6175, 0.285, 0.95]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 270
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "name": "Pillar.011",
+      "parent": 18,
+      "transform": {
+        "position": [10.00001, 4, -17.3205],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 8, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 40,
+      "name": "Pillar Top.011",
+      "parent": 18,
+      "transform": {
+        "position": [10.00001, 9.8, -17.3205],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.95, 0.285, 0.95]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 300
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "name": "Pillar.012",
+      "parent": 18,
+      "transform": {
+        "position": [17.32051, 2.5, -9.999995],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 5, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.82, 0.8, 0.76]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 42,
+      "name": "Pillar Top.012",
+      "parent": 18,
+      "transform": {
+        "position": [17.32051, 6.8, -9.999995],
+        "rotation": [34.37747, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.95, 0.285, 0.6175]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 85.94367
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 330
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "name": "Landmarks",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 44,
+      "name": "Landmark.001",
+      "parent": 43,
+      "transform": {
+        "position": [133.5146, 0, 41.30091],
+        "rotation": [0, 17.18873, 0],
+        "scale": [25.34042, 20.27233, 25.34042]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.85, 0.75, 0.55]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      }
+    },
+    {
+      "id": 45,
+      "name": "Landmark.002",
+      "parent": 43,
+      "transform": {
+        "position": [1.648605, 0, 116.4251],
+        "rotation": [0, 89.18874, 0],
+        "scale": [30.52778, 24.42223, 30.52778]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.85, 0.75, 0.55]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      }
+    },
+    {
+      "id": 46,
+      "name": "Landmark.003",
+      "parent": 43,
+      "transform": {
+        "position": [-114.8529, 0, 39.12432],
+        "rotation": [0, 161.1887, 0],
+        "scale": [29.89555, 23.91644, 29.89555]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.85, 0.75, 0.55]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      }
+    },
+    {
+      "id": 47,
+      "name": "Landmark.004",
+      "parent": 43,
+      "transform": {
+        "position": [-89.58562, 0, -119.7026],
+        "rotation": [0, 233.1888, 0],
+        "scale": [21.43146, 17.14517, 21.43146]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.85, 0.75, 0.55]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      }
+    },
+    {
+      "id": 48,
+      "name": "Landmark.005",
+      "parent": 43,
+      "transform": {
+        "position": [76.93966, 0, -109.1144],
+        "rotation": [0, 305.1888, 0],
+        "scale": [30.38828, 24.31062, 30.38828]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.85, 0.75, 0.55]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      }
+    },
+    {
+      "id": 49,
+      "name": "Scattered",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 50,
+      "name": "Pyramid.001",
+      "parent": 49,
+      "transform": {
+        "position": [-0.6000862, 0, -32.25488],
+        "rotation": [0, 273.5364, 0],
+        "scale": [2.194309, 3.781537, 2.194309]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.2309733, 0.7033453, 0.8941481]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "name": "Torus.001",
+      "parent": 49,
+      "transform": {
+        "position": [-44.83533, 1.443324, 80.31288],
+        "rotation": [90, 199.7617, 0],
+        "scale": [1.886648, 1.886648, 1.886648]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7997798, 0.845839, 0.2633834]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "name": "Cube.001",
+      "parent": 49,
+      "transform": {
+        "position": [78.36093, 1.743041, -37.99031],
+        "rotation": [0, 92.99708, 0],
+        "scale": [3.486081, 3.486081, 3.486081]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.3633367, 0.9187818, 0.7976016]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "name": "Torus.002",
+      "parent": 49,
+      "transform": {
+        "position": [-40.6805, 1.636181, 39.08162],
+        "rotation": [90, 286.5679, 0],
+        "scale": [2.272362, 2.272362, 2.272362]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.3854358, 0.2278341, 0.7487825]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "name": "Torus.003",
+      "parent": 49,
+      "transform": {
+        "position": [20.72982, 1.153946, -47.16349],
+        "rotation": [90, 57.96966, 0],
+        "scale": [1.307892, 1.307892, 1.307892]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.8538727, 0.7008005, 0.4968193]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "name": "Pyramid.002",
+      "parent": 49,
+      "transform": {
+        "position": [60.93179, 0, 28.87429],
+        "rotation": [0, 221.4444, 0],
+        "scale": [2.74988, 4.848308, 2.74988]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.8380099, 0.5147353, 0.3189819]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "name": "Cube.002",
+      "parent": 49,
+      "transform": {
+        "position": [44.17584, 3.403118, 47.55807],
+        "rotation": [34.37747, 38.54751, 0],
+        "scale": [2.806236, 2.806236, 2.806236]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4168934, 0.8583915, 0.6937799]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 198.729
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "name": "Torus.004",
+      "parent": 49,
+      "transform": {
+        "position": [-58.56899, 1.907489, -9.055714],
+        "rotation": [90, 86.01456, 0],
+        "scale": [2.814978, 2.814978, 2.814978]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.9247016, 0.5800567, 0.3400617]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "name": "Sphere.001",
+      "parent": 49,
+      "transform": {
+        "position": [2.682146, 2.210951, 47.71047],
+        "rotation": [0, 29.05553, 0],
+        "scale": [2.421902, 2.421902, 2.421902]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.2341138, 0.56715, 0.7918242]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 152.8685
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "name": "Cube.003",
+      "parent": 49,
+      "transform": {
+        "position": [12.87332, 1.877707, 71.37337],
+        "rotation": [0, 192.014, 0],
+        "scale": [3.755414, 3.755414, 3.755414]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.7879899, 0.4448742, 0.333974]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "name": "Torus.005",
+      "parent": 49,
+      "transform": {
+        "position": [-38.21969, 2.307122, 14.72917],
+        "rotation": [90, 107.3129, 0],
+        "scale": [3.614244, 3.614244, 3.614244]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.3369619, 0.3427845, 0.8779379]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "name": "Sphere.002",
+      "parent": 49,
+      "transform": {
+        "position": [58.75402, 2.124215, -32.17902],
+        "rotation": [0, 286.4173, 0],
+        "scale": [2.248429, 2.248429, 2.248429]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7788852, 0.3012965, 0.5280557]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 189.2773
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 62,
+      "name": "Sphere.003",
+      "parent": 49,
+      "transform": {
+        "position": [-41.10434, 1.768108, -37.01424],
+        "rotation": [0, 125.8525, 0],
+        "scale": [1.536217, 1.536217, 1.536217]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7793595, 0.9462162, 0.5603995]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 194.575
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "name": "Cube.004",
+      "parent": 49,
+      "transform": {
+        "position": [-50.12015, 1.16524, 80.5687],
+        "rotation": [0, 253.1863, 0],
+        "scale": [2.330479, 2.330479, 2.330479]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4355969, 0.5235261, 0.786747]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "name": "Sphere.004",
+      "parent": 49,
+      "transform": {
+        "position": [-90.03093, 2.623295, 30.88622],
+        "rotation": [0, 233.3368, 0],
+        "scale": [3.246589, 3.246589, 3.246589]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7226062, 0.3150493, 0.5601166]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 133.5316
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 65,
+      "name": "Cube.005",
+      "parent": 49,
+      "transform": {
+        "position": [34.24413, 1.165887, 2.882002],
+        "rotation": [0, 206.1603, 0],
+        "scale": [2.331774, 2.331774, 2.331774]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4335183, 0.4535072, 0.9064486]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 66,
+      "name": "Sphere.005",
+      "parent": 49,
+      "transform": {
+        "position": [23.89842, 2.443347, 27.60933],
+        "rotation": [0, 237.9955, 0],
+        "scale": [2.886695, 2.886695, 2.886695]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.8586446, 0.3438879, 0.4586811]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 178.5342
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 67,
+      "name": "Pyramid.003",
+      "parent": 49,
+      "transform": {
+        "position": [41.64221, 0, 85.86869],
+        "rotation": [0, 347.1973, 0],
+        "scale": [3.405437, 6.403052, 3.405437]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7297416, 0.7791408, 0.4663753]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 68,
+      "name": "Pyramid.004",
+      "parent": 49,
+      "transform": {
+        "position": [-31.05309, 0, -10.91906],
+        "rotation": [0, 66.72038, 0],
+        "scale": [1.692337, 2.962019, 1.692337]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.8264273, 0.2198808, 0.7151958]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 69,
+      "name": "Sphere.006",
+      "parent": 49,
+      "transform": {
+        "position": [-78.77493, 2.808533, -35.27068],
+        "rotation": [0, 57.82021, 0],
+        "scale": [3.617066, 3.617066, 3.617066]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.5001816, 0.353882, 0.9080189]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 132.2038
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "name": "Pyramid.005",
+      "parent": 49,
+      "transform": {
+        "position": [25.99163, 0, -31.9819],
+        "rotation": [0, 209.8941, 0],
+        "scale": [3.724333, 4.209962, 3.724333]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.3431312, 0.7068955, 0.3024535]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 71,
+      "name": "Cube.006",
+      "parent": 49,
+      "transform": {
+        "position": [-69.68552, 3.970689, 32.6051],
+        "rotation": [34.37747, 287.0435, 0],
+        "scale": [3.941378, 3.941378, 3.941378]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.8991168, 0.4560424, 0.4656963]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 130.2099
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 72,
+      "name": "Cube.007",
+      "parent": 49,
+      "transform": {
+        "position": [63.97617, 3.917333, 7.673972],
+        "rotation": [34.37747, 72.42235, 0],
+        "scale": [3.834665, 3.834665, 3.834665]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4878793, 0.2974566, 0.846773]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 1.237378
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 73,
+      "name": "Cube.008",
+      "parent": 49,
+      "transform": {
+        "position": [40.73169, 3.962838, -60.77714],
+        "rotation": [34.37747, 201.1344, 0],
+        "scale": [3.925677, 3.925677, 3.925677]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.6527175, 0.7745219, 0.2236304]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 134.7361
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 74,
+      "name": "Torus.006",
+      "parent": 49,
+      "transform": {
+        "position": [6.747874, 1.790957, -71.52479],
+        "rotation": [90, 84.07219, 0],
+        "scale": [2.581914, 2.581914, 2.581914]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.6121804, 0.4351414, 0.7723562]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "name": "Cube.009",
+      "parent": 49,
+      "transform": {
+        "position": [43.06604, 1.593281, -56.94096],
+        "rotation": [0, 119.6625, 0],
+        "scale": [3.186562, 3.186562, 3.186562]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.2846616, 0.8277888, 0.2020848]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 76,
+      "name": "Pyramid.006",
+      "parent": 49,
+      "transform": {
+        "position": [-14.78236, 0, -87.81207],
+        "rotation": [0, 98.41173, 0],
+        "scale": [2.313248, 3.726369, 2.313248]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7377142, 0.4267907, 0.6786568]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 77,
+      "name": "Sphere.007",
+      "parent": 49,
+      "transform": {
+        "position": [-0.4365723, 2.046295, 92.22294],
+        "rotation": [0, 154.9043, 0],
+        "scale": [2.092589, 2.092589, 2.092589]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7612636, 0.8032196, 0.2472374]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 159.1882
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 78,
+      "name": "Torus.007",
+      "parent": 49,
+      "transform": {
+        "position": [-23.95314, 1.115031, -26.98765],
+        "rotation": [90, 55.48225, 0],
+        "scale": [1.230061, 1.230061, 1.230061]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.448201, 0.7746477, 0.7069668]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 79,
+      "name": "Cube.010",
+      "parent": 49,
+      "transform": {
+        "position": [-10.28349, 1.069776, -52.83394],
+        "rotation": [0, 17.76217, 0],
+        "scale": [2.139552, 2.139552, 2.139552]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4179168, 0.7995508, 0.3556001]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 80,
+      "name": "Cube.011",
+      "parent": 49,
+      "transform": {
+        "position": [-69.84178, 0.8836364, 6.350705],
+        "rotation": [0, 299.2816, 0],
+        "scale": [1.767273, 1.767273, 1.767273]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.2464118, 0.7174417, 0.4003136]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 81,
+      "name": "Cube.012",
+      "parent": 49,
+      "transform": {
+        "position": [-43.77842, 0.585057, -9.042496],
+        "rotation": [0, 106.5257, 0],
+        "scale": [1.170114, 1.170114, 1.170114]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.8408432, 0.519497, 0.3695302]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 82,
+      "name": "Pyramid.007",
+      "parent": 49,
+      "transform": {
+        "position": [-19.5908, 0, -35.31001],
+        "rotation": [0, 207.3614, 0],
+        "scale": [3.517728, 5.36375, 3.517728]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.6716391, 0.8051373, 0.3849226]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 83,
+      "name": "Torus.008",
+      "parent": 49,
+      "transform": {
+        "position": [25.65231, 2.409709, -19.17578],
+        "rotation": [90, 183.7371, 0],
+        "scale": [3.819419, 3.819419, 3.819419]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.8539132, 0.479114, 0.1745725]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 84,
+      "name": "Torus.009",
+      "parent": 49,
+      "transform": {
+        "position": [-57.07584, 1.320358, -56.81887],
+        "rotation": [90, 5.488057, 0],
+        "scale": [1.640716, 1.640716, 1.640716]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7104175, 0.9282795, 0.2617358]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 85,
+      "name": "Sphere.008",
+      "parent": 49,
+      "transform": {
+        "position": [42.62966, 2.826067, -49.1557],
+        "rotation": [0, 258.5093, 0],
+        "scale": [3.652133, 3.652133, 3.652133]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.2662276, 0.7714674, 0.7037365]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 81.0275
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 86,
+      "name": "Sphere.009",
+      "parent": 49,
+      "transform": {
+        "position": [-85.32955, 2.152509, 35.2839],
+        "rotation": [0, 216.6249, 0],
+        "scale": [2.305019, 2.305019, 2.305019]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7097758, 0.3772948, 0.7798675]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 325.9473
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 87,
+      "name": "Pyramid.008",
+      "parent": 49,
+      "transform": {
+        "position": [28.32171, 0, -34.9391],
+        "rotation": [0, 88.15138, 0],
+        "scale": [3.917971, 7.413827, 3.917971]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.6620535, 0.9382339, 0.3181846]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "name": "Pyramid.009",
+      "parent": 49,
+      "transform": {
+        "position": [75.1692, 0, 2.454914],
+        "rotation": [0, 102.94, 0],
+        "scale": [1.392994, 2.360779, 1.392994]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7107606, 0.4201834, 0.7968163]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 89,
+      "name": "Pyramid.010",
+      "parent": 49,
+      "transform": {
+        "position": [62.17227, 0, 44.89487],
+        "rotation": [0, 271.3475, 0],
+        "scale": [1.577916, 1.784756, 1.577916]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7183809, 0.215169, 0.4415497]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "name": "Pyramid.011",
+      "parent": 49,
+      "transform": {
+        "position": [8.297751, 0, -99.65269],
+        "rotation": [0, 171.244, 0],
+        "scale": [3.531617, 5.317053, 3.531617]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.892248, 0.388413, 0.6402743]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 91,
+      "name": "Sphere.010",
+      "parent": 49,
+      "transform": {
+        "position": [-21.67157, 1.743558, -53.08279],
+        "rotation": [0, 138.9305, 0],
+        "scale": [1.487116, 1.487116, 1.487116]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.9188609, 0.5390221, 0.8566999]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 23.67391
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 92,
+      "name": "Sphere.011",
+      "parent": 49,
+      "transform": {
+        "position": [-28.34244, 2.083151, 42.71553],
+        "rotation": [0, 248.052, 0],
+        "scale": [2.166303, 2.166303, 2.166303]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.6954548, 0.5244668, 0.8943319]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 89.11522
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 93,
+      "name": "Torus.010",
+      "parent": 49,
+      "transform": {
+        "position": [7.518514, 1.308554, -27.07369],
+        "rotation": [90, 54.31609, 0],
+        "scale": [1.617109, 1.617109, 1.617109]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.5128777, 0.3182783, 0.8230121]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 94,
+      "name": "Sphere.012",
+      "parent": 49,
+      "transform": {
+        "position": [11.78182, 2.756668, -54.35939],
+        "rotation": [0, 352.6421, 0],
+        "scale": [3.513335, 3.513335, 3.513335]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7866803, 0.4565623, 0.8413341]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 325.3884
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 95,
+      "name": "Torus.011",
+      "parent": 49,
+      "transform": {
+        "position": [21.80934, 1.711417, 39.60648],
+        "rotation": [90, 243.0369, 0],
+        "scale": [2.422834, 2.422834, 2.422834]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.3894551, 0.4190982, 0.7607622]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 96,
+      "name": "Sphere.013",
+      "parent": 49,
+      "transform": {
+        "position": [-20.61609, 1.772601, 25.75624],
+        "rotation": [0, 275.4219, 0],
+        "scale": [1.545202, 1.545202, 1.545202]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7636565, 0.5877746, 0.4116937]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 18.27507
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 97,
+      "name": "Torus.012",
+      "parent": 49,
+      "transform": {
+        "position": [76.73705, 1.277794, -28.62053],
+        "rotation": [90, 143.9551, 0],
+        "scale": [1.555588, 1.555588, 1.555588]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7390558, 0.4791492, 0.9197385]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 98,
+      "name": "Sphere.014",
+      "parent": 49,
+      "transform": {
+        "position": [-34.32373, 2.357409, -8.139338],
+        "rotation": [0, 318.7527, 0],
+        "scale": [2.714819, 2.714819, 2.714819]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.8046474, 0.2750403, 0.5870565]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 150.1786
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 99,
+      "name": "Cube.013",
+      "parent": 49,
+      "transform": {
+        "position": [-34.82276, 1.07795, 3.939372],
+        "rotation": [0, 312.6598, 0],
+        "scale": [2.155901, 2.155901, 2.155901]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.8131126, 0.6220796, 0.3846866]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 100,
+      "name": "Sphere.015",
+      "parent": 49,
+      "transform": {
+        "position": [19.19644, 2.401916, 70.47961],
+        "rotation": [0, 341.784, 0],
+        "scale": [2.803832, 2.803832, 2.803832]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7476053, 0.4642664, 0.4209097]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 293.2715
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "name": "Pyramid.012",
+      "parent": 49,
+      "transform": {
+        "position": [-42.98289, 0, 40.25349],
+        "rotation": [0, 242.7084, 0],
+        "scale": [1.779144, 1.692197, 1.779144]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.4455093, 0.756716, 0.6995416]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "name": "Torus.013",
+      "parent": 49,
+      "transform": {
+        "position": [-34.57283, 2.088894, 91.80241],
+        "rotation": [90, 228.2799, 0],
+        "scale": [3.177788, 3.177788, 3.177788]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7828832, 0.3239617, 0.4662495]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "name": "Pyramid.013",
+      "parent": 49,
+      "transform": {
+        "position": [62.31697, 0, 30.09638],
+        "rotation": [0, 201.4161, 0],
+        "scale": [3.505018, 5.002596, 3.505018]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.2644506, 0.9458675, 0.9003358]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "name": "Pyramid.014",
+      "parent": 49,
+      "transform": {
+        "position": [-34.89246, 0, -18.49618],
+        "rotation": [0, 21.71368, 0],
+        "scale": [2.176154, 3.292467, 2.176154]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.8698832, 0.2865795, 0.2288117]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 105,
+      "name": "Torus.014",
+      "parent": 49,
+      "transform": {
+        "position": [-35.43604, 1.01351, 29.91917],
+        "rotation": [90, 359.575, 0],
+        "scale": [1.02702, 1.02702, 1.02702]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.8432781, 0.4384609, 0.591812]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "name": "Pyramid.015",
+      "parent": 49,
+      "transform": {
+        "position": [41.87912, 0, -44.34785],
+        "rotation": [0, 76.48473, 0],
+        "scale": [1.971074, 3.821354, 1.971074]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7176127, 0.3698043, 0.3838028]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 107,
+      "name": "Torus.015",
+      "parent": 49,
+      "transform": {
+        "position": [-97.87397, 2.21418, 3.228342],
+        "rotation": [90, 213.6296, 0],
+        "scale": [3.428361, 3.428361, 3.428361]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7778517, 0.2071113, 0.2621047]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "name": "Pyramid.016",
+      "parent": 49,
+      "transform": {
+        "position": [-89.05594, 0, 14.47059],
+        "rotation": [0, 82.49228, 0],
+        "scale": [2.531173, 2.889987, 2.531173]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7521514, 0.2361745, 0.4008903]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 109,
+      "name": "Sphere.016",
+      "parent": 49,
+      "transform": {
+        "position": [-30.58729, 1.53293, 16.00624],
+        "rotation": [0, 311.2442, 0],
+        "scale": [1.06586, 1.06586, 1.06586]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.188231, 0.8465291, 0.74913]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 19.21953
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 110,
+      "name": "Torus.016",
+      "parent": 49,
+      "transform": {
+        "position": [56.42259, 1.289241, -35.39997],
+        "rotation": [90, 319.9802, 0],
+        "scale": [1.578481, 1.578481, 1.578481]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.4094695, 0.8984456, 0.6635687]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 111,
+      "name": "Cube.014",
+      "parent": 49,
+      "transform": {
+        "position": [-2.170226, 0.8801483, -39.64907],
+        "rotation": [0, 92.70242, 0],
+        "scale": [1.760297, 1.760297, 1.760297]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4277405, 0.6848966, 0.9346244]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 112,
+      "name": "Cube.015",
+      "parent": 49,
+      "transform": {
+        "position": [-4.536272, 1.912086, 64.41737],
+        "rotation": [0, 209.1748, 0],
+        "scale": [3.824172, 3.824172, 3.824172]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.887998, 0.6215165, 0.2984791]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 113,
+      "name": "Cube.016",
+      "parent": 49,
+      "transform": {
+        "position": [-44.92574, 3.511534, -74.56335],
+        "rotation": [34.37747, 255.2287, 0],
+        "scale": [3.023067, 3.023067, 3.023067]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4784937, 0.7583574, 0.3991237]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 4.393394
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 114,
+      "name": "Cube.017",
+      "parent": 49,
+      "transform": {
+        "position": [-71.11366, 2.747676, -27.27593],
+        "rotation": [34.37747, 262.6021, 0],
+        "scale": [1.495352, 1.495352, 1.495352]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.7675326, 0.4903624, 0.4321051]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 354.1669
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 115,
+      "name": "Sphere.017",
+      "parent": 49,
+      "transform": {
+        "position": [28.32116, 1.785385, 17.59127],
+        "rotation": [0, 236.8383, 0],
+        "scale": [1.57077, 1.57077, 1.57077]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.2901637, 0.5889373, 0.7346253]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 221.2525
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 116,
+      "name": "Sphere.018",
+      "parent": 49,
+      "transform": {
+        "position": [-31.04378, 2.489639, -67.32597],
+        "rotation": [0, 288.0931, 0],
+        "scale": [2.979278, 2.979278, 2.979278]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.2320849, 0.5690822, 0.9383054]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 227.6561
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 117,
+      "name": "Torus.017",
+      "parent": 49,
+      "transform": {
+        "position": [52.06986, 1.128136, -22.79421],
+        "rotation": [90, 54.34218, 0],
+        "scale": [1.256271, 1.256271, 1.256271]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.4612389, 0.4041388, 0.7575308]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 118,
+      "name": "Sphere.019",
+      "parent": 49,
+      "transform": {
+        "position": [-53.77172, 1.750222, -75.08582],
+        "rotation": [0, 109.0898, 0],
+        "scale": [1.500445, 1.500445, 1.500445]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.1648554, 0.812261, 0.1886207]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 135.5144
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 119,
+      "name": "Cube.018",
+      "parent": 49,
+      "transform": {
+        "position": [34.75454, 1.029069, 47.99941],
+        "rotation": [0, 114.9241, 0],
+        "scale": [2.058139, 2.058139, 2.058139]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.9030825, 0.3926296, 0.9287339]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 120,
+      "name": "Pyramid.017",
+      "parent": 49,
+      "transform": {
+        "position": [-15.08838, 0, 83.14877],
+        "rotation": [0, 270.3827, 0],
+        "scale": [1.210867, 2.239565, 1.210867]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7537166, 0.4450489, 0.4189692]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 121,
+      "name": "Pyramid.018",
+      "parent": 49,
+      "transform": {
+        "position": [43.12519, 0, 17.98921],
+        "rotation": [0, 305.387, 0],
+        "scale": [1.858824, 3.156616, 1.858824]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.8117892, 0.6075116, 0.3841219]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 122,
+      "name": "Cube.019",
+      "parent": 49,
+      "transform": {
+        "position": [64.26405, 1.722878, -33.58741],
+        "rotation": [0, 25.97606, 0],
+        "scale": [3.445756, 3.445756, 3.445756]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.7345234, 0.5514873, 0.3431678]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 123,
+      "name": "Torus.018",
+      "parent": 49,
+      "transform": {
+        "position": [40.88221, 1.579049, 41.4049],
+        "rotation": [90, 243.047, 0],
+        "scale": [2.158097, 2.158097, 2.158097]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7727802, 0.3792965, 0.3654944]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 124,
+      "name": "Sphere.020",
+      "parent": 49,
+      "transform": {
+        "position": [78.44855, 1.94429, -8.008759],
+        "rotation": [0, 20.66434, 0],
+        "scale": [1.888579, 1.888579, 1.888579]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7387329, 0.1602197, 0.7986408]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 343.4
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 125,
+      "name": "Cube.020",
+      "parent": 49,
+      "transform": {
+        "position": [-0.8901557, 1.705127, -48.6191],
+        "rotation": [0, 149.8176, 0],
+        "scale": [3.410254, 3.410254, 3.410254]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.2826966, 0.7465705, 0.9150251]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 126,
+      "name": "Sphere.021",
+      "parent": 49,
+      "transform": {
+        "position": [46.1153, 1.598311, -67.47627],
+        "rotation": [0, 107.6914, 0],
+        "scale": [1.196623, 1.196623, 1.196623]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.8938985, 0.874275, 0.2170435]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 95.72775
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 127,
+      "name": "Pyramid.019",
+      "parent": 49,
+      "transform": {
+        "position": [11.20613, 0, 82.69948],
+        "rotation": [0, 236.2525, 0],
+        "scale": [3.920888, 5.392063, 3.920888]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7493794, 0.318866, 0.7018414]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 128,
+      "name": "Torus.019",
+      "parent": 49,
+      "transform": {
+        "position": [-69.53787, 1.979515, 1.799694],
+        "rotation": [90, 10.7345, 0],
+        "scale": [2.95903, 2.95903, 2.95903]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.6147497, 0.5089722, 0.8557898]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 129,
+      "name": "Cube.021",
+      "parent": 49,
+      "transform": {
+        "position": [43.31281, 0.8837836, 38.73885],
+        "rotation": [0, 156.5845, 0],
+        "scale": [1.767567, 1.767567, 1.767567]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4146878, 0.8482811, 0.8392059]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 130,
+      "name": "Torus.020",
+      "parent": 49,
+      "transform": {
+        "position": [60.57342, 2.425909, -12.61402],
+        "rotation": [90, 185.9911, 0],
+        "scale": [3.851818, 3.851818, 3.851818]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7888984, 0.8041989, 0.4412113]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 131,
+      "name": "Cube.022",
+      "parent": 49,
+      "transform": {
+        "position": [24.14559, 3.66832, -86.02454],
+        "rotation": [34.37747, 32.06944, 0],
+        "scale": [3.336639, 3.336639, 3.336639]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.7265942, 0.6983563, 0.4278471]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 93.68006
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 132,
+      "name": "Cube.023",
+      "parent": 49,
+      "transform": {
+        "position": [37.52913, 3.060474, -2.092613],
+        "rotation": [34.37747, 354.0129, 0],
+        "scale": [2.120948, 2.120948, 2.120948]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.6526762, 0.1904148, 0.862796]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 82.31305
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 133,
+      "name": "Pyramid.020",
+      "parent": 49,
+      "transform": {
+        "position": [-6.997475, 0, 34.10694],
+        "rotation": [0, 30.80985, 0],
+        "scale": [3.177756, 5.371223, 3.177756]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.4105323, 0.6954102, 0.708094]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 134,
+      "name": "Sphere.022",
+      "parent": 49,
+      "transform": {
+        "position": [37.90213, 2.148401, -19.45033],
+        "rotation": [0, 140.3811, 0],
+        "scale": [2.296801, 2.296801, 2.296801]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.4751969, 0.8702248, 0.7489753]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 138.0475
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 135,
+      "name": "Torus.021",
+      "parent": 49,
+      "transform": {
+        "position": [46.17923, 1.772759, 15.321],
+        "rotation": [90, 128.1733, 0],
+        "scale": [2.545518, 2.545518, 2.545518]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.2532477, 0.9056503, 0.4687892]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 136,
+      "name": "Sphere.023",
+      "parent": 49,
+      "transform": {
+        "position": [-59.41236, 2.99546, 52.73043],
+        "rotation": [0, 355.536, 0],
+        "scale": [3.990919, 3.990919, 3.990919]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.5923282, 0.7879911, 0.3988342]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 112.197
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 137,
+      "name": "Sphere.024",
+      "parent": 49,
+      "transform": {
+        "position": [-29.16068, 1.797209, 2.33709],
+        "rotation": [0, 138.2005, 0],
+        "scale": [1.594419, 1.594419, 1.594419]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.6122608, 0.7863439, 0.4130283]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 265.4704
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 138,
+      "name": "Pyramid.021",
+      "parent": 49,
+      "transform": {
+        "position": [-47.63187, 0, 9.771779],
+        "rotation": [0, 191.1022, 0],
+        "scale": [3.353515, 4.725748, 3.353515]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.7571824, 0.2602434, 0.744183]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 139,
+      "name": "Torus.022",
+      "parent": 49,
+      "transform": {
+        "position": [-31.69189, 2.036071, 28.65673],
+        "rotation": [90, 346.4778, 0],
+        "scale": [3.072143, 3.072143, 3.072143]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.4611883, 0.7925569, 0.8006582]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 140,
+      "name": "Pyramid.022",
+      "parent": 49,
+      "transform": {
+        "position": [28.52767, 0, 3.799339],
+        "rotation": [0, 144.6126, 0],
+        "scale": [1.578103, 2.450058, 1.578103]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.9195651, 0.2588556, 0.1936879]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 141,
+      "name": "Sphere.025",
+      "parent": 49,
+      "transform": {
+        "position": [-44.94083, 2.275112, 36.40717],
+        "rotation": [0, 106.8315, 0],
+        "scale": [2.550224, 2.550224, 2.550224]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.3704907, 0.8394151, 0.4843309]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 210.5
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 142,
+      "name": "Pyramid.023",
+      "parent": 49,
+      "transform": {
+        "position": [-38.50694, 0, 28.63494],
+        "rotation": [0, 22.30577, 0],
+        "scale": [1.672166, 3.287023, 1.672166]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.8661795, 0.8382589, 0.3775226]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 143,
+      "name": "Torus.023",
+      "parent": 49,
+      "transform": {
+        "position": [22.66092, 1.240713, -65.76656],
+        "rotation": [90, 298.5435, 0],
+        "scale": [1.481425, 1.481425, 1.481425]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7041885, 0.5161406, 0.3410203]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 144,
+      "name": "Torus.024",
+      "parent": 49,
+      "transform": {
+        "position": [44.6216, 2.300439, 34.64594],
+        "rotation": [90, 322.0744, 0],
+        "scale": [3.600878, 3.600878, 3.600878]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.8152837, 0.7807596, 0.1956177]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 145,
+      "name": "Cube.024",
+      "parent": 49,
+      "transform": {
+        "position": [64.76455, 1.785077, -73.15714],
+        "rotation": [0, 46.22086, 0],
+        "scale": [3.570154, 3.570154, 3.570154]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4240626, 0.9359506, 0.6153771]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 146,
+      "name": "Cube.025",
+      "parent": 49,
+      "transform": {
+        "position": [-10.23117, 2.835301, 95.47299],
+        "rotation": [34.37747, 158.9044, 0],
+        "scale": [1.670603, 1.670603, 1.670603]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.3647008, 0.2161627, 0.7020845]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 310.6098
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 147,
+      "name": "Sphere.026",
+      "parent": 49,
+      "transform": {
+        "position": [-51.89017, 2.290936, -38.21614],
+        "rotation": [0, 355.2816, 0],
+        "scale": [2.581873, 2.581873, 2.581873]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.3710263, 0.9456947, 0.2102305]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 277.7974
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 148,
+      "name": "Cube.026",
+      "parent": 49,
+      "transform": {
+        "position": [38.4396, 1.207558, -3.034663],
+        "rotation": [0, 193.556, 0],
+        "scale": [2.415115, 2.415115, 2.415115]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.4671691, 0.6350716, 0.9412393]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 149,
+      "name": "Torus.025",
+      "parent": 49,
+      "transform": {
+        "position": [-37.21189, 1.346418, 33.5518],
+        "rotation": [90, 275.213, 0],
+        "scale": [1.692837, 1.692837, 1.692837]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.4517129, 0.7339135, 0.7680616]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 150,
+      "name": "Torus.026",
+      "parent": 49,
+      "transform": {
+        "position": [45.00658, 1.518998, 28.51938],
+        "rotation": [90, 237.3621, 0],
+        "scale": [2.037995, 2.037995, 2.037995]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.7737696, 0.4853191, 0.3095415]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 151,
+      "name": "Sphere.027",
+      "parent": 49,
+      "transform": {
+        "position": [27.78241, 1.655566, 45.70285],
+        "rotation": [0, 272.6624, 0],
+        "scale": [1.311132, 1.311132, 1.311132]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.4135127, 0.6879868, 0.9026974]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 18.5788
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 152,
+      "name": "Torus.027",
+      "parent": 49,
+      "transform": {
+        "position": [49.96439, 2.38802, -68.05338],
+        "rotation": [90, 186.8624, 0],
+        "scale": [3.77604, 3.77604, 3.77604]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.6449163, 0.7310355, 0.3800441]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 153,
+      "name": "Sphere.028",
+      "parent": 49,
+      "transform": {
+        "position": [12.83655, 1.74364, 44.80977],
+        "rotation": [0, 144.0261, 0],
+        "scale": [1.487281, 1.487281, 1.487281]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.7006845, 0.8845339, 0.4504971]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 55.73161
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 154,
+      "name": "Sphere.029",
+      "parent": 49,
+      "transform": {
+        "position": [-65.59228, 1.546585, 41.06134],
+        "rotation": [0, 151.2814, 0],
+        "scale": [1.09317, 1.09317, 1.09317]
+      },
+      "meshRenderer": {
+        "mesh": "Sphere",
+        "color": [0.2379674, 0.9119513, 0.8793421]
+      },
+      "collider": {
+        "shape": "sphere",
+        "center": [0, 0, 0],
+        "radius": 0.5
+      },
+      "behaviours": [
+        {
+          "type": "Bob",
+          "height": 0.8,
+          "speed": 1.5,
+          "phase": 23.2611
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 155,
+      "name": "Cube.027",
+      "parent": 49,
+      "transform": {
+        "position": [31.47867, 1.156058, -42.04868],
+        "rotation": [0, 344.0448, 0],
+        "scale": [2.312116, 2.312116, 2.312116]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.420454, 0.4147296, 0.7059693]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 156,
+      "name": "Pyramid.024",
+      "parent": 49,
+      "transform": {
+        "position": [-10.32157, 0, -50.03724],
+        "rotation": [0, 32.9259, 0],
+        "scale": [1.052213, 1.020809, 1.052213]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.799871, 0.5898696, 0.3492458]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 157,
+      "name": "Cube.028",
+      "parent": 49,
+      "transform": {
+        "position": [-79.93799, 1.515653, -7.600219],
+        "rotation": [0, 30.41408, 0],
+        "scale": [3.031306, 3.031306, 3.031306]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.8577522, 0.4552829, 0.9277]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 158,
+      "name": "Cube.029",
+      "parent": 49,
+      "transform": {
+        "position": [-17.59312, 0.5997808, 43.93076],
+        "rotation": [0, 124.5224, 0],
+        "scale": [1.199562, 1.199562, 1.199562]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.7346556, 0.6252016, 0.1872646]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 159,
+      "name": "Pyramid.025",
+      "parent": 49,
+      "transform": {
+        "position": [13.04314, 0, 62.13634],
+        "rotation": [0, 272.5079, 0],
+        "scale": [1.206038, 2.144812, 1.206038]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.35171, 0.2164298, 0.785176]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 160,
+      "name": "Cube.030",
+      "parent": 49,
+      "transform": {
+        "position": [-91.42553, 3.867918, 22.88366],
+        "rotation": [34.37747, 250.8252, 0],
+        "scale": [3.735837, 3.735837, 3.735837]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.8213441, 0.6490825, 0.3751706]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 59.42727
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 161,
+      "name": "Cube.031",
+      "parent": 49,
+      "transform": {
+        "position": [-35.78744, 1.821212, 55.49114],
+        "rotation": [0, 53.26449, 0],
+        "scale": [3.642424, 3.642424, 3.642424]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.9030119, 0.7815788, 0.5212291]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 162,
+      "name": "Cube.032",
+      "parent": 49,
+      "transform": {
+        "position": [79.778, 1.970148, -47.5218],
+        "rotation": [0, 188.1083, 0],
+        "scale": [3.940296, 3.940296, 3.940296]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.8655983, 0.2976874, 0.4489611]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 163,
+      "name": "Pyramid.026",
+      "parent": 49,
+      "transform": {
+        "position": [-30.33564, 0, 85.82572],
+        "rotation": [0, 67.0502, 0],
+        "scale": [1.367322, 1.798555, 1.367322]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.6016078, 0.9294357, 0.4924535]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 164,
+      "name": "Cube.033",
+      "parent": 49,
+      "transform": {
+        "position": [31.08486, 3.90585, 68.64549],
+        "rotation": [34.37747, 342.2696, 0],
+        "scale": [3.8117, 3.8117, 3.8117]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.8037493, 0.9194251, 0.4758433]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 283.9533
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 165,
+      "name": "Pyramid.027",
+      "parent": 49,
+      "transform": {
+        "position": [-2.604279, 0, 42.90699],
+        "rotation": [0, 81.02951, 0],
+        "scale": [1.300409, 1.372965, 1.300409]
+      },
+      "meshRenderer": {
+        "mesh": "Pyramid",
+        "color": [0.781782, 0.6896481, 0.3722361]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0.5, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 166,
+      "name": "Torus.028",
+      "parent": 49,
+      "transform": {
+        "position": [79.81251, 1.992736, -18.29722],
+        "rotation": [90, 282.754, 0],
+        "scale": [2.985472, 2.985472, 2.985472]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.4035194, 0.724562, 0.1879193]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 167,
+      "name": "Torus.029",
+      "parent": 49,
+      "transform": {
+        "position": [38.9637, 1.973699, -17.98207],
+        "rotation": [90, 100.0185, 0],
+        "scale": [2.947397, 2.947397, 2.947397]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.4931559, 0.6947584, 0.9353439]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    },
+    {
+      "id": 168,
+      "name": "Cube.034",
+      "parent": 49,
+      "transform": {
+        "position": [43.27481, 2.819076, 28.74939],
+        "rotation": [34.37747, 26.98077, 0],
+        "scale": [1.638152, 1.638152, 1.638152]
+      },
+      "meshRenderer": {
+        "mesh": "Cube",
+        "color": [0.2584164, 0.6415332, 0.9475088]
+      },
+      "collider": {
+        "shape": "box",
+        "center": [0, 0, 0],
+        "size": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 40.10704
+        },
+        {
+          "type": "Bob",
+          "height": 0.5,
+          "speed": 1.5,
+          "phase": 58.58054
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": "Gem"
+        }
+      ]
+    },
+    {
+      "id": 169,
+      "name": "Torus.030",
+      "parent": 49,
+      "transform": {
+        "position": [-27.28417, 1.645477, 6.300426],
+        "rotation": [90, 88.93094, 0],
+        "scale": [2.290954, 2.290954, 2.290954]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [0.3052078, 0.915062, 0.8790448]
+      },
+      "collider": {
+        "shape": "mesh",
+        "center": [0, 0, 0]
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 57.29578
+        },
+        {
+          "type": "Destructible",
+          "hits": 1,
+          "dropPrefab": ""
+        }
+      ]
+    }
+  ],
+  "prefabs": [
+    {
+      "name": "Bullet",
+      "entities": [
+        {
+          "id": 7,
+          "name": "Bullet",
+          "transform": {
+            "position": [0, 0, 0],
+            "rotation": [0, 0, 0],
+            "scale": [0.2, 0.2, 0.2]
+          },
+          "meshRenderer": {
+            "mesh": "Sphere",
+            "color": [1, 0.55, 0.15]
+          },
+          "behaviours": [
+            {
+              "type": "Projectile",
+              "speed": 40,
+              "gravity": 0,
+              "lifetime": 3,
+              "damage": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Gem",
+      "entities": [
+        {
+          "id": 8,
+          "name": "Gem",
+          "transform": {
+            "position": [0, 0, 0],
+            "rotation": [45, 0, 35],
+            "scale": [0.7, 0.7, 0.7]
+          },
+          "meshRenderer": {
+            "mesh": "Cube",
+            "color": [0.25, 1, 1]
+          },
+          "collider": {
+            "shape": "sphere",
+            "center": [0, 0, 0],
+            "radius": 1.6,
+            "trigger": true
+          },
+          "behaviours": [
+            {
+              "type": "Spin",
+              "speed": 120
+            },
+            {
+              "type": "Bob",
+              "height": 0.25,
+              "speed": 1.5,
+              "phase": 0
+            },
+            {
+              "type": "Pickup",
+              "collector": "Player",
+              "radius": 1.8
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

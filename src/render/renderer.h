@@ -80,6 +80,7 @@ public:
 
     const std::string& gpuName() const { return gpuName_; }
     const RenderStats& stats() const { return stats_; }
+    static int validationErrors();   // errors the validation layer has reported (VKWORLD_VALIDATION=1)
     // A TextureLibrary texture for Dear ImGui (AddImage); 0 until it has been uploaded (the next render() does it)
     ImTextureID uiTexture(int id) const;
 
