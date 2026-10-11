@@ -181,15 +181,23 @@ dropping on the right.
 
 ## Rendering
 
-- **Materials**: a Mesh Renderer has a colour and optionally a texture (PNG, JPEG, TGA, BMP via Inspector > Load
-  texture..., or the built-in procedural Checker / Bricks / Tiles), with a tiling factor. Built-in meshes have
-  box-mapped texture coordinates; imported ones use their own. Textures get mipmaps and anisotropic filtering.
+- **Materials**: physically based (glTF metallic-roughness, GGX). A Mesh Renderer has a colour and texture (PNG,
+  JPEG, TGA, BMP via Inspector > Load texture..., or the built-in procedural Checker / Bricks / Tiles), metallic
+  and roughness (optionally from a metal/rough map), a normal map (tangents come from screen-space derivatives,
+  so meshes don't need them; built-in "Bricks Normal") and an emissive colour, strength and map. glTF materials
+  import all of these. Built-in meshes have box-mapped texture coordinates; imported ones use their own. Textures
+  get mipmaps and anisotropic filtering, and are read as sRGB colour or as plain data, whichever the slot needs.
+  The demo scene's "Materials" row shows them.
 - **Lights**: Light components, directional (shines along the entity's -Z) or point (colour, intensity, range).
   The first directional light is the sun and casts the shadows; up to 8 point lights (nearest the camera) light
   each frame. Scenes without a directional light get a default sun.
 - **Shadows**: one 2048x2048 shadow map for the sun, covering about 90 m around the camera, filtered 3x3, snapped
   to texels so edges don't shimmer.
-- 4x MSAA, distance fog, the selection outline, and a little dithering against banding.
+- **HDR**: the scene renders into a floating-point image; **bloom** (a 13-tap down / tent up mip chain, with a
+  soft threshold) makes bright parts glow, and the final pass applies exposure and the Khronos **PBR Neutral**
+  tonemapper (colours below about 0.8 come out as they are). Sky colour, fog, ambient, exposure and bloom are
+  per-scene settings (Inspector, with nothing selected).
+- 4x MSAA, distance fog, the selection outline (kept out of tonemapping), and a little dithering against banding.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
   (joint matrices in a storage buffer, up to 4 joints per vertex) in every pass, shadows and outline included.
 - **Batching**: objects outside the camera's (or, for the shadow pass, the sun's) frustum are culled; the rest are
@@ -438,4 +446,5 @@ Includes are relative to `src/`.
 | `shaders/common.glsl`      | Frame data (camera, sun, point lights, shadow camera) and per-object instance data shared by the shaders |
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |
 | `shaders/shadow.vert`      | Shadow map (depth only)                                         |
+| `shaders/post.vert`, `bloom_*.frag`, `composite.frag` | Bloom down / up passes; tonemapping and gamma onto the swapchain |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

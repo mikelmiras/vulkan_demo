@@ -6,6 +6,7 @@
 #include "imgui.h"
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "assets/meshes.h"
@@ -24,6 +25,11 @@ struct DrawItem {
     bool checker = false;       // procedural checkerboard + grid
     bool outlined = false;      // draw the selection outline around it
     int jointOffset = -1;       // skinned: its joint matrices start here in SceneRenderInfo::joints
+    // Material (see MeshRenderer)
+    float metallic = 0.f, roughness = 0.5f;
+    int metalRoughTexture = -1, normalTexture = -1, emissiveTexture = -1;
+    float normalScale = 1.f;
+    Vec3 emissive;              // linear, times its strength
 };
 
 struct LightInfo {
@@ -43,6 +49,9 @@ struct SceneRenderInfo {
     Mat4 viewProj;
     Vec3 camPos;
     Vec3 camForward{0, 0, -1};   // the shadow map covers the area in front of the camera
+    // Look (Scene::render): sky / fog colour (sRGB), fog, ambient light, exposure and bloom
+    Vec3 sky{0.62f, 0.75f, 0.90f};
+    float fogDensity = 0.006f, ambient = 0.45f, exposure = 1.f, bloomStrength = 0.06f, bloomThreshold = 1.f;
     float viewportX = 0, viewportY = 0, viewportW = 0, viewportH = 0;   // in window pixels
 };
 
@@ -109,9 +118,12 @@ private:
     void uploadMeshes();   // (re)creates the vertex/index buffers from meshes_
     void uploadTextures(); // uploads textures added to textures_ since last time
     struct GpuTexture {
-        Image image;
-        VkDescriptorSet set = VK_NULL_HANDLE;
+        Image image;                             // image.view reads it as sRGB colour (albedo, emissive)
+        VkImageView linear = VK_NULL_HANDLE;     // the same bytes as plain numbers (normal and metal/rough maps, UI)
+        VkDescriptorSet set = VK_NULL_HANDLE;    // the linear view alone, for Dear ImGui
     };
+    // Set 1 for a draw: albedo, normal, metal/rough and emissive maps (defaults where it has none), made on first use
+    VkDescriptorSet materialSet(const DrawItem& item);
     GpuTexture createTexture(const uint8_t* rgba, uint32_t width, uint32_t height);
     void destroyTexture(GpuTexture& t);
     VkCommandBuffer beginOneTimeCommands();
@@ -129,7 +141,7 @@ private:
     void destroyBuffer(Buffer& b);
     Image createImage(VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect);   // screen-sized
     Image createImage(VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, uint32_t width,
-                      uint32_t height, VkSampleCountFlagBits samples, uint32_t mipLevels);
+                      uint32_t height, VkSampleCountFlagBits samples, uint32_t mipLevels, VkImageCreateFlags flags = 0);
     void destroyImage(Image& img);
     VkImageView createView(VkImage image, VkFormat format, VkImageAspectFlags aspect, uint32_t mipLevels = 1);
     VkShaderModule loadShader(const std::string& name);
@@ -143,6 +155,10 @@ private:
     const TextureLibrary* textures_ = nullptr;
     std::vector<GpuTexture> gpuTextures_;   // same ids as the TextureLibrary
     GpuTexture whiteTexture_;               // for untextured draws
+    GpuTexture flatNormal_;                 // the normal map of a flat surface
+    VkDescriptorSetLayout materialSetLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool materialPool_ = VK_NULL_HANDLE;
+    std::unordered_map<uint64_t, VkDescriptorSet> materialSets_;   // by the four texture ids
     VkDescriptorSetLayout textureSetLayout_ = VK_NULL_HANDLE;
     VkDescriptorPool texturePool_ = VK_NULL_HANDLE;
     VkSampler sampler_ = VK_NULL_HANDLE;
@@ -200,6 +216,26 @@ private:
     VkFence inFlight_[MAX_FRAMES] = {};
     uint32_t frame_ = 0;
     bool imguiInitialized_ = false;
+
+    // ---- HDR and post-processing: the scene renders into hdr_ (linear, floating point), then bloom goes down and
+    // back up bloom_'s mip chain, and the composite pass tonemaps both onto the swapchain image
+    static constexpr uint32_t kMaxBloomMips = 6;
+    VkFormat hdrFormat_ = VK_FORMAT_R16G16B16A16_SFLOAT;
+    Image hdr_, bloom_;
+    uint32_t bloomMips_ = 0;
+    VkImageView bloomViews_[kMaxBloomMips] = {};
+    VkExtent2D bloomSizes_[kMaxBloomMips] = {};
+    VkSampler postSampler_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout postSetLayout_ = VK_NULL_HANDLE;
+    VkPipelineLayout postLayout_ = VK_NULL_HANDLE;
+    VkDescriptorPool postPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet prefilterSet_ = VK_NULL_HANDLE, compositeSet_ = VK_NULL_HANDLE;
+    VkDescriptorSet downSets_[kMaxBloomMips] = {}, upSets_[kMaxBloomMips] = {};
+    VkPipeline bloomDownPipeline_ = VK_NULL_HANDLE, bloomUpPipeline_ = VK_NULL_HANDLE, compositePipeline_ = VK_NULL_HANDLE;
+    VkPipeline createPostPipeline(const char* fragShader, VkFormat format, bool additive);
+    void createPostImages();    // window-sized: made again when the swapchain is
+    void destroyPostImages();
+    void recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info);
 
     std::string screenshotPath_;
     int screenshotResult_ = 0;

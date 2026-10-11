@@ -13,6 +13,8 @@ layout(location = 1) out vec3 vNormal;
 layout(location = 2) out vec2 vUV;
 layout(location = 3) flat out vec4 vColor;
 layout(location = 4) flat out vec4 vParams;
+layout(location = 5) flat out vec4 vMaterial;
+layout(location = 6) flat out vec4 vEmissive;
 
 void main() {
     Instance inst = instances[gl_InstanceIndex];
@@ -23,5 +25,7 @@ void main() {
     vUV = inUV * inst.params.y;
     vColor = inst.color;
     vParams = inst.params;
+    vMaterial = inst.material;
+    vEmissive = inst.emissive;
     gl_Position = frame.viewProj * world;
 }

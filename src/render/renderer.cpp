@@ -46,8 +46,10 @@ struct FrameUBO {
 
 struct InstanceData {
     Mat4 model;
-    float color[4];    // rgb (linear albedo; sRGB for the outline)
-    float params[4];   // x = checker ground, y = texture tiling, z = textured
+    float color[4];      // rgb (linear albedo; sRGB for the outline)
+    float params[4];     // x = checker ground, y = texture tiling, z = textured, w = first joint matrix or -1
+    float material[4];   // metallic, roughness, normal map strength (0: none), unused
+    float emissive[4];   // rgb (linear, times strength), unused
 };
 
 // The six planes of a view-projection's frustum (Vulkan clip space: 0 <= z <= w), as (normal, distance)
@@ -87,7 +89,6 @@ void set4(float out[4], Vec3 v, float w) {
     out[0] = v.x; out[1] = v.y; out[2] = v.z; out[3] = w;
 }
 
-constexpr Vec3 kSkySrgb{0.62f, 0.75f, 0.90f};
 constexpr Vec3 kOutlineSrgb{1.0f, 0.55f, 0.1f};
 
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -342,9 +343,10 @@ Renderer::Image Renderer::createImage(VkFormat format, VkImageUsageFlags usage, 
 
 Renderer::Image Renderer::createImage(VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect,
                                       uint32_t width, uint32_t height, VkSampleCountFlagBits samples,
-                                      uint32_t mipLevels) {
+                                      uint32_t mipLevels, VkImageCreateFlags flags) {
     Image img;
     VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.flags = flags;
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = format;
     ci.extent = {width, height, 1};
@@ -443,7 +445,7 @@ void Renderer::createSwapchain() {
     for (auto& s : renderDone_) VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &s));
 
     if (samples_ != VK_SAMPLE_COUNT_1_BIT)
-        colorMsaa_ = createImage(swapFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+        colorMsaa_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
                                  VK_IMAGE_ASPECT_COLOR_BIT);
     depth_ = createImage(depthFormat_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                          VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
@@ -461,7 +463,9 @@ void Renderer::destroySwapchainResources() {
 void Renderer::recreateSwapchain() {
     vkDeviceWaitIdle(device_);
     destroySwapchainResources();
+    destroyPostImages();
     createSwapchain();
+    createPostImages();
     resized_ = false;
 }
 
@@ -577,7 +581,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
     VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     rci.colorAttachmentCount = depthOnly ? 0 : 1;
-    rci.pColorAttachmentFormats = &swapFormat_;
+    rci.pColorAttachmentFormats = &hdrFormat_;   // (the scene renders into the HDR image)
     rci.depthAttachmentFormat = depthOnly ? shadowFormat_ : depthFormat_;
     rci.stencilAttachmentFormat = depthOnly ? VK_FORMAT_UNDEFINED : depthFormat_;
 
@@ -614,14 +618,21 @@ void Renderer::createPipelines() {
     dslci.bindingCount = 4;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
-    // Set 1, per draw: the material's texture
+    // One texture alone (Dear ImGui's layout, for UI images)
     VkDescriptorSetLayoutBinding texBinding{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
                                             nullptr};
     dslci.bindingCount = 1;
     dslci.pBindings = &texBinding;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &textureSetLayout_));
+    // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
+    VkDescriptorSetLayoutBinding matBindings[4];
+    for (uint32_t i = 0; i < 4; ++i)
+        matBindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    dslci.bindingCount = 4;
+    dslci.pBindings = matBindings;
+    VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &materialSetLayout_));
 
-    VkDescriptorSetLayout layouts[2] = {setLayout_, textureSetLayout_};
+    VkDescriptorSetLayout layouts[2] = {setLayout_, materialSetLayout_};
     VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     plci.setLayoutCount = 2;
     plci.pSetLayouts = layouts;
@@ -639,6 +650,129 @@ void Renderer::createPipelines() {
     // Depth from the sun's point of view (no fragment shader)
     shadowPipeline_ = createPipeline({"shadow.vert.spv", nullptr, true, true, false, VK_CULL_MODE_NONE, false,
                                       VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 1});
+
+    // Post-processing: one or two images to read, parameters in push constants
+    VkDescriptorSetLayoutBinding postBindings[2] = {
+        {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+    };
+    dslci.bindingCount = 2;
+    dslci.pBindings = postBindings;
+    VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &postSetLayout_));
+    VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 32};
+    VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+    pl.setLayoutCount = 1;
+    pl.pSetLayouts = &postSetLayout_;
+    pl.pushConstantRangeCount = 1;
+    pl.pPushConstantRanges = &pcr;
+    VK_CHECK(vkCreatePipelineLayout(device_, &pl, nullptr, &postLayout_));
+    bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
+    bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
+    compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
+}
+
+VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format, bool additive) {
+    VkShaderModule vs = loadShader("post.vert.spv"), fs = loadShader(fragShader);
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr},
+    };
+    VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    vp.viewportCount = 1;
+    vp.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rs.polygonMode = VK_POLYGON_MODE_FILL;
+    rs.cullMode = VK_CULL_MODE_NONE;
+    rs.lineWidth = 1.f;
+    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    VkPipelineColorBlendAttachmentState cba{};
+    cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    if (additive) {
+        cba.blendEnable = VK_TRUE;
+        cba.srcColorBlendFactor = cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        cba.colorBlendOp = VK_BLEND_OP_ADD;
+        cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        cba.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
+    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    cb.attachmentCount = 1;
+    cb.pAttachments = &cba;
+    VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dy.dynamicStateCount = 2;
+    dy.pDynamicStates = dyn;
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = &format;
+    VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    ci.pNext = &rci;
+    ci.stageCount = 2;
+    ci.pStages = stages;
+    ci.pVertexInputState = &vi;
+    ci.pInputAssemblyState = &ia;
+    ci.pViewportState = &vp;
+    ci.pRasterizationState = &rs;
+    ci.pMultisampleState = &ms;
+    ci.pDepthStencilState = &ds;
+    ci.pColorBlendState = &cb;
+    ci.pDynamicState = &dy;
+    ci.layout = postLayout_;
+    VkPipeline pipeline;
+    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
+    vkDestroyShaderModule(device_, vs, nullptr);
+    vkDestroyShaderModule(device_, fs, nullptr);
+    return pipeline;
+}
+
+void Renderer::createPostImages() {
+    hdr_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                       VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    uint32_t w = std::max(extent_.width / 2, 1u), h = std::max(extent_.height / 2, 1u);
+    bloomMips_ = 1;
+    while (bloomMips_ < kMaxBloomMips && std::min(w >> bloomMips_, h >> bloomMips_) >= 4) ++bloomMips_;
+    bloom_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                         VK_IMAGE_ASPECT_COLOR_BIT, w, h, VK_SAMPLE_COUNT_1_BIT, bloomMips_);
+    for (uint32_t m = 0; m < bloomMips_; ++m) {
+        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vci.image = bloom_.image;
+        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format = hdrFormat_;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, m, 1, 0, 1};
+        VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &bloomViews_[m]));
+        bloomSizes_[m] = {std::max(w >> m, 1u), std::max(h >> m, 1u)};
+    }
+    // Point the post passes' descriptor sets at the new images
+    auto write = [&](VkDescriptorSet set, VkImageView a, VkImageView b) {
+        VkDescriptorImageInfo infos[2] = {{postSampler_, a, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+                                          {postSampler_, b, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+        VkWriteDescriptorSet w2[2];
+        for (uint32_t i = 0; i < 2; ++i) {
+            w2[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w2[i].dstSet = set;
+            w2[i].dstBinding = i;
+            w2[i].descriptorCount = 1;
+            w2[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w2[i].pImageInfo = &infos[i];
+        }
+        vkUpdateDescriptorSets(device_, 2, w2, 0, nullptr);
+    };
+    write(prefilterSet_, hdr_.view, hdr_.view);
+    for (uint32_t m = 1; m < bloomMips_; ++m) write(downSets_[m], bloomViews_[m - 1], bloomViews_[m - 1]);
+    for (uint32_t m = 0; m + 1 < bloomMips_; ++m) write(upSets_[m], bloomViews_[m + 1], bloomViews_[m + 1]);
+    write(compositeSet_, hdr_.view, bloomViews_[0]);
+}
+
+void Renderer::destroyPostImages() {
+    for (uint32_t m = 0; m < bloomMips_; ++m) vkDestroyImageView(device_, bloomViews_[m], nullptr);
+    bloomMips_ = 0;
+    if (bloom_.image) destroyImage(bloom_);
+    if (hdr_.image) destroyImage(hdr_);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -683,6 +817,13 @@ void Renderer::createShadowResources() {
     sci.anisotropyEnable = maxAnisotropy_ > 1.f;
     sci.maxAnisotropy = maxAnisotropy_;
     VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &sampler_));
+
+    // Post-processing: bilinear, clamped, one level at a time
+    VkSamplerCreateInfo post{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    post.magFilter = post.minFilter = VK_FILTER_LINEAR;
+    post.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    post.addressModeU = post.addressModeV = post.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    VK_CHECK(vkCreateSampler(device_, &post, nullptr, &postSampler_));
 }
 
 // Uploads RGBA8 sRGB pixels to a device-local image with a full mip chain (when the format can be blitted)
@@ -697,9 +838,12 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
         while ((std::max(width, height) >> mips) > 0) ++mips;
 
     GpuTexture t;
+    // Mutable format: an sRGB view for colour and a UNORM view of the same bytes for data (normal maps)
     t.image = createImage(format,
                           VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                          VK_IMAGE_ASPECT_COLOR_BIT, width, height, VK_SAMPLE_COUNT_1_BIT, mips);
+                          VK_IMAGE_ASPECT_COLOR_BIT, width, height, VK_SAMPLE_COUNT_1_BIT, mips,
+                          VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT);
+    t.linear = createView(t.image.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, mips);
     Buffer staging = createBuffer((VkDeviceSize)width * height * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, rgba);
 
     auto barrier = [&](VkCommandBuffer cb, uint32_t mip, uint32_t count, VkImageLayout from, VkImageLayout to,
@@ -751,7 +895,7 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
     dsai.descriptorSetCount = 1;
     dsai.pSetLayouts = &textureSetLayout_;
     VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &t.set));
-    VkDescriptorImageInfo ii{sampler_, t.image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorImageInfo ii{sampler_, t.linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};   // (UI: bytes as they are)
     VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     wr.dstSet = t.set;
     wr.descriptorCount = 1;
@@ -762,6 +906,7 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
 }
 
 void Renderer::destroyTexture(GpuTexture& t) {
+    if (t.linear) vkDestroyImageView(device_, t.linear, nullptr);
     destroyImage(t.image);   // the descriptor set goes with its pool
     t = {};
 }
@@ -834,6 +979,30 @@ void Renderer::createResources(const MeshLibrary&) {
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &texSize;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &texturePool_));
+    VkDescriptorPoolSize matSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * 4096};
+    dpci.pPoolSizes = &matSize;
+    VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &materialPool_));
+
+    // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
+    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * (2 * kMaxBloomMips + 2)};
+    dpci.maxSets = 2 * kMaxBloomMips + 2;
+    dpci.poolSizeCount = 1;
+    dpci.pPoolSizes = &postSize;
+    VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &postPool_));
+    std::vector<VkDescriptorSetLayout> postLayouts(2 * kMaxBloomMips + 2, postSetLayout_);
+    std::vector<VkDescriptorSet> postSets(postLayouts.size());
+    VkDescriptorSetAllocateInfo pai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    pai.descriptorPool = postPool_;
+    pai.descriptorSetCount = (uint32_t)postLayouts.size();
+    pai.pSetLayouts = postLayouts.data();
+    VK_CHECK(vkAllocateDescriptorSets(device_, &pai, postSets.data()));
+    prefilterSet_ = postSets[0];
+    compositeSet_ = postSets[1];
+    for (uint32_t m = 0; m < kMaxBloomMips; ++m) {
+        downSets_[m] = postSets[2 + m];
+        upSets_[m] = postSets[2 + kMaxBloomMips + m];
+    }
+    createPostImages();
 
     VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -886,7 +1055,45 @@ void Renderer::createResources(const MeshLibrary&) {
 
     const uint8_t white[4] = {255, 255, 255, 255};
     whiteTexture_ = createTexture(white, 1, 1);
+    const uint8_t flat[4] = {128, 128, 255, 255};
+    flatNormal_ = createTexture(flat, 1, 1);
     uploadTextures();
+}
+
+VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
+    auto valid = [&](int id) { return id >= 0 && id < (int)gpuTextures_.size() ? id : -1; };
+    int ids[4] = {valid(o.texture), valid(o.normalTexture), valid(o.metalRoughTexture), valid(o.emissiveTexture)};
+    uint64_t key = 0;
+    for (int id : ids) key = (key << 16) | (uint64_t)(uint16_t)(id + 1);
+    auto it = materialSets_.find(key);
+    if (it != materialSets_.end()) return it->second;
+
+    VkDescriptorSet set;
+    VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    dsai.descriptorPool = materialPool_;
+    dsai.descriptorSetCount = 1;
+    dsai.pSetLayouts = &materialSetLayout_;
+    if (vkAllocateDescriptorSets(device_, &dsai, &set) != VK_SUCCESS) {   // out of sets: reuse the plainest one
+        return materialSets_.empty() ? VK_NULL_HANDLE : materialSets_.begin()->second;
+    }
+    auto pick = [&](int id, bool colour, const GpuTexture& fallback) {
+        const GpuTexture& t = id >= 0 ? gpuTextures_[(size_t)id] : fallback;
+        return VkDescriptorImageInfo{sampler_, colour ? t.image.view : t.linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    };
+    VkDescriptorImageInfo infos[4] = {pick(ids[0], true, whiteTexture_), pick(ids[1], false, flatNormal_),
+                                      pick(ids[2], false, whiteTexture_), pick(ids[3], true, whiteTexture_)};
+    VkWriteDescriptorSet w[4];
+    for (uint32_t i = 0; i < 4; ++i) {
+        w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w[i].dstSet = set;
+        w[i].dstBinding = i;
+        w[i].descriptorCount = 1;
+        w[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w[i].pImageInfo = &infos[i];
+    }
+    vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
+    materialSets_.emplace(key, set);
+    return set;
 }
 
 ImTextureID Renderer::uiTexture(int id) const {
@@ -920,6 +1127,117 @@ void Renderer::initImGui() {
 // ---------------------------------------------------------------------------------------------
 // Frame
 // ---------------------------------------------------------------------------------------------
+namespace {
+
+void mipBarrier(VkCommandBuffer cb, VkImage image, uint32_t mip, uint32_t count, VkImageLayout from, VkImageLayout to,
+                VkPipelineStageFlags srcStage, VkAccessFlags srcAccess, VkPipelineStageFlags dstStage,
+                VkAccessFlags dstAccess) {
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = srcAccess;
+    b.dstAccessMask = dstAccess;
+    b.oldLayout = from;
+    b.newLayout = to;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, count, 0, 1};
+    vkCmdPipelineBarrier(cb, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+}
+
+}  // namespace
+
+void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info) {
+    const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    struct Push {
+        float a[4], b[4];
+    };
+    mipBarrier(cb, hdr_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+               VK_ACCESS_SHADER_READ_BIT);
+
+    // A full-screen pass into `view` (w x h), reading `set`
+    auto pass = [&](VkImageView view, VkExtent2D size, VkPipeline pipeline, VkDescriptorSet set, const Push& push, bool load) {
+        VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        att.imageView = view;
+        att.imageLayout = target;
+        att.loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        ri.renderArea = {{0, 0}, size};
+        ri.layerCount = 1;
+        ri.colorAttachmentCount = 1;
+        ri.pColorAttachments = &att;
+        vkCmdBeginRendering(cb, &ri);
+        VkViewport vp{0.f, 0.f, (float)size.width, (float)size.height, 0.f, 1.f};
+        VkRect2D sc{{0, 0}, size};
+        vkCmdSetViewport(cb, 0, 1, &vp);
+        vkCmdSetScissor(cb, 0, 1, &sc);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &set, 0, nullptr);
+        vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &push);
+        vkCmdDraw(cb, 3, 1, 0, 0);
+        vkCmdEndRendering(cb);
+    };
+
+    bool bloom = info.bloomStrength > 0.f && bloomMips_ > 0;
+    // Every bloom level starts as a render target (the old contents don't matter)
+    mipBarrier(cb, bloom_.image, 0, bloomMips_, VK_IMAGE_LAYOUT_UNDEFINED, bloom ? target : readable,
+               colorStage | fragStage, 0, bloom ? colorStage : fragStage,
+               bloom ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
+    if (bloom) {
+        // Down: the HDR image (bright parts only) into level 0, then each level into the next smaller one
+        for (uint32_t m = 0; m < bloomMips_; ++m) {
+            VkExtent2D src = m == 0 ? extent_ : bloomSizes_[m - 1];
+            Push p{{1.f / (float)src.width, 1.f / (float)src.height, m == 0 ? 1.f : 0.f, info.bloomThreshold}, {}};
+            pass(bloomViews_[m], bloomSizes_[m], bloomDownPipeline_, m == 0 ? prefilterSet_ : downSets_[m], p, false);
+            mipBarrier(cb, bloom_.image, m, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                       fragStage, VK_ACCESS_SHADER_READ_BIT);
+        }
+        // Up: each level blurred onto the next larger one (added to what's there)
+        for (uint32_t m = bloomMips_ - 1; m-- > 0;) {
+            mipBarrier(cb, bloom_.image, m, 1, readable, target, fragStage, VK_ACCESS_SHADER_READ_BIT, colorStage,
+                       VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+            VkExtent2D src = bloomSizes_[m + 1];
+            Push p{{1.f / (float)src.width, 1.f / (float)src.height, 1.f, 0.f}, {}};
+            pass(bloomViews_[m], bloomSizes_[m], bloomUpPipeline_, upSets_[m], p, true);
+            mipBarrier(cb, bloom_.image, m, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                       fragStage, VK_ACCESS_SHADER_READ_BIT);
+        }
+    }
+
+    // Composite: into the scene's viewport on the swapchain image; the rest gets the sky colour (under the UI)
+    imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, target, colorStage, 0,
+                 colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    att.imageView = swapViews_[imageIndex];
+    att.imageLayout = target;
+    att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    att.clearValue.color = {{info.sky.x, info.sky.y, info.sky.z, 1.f}};
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, extent_};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &att;
+    vkCmdBeginRendering(cb, &ri);
+    float vx = std::clamp(info.viewportX, 0.f, (float)extent_.width);
+    float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
+    float vw = std::min(info.viewportW, (float)extent_.width - vx);
+    float vh = std::min(info.viewportH, (float)extent_.height - vy);
+    if (info.items && vw >= 1.f && vh >= 1.f) {
+        VkViewport vp{vx, vy, vw, vh, 0.f, 1.f};
+        VkRect2D sc{{(int32_t)vx, (int32_t)vy}, {(uint32_t)vw, (uint32_t)vh}};
+        vkCmdSetViewport(cb, 0, 1, &vp);
+        vkCmdSetScissor(cb, 0, 1, &sc);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline_);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &compositeSet_, 0, nullptr);
+        Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, 0.f, 0.f}, {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}};
+        vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
+        vkCmdDraw(cb, 3, 1, 0, 0);
+    }
+    vkCmdEndRendering(cb);
+}
+
 void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui) {
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -968,9 +1286,10 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
 
-    imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage, 0, colorStage,
-                 VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    // The previous frame's post passes may still be reading the HDR image: wait for them, discard its contents
+    imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                 colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     if (colorMsaa_.image)
         imageBarrier(cb, colorMsaa_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
@@ -979,19 +1298,20 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                  depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, depthStages,
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
-    // ---- Pass 1: 3D scene (MSAA, resolved into the swapchain image)
+    // ---- Pass 1: 3D scene (MSAA, resolved into the HDR image)
+    Vec3 sky = srgbToLinear(info.sky);
     VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color.clearValue.color = {{kSkySrgb.x, kSkySrgb.y, kSkySrgb.z, 1.f}};
+    color.clearValue.color = {{sky.x, sky.y, sky.z, 1.f}};
     if (colorMsaa_.image) {
         color.imageView = colorMsaa_.view;
         color.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-        color.resolveImageView = swapViews_[imageIndex];
+        color.resolveImageView = hdr_.view;
         color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     } else {
-        color.imageView = swapViews_[imageIndex];
+        color.imageView = hdr_.view;
         color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     }
 
@@ -1048,7 +1368,10 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     }
     vkCmdEndRendering(cb);
 
-    // ---- Pass 2: ImGui directly on the swapchain image
+    // ---- Bloom and the composite onto the swapchain image
+    recordPost(cb, imageIndex, info);
+
+    // ---- Pass 3: ImGui directly on the swapchain image
     imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, colorStage,
                  VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
@@ -1170,10 +1493,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
     const std::vector<DrawItem>& items = *info.items;
     Frustum view(info.viewProj), light(lightViewProj);
 
-    auto textureSet = [&](const DrawItem& o) {
-        bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
-        return textured ? gpuTextures_[(size_t)o.texture].set : whiteTexture_.set;
-    };
+    auto textureSet = [&](const DrawItem& o) { return materialSet(o); };
     // Visible items, sorted so that equal (texture, mesh) pairs sit together and can be drawn as one batch
     std::vector<uint32_t> visible, casters;
     visible.reserve(items.size());
@@ -1199,9 +1519,11 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
     InstanceData* out = static_cast<InstanceData*>(instances_[frame_].mapped);
     uint32_t n = 0;
     auto append = [&](std::vector<Batch>& batches, const DrawItem& o, Vec3 rgb, VkDescriptorSet set) {
-        bool textured = set != whiteTexture_.set;
+        bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
         out[n] = {o.model, {rgb.x, rgb.y, rgb.z, 1.f},
-                  {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, (float)o.jointOffset}};
+                  {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, (float)o.jointOffset},
+                  {o.metallic, o.roughness, o.normalTexture >= 0 ? o.normalScale : 0.f, 0.f},
+                  {o.emissive.x, o.emissive.y, o.emissive.z, 0.f}};
         if (!batches.empty() && batches.back().mesh == o.mesh && batches.back().texture == set &&
             batches.back().first + batches.back().count == n)
             batches.back().count++;
@@ -1210,7 +1532,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
         ++n;
     };
     for (uint32_t i : visible) append(sceneBatches_, items[i], srgbToLinear(items[i].color), textureSet(items[i]));
-    for (uint32_t i : casters) append(shadowBatches_, items[i], {}, whiteTexture_.set);
+    VkDescriptorSet plain = materialSet(DrawItem{});
+    for (uint32_t i : casters) append(shadowBatches_, items[i], {}, plain);
     for (const DrawItem& o : items)   // each outline is drawn on its own (stencil, then hull): no merging
         if (o.outlined) {
             std::vector<Batch> single;
@@ -1255,18 +1578,18 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (points.size() > (size_t)kMaxPointLights) points.resize(kMaxPointLights);
     frameShadows_ = sun.castShadows && sun.intensity > 0.f;
 
-    Vec3 fog = srgbToLinear(kSkySrgb);
+    Vec3 fog = srgbToLinear(info.sky);
     FrameUBO u{};
     u.viewProj = info.viewProj;
     u.lightViewProj = shadowMatrix(info, normalize(sun.direction));
     set4(u.camPos, info.camPos, 1.f);
-    set4(u.fogColor, fog, 0.006f);
+    set4(u.fogColor, fog, info.fogDensity);
     u.viewport[0] = info.viewportW;
     u.viewport[1] = info.viewportH;
     u.viewport[2] = 2.5f;
     set4(u.sunDir, normalize(sun.direction), frameShadows_ ? 1.f : 0.f);
     set4(u.sunColor, srgbToLinear(sun.color) * sun.intensity, 0.f);
-    set4(u.ambient, {0.45f, 0.45f, 0.45f}, (float)points.size());
+    set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
     for (size_t i = 0; i < points.size(); ++i) {
         set4(u.pointPos[i], points[i]->position, std::max(points[i]->range, 0.01f));
         set4(u.pointColor[i], srgbToLinear(points[i]->color) * points[i]->intensity, 0.f);
@@ -1308,15 +1631,24 @@ void Renderer::shutdown() {
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
-    for (VkPipeline p : {scenePipeline_, stencilPipeline_, outlinePipeline_, shadowPipeline_})
+    for (VkPipeline p : {scenePipeline_, stencilPipeline_, outlinePipeline_, shadowPipeline_, bloomDownPipeline_,
+                         bloomUpPipeline_, compositePipeline_})
         vkDestroyPipeline(device_, p, nullptr);
+    destroyPostImages();
+    vkDestroyPipelineLayout(device_, postLayout_, nullptr);
+    vkDestroyDescriptorSetLayout(device_, postSetLayout_, nullptr);
+    vkDestroyDescriptorPool(device_, postPool_, nullptr);
+    vkDestroySampler(device_, postSampler_, nullptr);
     vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, setLayout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, textureSetLayout_, nullptr);
     vkDestroyDescriptorPool(device_, descPool_, nullptr);
     for (GpuTexture& t : gpuTextures_) destroyTexture(t);
     destroyTexture(whiteTexture_);
+    destroyTexture(flatNormal_);
     vkDestroyDescriptorPool(device_, texturePool_, nullptr);
+    vkDestroyDescriptorPool(device_, materialPool_, nullptr);
+    vkDestroyDescriptorSetLayout(device_, materialSetLayout_, nullptr);
     vkDestroySampler(device_, sampler_, nullptr);
     vkDestroySampler(device_, shadowSampler_, nullptr);
     destroyImage(shadowMap_);

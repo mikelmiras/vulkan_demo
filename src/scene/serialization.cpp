@@ -13,7 +13,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 11;  // 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 12;  // 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -244,6 +244,20 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             c.set("texture", textures.name(e.meshRenderer->texture));
         if (e.meshRenderer->tiling != 1.f) c.set("tiling", e.meshRenderer->tiling);
         if (e.meshRenderer->checker) c.set("checker", true);
+        const MeshRenderer& mr = *e.meshRenderer;
+        auto tex = [&](const char* key, int id) {
+            if (id >= 0 && id < textures.count()) c.set(key, textures.name(id));
+        };
+        if (mr.metallic != 0.f) c.set("metallic", mr.metallic);
+        if (mr.roughness != 0.5f) c.set("roughness", mr.roughness);
+        tex("metalRoughTexture", mr.metalRoughTexture);
+        tex("normalTexture", mr.normalTexture);
+        if (mr.normalTexture >= 0 && mr.normalScale != 1.f) c.set("normalScale", mr.normalScale);
+        if (mr.emissive.x > 0.f || mr.emissive.y > 0.f || mr.emissive.z > 0.f) {
+            c.set("emissive", vec3(mr.emissive));
+            if (mr.emissiveStrength != 1.f) c.set("emissiveStrength", mr.emissiveStrength);
+        }
+        tex("emissiveTexture", mr.emissiveTexture);
     }
     if (e.camera) {
         json::Value& c = v.set("camera", json::Value::object());
@@ -353,11 +367,22 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         mr.color = readVec3(c["color"], mr.color);
         mr.checker = c["checker"].asBool(false);
         mr.tiling = c["tiling"].asFloat(1.f);
-        if (const std::string& tex = c["texture"].asString(); !tex.empty()) {
+        auto texture = [&](const char* key, int& out) {
+            const std::string& tex = c[key].asString();
+            if (tex.empty()) return true;
             auto t = ids.textures.find(tex);
             if (t == ids.textures.end()) { error = "entity '" + e.name + "': unknown texture '" + tex + "'"; return false; }
-            mr.texture = t->second;
-        }
+            out = t->second;
+            return true;
+        };
+        if (!texture("texture", mr.texture) || !texture("metalRoughTexture", mr.metalRoughTexture) ||
+            !texture("normalTexture", mr.normalTexture) || !texture("emissiveTexture", mr.emissiveTexture))
+            return false;
+        mr.metallic = c["metallic"].asFloat(mr.metallic);
+        mr.roughness = c["roughness"].asFloat(mr.roughness);
+        mr.normalScale = c["normalScale"].asFloat(mr.normalScale);
+        mr.emissive = readVec3(c["emissive"], mr.emissive);
+        mr.emissiveStrength = c["emissiveStrength"].asFloat(mr.emissiveStrength);
         e.meshRenderer = mr;
     }
     if (const json::Value& c = v["camera"]; c.isObject()) {
@@ -468,7 +493,9 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
             }
             if (!e.meshRenderer) continue;
             if (e.meshRenderer->mesh >= (int)MeshKind::Count) usedMeshes.insert(e.meshRenderer->mesh);
-            if (e.meshRenderer->texture >= kBuiltinTextureCount) usedTextures.insert(e.meshRenderer->texture);
+            for (int t : {e.meshRenderer->texture, e.meshRenderer->metalRoughTexture, e.meshRenderer->normalTexture,
+                          e.meshRenderer->emissiveTexture})
+                if (t >= kBuiltinTextureCount) usedTextures.insert(t);
         }
     json::Value& m = doc.set("meshes", json::Value::array());
     for (int id : usedMeshes) {
@@ -588,6 +615,16 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
         for (const Prefab& p : scene.prefabs) prefabs.push(prefabToJson(p, meshes, textures));
     }
     json::Value& settings = doc.set("settings", json::Value::object());
+    {
+        const RenderSettings& r = scene.render;
+        json::Value& rv = settings.set("render", json::Value::object());
+        rv.set("sky", vec3(r.sky));
+        rv.set("fogDensity", r.fogDensity);
+        rv.set("ambient", r.ambient);
+        rv.set("exposure", r.exposure);
+        rv.set("bloomStrength", r.bloomStrength);
+        rv.set("bloomThreshold", r.bloomThreshold);
+    }
     json::Value& input = settings.set("input", json::Value::array());
     for (const InputAction& a : scene.inputActions) {
         json::Value av = json::Value::object();
@@ -638,6 +675,15 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
         if (!prefabFromJson(v, ids, p, error)) { return false; }
         p.name = result.uniquePrefabName(p.name);
         result.addPrefab(std::move(p));
+    }
+    if (const json::Value& rv = doc["settings"]["render"]; rv.isObject()) {
+        RenderSettings& r = result.render;
+        r.sky = readVec3(rv["sky"], r.sky);
+        r.fogDensity = rv["fogDensity"].asFloat(r.fogDensity);
+        r.ambient = rv["ambient"].asFloat(r.ambient);
+        r.exposure = rv["exposure"].asFloat(r.exposure);
+        r.bloomStrength = rv["bloomStrength"].asFloat(r.bloomStrength);
+        r.bloomThreshold = rv["bloomThreshold"].asFloat(r.bloomThreshold);
     }
     if (const json::Value& input = doc["settings"]["input"]; input.isArray()) {   // else: the defaults
         result.inputActions.clear();

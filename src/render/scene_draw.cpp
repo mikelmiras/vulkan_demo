@@ -18,6 +18,14 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
         d.tiling = e.meshRenderer->tiling;
         d.checker = e.meshRenderer->checker;
         d.outlined = e.id == outlined && outlined != kNoEntity;
+        const MeshRenderer& mr = *e.meshRenderer;
+        d.metallic = mr.metallic;
+        d.roughness = mr.roughness;
+        d.metalRoughTexture = mr.metalRoughTexture;
+        d.normalTexture = mr.normalTexture;
+        d.normalScale = mr.normalScale;
+        d.emissiveTexture = mr.emissiveTexture;
+        d.emissive = srgbToLinear(mr.emissive) * mr.emissiveStrength;
         if (joints && e.skin && meshes && d.mesh >= 0 && d.mesh < meshes->count() && meshes->get(d.mesh).skinned) {
             // Joint matrix = (the mesh's world)^-1 * the joint's world * inverse bind: the shader applies the model
             // matrix on top, so a skinned vertex lands where its joints put it

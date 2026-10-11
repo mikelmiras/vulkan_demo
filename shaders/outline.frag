@@ -7,5 +7,6 @@ layout(location = 3) flat in vec4 vColor;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-    outColor = vec4(vColor.rgb, 1.0);   // sRGB, written as-is to the UNORM target
+    // sRGB, marked with alpha 2: the post pass shows it as is (no tonemapping, no bloom)
+    outColor = vec4(vColor.rgb, 2.0);
 }

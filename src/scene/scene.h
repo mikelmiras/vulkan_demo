@@ -34,6 +34,15 @@ struct MeshRenderer {
     int texture = -1;                 // id in the TextureLibrary, or -1 for plain colour
     float tiling = 1.f;               // texture repeats per unit of texture coordinate
     bool checker = false;             // procedural checkerboard + grid (used by the ground)
+    // Physically based material (glTF metallic-roughness)
+    float metallic = 0.f;             // 0 = non-metal (plastic, wood, stone), 1 = metal
+    float roughness = 0.5f;           // 0 = mirror smooth, 1 = matte
+    int metalRoughTexture = -1;       // glTF layout: green = roughness, blue = metallic (times the values above)
+    int normalTexture = -1;           // tangent-space normal map
+    float normalScale = 1.f;          // how strongly it bends the surface
+    Vec3 emissive{0, 0, 0};           // sRGB colour of the light it gives off (black: none)
+    float emissiveStrength = 1.f;     // above 1 it glows (bloom)
+    int emissiveTexture = -1;         // times `emissive`
 };
 
 // Lights the scene. Without any directional light the renderer uses a default sun.
@@ -161,6 +170,16 @@ struct Entity {
     }
 };
 
+// How the scene looks: the renderer's per-scene settings (saved with the scene)
+struct RenderSettings {
+    Vec3 sky{0.62f, 0.75f, 0.90f};    // sRGB: the background and the fog
+    float fogDensity = 0.006f;
+    float ambient = 0.45f;            // light that comes from everywhere
+    float exposure = 1.f;             // brightness before tonemapping
+    float bloomStrength = 0.06f;      // how much bright parts glow (0: off)
+    float bloomThreshold = 1.f;       // brightness (linear) where the glow starts
+};
+
 // A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.
 // entities[0] is the root (no parent); parents of the others refer to ids inside the prefab.
 struct Prefab {
@@ -174,6 +193,7 @@ public:
     std::vector<Entity> entities;   // flat; the hierarchy is given by Entity::parent
     std::vector<Prefab> prefabs;    // saved with the scene
     std::vector<InputAction> inputActions = defaultInputActions();   // the game's controls
+    RenderSettings render;
 
     Entity& create(const std::string& name, EntityId parent = kNoEntity);   // appended with a fresh id
     Entity& add(Entity e);   // keeps e.id if it's free, otherwise assigns a new one

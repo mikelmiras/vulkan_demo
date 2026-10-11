@@ -151,6 +151,13 @@ SceneRenderInfo Editor::renderInfo() const {
     info.items = &drawItems_;
     info.lights = &lights_;
     info.joints = &joints_;
+    const RenderSettings& r = scene_.render;
+    info.sky = r.sky;
+    info.fogDensity = r.fogDensity;
+    info.ambient = r.ambient;
+    info.exposure = r.exposure;
+    info.bloomStrength = r.bloomStrength;
+    info.bloomThreshold = r.bloomThreshold;
     info.viewProj = viewProj_;
     info.camPos = viewPos_;
     info.camForward = viewForward_;

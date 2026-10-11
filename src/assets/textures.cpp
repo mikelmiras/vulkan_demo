@@ -80,6 +80,26 @@ TextureLibrary buildTextureLibrary() {
         if (grout) { c[0] = c[1] = c[2] = 0.35f; }
         else { c[0] = 0.80f + n; c[1] = 0.82f + n; c[2] = 0.86f + n; }
     }));
+    // A normal map for Bricks: bevelled bricks standing out of recessed mortar (tangent space, +Y up the image)
+    lib.textures.push_back(procedural("Bricks Normal", 256, [](float u, float v, float* c) {
+        auto height = [](float u, float v) {
+            const int rows = 8;
+            float wv = v - std::floor(v), wu = u - std::floor(u);
+            int row = (int)(wv * rows);
+            float bu = wu * 4.f + (row & 1) * 0.5f;
+            float fu = bu - std::floor(bu), fv = wv * rows - (float)row;
+            // Distance to the brick's edge, in brick heights (a brick is 1/8 high, 1/4 wide)
+            float du = std::fmin(fu, 1.f - fu) * 2.f, dv = std::fmin(fv, 1.f - fv);
+            float d = std::fmin(du, dv);
+            return std::fmin(std::fmax((d - 0.04f) / 0.12f, 0.f), 1.f);   // mortar 0, bevel, brick top 1
+        };
+        const float e = 1.f / 256.f, k = 0.7f;   // bevels lean about 35 degrees
+        float h = height(u, v), hu = height(u + e, v), hv = height(u, v + e);
+        Vec3 n = normalize(Vec3{-(hu - h) / e * k / 64.f, (hv - h) / e * k / 64.f, 1.f});
+        c[0] = n.x * 0.5f + 0.5f;
+        c[1] = n.y * 0.5f + 0.5f;
+        c[2] = n.z * 0.5f + 0.5f;
+    }));
     return lib;
 }
 

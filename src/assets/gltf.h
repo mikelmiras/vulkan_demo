@@ -14,6 +14,13 @@ struct GltfModel {
         std::string name;
         Vec3 color{1, 1, 1};   // sRGB (glTF stores linear base colour; converted)
         int texture = -1;      // TextureLibrary id of the base colour texture
+        float metallic = 1.f, roughness = 1.f;   // (glTF's defaults)
+        int metalRoughTexture = -1;
+        int normalTexture = -1;
+        float normalScale = 1.f;
+        Vec3 emissive{0, 0, 0};                  // sRGB
+        float emissiveStrength = 1.f;
+        int emissiveTexture = -1;
     };
     struct Skin {
         std::vector<std::string> joints;     // node names (the joint entities)

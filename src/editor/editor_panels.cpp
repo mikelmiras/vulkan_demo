@@ -544,6 +544,21 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
     } else {
         ImGui::TextWrapped("Nothing selected.");
         ImGui::TextDisabled("Click an object in the viewport\nor pick one in the outliner.");
+        ImGui::SeparatorText("Scene look");
+        RenderSettings& r = scene_.render;
+        ImGui::ColorEdit3("Sky", &r.sky.x);
+        track();
+        ImGui::DragFloat("Fog", &r.fogDensity, 0.0002f, 0.f, 0.1f, "%.4f");
+        track();
+        ImGui::SliderFloat("Ambient", &r.ambient, 0.f, 2.f, "%.2f");
+        track();
+        ImGui::SliderFloat("Exposure", &r.exposure, 0.1f, 4.f, "%.2f");
+        track();
+        ImGui::SliderFloat("Bloom", &r.bloomStrength, 0.f, 0.5f, "%.3f");
+        track();
+        tooltip("How much bright parts (emissive materials, strong highlights) glow");
+        ImGui::SliderFloat("Bloom threshold", &r.bloomThreshold, 0.f, 4.f, "%.2f");
+        track();
     }
 
     ImGui::SeparatorText("Editor camera");
@@ -605,6 +620,40 @@ void Editor::drawComponents(Entity& e) {
             }
             ImGui::Checkbox("Checker pattern", &mr.checker);
             track();
+            ImGui::SeparatorText("Material");
+            ImGui::SliderFloat("Metallic", &mr.metallic, 0.f, 1.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Roughness", &mr.roughness, 0.f, 1.f, "%.2f");
+            track();
+            auto texturePicker = [&](const char* label, int& id, const char* help) {
+                int item = id + 1;   // 0 = none
+                if (ImGui::Combo(
+                        label, &item,
+                        [](void* lib, int i) { return i == 0 ? "(none)" : ((const TextureLibrary*)lib)->name(i - 1); },
+                        &textures_, textures_.count() + 1)) {
+                    pushUndo();
+                    id = item - 1;
+                }
+                tooltip(help);
+                if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Texture, dropped)) {
+                    std::string error;
+                    int t = loadTexture(textures_, dropped.u8string(), error);
+                    if (t >= 0) { pushUndo(); id = t; }
+                    else setStatus("Texture failed: " + error);
+                }
+            };
+            texturePicker("Metal/rough map", mr.metalRoughTexture, "glTF layout: green = roughness, blue = metallic");
+            texturePicker("Normal map", mr.normalTexture, "Tangent space; drop a texture from the Assets panel here");
+            if (mr.normalTexture >= 0) {
+                ImGui::SliderFloat("Normal strength", &mr.normalScale, 0.f, 2.f, "%.2f");
+                track();
+            }
+            ImGui::ColorEdit3("Emissive", &mr.emissive.x);
+            track();
+            ImGui::DragFloat("Emissive strength", &mr.emissiveStrength, 0.05f, 0.f, 100.f, "%.2f");
+            track();
+            tooltip("Light it gives off itself; above 1 it glows");
+            texturePicker("Emissive map", mr.emissiveTexture, "Times the emissive colour");
             ImGui::TextDisabled("%u triangles", meshes_.get(mr.mesh).indexCount / 3);
         }
     }

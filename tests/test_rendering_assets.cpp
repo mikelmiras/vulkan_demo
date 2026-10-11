@@ -164,3 +164,59 @@ TEST(lights_and_materials_saved_with_scene) {
               json::write(entityToJson(loaded.entities[i], meshes, texs2)));
     CHECK(texs2.count() == kBuiltinTextureCount + 1);
 }
+
+// PBR materials and the scene's look survive a save / load
+TEST(materials_and_render_settings_saved) {
+    MeshLibrary meshes = buildMeshLibrary();
+    Scene s;
+    Entity& e = s.create("Thing");
+    MeshRenderer mr;
+    mr.metallic = 0.7f;
+    mr.roughness = 0.2f;
+    mr.normalTexture = textures().find("Bricks Normal");
+    mr.normalScale = 1.5f;
+    mr.metalRoughTexture = textures().find("Tiles");
+    mr.emissive = {1.f, 0.5f, 0.f};
+    mr.emissiveStrength = 3.f;
+    mr.emissiveTexture = textures().find("Checker");
+    e.meshRenderer = mr;
+    s.render.exposure = 1.3f;
+    s.render.bloomStrength = 0.2f;
+    s.render.sky = {0.1f, 0.2f, 0.3f};
+    s.render.fogDensity = 0.01f;
+    std::string error;
+    auto path = test::tempPath("materials.vkw").string();
+    REQUIRE(saveScene(path, s, meshes, textures(), error));
+    Scene loaded;
+    REQUIRE(loadScene(path, loaded, meshes, textures(), error));
+    const MeshRenderer& l = *loaded.findByName("Thing")->meshRenderer;
+    CHECK_NEAR(l.metallic, 0.7, 1e-6);
+    CHECK_NEAR(l.roughness, 0.2, 1e-6);
+    CHECK(l.normalTexture == mr.normalTexture && l.normalTexture >= 0);
+    CHECK_NEAR(l.normalScale, 1.5, 1e-6);
+    CHECK(l.metalRoughTexture == mr.metalRoughTexture);
+    CHECK(l.emissiveTexture == mr.emissiveTexture);
+    CHECK_VEC(l.emissive, test::v3(1.f, 0.5f, 0.f), 1e-6f);
+    CHECK_NEAR(l.emissiveStrength, 3.0, 1e-6);
+    CHECK_NEAR(loaded.render.exposure, 1.3, 1e-6);
+    CHECK_NEAR(loaded.render.bloomStrength, 0.2, 1e-6);
+    CHECK_NEAR(loaded.render.fogDensity, 0.01, 1e-6);
+    CHECK_VEC(loaded.render.sky, test::v3(0.1f, 0.2f, 0.3f), 1e-6f);
+    // A plain one keeps the defaults (and doesn't write them)
+    MeshRenderer plain;
+    CHECK_NEAR(plain.metallic, 0.0, 0.0);
+    CHECK_NEAR(plain.roughness, 0.5, 0.0);
+}
+
+// The procedural brick normal map: flat (pointing out of the surface) in the middle of a brick, leaning at its edges
+TEST(builtin_brick_normal_map) {
+    int id = textures().find("Bricks Normal");
+    REQUIRE(id >= 0);
+    const Texture& t = textures().get(id);
+    auto at = [&](int x, int y) { return &t.rgba[((size_t)y * t.width + (size_t)x) * 4]; };
+    const uint8_t* mid = at(32, 16);   // a brick's middle (bricks are 64 x 32 texels)
+    CHECK(std::abs(mid[0] - 128) <= 2 && std::abs(mid[1] - 128) <= 2 && mid[2] >= 250);
+    int leaning = 0;
+    for (uint32_t x = 0; x < t.width; ++x) leaning += std::abs(at((int)x, 16)[0] - 128) > 40;
+    CHECK(leaning > 4);   // the bevels at the brick ends
+}

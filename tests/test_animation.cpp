@@ -188,3 +188,15 @@ TEST(animation_save_game_keeps_the_pose) {
 }
 
 #endif
+
+#ifdef VKWORLD_TEST_ASSETS
+TEST(gltf_material_values) {
+    MeshLibrary meshes = buildMeshLibrary();
+    Scene s;
+    REQUIRE(barScene(meshes, s));
+    const Entity* body = s.findByName("Body");
+    REQUIRE(body && body->meshRenderer);
+    CHECK_NEAR(body->meshRenderer->metallic, 0.0, 1e-6);
+    CHECK_NEAR(body->meshRenderer->roughness, 0.6, 1e-6);
+}
+#endif

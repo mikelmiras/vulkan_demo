@@ -17,7 +17,8 @@ find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/Bin REQUIRE
 # Compile GLSL -> SPIR-V into <build>/shaders
 # (the executable looks in <exe dir>/shaders and <exe dir>/../shaders, which covers
 #  single-config builds and Visual Studio's <build>/Debug, <build>/Release folders)
-set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag shaders/shadow.vert)
+set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag shaders/shadow.vert
+                   shaders/post.vert shaders/bloom_down.frag shaders/bloom_up.frag shaders/composite.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)

@@ -150,6 +150,12 @@ int main(int argc, char** argv) {
         info.items = &items;
         info.lights = &lights;
         info.joints = &joints;
+        info.sky = scene.render.sky;
+        info.fogDensity = scene.render.fogDensity;
+        info.ambient = scene.render.ambient;
+        info.exposure = scene.render.exposure;
+        info.bloomStrength = scene.render.bloomStrength;
+        info.bloomThreshold = scene.render.bloomThreshold;
         info.camForward = normalize(transformDir(inverseAffine(cam.view), {0, 0, -1}));
         info.viewProj = perspective(cam.fovY, aspect, cam.zNear, cam.zFar, true) * cam.view;
         info.camPos = cam.position;

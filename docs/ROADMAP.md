@@ -9,7 +9,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 2 | Runtime scene flow: loadScene, quit, persistent game state, save/load | done |
 | 3 | Game UI API for behaviours (HUD text, bars, images, menus) | done |
 | 5 | Skeletal animation: skinning, glTF animation import, Animator component | done |
-| 6 | Rendering: PBR materials, normal maps, emissive, HDR + tonemapping, bloom | todo |
+| 6 | Rendering: PBR materials, normal maps, emissive, HDR + tonemapping, bloom | done |
 | 7 | Physics: rotational dynamics (or Jolt behind PhysicsWorld) | todo |
 | 8 | Export game: distributable folder (vkgame + shaders + assets + module) | todo |
 | 9 | Hygiene: lavapipe smoke test in CI, split large files, scene-format migration tests | todo |
@@ -35,3 +35,8 @@ Working list for turning the renderer demo into a small game engine. Each task i
   joint); Skin / Animator components (joints and targets by name under the model root); clips in
   MeshLibrary::animations, re-imported from "file#animN"; cross-fades; scene format 11; module API 4. Skinned meshes
   aren't frustum-culled. Animation runs at the fixed 60 Hz (no render interpolation). No editor preview outside Play.
+- Task 6: GGX metallic-roughness with hemisphere ambient + analytic env BRDF; derivative-based normal mapping;
+  emissive; material descriptor sets (4 maps) cached by texture ids; textures have sRGB + UNORM views (UI uses
+  UNORM, which also fixed GameUI images being too dark); HDR R16G16B16A16 target, bloom mip chain (6 levels),
+  PBR Neutral tonemap; outline marked with alpha 2. Scene RenderSettings (format 12). Module API 5.
+  Not done: point-light / cascaded shadows, image-based lighting, SSAO.

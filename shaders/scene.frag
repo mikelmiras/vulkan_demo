@@ -1,17 +1,26 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+// Lit objects: metallic-roughness PBR (GGX), sun with shadows, point lights, hemisphere ambient, fog.
+// Writes linear HDR colour (alpha 1); the post pass adds bloom, tonemaps and gamma-encodes.
 
-layout(set = 0, binding = 1) uniform sampler2D shadowMap;   // depth from the directional light
-layout(set = 1, binding = 0) uniform sampler2D albedo;      // the material's texture (white if none)
+layout(set = 0, binding = 1) uniform sampler2D shadowMap;      // depth from the directional light
+layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (white if none)
+layout(set = 1, binding = 1) uniform sampler2D normalMap;      // tangent space (flat if none)
+layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness, b = metallic (white if none)
+layout(set = 1, binding = 3) uniform sampler2D emissiveMap;    // sRGB view (white if none)
 
 layout(location = 0) in vec3 vWorldPos;
 layout(location = 1) in vec3 vNormal;
 layout(location = 2) in vec2 vUV;
 layout(location = 3) flat in vec4 vColor;
 layout(location = 4) flat in vec4 vParams;
+layout(location = 5) flat in vec4 vMaterial;
+layout(location = 6) flat in vec4 vEmissive;
 
 layout(location = 0) out vec4 outColor;
+
+const float PI = 3.14159265;
 
 // 1 = lit, 0 = in shadow; 3x3 samples soften the edge
 float sunVisibility(vec3 N, vec3 L) {
@@ -29,13 +38,71 @@ float sunVisibility(vec3 N, vec3 L) {
     return lit / 9.0;
 }
 
+// Normal mapping without stored tangents: the frame comes from screen-space derivatives (Schueler 2013)
+vec3 perturbNormal(vec3 N, float strength) {
+    vec3 dp1 = dFdx(vWorldPos), dp2 = dFdy(vWorldPos);
+    vec2 duv1 = dFdx(vUV), duv2 = dFdy(vUV);
+    vec3 dp2perp = cross(dp2, N), dp1perp = cross(N, dp1);
+    vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+    vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+    float scale = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-20));
+    vec3 n = texture(normalMap, vUV).xyz * 2.0 - 1.0;
+    n.xy *= strength;
+    n.y = -n.y;   // texture v runs down the image; the map's +Y points up it
+    return normalize(T * scale * n.x + B * scale * n.y + N * n.z);
+}
+
+// GGX / Trowbridge-Reitz distribution and height-correlated Smith visibility
+float distributionGGX(float NdotH, float a) {
+    float a2 = a * a, d = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d);
+}
+float visibilitySmith(float NdotV, float NdotL, float a) {
+    float a2 = a * a;
+    float gv = NdotL * sqrt(NdotV * NdotV * (1.0 - a2) + a2), gl = NdotV * sqrt(NdotL * NdotL * (1.0 - a2) + a2);
+    return 0.5 / max(gv + gl, 1e-5);
+}
+vec3 fresnelSchlick(float VdotH, vec3 f0) { return f0 + (1.0 - f0) * pow(1.0 - VdotH, 5.0); }
+
+// Light reflected towards V from a light of `radiance` along L. Intensities mean "how bright a white matte surface
+// facing the light looks", hence the PI.
+vec3 shade(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 base, float metallic, float rough) {
+    float NdotL = max(dot(N, L), 0.0);
+    if (NdotL <= 0.0) return vec3(0.0);
+    vec3 H = normalize(L + V);
+    float NdotV = max(dot(N, V), 1e-4), NdotH = max(dot(N, H), 0.0), VdotH = max(dot(V, H), 0.0);
+    float a = max(rough * rough, 0.002);
+    vec3 f0 = mix(vec3(0.04), base, metallic);
+    vec3 F = fresnelSchlick(VdotH, f0);
+    vec3 spec = distributionGGX(NdotH, a) * visibilitySmith(NdotV, NdotL, a) * F;
+    vec3 diffuse = (1.0 - F) * (1.0 - metallic) * base / PI;
+    return (diffuse + spec) * radiance * NdotL * PI;
+}
+
+// Split-sum environment BRDF, analytic fit (Karis, "Physically Based Shading on Mobile")
+vec3 envBRDF(vec3 f0, float rough, float NdotV) {
+    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022), c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = rough * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+    vec2 ab = vec2(-1.04, 1.04) * a004 + r.zw;
+    return f0 * ab.x + ab.y;
+}
+
+vec3 hemisphere(vec3 dir) {
+    vec3 skyAmb = vec3(0.45, 0.55, 0.75), groundAmb = vec3(0.20, 0.18, 0.15);
+    return mix(groundAmb, skyAmb, dir.y * 0.5 + 0.5) * frame.ambient.rgb;
+}
+
 void main() {
     vec3 base = vColor.rgb;
-    if (vParams.z > 0.5) base *= texture(albedo, vUV).rgb;
+    if (vParams.z > 0.5) base *= texture(albedoMap, vUV).rgb;
     bool ground = vParams.x > 0.5;
+    vec4 mr = texture(metalRoughMap, vUV);
+    float metallic = clamp(vMaterial.x * mr.b, 0.0, 1.0);
+    float rough = clamp(vMaterial.y * mr.g, 0.02, 1.0);
 
     if (ground) {
-        // 2m checkerboard plus anti-aliased 10m grid lines
+        // 2m checkerboard plus anti-aliased 10m grid lines; a matte surface
         vec2 cell = floor(vWorldPos.xz / 2.0);
         float checker = mod(cell.x + cell.y, 2.0);
         base = mix(base, base * 0.7, checker);
@@ -43,23 +110,23 @@ void main() {
         vec2 g = abs(fract(gp - 0.5) - 0.5) / fwidth(gp);
         float line = 1.0 - min(min(g.x, g.y), 1.0);
         base = mix(base, vec3(0.8), line * 0.6);
+        rough = max(rough, 0.9);
     }
 
     vec3 N = normalize(vNormal);
+    if (!gl_FrontFacing) N = -N;   // (two-sided surfaces)
+    if (vMaterial.z > 0.0) N = perturbNormal(N, vMaterial.z);
     vec3 V = normalize(frame.camPos.xyz - vWorldPos);
-    float specStrength = ground ? 0.05 : 0.35;
+    float NdotV = max(dot(N, V), 1e-4);
 
-    vec3 skyAmb = vec3(0.45, 0.55, 0.75);
-    vec3 groundAmb = vec3(0.20, 0.18, 0.15);
-    vec3 color = base * mix(groundAmb, skyAmb, N.y * 0.5 + 0.5) * frame.ambient.rgb;
+    // Ambient: hemisphere light, diffuse plus a reflection of it (so metals aren't black in the shade)
+    vec3 f0 = mix(vec3(0.04), base, metallic);
+    vec3 color = base * (1.0 - metallic) * hemisphere(N) + envBRDF(f0, rough, NdotV) * hemisphere(reflect(-V, N));
 
     // Sun
     vec3 L = normalize(-frame.sunDir.xyz);
-    float diff = max(dot(N, L), 0.0);
-    if (diff > 0.0) {
-        float spec = pow(max(dot(N, normalize(L + V)), 0.0), 48.0) * specStrength;
-        color += (base * diff + vec3(spec)) * frame.sunColor.rgb * sunVisibility(N, L);
-    }
+    float vis = dot(N, L) > 0.0 ? sunVisibility(N, L) : 0.0;
+    color += shade(N, V, L, frame.sunColor.rgb, base, metallic, rough) * vis;
 
     // Point lights: smooth falloff to zero at their range
     int count = int(frame.ambient.w);
@@ -67,19 +134,14 @@ void main() {
         vec3 d = frame.pointPos[i].xyz - vWorldPos;
         float dist = length(d), range = frame.pointPos[i].w;
         if (dist >= range) continue;
-        vec3 Lp = d / max(dist, 1e-4);
         float window = clamp(1.0 - (dist * dist) / (range * range), 0.0, 1.0);
-        float diffP = max(dot(N, Lp), 0.0);
-        float specP = diffP > 0.0 ? pow(max(dot(N, normalize(Lp + V)), 0.0), 48.0) * specStrength : 0.0;
-        color += (base * diffP + vec3(specP)) * frame.pointColor[i].rgb * window * window;
+        color += shade(N, V, d / max(dist, 1e-4), frame.pointColor[i].rgb * window * window, base, metallic, rough);
     }
+
+    color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;
 
     float dist = length(frame.camPos.xyz - vWorldPos);
     float fog = 1.0 - exp(-pow(dist * frame.fogColor.w, 2.0));
     color = mix(color, frame.fogColor.rgb, fog);
-
-    // Swapchain is UNORM (so the UI's sRGB colours stay correct): gamma-encode here. A little noise (half an
-    // 8-bit step) hides the banding smooth light falloffs would otherwise show.
-    float noise = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
-    outColor = vec4(pow(color, vec3(1.0 / 2.2)) + noise / 255.0, 1.0);
+    outColor = vec4(color, 1.0);
 }

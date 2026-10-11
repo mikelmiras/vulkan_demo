@@ -55,8 +55,17 @@ bool importGltfPrefab(const std::string& path, MeshLibrary& meshes, TextureLibra
             mr.mesh = n.meshes[k];
             mr.color = {1, 1, 1};
             if (int m = n.materials[k]; m >= 0) {
-                mr.color = model.materials[(size_t)m].color;
-                mr.texture = model.materials[(size_t)m].texture;
+                const GltfModel::Material& mat = model.materials[(size_t)m];
+                mr.color = mat.color;
+                mr.texture = mat.texture;
+                mr.metallic = mat.metallic;
+                mr.roughness = mat.roughness;
+                mr.metalRoughTexture = mat.metalRoughTexture;
+                mr.normalTexture = mat.normalTexture;
+                mr.normalScale = mat.normalScale;
+                mr.emissive = mat.emissive;
+                mr.emissiveStrength = mat.emissiveStrength;
+                mr.emissiveTexture = mat.emissiveTexture;
             }
             std::optional<Skin> skin;
             if (n.skin >= 0 && meshes.get(mr.mesh).skinned)
@@ -497,6 +506,36 @@ Scene buildDefaultScene() {
     Entity& ground = make(scene, "Ground", kNoEntity, MeshKind::Plane, {0, 0, 0}, {600, 1, 600}, {0.42f, 0.55f, 0.38f});
     ground.meshRenderer->checker = true;
     ground.locked = true;
+
+    // Materials: a row in front of the player, from glossy and matte plastic to gold and steel, a brick block with
+    // a normal map, and a glowing orb (it blooms)
+    {
+        EntityId row = group(scene, "Materials", {0, 0, 24}).id;
+        struct Sample { const char* name; MeshKind mesh; Vec3 color; float metallic, roughness; };
+        const Sample samples[] = {
+            {"Glossy Plastic", MeshKind::Sphere, {0.85f, 0.15f, 0.12f}, 0.f, 0.12f},
+            {"Matte Plastic", MeshKind::Sphere, {0.85f, 0.15f, 0.12f}, 0.f, 0.9f},
+            {"Gold", MeshKind::Sphere, {1.f, 0.78f, 0.34f}, 1.f, 0.25f},
+            {"Steel", MeshKind::Sphere, {0.8f, 0.8f, 0.82f}, 1.f, 0.55f},
+            {"Brick Block", MeshKind::Cube, {1.f, 1.f, 1.f}, 0.f, 0.85f},
+            {"Glow Orb", MeshKind::Sphere, {0.1f, 0.1f, 0.12f}, 0.f, 0.4f},
+        };
+        for (int i = 0; i < 6; ++i) {
+            const Sample& m = samples[i];
+            Entity& e = make(scene, m.name, row, m.mesh, {-7.5f + 3.f * (float)i, 1.f, 0.f}, {1.6f, 1.6f, 1.6f}, m.color);
+            e.meshRenderer->metallic = m.metallic;
+            e.meshRenderer->roughness = m.roughness;
+            if (m.mesh == MeshKind::Cube) {
+                e.meshRenderer->texture = 1;         // Bricks
+                e.meshRenderer->normalTexture = 3;   // Bricks Normal
+                e.transform.rotation[1] = 30.f;
+            }
+            if (i == 5) {
+                e.meshRenderer->emissive = {0.3f, 0.9f, 1.f};
+                e.meshRenderer->emissiveStrength = 4.f;
+            }
+        }
+    }
 
     // Centrepiece: golden sphere inside a spinning tilted torus
     EntityId centre = group(scene, "Centrepiece", {0, 5, 0}).id;
