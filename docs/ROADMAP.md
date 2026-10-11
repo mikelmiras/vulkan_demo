@@ -69,7 +69,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 15 (done) | Transparency: glTF alpha modes (mask, blend), sorted transparent pass | Every material is opaque today |
 | 16 (done) | Single-file shipping: assets packed into one archive, optional static engine, icons / app bundles | Exports are a folder of loose files |
 | 17 (done) | Animation tools: clip preview in the editor, animation events, a simple state machine, render interpolation between fixed steps | Animators only run in Play; motion is stepped at 60 Hz |
-| 18 | Behaviour fields: int, enum, entity and asset references with pickers in the inspector | Behaviours refer to entities and prefabs by typed-in names |
+| 18 (done) | Behaviour fields: int, enum, entity and asset references with pickers in the inspector | Behaviours refer to entities and prefabs by typed-in names |
 | 19 | Navigation: navmesh baking and pathfinding for AI | Chasers walk straight at the player through walls |
 | 20 | Async loading and loading screens; scene streaming | Changing scenes stalls the frame (the stress scene takes ~60 ms to start) |
 
@@ -108,3 +108,9 @@ Working list for turning the renderer demo into a small game engine. Each task i
   Play (posed only while building draw items, then restored), event and state machine editing. Game::worldMatrices
   and activeCamera interpolate the last two fixed updates (off while paused; setInterpolation). Not done: blend
   trees / layers / masks, a graph view of the state machine.
+- Task 18: FieldVisitor gains int (range), choice (options; saved by name, numbers accepted) and FieldRef string
+  references (Entity, Prefab, Scene, Sound, AnimationClip, InputAction), with fallbacks so visitors that only know
+  the four basic kinds keep working. The inspector shows DragInt / Combo / text box + picker list + drops
+  (outliner entities, asset browser scenes / sounds) + an unknown-name warning. References stay names (spawned
+  entities match; files stay compatible); built-ins and the sample use them (Spawner maxAlive is an int, HudText
+  align a choice). Module API 11.

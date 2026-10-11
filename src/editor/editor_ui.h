@@ -40,7 +40,21 @@ inline std::string prettyName(const char* key) {
 // Behaviour fields as inspector widgets; afterWidget runs after each one (undo tracking)
 struct FieldInspector : FieldVisitor {
     std::function<void()> afterWidget;
+    // Draws the picker for a reference (FieldRef); without one they're text boxes
+    std::function<void(const char* label, std::string& v, FieldRef kind)> pickReference;
+    std::function<void()> changed;   // a value was set outright (picked from a list): record it for undo
     explicit FieldInspector(std::function<void()> fn) : afterWidget(std::move(fn)) {}
+    void field(const char* name, int& v, int min, int max) override {
+        ImGui::DragInt(prettyName(name).c_str(), &v, 0.2f, min, max, "%d", min < max ? ImGuiSliderFlags_AlwaysClamp : 0);
+        afterWidget();
+    }
+    void choice(const char* name, int& v, const char* const* options, int count) override {
+        if (ImGui::Combo(prettyName(name).c_str(), &v, options, count) && changed) changed();
+    }
+    void field(const char* name, std::string& v, FieldRef kind) override {
+        if (pickReference) pickReference(prettyName(name).c_str(), v, kind);
+        else field(name, v);
+    }
     void field(const char* name, float& v, float speed, float min, float max) override {
         ImGui::DragFloat(prettyName(name).c_str(), &v, speed, min, max, "%.3g",
                          min < max ? ImGuiSliderFlags_AlwaysClamp : 0);

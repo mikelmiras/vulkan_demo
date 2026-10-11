@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,8 +26,19 @@ struct Entity;
 class GameContext;   // game/game.h
 class GameUI;        // game/ui.h
 
+// What a string field names, so the inspector offers a picker instead of a text box. References are by name: an
+// entity's name (found with GameContext::findByName / findEntity, so it also matches entities spawned later), a
+// prefab's, a scene file (stored relative to the project), a sound (a built-in clip or a file), an animation clip,
+// an input action.
+enum class FieldRef { Entity, Prefab, Scene, Sound, AnimationClip, InputAction };
+
 // Visits a behaviour's parameters by name: the same fields() function drives the inspector UI, saving and loading.
 // Names are camelCase keys ("moveSpeed"); the inspector shows them as "Move speed".
+//
+//   v.field("speed", speed, 0.05f, 0.f, 10.f);           // float: drag speed, range (min < max clamps)
+//   v.field("count", count, 0, 20);                      // int, with a range
+//   v.field("align", align, {"left", "center", "right"}); // int choosing one of these (saved by name)
+//   v.field("target", target, FieldRef::Entity);         // string naming an entity (a picker)
 class FieldVisitor {
 public:
     virtual ~FieldVisitor() = default;
@@ -34,6 +46,19 @@ public:
     virtual void field(const char* name, bool& v) = 0;
     virtual void field(const char* name, Vec3& v, float speed = 0.05f) = 0;
     virtual void field(const char* name, std::string& v) = 0;
+    // The typed ones: visitors that don't know them see a float / a string
+    virtual void field(const char* name, int& v, int min = 0, int max = 0) {
+        float f = (float)v;
+        field(name, f, 1.f, (float)min, (float)max);
+        v = (int)(f < 0.f ? f - 0.5f : f + 0.5f);
+    }
+    virtual void choice(const char* name, int& v, const char* const* /*options*/, int count) {
+        field(name, v, 0, count > 0 ? count - 1 : 0);
+    }
+    void field(const char* name, int& v, std::initializer_list<const char*> options) {
+        choice(name, v, options.begin(), (int)options.size());
+    }
+    virtual void field(const char* name, std::string& v, FieldRef /*kind*/) { field(name, v); }
     // Entity ids (runtime state): stored as numbers, exact up to 2^24
     void field(const char* name, uint32_t& id) {
         float f = (float)id;

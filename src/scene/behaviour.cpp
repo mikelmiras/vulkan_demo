@@ -1,6 +1,7 @@
 #include "scene/behaviour.h"
 
 #include <algorithm>
+#include <cmath>
 #include <type_traits>
 
 namespace {
@@ -76,6 +77,21 @@ struct FieldSetter : FieldVisitor {
     void field(const char* n, bool& v) override { set(n, v); }
     void field(const char* n, Vec3& v, float) override { set(n, v); }
     void field(const char* n, std::string& v) override { set(n, v); }
+    void field(const char* n, std::string& v, FieldRef) override { set(n, v); }
+    void field(const char* n, int& v, int, int) override {
+        if constexpr (std::is_same_v<T, float>)
+            if (name == n) { v = (int)std::lround(value); found = true; }
+    }
+    void choice(const char* n, int& v, const char* const* options, int count) override {
+        if (name != n) return;
+        for (int i = 0; i < count; ++i) {
+            if constexpr (std::is_same_v<T, std::string>) {
+                if (value == options[i]) { v = i; found = true; }
+            } else if constexpr (std::is_same_v<T, float>) {
+                if ((int)std::lround(value) == i) { v = i; found = true; }
+            }
+        }
+    }
 };
 
 }  // namespace

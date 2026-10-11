@@ -267,3 +267,79 @@ TEST(serialization_keeps_unknown_behaviours) {
     REQUIRE(dynamic_cast<MissingBehaviour*>(s2.entities[0].behaviours[1].get()) == nullptr);
     CHECK_NEAR(behaviourToJson(*s2.entities[0].behaviours[1])["speed"].asFloat(0.f), 45.0, 1e-4);
 }
+
+namespace {
+
+struct Typed : BehaviourBase<Typed> {
+    static constexpr const char* kTypeName = "TestTyped";
+    int count = 3;
+    int mode = 1;
+    std::string target = "Player", prefab, sound;
+    void fields(FieldVisitor& v) override {
+        v.field("count", count, 0, 10);
+        v.field("mode", mode, {"slow", "fast", "warp"});
+        v.field("target", target, FieldRef::Entity);
+        v.field("prefab", prefab, FieldRef::Prefab);
+        v.field("sound", sound, FieldRef::Sound);
+    }
+};
+
+json::Value parseJson(const char* text) {
+    json::Value v;
+    std::string error;
+    json::parse(text, v, error);
+    return v;
+}
+
+}  // namespace
+
+// Ints, choices (saved by name) and references survive saving; old values and visitors still work
+TEST(behaviour_typed_fields) {
+    registerBehaviour<Typed>("test");
+    Typed t;
+    t.count = 7;
+    t.mode = 2;
+    t.target = "Boss";
+    t.prefab = "Bullet";
+    json::Value v = behaviourToJson(t);
+    CHECK(v["count"].asInt() == 7);
+    CHECK(v["mode"].asString() == "warp");
+    CHECK(v["target"].asString() == "Boss");
+    std::unique_ptr<Behaviour> back = behaviourFromJson(v);
+    REQUIRE(back);
+    auto& b = static_cast<Typed&>(*back);
+    CHECK(b.count == 7 && b.mode == 2 && b.target == "Boss" && b.prefab == "Bullet");
+
+    // A float saved before the field was an int is rounded; an unknown choice keeps the default; a number works
+    json::Value old = parseJson(R"({"type": "TestTyped", "count": 4.6, "mode": "ludicrous"})");
+    std::unique_ptr<Behaviour> oldB = behaviourFromJson(old), numB = behaviourFromJson(parseJson(R"({"type": "TestTyped", "mode": 0})"));
+    auto& o = static_cast<Typed&>(*oldB);
+    CHECK(o.count == 5);
+    CHECK(o.mode == 1);
+    auto& n = static_cast<Typed&>(*numB);
+    CHECK(n.mode == 0);
+
+    // setField reaches them
+    CHECK(setField(b, "count", 2.f) && b.count == 2);
+    CHECK(setField(b, "mode", std::string("slow")) && b.mode == 0);
+    CHECK(setField(b, "target", std::string("Hero")) && b.target == "Hero");
+    CHECK(!setField(b, "mode", std::string("nope")));
+
+    // A visitor that only knows the basic kinds sees an int as a float and a reference as a string
+    struct Basic : FieldVisitor {
+        std::vector<std::string> seen;
+        void field(const char* name, float& v, float, float, float max) override {
+            seen.push_back(std::string(name) + "=" + std::to_string((int)v) + "/" + std::to_string((int)max));
+            v += 1.f;
+        }
+        void field(const char*, bool&) override {}
+        void field(const char*, Vec3&, float) override {}
+        void field(const char* name, std::string& s) override { seen.push_back(std::string(name) + ":" + s); }
+    } basic;
+    b.fields(basic);
+    REQUIRE(basic.seen.size() == 5);
+    CHECK(basic.seen[0] == "count=2/10");
+    CHECK(basic.seen[1] == "mode=0/2");
+    CHECK(basic.seen[2] == "target:Hero");
+    CHECK(b.count == 3 && b.mode == 1);   // written back
+}

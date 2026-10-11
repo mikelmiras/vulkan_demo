@@ -93,6 +93,7 @@ private:
     bool acceptAssetDrop(AssetKind kind, std::filesystem::path& out);   // after an Inspector widget: dropped on it?
     void assignTexture(EntityId id, const std::filesystem::path& file);
     void drawAnimatorInspector(Entity& e);   // editor_animation.cpp
+    void pickReference(const char* label, std::string& value, FieldRef kind);   // a behaviour's FieldRef field
     void track();   // call after an editing widget: records an undo step when the edit starts
 
     // ---- Viewport (editor_viewport.cpp)

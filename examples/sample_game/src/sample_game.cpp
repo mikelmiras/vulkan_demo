@@ -21,7 +21,7 @@ struct ScoreKeeper : BehaviourBase<ScoreKeeper> {
 
     void fields(FieldVisitor& v) override {
         v.field("target", target, 1.f, 1.f, 1000.f);
-        v.field("nextScene", nextScene);
+        v.field("nextScene", nextScene, FieldRef::Scene);
     }
     void state(FieldVisitor& v) override { v.field("wonAt", wonAt); }
     // The score lives in the game state, so it carries over to the next level (and into save games)
@@ -73,7 +73,7 @@ struct Coin : BehaviourBase<Coin> {
     void fields(FieldVisitor& v) override {
         v.field("points", points, 0.1f, 0.f, 100.f);
         v.field("spin", spin, 1.f);
-        v.field("collector", collector);
+        v.field("collector", collector, FieldRef::Entity);
     }
     void update(GameContext& ctx, Entity& self) override { self.transform.rotation[1] += spin * ctx.dt(); }
     void onTriggerEnter(GameContext& ctx, Entity& self, Entity& other) override {
@@ -103,7 +103,7 @@ struct Chaser : BehaviourBase<Chaser> {
     float cooldown = 0.f;   // runtime: seconds until it can catch again
 
     void fields(FieldVisitor& v) override {
-        v.field("target", target);
+        v.field("target", target, FieldRef::Entity);
         v.field("speed", speed, 0.05f, 0.f, 50.f);
         v.field("range", range, 0.1f, 0.f, 500.f);
         v.field("penalty", penalty, 0.1f, 0.f, 100.f);
@@ -135,10 +135,10 @@ struct Lurker : BehaviourBase<Lurker> {
     std::string alertClip = "tentacle/Stretch";
 
     void fields(FieldVisitor& v) override {
-        v.field("target", target);
+        v.field("target", target, FieldRef::Entity);
         v.field("range", range, 0.1f, 0.f, 100.f);
-        v.field("idleClip", idleClip);
-        v.field("alertClip", alertClip);
+        v.field("idleClip", idleClip, FieldRef::AnimationClip);
+        v.field("alertClip", alertClip, FieldRef::AnimationClip);
     }
     void update(GameContext& ctx, Entity& self) override {
         Entity* t = ctx.find(target);

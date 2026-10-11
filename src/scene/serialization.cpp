@@ -1,6 +1,7 @@
 #include "scene/serialization.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <set>
@@ -44,6 +45,12 @@ struct FieldWriter : FieldVisitor {
     void field(const char* name, bool& v) override { out.set(name, v); }
     void field(const char* name, Vec3& v, float) override { out.set(name, vec3(v)); }
     void field(const char* name, std::string& v) override { out.set(name, v); }
+    void field(const char* name, int& v, int, int) override { out.set(name, v); }
+    void choice(const char* name, int& v, const char* const* options, int count) override {
+        if (v >= 0 && v < count) out.set(name, options[v]);   // by name: options may be reordered or added to
+        else out.set(name, v);
+    }
+    void field(const char* name, std::string& v, FieldRef) override { out.set(name, v); }
 };
 
 // JSON members -> behaviour fields (missing members keep the behaviour's defaults)
@@ -56,6 +63,20 @@ struct FieldReader : FieldVisitor {
     void field(const char* name, std::string& v) override {
         if (in[name].type() == json::Value::Type::String) v = in[name].asString();
     }
+    void field(const char* name, int& v, int, int) override {
+        // (rounded: an int field may have been a float before)
+        if (in[name].type() == json::Value::Type::Number) v = (int)std::lround(in[name].asNumber());
+    }
+    void choice(const char* name, int& v, const char* const* options, int count) override {
+        const json::Value& j = in[name];
+        if (j.type() == json::Value::Type::String) {
+            for (int i = 0; i < count; ++i)
+                if (j.asString() == options[i]) v = i;
+        } else if (j.type() == json::Value::Type::Number && j.asInt() >= 0 && j.asInt() < count) {
+            v = j.asInt();
+        }
+    }
+    void field(const char* name, std::string& v, FieldRef) override { field(name, v); }
 };
 
 bool readFile(const std::string& path, std::string& text) { return vfs::read(std::filesystem::u8path(path), text); }

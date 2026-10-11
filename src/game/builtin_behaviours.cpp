@@ -86,7 +86,7 @@ struct LookAt : BehaviourBase<LookAt> {
     bool yawOnly = false;            // only turn around the vertical axis
 
     void fields(FieldVisitor& v) override {
-        v.field("target", target);
+        v.field("target", target, FieldRef::Entity);
         v.field("yawOnly", yawOnly);
     }
     void update(GameContext& ctx, Entity& self) override {
@@ -136,7 +136,7 @@ struct PlayerController : BehaviourBase<PlayerController> {
         v.field("gravity", gravity, 0.1f, 0.f, 200.f);
         v.field("respawnBelow", respawnBelow, 0.5f);
         v.field("fly", fly);
-        v.field("jumpSound", jumpSound);
+        v.field("jumpSound", jumpSound, FieldRef::Sound);
     }
 
     // The entity that looks up and down: the first child with a camera, else the body itself
@@ -222,7 +222,7 @@ struct Pickup : BehaviourBase<Pickup> {
     bool collected = false;             // runtime state
 
     void fields(FieldVisitor& v) override {
-        v.field("collector", collector);
+        v.field("collector", collector, FieldRef::Entity);
         v.field("radius", radius, 0.05f, 0.f, 1000.f);
     }
     void update(GameContext& ctx, Entity& self) override {
@@ -262,7 +262,7 @@ struct Destructible : BehaviourBase<Destructible> {
 
     void fields(FieldVisitor& v) override {
         v.field("hits", hits, 0.1f, 0.f, 1000.f);
-        v.field("dropPrefab", dropPrefab);
+        v.field("dropPrefab", dropPrefab, FieldRef::Prefab);
     }
     void start(GameContext&, Entity&) override {
         remaining = hits;
@@ -359,7 +359,7 @@ struct Shooter : BehaviourBase<Shooter> {
     float nextShot = 0.f;       // runtime state
 
     void fields(FieldVisitor& v) override {
-        v.field("prefab", prefab);
+        v.field("prefab", prefab, FieldRef::Prefab);
         v.field("cooldown", cooldown, 0.01f, 0.f, 60.f);
         v.field("muzzle", muzzle, 0.01f, 0.f, 100.f);
     }
@@ -395,16 +395,16 @@ struct Spawner : BehaviourBase<Spawner> {
     }
     std::string prefab;
     float interval = 2.f;
-    float maxAlive = 5.f;
+    int maxAlive = 5;
     float spread = 0.5f;                // random offset (radius, horizontal) so spawns don't land on each other
     float timer = 0.f;                  // runtime state
     std::vector<EntityId> alive;
     uint32_t rng = 0;
 
     void fields(FieldVisitor& v) override {
-        v.field("prefab", prefab);
+        v.field("prefab", prefab, FieldRef::Prefab);
         v.field("interval", interval, 0.05f, 0.01f, 3600.f);
-        v.field("maxAlive", maxAlive, 1.f, 0.f, 10000.f);
+        v.field("maxAlive", maxAlive, 0, 10000);
         v.field("spread", spread, 0.05f, 0.f, 1000.f);
     }
     void start(GameContext&, Entity& self) override {
@@ -423,7 +423,7 @@ struct Spawner : BehaviourBase<Spawner> {
                                    [&](EntityId id) { return !ctx.find(id) || ctx.isDestroyed(id); }),
                     alive.end());
         timer -= ctx.dt();
-        if (timer > 0.f || prefab.empty() || (float)alive.size() >= maxAlive) return;
+        if (timer > 0.f || prefab.empty() || (int)alive.size() >= maxAlive) return;
         timer = interval;
         Mat4 m = ctx.scene().worldMatrix(self.id);
         float a = random01() * 2.f * PI, r = std::sqrt(random01()) * spread;
@@ -443,8 +443,8 @@ struct SceneExit : BehaviourBase<SceneExit> {
     std::string scene;                  // the scene file to go to (relative to the project)
     std::string collector = "Player";   // who sets it off, by touching its trigger collider
     void fields(FieldVisitor& v) override {
-        v.field("scene", scene);
-        v.field("collector", collector);
+        v.field("scene", scene, FieldRef::Scene);
+        v.field("collector", collector, FieldRef::Entity);
     }
     void start(GameContext& ctx, Entity& self) override {
         if (!self.collider || !self.collider->trigger) ctx.log(self.name + ": SceneExit needs a trigger collider");
@@ -461,8 +461,8 @@ struct SaveLoadKeys : BehaviourBase<SaveLoadKeys> {
     std::string loadAction = "quickload";   // F9
     void fields(FieldVisitor& v) override {
         v.field("slot", slot);
-        v.field("saveAction", saveAction);
-        v.field("loadAction", loadAction);
+        v.field("saveAction", saveAction, FieldRef::InputAction);
+        v.field("loadAction", loadAction, FieldRef::InputAction);
     }
     void update(GameContext& ctx, Entity&) override {
         if (ctx.input().pressed(saveAction)) ctx.saveGame(slot);
@@ -478,9 +478,6 @@ struct SaveLoadKeys : BehaviourBase<SaveLoadKeys> {
 // ---------------------------------------------------------------------------------------------
 namespace {
 
-GameUI::Align alignFrom(const std::string& a) {
-    return a == "center" ? GameUI::Align::Center : a == "right" ? GameUI::Align::Right : GameUI::Align::Left;
-}
 
 }  // namespace
 
@@ -489,18 +486,18 @@ struct HudText : BehaviourBase<HudText> {
     std::string text = "Score: {score}";   // {key} shows the game state's value
     float x = 0.03f, y = 0.03f;            // position as a fraction of the game view (0..1)
     float size = 40.f;                     // canvas units: 1080 = the view's height
-    std::string align = "left";            // left, center, right
+    int align = 0;                         // left, center, right (GameUI::Align)
     Vec3 color{1.f, 1.f, 1.f};
     void fields(FieldVisitor& v) override {
         v.field("text", text);
         v.field("x", x, 0.005f, 0.f, 1.f);
         v.field("y", y, 0.005f, 0.f, 1.f);
         v.field("size", size, 0.5f, 4.f, 400.f);
-        v.field("align", align);
+        v.field("align", align, {"left", "center", "right"});
         v.field("color", color, 0.01f);
     }
     void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
-        ui.text(x * ui.width(), y * ui.height(), ctx.state().format(text), size, {color.x, color.y, color.z, 1.f}, alignFrom(align));
+        ui.text(x * ui.width(), y * ui.height(), ctx.state().format(text), size, {color.x, color.y, color.z, 1.f}, (GameUI::Align)align);
     }
 };
 
@@ -535,7 +532,7 @@ struct PauseMenu : BehaviourBase<PauseMenu> {
     std::string slot = "quicksave"; // what Save and Load use
     bool open = false;              // runtime: this menu paused the game
     void fields(FieldVisitor& v) override {
-        v.field("action", action);
+        v.field("action", action, FieldRef::InputAction);
         v.field("title", title);
         v.field("slot", slot);
     }

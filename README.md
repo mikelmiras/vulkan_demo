@@ -388,8 +388,25 @@ struct Hover : BehaviourBase<Hover> {
 registerBehaviour<Hover>("Floats up and down");           // at startup, before loading scenes
 ```
 
+Fields come in a few kinds, each with its own inspector widget:
+
+```cpp
+v.field("speed", speed, 0.05f, 0.f, 10.f);              // float: drag speed and range
+v.field("enabled", enabled);                            // bool, Vec3 and plain strings too
+v.field("maxAlive", maxAlive, 0, 100);                  // int, with a range
+v.field("align", align, {"left", "center", "right"});   // int choosing an option (saved by its name)
+v.field("target", target, FieldRef::Entity);            // a string naming something, with a picker:
+v.field("bullet", bullet, FieldRef::Prefab);            //   Entity, Prefab, Scene, Sound, AnimationClip,
+v.field("onHit", sound, FieldRef::Sound);               //   InputAction
+```
+
+References are names, as before (so they also find entities spawned later), but the inspector lists what's there
+to pick from, takes entities dragged from the outliner and scenes / sounds from the asset browser, and flags a name
+that matches nothing.
+
 `GameContext` gives access to the scene, input actions, time, entity lookup by name or id, world positions,
-collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also get `onTriggerEnter` / `onTriggerExit`.
+collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also get `onTriggerEnter` / `onTriggerExit`
+and `onAnimationEvent`.
 
 ### Scene flow and save games
 

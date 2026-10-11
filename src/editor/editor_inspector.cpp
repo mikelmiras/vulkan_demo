@@ -481,6 +481,8 @@ void Editor::drawComponents(Entity& e) {
     }
     int removeBehaviour = -1;
     FieldInspector inspector([this] { track(); });
+    inspector.changed = [this] { editBegan_ = true; };
+    inspector.pickReference = [this](const char* label, std::string& v, FieldRef kind) { pickReference(label, v, kind); };
     for (size_t i = 0; i < e.behaviours.size(); ++i) {
         Behaviour& b = *e.behaviours[i];
         ImGui::PushID((int)i);
@@ -527,4 +529,101 @@ void Editor::drawComponents(Entity& e) {
         }
         ImGui::EndPopup();
     }
+}
+
+// A behaviour field naming something: a text box (anything goes, e.g. an entity spawned later) with a list to
+// pick from, and drops from the outliner (entities) or the asset browser (scenes, sounds, prefab files)
+void Editor::pickReference(const char* label, std::string& value, FieldRef kind) {
+    ImGui::PushID(label);
+    float button = ImGui::GetFrameHeight();
+    ImGui::SetNextItemWidth(ImGui::CalcItemWidth() - button - ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::InputText("##text", &value);
+    track();
+    auto set = [&](const std::string& v) {
+        if (v == value) return;
+        value = v;
+        editBegan_ = true;   // compared with the frame's start: one undo step
+    };
+    // Drops
+    if (ImGui::BeginDragDropTarget()) {
+        if (kind == FieldRef::Entity)
+            if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload(kEntityPayload))
+                if (const Entity* dropped = scene_.find(*(const EntityId*)p->Data)) set(dropped->name);
+        ImGui::EndDragDropTarget();
+    }
+    std::filesystem::path dropped;
+    if (kind == FieldRef::Scene && acceptAssetDrop(AssetKind::Scene, dropped)) set(project::toStored(dropped.u8string()));
+    if (kind == FieldRef::Sound && acceptAssetDrop(AssetKind::Sound, dropped)) set(project::toStored(dropped.u8string()));
+
+    // The list
+    ImGui::SameLine(0.f, ImGui::GetStyle().ItemInnerSpacing.x);
+    if (ImGui::BeginCombo("##pick", nullptr, ImGuiComboFlags_NoPreview | ImGuiComboFlags_PopupAlignLeft |
+                                                 ImGuiComboFlags_HeightLarge)) {
+        std::vector<std::string> options;
+        switch (kind) {
+        case FieldRef::Entity:
+            for (const Entity& e : scene_.entities)
+                if (std::find(options.begin(), options.end(), e.name) == options.end()) options.push_back(e.name);
+            for (const Prefab& p : scene_.prefabs)   // what prefabs spawn has these names too
+                for (const Entity& e : p.entities)
+                    if (std::find(options.begin(), options.end(), e.name) == options.end()) options.push_back(e.name);
+            break;
+        case FieldRef::Prefab:
+            for (const Prefab& p : scene_.prefabs) options.push_back(p.name);
+            break;
+        case FieldRef::Scene:
+        case FieldRef::Sound: {
+            if (kind == FieldRef::Sound) options = AudioEngine::builtinClips();
+            std::error_code ec;
+            AssetKind want = kind == FieldRef::Scene ? AssetKind::Scene : AssetKind::Sound;
+            int seen = 0;
+            for (auto it = std::filesystem::recursive_directory_iterator(
+                     project::root(), std::filesystem::directory_options::skip_permission_denied, ec);
+                 it != std::filesystem::recursive_directory_iterator() && seen < 5000; it.increment(ec), ++seen) {
+                std::string name = it->path().filename().u8string();
+                if (it->is_directory(ec) && (name.empty() || name[0] == '.' || name == "CMakeFiles" || name == "build")) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+                if (assetKind(it->path()) == want) options.push_back(project::toStored(it->path().u8string()));
+            }
+            break;
+        }
+        case FieldRef::AnimationClip:
+            for (const AnimationClip& c : meshes_.animations) options.push_back(c.name);
+            break;
+        case FieldRef::InputAction:
+            for (const InputAction& a : scene_.inputActions) options.push_back(a.name);
+            break;
+        }
+        if (options.empty()) ImGui::TextDisabled("Nothing to pick in this scene / project");
+        for (const std::string& o : options)
+            if (ImGui::Selectable(o.c_str(), o == value)) set(o);
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine(0.f, ImGui::GetStyle().ItemInnerSpacing.x);
+    ImGui::TextUnformatted(label);
+    // A name that matches nothing is worth a warning (spawned entities can still match later)
+    bool known = value.empty();
+    switch (kind) {
+    case FieldRef::Entity:
+        known = known || scene_.findByName(value);
+        for (const Prefab& p : scene_.prefabs)
+            for (const Entity& e : p.entities) known = known || e.name == value;
+        break;
+    case FieldRef::Prefab:
+        for (const Prefab& p : scene_.prefabs) known = known || p.name == value;
+        break;
+    case FieldRef::AnimationClip: known = known || meshes_.findAnimation(value); break;
+    case FieldRef::InputAction:
+        for (const InputAction& a : scene_.inputActions) known = known || a.name == value;
+        break;
+    default: known = true; break;
+    }
+    if (!known) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.f, 0.6f, 0.3f, 1.f), "(?)");
+        tooltip("Nothing in this scene has that name");
+    }
+    ImGui::PopID();
 }
