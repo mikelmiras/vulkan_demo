@@ -17,8 +17,8 @@ find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/Bin REQUIRE
 # Compile GLSL -> SPIR-V into <build>/shaders
 # (the executable looks in <exe dir>/shaders and <exe dir>/../shaders, which covers
 #  single-config builds and Visual Studio's <build>/Debug, <build>/Release folders)
-set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag shaders/shadow.vert
-                   shaders/post.vert shaders/bloom_down.frag shaders/bloom_up.frag shaders/composite.frag
+set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag shaders/shadow.vert shaders/shadow_cutout.frag
+                   shaders/post.vert shaders/bloom_down.frag shaders/bloom_up.frag shaders/composite.frag shaders/ssao.frag shaders/ssao_ms.frag
                    shaders/particle.vert shaders/particle.frag shaders/sky.vert shaders/sky.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
@@ -28,7 +28,7 @@ foreach(src ${SHADER_SOURCES})
     OUTPUT ${out}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
     COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/${src} -o ${out}
-    DEPENDS ${CMAKE_SOURCE_DIR}/${src} ${CMAKE_SOURCE_DIR}/shaders/common.glsl
+    DEPENDS ${CMAKE_SOURCE_DIR}/${src} ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/ssao.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()

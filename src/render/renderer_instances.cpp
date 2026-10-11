@@ -53,6 +53,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
     sceneBatches_.clear();
     transparentBatches_.clear();
     for (auto& b : shadowBatches_) b.clear();
+    for (auto& b : shadowCutoutBatches_) b.clear();
     outlineBatches_.clear();
     stats_ = {};
     if (!info.items) return;
@@ -60,7 +61,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
     Frustum view(info.viewProj);
     std::vector<Frustum> shadowViews;
     std::vector<uint32_t> shadowLayers;
-    for (uint32_t l = 0; l < 8; ++l)
+    for (uint32_t l = 0; l < kShadowLayers; ++l)
         if (shadowLayers_ & (1u << l)) {
             shadowViews.emplace_back(shadowViewProj_[l]);
             shadowLayers.push_back(l);
@@ -96,8 +97,16 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
         return dot(da, da) > dot(db, db);
     });
     size_t casterCount = 0;
-    for (auto& list : casters) {
-        std::stable_sort(list.begin(), list.end(), [&](uint32_t a, uint32_t b) { return items[a].mesh < items[b].mesh; });
+    for (auto& list : casters) {   // solid ones by mesh; ones with holes after them, by material
+        std::stable_sort(list.begin(), list.end(), [&](uint32_t a, uint32_t b) {
+            bool ha = items[a].alphaMode != 0, hb = items[b].alphaMode != 0;
+            if (ha != hb) return hb;
+            if (ha) {
+                VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
+                if (ta != tb) return ta < tb;
+            }
+            return items[a].mesh < items[b].mesh;
+        });
         casterCount += list.size();
     }
     size_t outlined = 0;
@@ -124,7 +133,10 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
     for (uint32_t i : transparent) append(transparentBatches_, items[i], srgbToLinear(items[i].color), textureSet(items[i]));
     VkDescriptorSet plain = materialSet(DrawItem{});
     for (size_t k = 0; k < casters.size(); ++k)
-        for (uint32_t i : casters[k]) append(shadowBatches_[shadowLayers[k]], items[i], {}, plain);
+        for (uint32_t i : casters[k]) {
+            if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], items[i], {}, plain);
+            else append(shadowCutoutBatches_[shadowLayers[k]], items[i], {}, textureSet(items[i]));
+        }
     for (const DrawItem& o : items)   // each outline is drawn on its own (stencil, then hull): no merging
         if (o.outlined) {
             std::vector<Batch> single;

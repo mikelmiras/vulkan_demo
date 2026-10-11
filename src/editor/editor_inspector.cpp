@@ -145,6 +145,11 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         tooltip("How much bright parts (emissive materials, strong highlights) glow");
         ImGui::SliderFloat("Bloom threshold", &r.bloomThreshold, 0.f, 4.f, "%.2f");
         track();
+        ImGui::SliderFloat("Ambient occlusion", &r.aoStrength, 0.f, 1.5f, "%.2f");
+        track();
+        tooltip("How much corners, creases and the ground under things darken (screen-space; 0: off)");
+        ImGui::SliderFloat("Occlusion radius", &r.aoRadius, 0.05f, 4.f, "%.2f m");
+        track();
 
         drawLayerSettings();
 

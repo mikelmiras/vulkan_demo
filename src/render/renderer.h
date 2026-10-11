@@ -70,6 +70,8 @@ struct SceneRenderInfo {
     float fovY = 60.f * DEG2RAD;           // the camera's (for the sky and the shadow cascades)
     float aspect = 16.f / 9.f;
     float fogDensity = 0.006f, ambient = 0.45f, exposure = 1.f, bloomStrength = 0.06f, bloomThreshold = 1.f;
+    float aoStrength = 0.6f, aoRadius = 0.6f;   // ambient occlusion (screen space): how dark, how far (m); 0: off
+    float zNear = 0.1f, zFar = 2000.f;          // the camera's clip planes (to read depth back as distance)
     float viewportX = 0, viewportY = 0, viewportW = 0, viewportH = 0;   // in window pixels
 };
 
@@ -124,6 +126,7 @@ private:
         uint32_t stencilWriteMask;
         uint32_t vertexAttributes = 3;   // position, normal, uv: only as many as the vertex shader reads
         bool blend = false;              // premultiplied see-through (colour only: alpha is the outline marker)
+        bool shadow = false;             // into a shadow map (depth only), even with a fragment shader
     };
 
     void createInstance();
@@ -160,19 +163,22 @@ private:
     uint32_t particleAlpha_ = 0, particleAdditive_ = 0;  // this frame's counts
     VkPipeline createParticlePipeline(bool additive);
     // Shadows (renderer_shadows.cpp): 4 cascades for the sun (orthographic, each a slice of the view, snapped to
-    // texels), and up to 4 spot lights (perspective). Layers 0-3 / 4-7 of one matrix table in the frame data.
+    // texels), up to 4 spot lights (perspective) and 2 point lights (six faces each, a cube). Layers 0-3 / 4-7 /
+    // 8-19 of one matrix table in the frame data.
     struct ShadowArray {
         VkImage image = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;
         VkImageView array = VK_NULL_HANDLE;    // sampled
-        VkImageView layers[4] = {};            // rendered into
-        uint32_t size = 0;
+        std::vector<VkImageView> layers;       // rendered into
+        uint32_t size = 0, count = 0;
     };
-    ShadowArray createShadowArray(uint32_t size);
+    ShadowArray createShadowArray(uint32_t size, uint32_t layers);
     void destroyShadowArray(ShadowArray& a);
-    // Fills the frame's shadow matrices and cascade splits; returns which layers to render (bit per layer)
+    // Fills the frame's shadow matrices and cascade splits; returns which layers to render (bit per layer).
+    // shadowLayer[i] gets the layer of lights[i]'s shadow (a point light's first face), or -1.
     uint32_t computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool sunShadows,
-                            const std::vector<const LightInfo*>& spots, render_detail::FrameUBO& u) const;
+                            const std::vector<const LightInfo*>& lights, render_detail::FrameUBO& u,
+                            std::vector<int>& shadowLayer) const;
     void recordShadows(VkCommandBuffer cb);
     void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui);
 
@@ -205,14 +211,16 @@ private:
     float maxAnisotropy_ = 1.f;             // 1 = anisotropic filtering not available
 
     static constexpr uint32_t kCascadeSize = 2048, kSpotShadowSize = 1024, kCascades = 4, kSpotShadows = 4;
+    static constexpr uint32_t kPointShadowSize = 512, kPointShadows = 2, kShadowLayers = 20;
     static constexpr float kShadowDistance = 160.f;   // the sun's shadows reach this far from the camera
     VkFormat shadowFormat_ = VK_FORMAT_D32_SFLOAT;
-    ShadowArray cascades_, spotShadows_;
+    ShadowArray cascades_, spotShadows_, pointShadows_;
     bool shadowMapReady_ = false;   // in SHADER_READ_ONLY layout
-    uint32_t shadowLayers_ = 0;     // this frame's shadow layers to render (bits 0-3 cascades, 4-7 spots)
+    uint32_t shadowLayers_ = 0;     // this frame's shadow layers to render (bits 0-3 cascades, 4-7 spots, 8-19 points)
     bool frameShadows_ = false;     // the sun casts shadows this frame
     VkSampler shadowSampler_ = VK_NULL_HANDLE;
     VkPipeline shadowPipeline_ = VK_NULL_HANDLE;
+    VkPipeline shadowCutoutPipeline_ = VK_NULL_HANDLE;   // with a fragment shader dropping the holes
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
@@ -256,8 +264,9 @@ private:
         uint32_t first = 0, count = 0;
     };
     std::vector<Batch> sceneBatches_, outlineBatches_, transparentBatches_;   // (transparent: back to front)
-    std::vector<Batch> shadowBatches_[8];   // per shadow layer
-    Mat4 shadowViewProj_[8];
+    std::vector<Batch> shadowBatches_[kShadowLayers];         // per shadow layer: solid casters ...
+    std::vector<Batch> shadowCutoutBatches_[kShadowLayers];   // ... and ones with holes (cut-outs, see-through)
+    Mat4 shadowViewProj_[kShadowLayers];
     VkPipeline skyPipeline_ = VK_NULL_HANDLE;
     VkPipeline createSkyPipeline();
     VkCommandPool cmdPool_ = VK_NULL_HANDLE;
@@ -272,6 +281,13 @@ private:
     static constexpr uint32_t kMaxBloomMips = 6;
     VkFormat hdrFormat_ = VK_FORMAT_R16G16B16A16_SFLOAT;
     Image hdr_, bloom_;
+    // Ambient occlusion: half-size, from the scene's depth (ssao.frag), darkening the composite
+    Image ao_;
+    VkExtent2D aoSize_{};
+    VkImageView depthSampleView_ = VK_NULL_HANDLE;   // depth_'s depth, for reading
+    bool aoSupported_ = false;                       // the depth format can be sampled
+    VkDescriptorSet aoSet_ = VK_NULL_HANDLE;
+    VkPipeline aoPipeline_ = VK_NULL_HANDLE;
     uint32_t bloomMips_ = 0;
     VkImageView bloomViews_[kMaxBloomMips] = {};
     VkExtent2D bloomSizes_[kMaxBloomMips] = {};

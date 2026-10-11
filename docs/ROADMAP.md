@@ -141,7 +141,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 23 (done) | Physics joints and constraints (hinge, fixed, distance, slider) as a component, ragdolls from a skeleton, collision layers | Bodies can't be connected; skeletons can't go limp; nothing filters collisions |
 | 24 (done) | Animation layers and blend trees: 1D blends (walk / run by speed), upper-body masks, root motion, a graph view of the state machine | The state machine (task 17) plays one clip at a time |
 | 25 (done) | Smarter navigation: dynamic obstacles (moving things carve the grid), avoidance between agents, off-mesh links (jumps, ladders, drops), baking in the background and saving the result | Agents walk through each other and through crates; a big level re-bakes (1.3 s) each run |
-| 26 | Rendering: point-light (cube) shadows, SSAO, a prefiltered environment map, cut-out shadows, GPU culling for large scenes | Point lights don't shadow; grates and glass cast solid shadows; IBL is approximate |
+| 26 (done) | Rendering: point-light (cube) shadows, SSAO, a prefiltered environment map, cut-out shadows, GPU culling for large scenes | Point lights don't shadow; grates and glass cast solid shadows; IBL is approximate |
 | 27 | Audio: streamed music (decoded as it plays), mixer buses with volumes (music / effects / UI) and ducking, reverb zones, Doppler | Every sound is decoded whole up front; there is one volume |
 | 28 | Editor: multi-selection with group transforms, nested prefabs / prefab variants, asset thumbnails, dockable panels | One entity at a time; prefabs can't contain prefabs; fixed panel layout |
 | 29 | Profiling and diagnostics: a frame profiler (CPU scopes per system, GPU timestamps) in the editor and as an overlay, log to file, crash-safe editor autosave | Performance work relies on engine_bench; a crash loses unsaved edits |
@@ -195,4 +195,15 @@ Working list for turning the renderer demo into a small game engine. Each task i
   and walkable(). NavAgent: hops links on an arc, personal-space separation from other agents. Module API 17. Not
   done: true local avoidance (RVO), obstacles carving per-frame, links for characters other than NavAgent,
   rebaking only the changed tiles.
+- Task 26: point-light shadows (2 nearest casters, 6 x 512 faces at 95 deg in a third shadow array, binding 6;
+  the shader picks the face by the major axis; matrix table 8 -> 20, computeShadows assigns every light's layer);
+  unused point layers aren't even cleared. Cut-out shadows: shadow.vert passes UV / opacity / mode, a second shadow
+  pipeline (PipelineDesc::shadow) with shadow_cutout.frag discards by the albedo alpha (Mask: cutoff; Blend: 0.5),
+  casters with holes batched by material set. SSAO: the MSAA depth is stored and sampled (sample 0, depth-only
+  view), ssao.glsl (12-sample cosine hemisphere, normals from the nearer neighbours, oriented by the cross order)
+  at half size into an R8 image, applied with a 4-tap blur in the composite; RenderSettings aoStrength / aoRadius
+  (scene format 22), SceneRenderInfo zNear / zFar, push constants 48 bytes. Module API 18. Deliberately not done:
+  a prefiltered environment cubemap (the sky is analytic and smooth: environment() already evaluates it per
+  direction with roughness blur; worth it once skies are textures), GPU culling (CPU culling + batching of the
+  4700-entity stress scene is ~0.6 ms; indirect draws would matter at ~10x that).
 

@@ -5,8 +5,9 @@
 
 layout(set = 0, binding = 0) uniform sampler2D hdr;
 layout(set = 0, binding = 1) uniform sampler2D bloom;
+layout(set = 0, binding = 2) uniform sampler2D ao;   // ambient occlusion, half size (when a.z = 1)
 layout(push_constant) uniform Post {
-    vec4 a;   // x = exposure, y = bloom strength
+    vec4 a;   // x = exposure, y = bloom strength, z = 1: apply ambient occlusion
     vec4 b;   // rgb = outline colour (sRGB)
 } pc;
 
@@ -32,6 +33,12 @@ void main() {
     float outline = clamp(h.a - 1.0, 0.0, 1.0);   // (partly, on anti-aliased edges)
     vec3 scene = outline < 0.999 ? (h.rgb - outline * pc.b.rgb) / (1.0 - outline) : vec3(0.0);
     vec2 uv = (vec2(px) + 0.5) / vec2(textureSize(hdr, 0));
+    if (pc.a.z > 0.5) {   // a little blur over the half-size occlusion: four bilinear taps
+        vec2 t = 1.0 / vec2(textureSize(ao, 0));
+        float occ = texture(ao, uv + vec2(-0.5, -0.5) * t).r + texture(ao, uv + vec2(0.5, -0.5) * t).r +
+                    texture(ao, uv + vec2(-0.5, 0.5) * t).r + texture(ao, uv + vec2(0.5, 0.5) * t).r;
+        scene *= occ * 0.25;
+    }
     vec3 c = (max(scene, vec3(0.0)) + texture(bloom, uv).rgb * pc.a.y) * pc.a.x;
     c = pow(clamp(pbrNeutral(c), 0.0, 1.0), vec3(1.0 / 2.2));
     c = mix(c, pc.b.rgb, outline);

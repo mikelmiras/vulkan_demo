@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 21;  // 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 22;  // 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -902,6 +902,8 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
         rv.set("exposure", r.exposure);
         rv.set("bloomStrength", r.bloomStrength);
         rv.set("bloomThreshold", r.bloomThreshold);
+        rv.set("aoStrength", r.aoStrength);
+        rv.set("aoRadius", r.aoRadius);
     }
     {
         const NavigationSettings& n = scene.navigation;
@@ -986,6 +988,8 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
         r.exposure = rv["exposure"].asFloat(r.exposure);
         r.bloomStrength = rv["bloomStrength"].asFloat(r.bloomStrength);
         r.bloomThreshold = rv["bloomThreshold"].asFloat(r.bloomThreshold);
+        r.aoStrength = rv["aoStrength"].asFloat(r.aoStrength);
+        r.aoRadius = rv["aoRadius"].asFloat(r.aoRadius);
     }
     if (const json::Value& lv = doc["settings"]["layers"]; lv.isObject()) {
         LayerSettings& l = result.layers;

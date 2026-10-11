@@ -150,7 +150,8 @@ bool sameInputActions(const std::vector<InputAction>& a, const std::vector<Input
 
 bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
     return eq(a.sky, b.sky) && eq(a.zenith, b.zenith) && eq(a.ground, b.ground) && a.fogDensity == b.fogDensity && a.ambient == b.ambient && a.exposure == b.exposure &&
-           a.bloomStrength == b.bloomStrength && a.bloomThreshold == b.bloomThreshold;
+           a.bloomStrength == b.bloomStrength && a.bloomThreshold == b.bloomThreshold && a.aoStrength == b.aoStrength &&
+           a.aoRadius == b.aoRadius;
 }
 
 bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b) {

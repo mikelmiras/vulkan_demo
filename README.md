@@ -220,13 +220,16 @@ dropping on the right.
   spot (a cone along -Z, with a soft edge). The first directional light is the sun; up to 8 point and spot lights
   (nearest the camera) light each frame. Scenes without a directional light get a default sun.
 - **Shadows**: the sun's are 4 cascades (2048x2048 each) covering 160 m of the view, closer ones sharper, each
-  snapped to texels so edges don't shimmer; up to 4 spot lights cast shadows too (1024x1024). Filtered 3x3. Point
-  lights don't cast shadows.
+  snapped to texels so edges don't shimmer; up to 4 spot lights cast shadows too (1024x1024), and the 2 nearest
+  point lights (six 512x512 faces each, a cube). Filtered 3x3. Cut-outs cast shadows with their holes; see-through
+  materials cast one only where they're mostly opaque (glass: none).
+- **Ambient occlusion**: corners, creases and the ground under things darken a little (screen-space, from the
+  depth, at half resolution; strength and radius in the scene's look settings).
 - **Sky**: a gradient from the horizon (also the fog colour) to the zenith, the ground below, and the sun's disc
   and glow. It also lights the scene: ambient light and reflections come from it (blurrier on rougher surfaces).
 - **Transparency** (glTF alpha modes): cut-out materials (Mask) have holes wherever their texture's alpha is below a
   cutoff (the built-in Grate texture has them); see-through ones (Blend) are drawn after everything solid, sorted
-  back to front, with their opacity. Shadows ignore transparency.
+  back to front, with their opacity.
 - **HDR**: the scene renders into a floating-point image; **bloom** (a 13-tap down / tent up mip chain, with a
   soft threshold) makes bright parts glow, and the final pass applies exposure and the Khronos **PBR Neutral**
   tonemapper (colours below about 0.8 come out as they are). Sky colour, fog, ambient, exposure and bloom are

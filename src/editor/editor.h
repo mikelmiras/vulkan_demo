@@ -209,6 +209,7 @@ private:
     Mat4 viewProj_;
     Vec3 viewPos_, viewForward_;
     float viewFov_ = 1.f;
+    float viewNear_ = 0.1f, viewFar_ = 2000.f;   // the clip planes of the view drawn
     std::vector<LightInfo> lights_;
     std::vector<Mat4> worlds_;
     std::vector<DrawItem> drawItems_;

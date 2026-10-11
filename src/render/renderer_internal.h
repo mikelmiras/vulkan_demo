@@ -25,7 +25,7 @@ namespace render_detail {
 constexpr int kMaxPointLights = 8;
 struct FrameUBO {
     Mat4 viewProj;
-    Mat4 shadowViewProj[8];   // 0-3: the sun's cascades, 4-7: spot lights
+    Mat4 shadowViewProj[20];  // 0-3: the sun's cascades, 4-7: spot lights, 8-19: two point lights' cube faces
     float camPos[4];
     float fogColor[4];   // rgb linear, w = density
     float viewport[4];   // width, height, outline width in pixels, unused

@@ -134,11 +134,15 @@ void Editor::updateView() {
     gameCameraActive_ = playing() && game_.activeCamera(gc);
     if (gameCameraActive_) {
         viewProj_ = perspective(gc.fovY, aspect(), gc.zNear, gc.zFar, true) * gc.view;
+        viewNear_ = gc.zNear;
+        viewFar_ = gc.zFar;
         viewFov_ = gc.fovY;
         viewPos_ = gc.position;
         viewForward_ = normalize(transformDir(inverseAffine(gc.view), {0, 0, -1}));
     } else {
         viewProj_ = perspective(cam_.fovY, aspect(), 0.1f, 2000.f, true) * cam_.view();
+        viewNear_ = 0.1f;
+        viewFar_ = 2000.f;
         viewFov_ = cam_.fovY;
         viewPos_ = cam_.pos;
         viewForward_ = cam_.forward();
@@ -199,6 +203,10 @@ SceneRenderInfo Editor::renderInfo() const {
     info.exposure = r.exposure;
     info.bloomStrength = r.bloomStrength;
     info.bloomThreshold = r.bloomThreshold;
+    info.aoStrength = r.aoStrength;
+    info.aoRadius = r.aoRadius;
+    info.zNear = viewNear_;
+    info.zFar = viewFar_;
     info.viewProj = viewProj_;
     info.camPos = viewPos_;
     info.camForward = viewForward_;

@@ -3,7 +3,7 @@
 
 layout(set = 0, binding = 0) uniform Frame {
     mat4 viewProj;
-    mat4 shadowViewProj[8];   // 0-3: the sun's cascades, 4-7: spot lights
+    mat4 shadowViewProj[20];  // 0-3: the sun's cascades, 4-7: spot lights, 8-19: point lights' cube faces
     vec4 camPos;
     vec4 fogColor;        // rgb = fog/sky colour, w = density
     vec4 viewport;        // width, height, outline width (px), unused
@@ -13,7 +13,8 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 pointPos[8];     // xyz = position, w = range
     vec4 pointColor[8];   // rgb = colour * intensity (linear)
     vec4 pointDir[8];     // spot lights: xyz = the direction it shines
-    vec4 pointSpot[8];    // x = cos inner, y = cos outer (-2: a point light), z = shadow layer (4-7) or -1
+    vec4 pointSpot[8];    // x = cos inner, y = cos outer (-2: a point light), z = shadow layer (spots: 4-7; point
+                          // lights: the first of their six, 8 or 14) or -1
     vec4 camRight;        // the camera's axes in the world: billboards face it
     vec4 camUp;
     vec4 camForward;      // w = tan(fovY / 2)

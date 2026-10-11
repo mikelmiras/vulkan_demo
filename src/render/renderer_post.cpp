@@ -2,6 +2,7 @@
 #include "render/renderer.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "render/renderer_internal.h"
@@ -103,12 +104,33 @@ void Renderer::createPostImages() {
     for (uint32_t m = 1; m < bloomMips_; ++m) write(downSets_[m], bloomViews_[m - 1], bloomViews_[m - 1]);
     for (uint32_t m = 0; m + 1 < bloomMips_; ++m) write(upSets_[m], bloomViews_[m + 1], bloomViews_[m + 1]);
     write(compositeSet_, hdr_.view, bloomViews_[0]);
+
+    // Ambient occlusion: half size, single channel; read by the composite (binding 2), made from the depth
+    aoSize_ = {w, h};
+    ao_ = createImage(VK_FORMAT_R8_UNORM, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                      VK_IMAGE_ASPECT_COLOR_BIT, w, h, VK_SAMPLE_COUNT_1_BIT, 1);
+    VkDescriptorImageInfo aoInfo{postSampler_, ao_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet wa{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    wa.dstSet = compositeSet_;
+    wa.dstBinding = 2;
+    wa.descriptorCount = 1;
+    wa.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    wa.pImageInfo = &aoInfo;
+    vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
+    if (aoSupported_) {
+        VkDescriptorImageInfo depthInfo{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+        wa.dstSet = aoSet_;
+        wa.dstBinding = 0;
+        wa.pImageInfo = &depthInfo;
+        vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
+    }
 }
 
 void Renderer::destroyPostImages() {
     for (uint32_t m = 0; m < bloomMips_; ++m) vkDestroyImageView(device_, bloomViews_[m], nullptr);
     bloomMips_ = 0;
     if (bloom_.image) destroyImage(bloom_);
+    if (ao_.image) destroyImage(ao_);
     if (hdr_.image) destroyImage(hdr_);
 }
 
@@ -117,7 +139,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     struct Push {
-        float a[4], b[4];
+        float a[4], b[4], c[4];
     };
     mipBarrier(cb, hdr_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                VK_ACCESS_SHADER_READ_BIT);
@@ -155,7 +177,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         // Down: the HDR image (bright parts only) into level 0, then each level into the next smaller one
         for (uint32_t m = 0; m < bloomMips_; ++m) {
             VkExtent2D src = m == 0 ? extent_ : bloomSizes_[m - 1];
-            Push p{{1.f / (float)src.width, 1.f / (float)src.height, m == 0 ? 1.f : 0.f, info.bloomThreshold}, {}};
+            Push p{{1.f / (float)src.width, 1.f / (float)src.height, m == 0 ? 1.f : 0.f, info.bloomThreshold}, {}, {}};
             pass(bloomViews_[m], bloomSizes_[m], bloomDownPipeline_, m == 0 ? prefilterSet_ : downSets_[m], p, false);
             mipBarrier(cb, bloom_.image, m, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                        fragStage, VK_ACCESS_SHADER_READ_BIT);
@@ -165,11 +187,27 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
             mipBarrier(cb, bloom_.image, m, 1, readable, target, fragStage, VK_ACCESS_SHADER_READ_BIT, colorStage,
                        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
             VkExtent2D src = bloomSizes_[m + 1];
-            Push p{{1.f / (float)src.width, 1.f / (float)src.height, 1.f, 0.f}, {}};
+            Push p{{1.f / (float)src.width, 1.f / (float)src.height, 1.f, 0.f}, {}, {}};
             pass(bloomViews_[m], bloomSizes_[m], bloomUpPipeline_, upSets_[m], p, true);
             mipBarrier(cb, bloom_.image, m, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                        fragStage, VK_ACCESS_SHADER_READ_BIT);
         }
+    }
+
+    // Ambient occlusion from the depth (or nothing: the composite then ignores it)
+    float vx = std::clamp(info.viewportX, 0.f, (float)extent_.width);
+    float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
+    float vw = std::min(info.viewportW, (float)extent_.width - vx);
+    float vh = std::min(info.viewportH, (float)extent_.height - vy);
+    bool ao = aoSupported_ && info.aoStrength > 0.f && info.items && vw >= 1.f && vh >= 1.f;
+    mipBarrier(cb, ao_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, ao ? target : readable, colorStage | fragStage, 0,
+               ao ? colorStage : fragStage, ao ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
+    if (ao) {
+        float tanY = std::tan(info.fovY * 0.5f), tanX = tanY * (vw / vh);
+        Push p{{tanX, tanY, info.zNear, info.zFar}, {info.aoRadius, info.aoStrength, vx, vy}, {vw, vh, 0.f, 0.f}};
+        pass(ao_.view, aoSize_, aoPipeline_, aoSet_, p, false);
+        mipBarrier(cb, ao_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+                   VK_ACCESS_SHADER_READ_BIT);
     }
 
     // Composite: into the scene's viewport on the swapchain image; the rest gets the sky colour (under the UI)
@@ -187,10 +225,6 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     ri.colorAttachmentCount = 1;
     ri.pColorAttachments = &att;
     vkCmdBeginRendering(cb, &ri);
-    float vx = std::clamp(info.viewportX, 0.f, (float)extent_.width);
-    float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
-    float vw = std::min(info.viewportW, (float)extent_.width - vx);
-    float vh = std::min(info.viewportH, (float)extent_.height - vy);
     if (info.items && vw >= 1.f && vh >= 1.f) {
         VkViewport vp{vx, vy, vw, vh, 0.f, 1.f};
         VkRect2D sc{{(int32_t)vx, (int32_t)vy}, {(uint32_t)vw, (uint32_t)vh}};
@@ -198,7 +232,8 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         vkCmdSetScissor(cb, 0, 1, &sc);
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline_);
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &compositeSet_, 0, nullptr);
-        Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, 0.f, 0.f}, {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}};
+        Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, ao ? 1.f : 0.f, 0.f},
+               {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}, {}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
     }

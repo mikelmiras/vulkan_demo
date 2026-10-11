@@ -389,6 +389,8 @@ struct RenderSettings {
     float exposure = 1.f;             // brightness before tonemapping
     float bloomStrength = 0.06f;      // how much bright parts glow (0: off)
     float bloomThreshold = 1.f;       // brightness (linear) where the glow starts
+    float aoStrength = 0.6f;          // ambient occlusion: how much nooks and contact spots darken (0: off)
+    float aoRadius = 0.6f;            // ... over how far, m
 };
 
 // A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.

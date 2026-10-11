@@ -199,6 +199,10 @@ int main(int argc, char** argv) {
         info.exposure = scene.render.exposure;
         info.bloomStrength = scene.render.bloomStrength;
         info.bloomThreshold = scene.render.bloomThreshold;
+        info.aoStrength = scene.render.aoStrength;
+        info.aoRadius = scene.render.aoRadius;
+        info.zNear = cam.zNear;
+        info.zFar = cam.zFar;
         info.camForward = normalize(transformDir(inverseAffine(cam.view), {0, 0, -1}));
         info.viewProj = perspective(cam.fovY, aspect, cam.zNear, cam.zFar, true) * cam.view;
         info.camPos = cam.position;

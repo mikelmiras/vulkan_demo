@@ -6,6 +6,7 @@
 
 layout(set = 0, binding = 1) uniform sampler2DArray shadowCascades;   // the sun's, 4 layers
 layout(set = 0, binding = 5) uniform sampler2DArray spotShadows;      // spot lights', 4 layers
+layout(set = 0, binding = 6) uniform sampler2DArray pointShadows;     // point lights', 6 faces each
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (white if none)
 layout(set = 1, binding = 1) uniform sampler2D normalMap;      // tangent space (flat if none)
 layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness, b = metallic (white if none)
@@ -168,6 +169,13 @@ void main() {
                 vec3 p = vWorldPos + N * 0.04;
                 light *= shadowTest(spotShadows, spot.z - 4.0, frame.shadowViewProj[int(spot.z)] * vec4(p, 1.0), 0.00015);
             }
+        } else if (spot.z >= 0.0) {   // a point light's cube: the face towards this point (+x -x +y -y +z -z)
+            vec3 a = -d, m = abs(a);
+            int face = m.x >= m.y && m.x >= m.z ? (a.x > 0.0 ? 0 : 1) : m.y >= m.z ? (a.y > 0.0 ? 2 : 3) : (a.z > 0.0 ? 4 : 5);
+            int layer = int(spot.z) + face;
+            vec3 p = vWorldPos + N * (0.02 + 0.01 * dist);
+            light *= shadowTest(pointShadows, float(layer - 8), frame.shadowViewProj[layer] * vec4(p, 1.0), 0.0002);
+            if (light <= 0.0) continue;
         }
         color += shade(N, V, Lp, frame.pointColor[i].rgb * light, base, metallic, rough);
     }

@@ -108,14 +108,14 @@ void Renderer::uploadTextures(VkCommandBuffer frame) {
     // The shadow map starts out readable, so frames without shadows can still bind it
     if (!shadowMapReady_) {
         VkCommandBuffer cb = beginOneTimeCommands();
-        for (VkImage image : {cascades_.image, spotShadows_.image}) {
+        for (VkImage image : {cascades_.image, spotShadows_.image, pointShadows_.image}) {
             VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
             b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
             b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             b.image = image;
-            b.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 4};
+            b.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, VK_REMAINING_ARRAY_LAYERS};
             vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
                                  nullptr, 0, nullptr, 1, &b);
         }
