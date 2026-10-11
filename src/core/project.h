@@ -11,6 +11,12 @@ namespace project {
 struct Settings {
     std::string name = "Untitled";
     std::string startScene = "scene.vkw";   // what vkgame plays and the editor opens (relative to the project)
+    // The project's game module (its own behaviours, see game/module.h): the library's path without the platform's
+    // prefix and extension ("bin/game" -> bin/libgame.so, bin/game.dll, ...). Empty: none.
+    std::string module;
+    // The command that builds the module, run in the project folder by the editor's Game > Reload game module.
+    // "{engineBuild}" stands for the editor's own build folder (for projects built along with the engine).
+    std::string moduleBuild;
 };
 
 void setRoot(const std::filesystem::path& root);

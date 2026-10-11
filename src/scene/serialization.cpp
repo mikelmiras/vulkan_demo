@@ -1,5 +1,6 @@
 #include "scene/serialization.h"
 
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <set>
@@ -131,6 +132,79 @@ AssetIds builtinAssetIds(const MeshLibrary& meshes, const TextureLibrary& textur
     return ids;
 }
 
+json::Value behaviourToJson(const Behaviour& b) {
+    json::Value bv = json::Value::object();
+    bv.set("type", b.typeName());
+    if (auto* missing = dynamic_cast<const MissingBehaviour*>(&b)) {
+        json::Value kept;
+        std::string error;
+        if (json::parse(missing->fieldsJson(), kept, error))
+            for (const auto& [key, value] : kept.members()) bv.set(key, value);
+        return bv;
+    }
+    FieldWriter writer(bv);
+    const_cast<Behaviour&>(b).fields(writer);   // fields() only reads here
+    return bv;
+}
+
+std::unique_ptr<Behaviour> behaviourFromJson(const json::Value& bv) {
+    std::string type = bv["type"].asString();
+    if (std::unique_ptr<Behaviour> b = createBehaviour(type)) {
+        FieldReader reader(bv);
+        b->fields(reader);
+        return b;
+    }
+    json::Value kept = json::Value::object();   // unknown type: keep everything but the type for later
+    for (const auto& [key, value] : bv.members())
+        if (key != "type") kept.set(key, value);
+    return std::make_unique<MissingBehaviour>(type, json::write(kept));
+}
+
+namespace {
+
+template <class F> void forEachBehaviour(Scene& scene, F&& f) {
+    for (Entity& e : scene.entities)
+        for (BehaviourPtr& b : e.behaviours) f(b);
+    for (Prefab& p : scene.prefabs)
+        for (Entity& e : p.entities)
+            for (BehaviourPtr& b : e.behaviours) f(b);
+}
+
+}  // namespace
+
+int detachBehaviours(Scene& scene, const std::vector<std::string>& types) {
+    int count = 0;
+    forEachBehaviour(scene, [&](BehaviourPtr& b) {
+        if (!b || dynamic_cast<MissingBehaviour*>(b.get())) return;
+        if (std::find(types.begin(), types.end(), b->typeName()) == types.end()) return;
+        json::Value bv = behaviourToJson(*b);
+        json::Value kept = json::Value::object();
+        for (const auto& [key, value] : bv.members())
+            if (key != "type") kept.set(key, value);
+        b = BehaviourPtr(std::make_unique<MissingBehaviour>(b->typeName(), json::write(kept)));
+        ++count;
+    });
+    return count;
+}
+
+int reattachBehaviours(Scene& scene) {
+    int count = 0;
+    forEachBehaviour(scene, [&](BehaviourPtr& b) {
+        auto* missing = b ? dynamic_cast<MissingBehaviour*>(b.get()) : nullptr;
+        if (!missing || !createBehaviour(missing->typeName())) return;
+        json::Value bv = behaviourToJson(*missing);   // type + kept fields
+        b = BehaviourPtr(behaviourFromJson(bv));
+        ++count;
+    });
+    return count;
+}
+
+int countMissingBehaviours(const Scene& scene) {
+    int count = 0;
+    forEachBehaviour(const_cast<Scene&>(scene), [&](BehaviourPtr& b) { count += b && dynamic_cast<MissingBehaviour*>(b.get()); });
+    return count;
+}
+
 json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const TextureLibrary& textures) {
     json::Value v = json::Value::object();
     v.set("id", e.id);
@@ -207,13 +281,7 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
     }
     if (!e.behaviours.empty()) {
         json::Value& list = v.set("behaviours", json::Value::array());
-        for (const BehaviourPtr& b : e.behaviours) {
-            json::Value bv = json::Value::object();
-            bv.set("type", b->typeName());
-            FieldWriter writer(bv);
-            b->fields(writer);
-            list.push(std::move(bv));
-        }
+        for (const BehaviourPtr& b : e.behaviours) list.push(behaviourToJson(*b));
     }
     return v;
 }
@@ -305,14 +373,8 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
     if (const json::Value& c = v["animator"]; c.isObject())   // scene format 3 before behaviours existed
         e.behaviours = motionBehaviours(c["spin"].asFloat(0.f), c["bob"].asFloat(0.f), c["phase"].asFloat(0.f));
     for (const json::Value& bv : v["behaviours"].elements()) {
-        std::unique_ptr<Behaviour> b = createBehaviour(bv["type"].asString());
-        if (!b) {
-            error = "entity '" + e.name + "': unknown behaviour type '" + bv["type"].asString() + "'";
-            return false;
-        }
-        FieldReader reader(bv);
-        b->fields(reader);
-        e.behaviours.emplace_back(std::move(b));
+        if (bv["type"].asString().empty()) { error = "entity '" + e.name + "': behaviour without a type"; return false; }
+        e.behaviours.emplace_back(behaviourFromJson(bv));
     }
     out = std::move(e);
     return true;

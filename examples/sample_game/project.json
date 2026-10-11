@@ -1,0 +1,8 @@
+{
+  "format": "vkworld-project",
+  "version": 1,
+  "name": "Sample Game",
+  "startScene": "scenes/main.vkw",
+  "module": "bin/sample_game",
+  "moduleBuild": "cmake --build {engineBuild} --target sample_game"
+}

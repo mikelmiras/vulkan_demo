@@ -1,8 +1,14 @@
 #include "scene/behaviour.h"
 
+#include <algorithm>
 #include <type_traits>
 
 namespace {
+
+std::string& registeringModule() {
+    static std::string module;
+    return module;
+}
 
 std::vector<BehaviourType>& registry() {
     static std::vector<BehaviourType> types;
@@ -16,14 +22,32 @@ std::vector<BehaviourType>& registry() {
 
 }  // namespace
 
+Behaviour::~Behaviour() = default;
+
 void registerBehaviourType(const char* name, const char* description, BehaviourFactory create) {
     std::vector<BehaviourType>& types = registry();
     for (BehaviourType& t : types)
         if (t.name == name) {   // re-registering replaces (lets a game override a built-in)
-            t = {name, description, create};
+            t = {name, description, create, registeringModule()};
             return;
         }
-    types.push_back({name, description, create});
+    types.push_back({name, description, create, registeringModule()});
+}
+
+void setRegisteringModule(const std::string& module) {
+    registry();   // the built-ins first, so they aren't counted as the module's
+    registeringModule() = module;
+}
+
+void unregisterModuleBehaviours(const std::string& module) {
+    if (module.empty()) return;
+    std::vector<BehaviourType>& types = registry();
+    types.erase(std::remove_if(types.begin(), types.end(), [&](const BehaviourType& t) { return t.module == module; }),
+                types.end());
+    std::string saved = registeringModule();
+    registeringModule().clear();
+    registerBuiltinBehaviours();   // any built-in the module had replaced (the others are re-registered unchanged)
+    registeringModule() = saved;
 }
 
 const std::vector<BehaviourType>& behaviourTypes() { return registry(); }

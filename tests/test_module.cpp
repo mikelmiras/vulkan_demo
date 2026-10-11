@@ -1,0 +1,123 @@
+// game/module: loading a project's code, playing with it, and swapping it while scenes hold its behaviours
+#include "test.h"
+
+#include "core/json.h"
+#include "core/project.h"
+#include "game/game.h"
+#include "game/module.h"
+#include "imgui.h"
+#include "scene/serialization.h"
+
+#ifdef VKWORLD_SAMPLE_GAME
+
+namespace fs = std::filesystem;
+
+namespace {
+
+const MeshLibrary& meshes() {
+    static const MeshLibrary lib = buildMeshLibrary();
+    return lib;
+}
+
+fs::path sampleModule() { return GameModule::libraryPath(fs::u8path(VKWORLD_SAMPLE_GAME) / "bin" / "sample_game"); }
+
+bool loadSampleScene(Scene& s) {
+    MeshLibrary lib = buildMeshLibrary();
+    std::string error;
+    project::setRoot(fs::u8path(VKWORLD_SAMPLE_GAME));
+    bool ok = loadScene((fs::u8path(VKWORLD_SAMPLE_GAME) / "scenes" / "main.vkw").u8string(), s, lib, textures(), error);
+    project::setRoot(fs::current_path());
+    if (!ok) std::printf("    %s\n", error.c_str());
+    return ok;
+}
+
+bool logged(const Game& g, const std::string& text) {
+    for (const auto& line : g.log())
+        if (line.second.find(text) != std::string::npos) return true;
+    return false;
+}
+
+}  // namespace
+
+TEST(module_loads_and_registers_behaviours) {
+    GameModule module;
+    std::string error;
+    REQUIRE(module.load(sampleModule(), error));
+    CHECK(module.behaviourTypes().size() == 3);
+    CHECK(createBehaviour("Coin") != nullptr);
+    CHECK(createBehaviour("Spin") != nullptr);   // the built-ins are still there
+    module.unload();
+    CHECK(createBehaviour("Coin") == nullptr);
+    CHECK(createBehaviour("Spin") != nullptr);
+}
+
+// The sample scene played with the module's code: walking into a coin scores
+TEST(module_behaviours_play) {
+    test::ImGuiContextGuard imgui;
+    GameModule module;
+    std::string error;
+    REQUIRE(module.load(sampleModule(), error));
+    {
+        Scene s;
+        REQUIRE(loadSampleScene(s));
+        CHECK(countMissingBehaviours(s) == 0);
+        Game g;
+        g.start(s, meshes());
+        CHECK(logged(g, "Collect 10 points"));
+        const Entity* coin = s.findByName("Coin.001");
+        REQUIRE(coin);
+        EntityId coinId = coin->id;
+        Mat4 m = s.worldMatrix(coinId);
+        Entity* player = s.findByName("Player");
+        REQUIRE(player);
+        player->transform.position[0] = m.m[12];
+        player->transform.position[1] = 0.f;
+        player->transform.position[2] = m.m[14];
+        for (int i = 0; i < 5; ++i) {
+            ImGui::NewFrame();
+            g.step();
+            ImGui::EndFrame();
+        }
+        CHECK(logged(g, "Score: 1 / 10"));
+        CHECK(!s.find(coinId));   // collected
+        g.stop();
+    }   // the scene (and its behaviours) go before the module
+}
+
+// What the editor does when the module is rebuilt: behaviours keep their (edited) fields across the swap
+TEST(module_reload_keeps_behaviours) {
+    GameModule module;
+    std::string error;
+    REQUIRE(module.load(sampleModule(), error));
+    Scene s;
+    REQUIRE(loadSampleScene(s));
+    Entity* coin = s.findByName("Coin.002");
+    REQUIRE(coin && !coin->behaviours.empty());
+    CHECK(setField(*coin->behaviours[0], "points", 7.f));
+
+    CHECK(detachBehaviours(s, module.behaviourTypes()) == 15);   // 12 coins, 2 drones, the score keeper
+    module.unload();
+    REQUIRE(module.load(sampleModule(), error));
+    CHECK(reattachBehaviours(s) == 15);
+    CHECK(countMissingBehaviours(s) == 0);
+    coin = s.findByName("Coin.002");
+    json::Value saved = behaviourToJson(*coin->behaviours[0]);
+    CHECK(saved["type"].asString() == "Coin");
+    CHECK_NEAR(saved["points"].asFloat(0.f), 7.0, 1e-6);
+    s = Scene{};
+}
+
+TEST(module_rejects_non_modules) {
+    GameModule module;
+    std::string error;
+    CHECK(!module.load(test::tempPath("nothing.so"), error));
+    CHECK(!error.empty());
+    auto fake = test::tempPath("fake_module.so");
+    test::writeFile(fake, "not a library");
+    error.clear();
+    CHECK(!module.load(fake, error));
+    CHECK(!error.empty());
+    CHECK(!module.loaded());
+}
+
+#endif

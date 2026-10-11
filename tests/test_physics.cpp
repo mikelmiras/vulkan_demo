@@ -1,6 +1,8 @@
 // physics/: contact maths, queries, character movement, triggers
 #include "test.h"
 
+#include <algorithm>
+
 #include "game/game.h"
 #include "imgui.h"
 #include "physics/collision.h"

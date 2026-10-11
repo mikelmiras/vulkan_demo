@@ -36,7 +36,7 @@ public:
 
 class Behaviour {
 public:
-    virtual ~Behaviour() = default;
+    virtual ~Behaviour();   // out of line: the type info lives in the engine, shared with game modules
     virtual const char* typeName() const = 0;
     virtual std::unique_ptr<Behaviour> clone() const = 0;
 
@@ -79,15 +79,33 @@ private:
     std::unique_ptr<Behaviour> p_;
 };
 
+// A behaviour whose type isn't registered (its game module isn't loaded, failed to build, or no longer has it). It
+// keeps the type name and the saved fields, so scenes still load and save without losing anything, and does
+// nothing when played. reattachBehaviours() (scene/serialization.h) turns it back into the real thing.
+class MissingBehaviour : public Behaviour {
+public:
+    MissingBehaviour(std::string type, std::string fieldsJson) : type_(std::move(type)), json_(std::move(fieldsJson)) {}
+    const char* typeName() const override { return type_.c_str(); }
+    std::unique_ptr<Behaviour> clone() const override { return std::make_unique<MissingBehaviour>(*this); }
+    const std::string& fieldsJson() const { return json_; }   // the saved fields, as a JSON object
+private:
+    std::string type_, json_;
+};
+
 // ---- Registry: behaviour types by name (for the inspector's "Add component" menu and for loading scenes)
 using BehaviourFactory = std::unique_ptr<Behaviour> (*)();
 struct BehaviourType {
     std::string name;
     std::string description;
     BehaviourFactory create;
+    std::string module;   // the game module that registered it ("" for the engine's own)
 };
 
 void registerBehaviourType(const char* name, const char* description, BehaviourFactory create);
+// Removes every type a module registered; built-in types it had replaced come back
+void unregisterModuleBehaviours(const std::string& module);
+// Types registered while this is set belong to that module (GameModule sets it around the module's register call)
+void setRegisteringModule(const std::string& module);
 template <class T>
 void registerBehaviour(const char* description) {
     registerBehaviourType(T::kTypeName, description, []() -> std::unique_ptr<Behaviour> { return std::make_unique<T>(); });

@@ -55,10 +55,12 @@ The editor renders at one pixel per point (no Retina scaling). Shortcuts listed 
 ```sh
 ./vkgame                 # scene.vkw from the working directory or next to the executable, else the demo
 ./vkgame my_level.vkw --fullscreen
+./vkgame ../examples/sample_game   # a project folder: its start scene, with its game module
 ```
 
 The mouse is captured for the game (hidden, raw movement): Esc releases it, a click takes it back, F11 toggles
-fullscreen. Ship a game by copying `vkgame`, the `shaders/` folder and your scene (plus any OBJ files it uses).
+fullscreen. Ship a game by copying `vkgame`, the engine library next to it (`libengine.so` / `engine.dll` /
+`libengine.dylib`), the `shaders/` folder and your project (scenes, assets and its game module).
 
 Both programs also take `--screenshot out.png [--frames N]`: render N frames (default 30), save the last one and
 quit, which is handy for automated checks. The editor also takes a scene path and `--play`.
@@ -281,6 +283,45 @@ registerBehaviour<Hover>("Floats up and down");           // at startup, before 
 `GameContext` gives access to the scene, input actions, time, entity lookup by name or id, world positions,
 collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also get `onTriggerEnter` / `onTriggerExit`.
 
+### Game modules: a project's own code
+
+A game's behaviours don't go into the engine: they live in the project, built as a **game module** (a shared
+library) that the editor and `vkgame` load when they open the project. `examples/sample_game` is a complete
+project with one (a coin hunt: `Coin`, `ScoreKeeper`, `Chaser`):
+
+```sh
+./vkworld ../examples/sample_game      # the editor, with the sample's behaviours in Add component
+./vkgame ../examples/sample_game       # play it
+```
+
+The module's source registers its behaviours in one entry point:
+
+```cpp
+#include "game/module.h"
+// ... behaviour classes as above ...
+VKWORLD_GAME_MODULE() {
+    registerBehaviour<Hover>("Floats up and down");
+}
+```
+
+and the project's `CMakeLists.txt` builds it with `vkworld_add_game_module(name PROJECT_DIR <folder> SOURCES ...)`,
+into `<folder>/bin`. Build projects outside this repository along with the engine by listing their folders in
+`-DVKWORLD_GAME_PROJECTS="/path/to/game;..."`. `project.json` says where the library is and how to build it:
+
+```json
+"module": "bin/sample_game",
+"moduleBuild": "cmake --build {engineBuild} --target sample_game"
+```
+
+**Hot reload**: the editor reloads the module when the library changes on disk (rebuilt from an IDE, say), or on
+Game > Rebuild & reload game module (Ctrl+R), which runs `moduleBuild` first (`{engineBuild}` is the editor's
+own build folder). The scene, prefabs and undo history keep their behaviours across the swap; while playing, the
+reload waits for Stop. A behaviour whose code isn't loaded (no module, a failed build, a renamed class) is kept as
+it was saved and shown as *code not loaded*; it does nothing when played, and comes back once the code does.
+
+A module must be built with the same compiler and engine headers as the programs that load it (they share the
+engine library: `libengine.so` / `engine.dll` / `libengine.dylib`).
+
 ## Controls
 
 | Input                          | Action                                         |
@@ -301,6 +342,7 @@ collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also
 | H / Alt+H                      | Hide selected / unhide all                     |
 | Esc                            | Deselect                                       |
 | Ctrl+P / Ctrl+Shift+P          | Play-stop / pause the game                     |
+| Ctrl+R                         | Rebuild and reload the project's game module  |
 | Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) | Undo / redo                                    |
 | Ctrl+S / Ctrl+O                | Save / load the scene file (path in File menu, default `scene.vkw`) |
 | F1                             | Controls help window                           |
@@ -309,8 +351,9 @@ collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also
 
 ## Code
 
-The code is split into an **engine** static library (everything a game needs at runtime) and the **editor**
-application (`vkworld`) built on top of it. Includes are relative to `src/`.
+The code is split into an **engine** shared library (everything a game needs at runtime, Dear ImGui included) and
+the **editor** application (`vkworld`) built on top of it; games add their own code as modules (`examples/`).
+Includes are relative to `src/`.
 
 | Folder / file              | What                                                            |
 |----------------------------|-----------------------------------------------------------------|
@@ -324,9 +367,10 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world with a bounding volume hierarchy: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid-body motion (`dynamics.*`) |
-| `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
+| `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project and asset browser |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
+| `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
 | `bench/`                   | `engine_bench`: CPU timings on the stress scene (`scene/stress_scene.*`) |
 | `shaders/common.glsl`      | Frame data (camera, sun, point lights, shadow camera) and per-object instance data shared by the shaders |
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |

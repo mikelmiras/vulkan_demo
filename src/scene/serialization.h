@@ -2,7 +2,9 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "assets/meshes.h"
 #include "scene/scene.h"
@@ -25,6 +27,18 @@ struct AssetIds {
     std::map<std::string, int> meshes, textures;
 };
 AssetIds builtinAssetIds(const MeshLibrary& meshes, const TextureLibrary& textures);
+
+// One behaviour <-> JSON ({"type": ..., fields...}). An unregistered type loads as a MissingBehaviour, which saves
+// back exactly what it was loaded from.
+json::Value behaviourToJson(const Behaviour& b);
+std::unique_ptr<Behaviour> behaviourFromJson(const json::Value& v);
+
+// Game module reloading: behaviours of the given types become MissingBehaviours (keeping their fields), before the
+// code they live in is unloaded; afterwards, MissingBehaviours whose type is registered again become the real thing.
+// Both cover the scene's entities and its prefabs. They return how many behaviours they changed.
+int detachBehaviours(Scene& scene, const std::vector<std::string>& types);
+int reattachBehaviours(Scene& scene);
+int countMissingBehaviours(const Scene& scene);
 
 // One entity <-> JSON
 json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const TextureLibrary& textures);

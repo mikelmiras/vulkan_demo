@@ -16,6 +16,9 @@ compile_commands.json
 /engine_tests
 /Testing/
 
+# Game modules built into their project folders
+/examples/*/bin/
+
 # Compiled shaders and objects
 *.spv
 *.o

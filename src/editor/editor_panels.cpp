@@ -143,6 +143,15 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Capture mouse on click", nullptr, &captureOnClick_);
         ImGui::Separator();
         ImGui::MenuItem("Input bindings...", nullptr, &showInputBindings_);
+        ImGui::Separator();
+        bool building = moduleBuild_.valid();
+        if (ImGui::MenuItem(project_.moduleBuild.empty() ? "Reload game module" : "Rebuild && reload game module",
+                            "Ctrl+R", false, !project_.module.empty() && !building))
+            rebuildGameModule();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+            ImGui::SetTooltip(project_.module.empty()
+                                  ? "This project has no game module (\"module\" in project.json)"
+                                  : "%s", module_.loaded() ? module_.library().u8string().c_str() : "not loaded");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
@@ -751,9 +760,14 @@ void Editor::drawComponents(Entity& e) {
     for (size_t i = 0; i < e.behaviours.size(); ++i) {
         Behaviour& b = *e.behaviours[i];
         ImGui::PushID((int)i);
-        std::string label = std::string(b.typeName()) + "  (behaviour)";
+        auto* missing = dynamic_cast<MissingBehaviour*>(&b);
+        std::string label = std::string(b.typeName()) + (missing ? "  (code not loaded)" : "  (behaviour)");
         if (!componentHeader(label.c_str(), open)) removeBehaviour = (int)i;
-        else if (open) b.fields(inspector);
+        else if (open && missing) {
+            ImGui::TextWrapped("This behaviour's code isn't loaded: the project's game module is missing, failed to "
+                               "build, or no longer has it. Its settings are kept as they are:");
+            ImGui::TextDisabled("%s", missing->fieldsJson().c_str());
+        } else if (open) b.fields(inspector);
         ImGui::PopID();
     }
     if (removeBehaviour >= 0) {

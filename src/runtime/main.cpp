@@ -16,6 +16,7 @@
 #include "core/project.h"
 #include "assets/meshes.h"
 #include "game/game.h"
+#include "game/module.h"
 #include "imgui.h"
 #include "platform/platform.h"
 #include "render/scene_draw.h"
@@ -78,9 +79,18 @@ int main(int argc, char** argv) {
 
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary textures = buildTextureLibrary();
+    GameModule module;   // declared before the scene: outlives the behaviours it made
     Scene scene;
     bool stress = argc > 1 && !std::strcmp(argv[1], "--stress");
     std::string path = stress ? "" : findScene(argc, argv), error;
+    // The project's own behaviours: before the scene loads, so it finds them
+    project::Settings settings;
+    if (project::exists(project::root()) && project::load(project::root(), settings, error) && !settings.module.empty()) {
+        fs::path lib = GameModule::libraryPath(fs::u8path(project::resolve(settings.module)));
+        if (module.load(lib, error)) std::printf("Game module %s: %zu behaviours\n", lib.u8string().c_str(), module.behaviourTypes().size());
+        else std::fprintf(stderr, "warning: %s\n", error.c_str());
+    }
+    error.clear();
     if (stress) {
         scene = buildStressScene();
     } else if (path.empty()) {

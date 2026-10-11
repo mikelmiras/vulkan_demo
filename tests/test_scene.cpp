@@ -191,10 +191,9 @@ TEST(serialization_rejects_bad_files) {
     auto garbage = test::tempPath("garbage.vkw");
     test::writeFile(garbage, "{\"format\": \"vkworld-scene\", \"entities\": [1, 2,");
     CHECK(!loadScene(garbage.string(), s, lib, textures(), err));
-    auto unknown = test::tempPath("unknown.vkw");
-    test::writeFile(unknown, R"({"format":"vkworld-scene","version":3,"entities":[{"id":1,"name":"T","behaviours":[{"type":"Nope"}]}]})");
-    CHECK(!loadScene(unknown.string(), s, lib, textures(), err));
-    CHECK(err.find("Nope") != std::string::npos);
+    auto typeless = test::tempPath("typeless.vkw");
+    test::writeFile(typeless, R"({"format":"vkworld-scene","version":3,"entities":[{"id":1,"name":"T","behaviours":[{"speed":1}]}]})");
+    CHECK(!loadScene(typeless.string(), s, lib, textures(), err));
     auto future = test::tempPath("future.vkw");
     test::writeFile(future, R"({"format":"vkworld-scene","version":999,"entities":[]})");
     CHECK(!loadScene(future.string(), s, lib, textures(), err));
@@ -235,4 +234,36 @@ TEST(scene_remove_many_with_descendants) {
     CHECK(s.entities.size() == 1);
     CHECK(s.find(keep));
     for (EntityId gone : {root, child, other, grandchild, late}) CHECK(!s.find(gone));
+}
+
+// A behaviour type nobody registered (its game module isn't loaded) loads as a placeholder and saves back unchanged
+TEST(serialization_keeps_unknown_behaviours) {
+    MeshLibrary lib = buildMeshLibrary();
+    auto path = test::tempPath("unknown.vkw");
+    test::writeFile(path, R"({"format":"vkworld-scene","version":3,"entities":[{"id":1,"name":"T","behaviours":[
+        {"type":"Nope","speed":2.5,"target":"Gem","flags":[1,2]},{"type":"Spin","speed":45}]}]})");
+    Scene s;
+    std::string err;
+    REQUIRE(loadScene(path.string(), s, lib, textures(), err));
+    REQUIRE(s.entities.size() == 1 && s.entities[0].behaviours.size() == 2);
+    CHECK(std::string(s.entities[0].behaviours[0]->typeName()) == "Nope");
+    CHECK(dynamic_cast<MissingBehaviour*>(s.entities[0].behaviours[0].get()) != nullptr);
+    CHECK(countMissingBehaviours(s) == 1);
+
+    auto again = test::tempPath("unknown_again.vkw");
+    REQUIRE(saveScene(again.string(), s, lib, textures(), err));
+    Scene s2;
+    REQUIRE(loadScene(again.string(), s2, lib, textures(), err));
+    json::Value saved = behaviourToJson(*s2.entities[0].behaviours[0]);
+    CHECK(saved["type"].asString() == "Nope");
+    CHECK_NEAR(saved["speed"].asFloat(0.f), 2.5, 1e-6);
+    CHECK(saved["target"].asString() == "Gem");
+    CHECK(saved["flags"].elements().size() == 2);
+
+    // Detaching a registered type keeps its fields; reattaching brings the real behaviour back
+    CHECK(detachBehaviours(s2, {"Spin"}) == 1);
+    CHECK(countMissingBehaviours(s2) == 2);
+    CHECK(reattachBehaviours(s2) == 1);   // Spin is registered, Nope still isn't
+    REQUIRE(dynamic_cast<MissingBehaviour*>(s2.entities[0].behaviours[1].get()) == nullptr);
+    CHECK_NEAR(behaviourToJson(*s2.entities[0].behaviours[1])["speed"].asFloat(0.f), 45.0, 1e-4);
 }

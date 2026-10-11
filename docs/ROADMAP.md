@@ -5,7 +5,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | # | Task | Status |
 |---|------|--------|
 | 4 | Stress scene + frame stats; id index, physics broad-phase, frustum culling, instancing | done |
-| 1 | Game modules: project code as a shared library loaded by editor and runtime | todo |
+| 1 | Game modules: project code as a shared library loaded by editor and runtime | done |
 | 2 | Runtime scene flow: loadScene, quit, persistent game state, save/load | todo |
 | 3 | Game UI API for behaviours (HUD text, bars, images, menus) | todo |
 | 5 | Skeletal animation: skinning, glTF animation import, Animator component | todo |
@@ -21,3 +21,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
   mostly the physics world being rebuilt twice per update (world matrices + tree): an incremental update would be
   the next step. Mesh colliders still test every triangle (no per-mesh tree).
 - Rendering can be checked headless: `xvfb-run -a vkworld --screenshot out.png` (lavapipe).
+- Task 1: the engine is a shared library now (ImGui inside it, WINDOWS_EXPORT_ALL_SYMBOLS on Windows) so modules
+  share its registry and ImGui context. Modules are loaded from a temp copy (rebuildable while loaded). Unknown
+  behaviour types load as MissingBehaviour placeholders (no more load failures). Windows/macOS module loading
+  is untested here (no CI access from this machine).

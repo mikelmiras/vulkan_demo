@@ -123,6 +123,13 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     physics_.build(*scene_, *meshes_);
     prepareContext(0.f);
     startAudio();
+    std::vector<std::string> missing;   // behaviours whose game module isn't loaded: they do nothing
+    for (const Entity& e : scene_->entities)
+        for (const BehaviourPtr& b : e.behaviours)
+            if (dynamic_cast<const MissingBehaviour*>(b.get()) &&
+                std::find(missing.begin(), missing.end(), b->typeName()) == missing.end())
+                missing.push_back(b->typeName());
+    for (const std::string& type : missing) ctx_.log("Behaviour '" + type + "' has no code (game module not loaded)");
     // Index loops: behaviours may look entities up, but nothing is added or removed until flushDestroyed()
     for (size_t i = 0; i < scene_->entities.size(); ++i)
         for (size_t b = 0; b < scene_->entities[i].behaviours.size(); ++b)

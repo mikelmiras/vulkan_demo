@@ -3,9 +3,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "platform/platform.h"
+#include "scene/serialization.h"
 
 namespace fs = std::filesystem;
 
@@ -59,6 +63,9 @@ void Editor::openProject(const fs::path& dir) {
         if (!project::save(dir, settings, error)) { setStatus(error); return; }
     }
     project_ = settings;
+    bool sameModule = module_.loaded() && !project_.module.empty() && !module_.changedOnDisk() &&
+                      module_.library() == GameModule::libraryPath(fs::u8path(project::resolve(project_.module)));
+    if (!sameModule) loadGameModule();   // (the editor may have loaded it already, for the starting project)
     std::error_code ec;
     if (fs::exists(project::resolve(project_.startScene), ec)) {
         openScene(project_.startScene);
@@ -66,6 +73,98 @@ void Editor::openProject(const fs::path& dir) {
         std::snprintf(scenePath_, sizeof(scenePath_), "%s", project_.startScene.c_str());
         setStatus("Opened project " + project_.name + " (" + project::root().u8string() + ")");
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Game module
+// ---------------------------------------------------------------------------------------------
+template <class F>
+void Editor::forEachHeldScene(F&& f) {
+    f(scene_);
+    f(editScene_);
+    f(frameStart_.scene);
+    for (Snapshot& s : undo_) f(s.scene);
+    for (Snapshot& s : redo_) f(s.scene);
+}
+
+void Editor::loadGameModule() {
+    if (playing()) stopPlay();
+    // The old code's behaviours become their saved fields (the code is about to go away), then come back as
+    // the new code's
+    std::vector<std::string> types = module_.behaviourTypes();
+    forEachHeldScene([&](Scene& s) { detachBehaviours(s, types); });
+    module_.unload();
+    std::string error;
+    bool ok = true;
+    if (!project_.module.empty()) {
+        fs::path lib = GameModule::libraryPath(fs::u8path(project::resolve(project_.module)));
+        ok = module_.load(lib, error);
+    }
+    int restored = 0;
+    forEachHeldScene([&](Scene& s) { restored += reattachBehaviours(s); });
+    (void)restored;
+    if (project_.module.empty()) return;
+    if (!ok) {
+        setStatus("Game module not loaded: " + error);
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return;
+    }
+    std::printf("[module] loaded %s: %zu behaviours\n", module_.library().u8string().c_str(), module_.behaviourTypes().size());
+    std::fflush(stdout);
+    int missing = countMissingBehaviours(scene_);
+    setStatus("Game module loaded: " + std::to_string(module_.behaviourTypes().size()) + " behaviours" +
+              (missing ? ", " + std::to_string(missing) + " in the scene still have no code" : ""));
+}
+
+void Editor::rebuildGameModule() {
+    if (moduleBuild_.valid()) return;   // already building
+    if (project_.moduleBuild.empty()) {
+        loadGameModule();
+        return;
+    }
+    std::string command = project_.moduleBuild;
+#ifdef VKWORLD_BUILD_DIR
+    for (size_t at; (at = command.find("{engineBuild}")) != std::string::npos;)
+        command.replace(at, 13, "\"" VKWORLD_BUILD_DIR "\"");
+#endif
+    fs::path dir = project::root();
+    setStatus("Building the game module...");
+    moduleBuild_ = std::async(std::launch::async, [command, dir] {
+        std::string cd = "cd \"" + dir.u8string() + "\" && " + command;
+        std::printf("[module] %s\n", cd.c_str());
+        std::fflush(stdout);
+        return std::system(cd.c_str());
+    });
+}
+
+void Editor::pollGameModule() {
+    if (moduleBuild_.valid() && moduleBuild_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        int code = moduleBuild_.get();
+        if (code != 0) setStatus("Game module build failed (exit code " + std::to_string(code) + "): see the console");
+        else loadGameModule();
+        return;
+    }
+    if (moduleBuild_.valid() || project_.module.empty()) return;
+    double t = now();
+    if (t - moduleCheckedAt_ < 1.0) return;
+    moduleCheckedAt_ = t;
+    bool changed = module_.loaded() ? module_.changedOnDisk()
+                                     : fs::exists(GameModule::libraryPath(fs::u8path(project::resolve(project_.module))));
+    if (!changed) { moduleChangedWhilePlaying_ = false; return; }
+    if (playing()) {   // swapping code under a running game: wait for Stop
+        if (!moduleChangedWhilePlaying_) setStatus("The game module was rebuilt: it reloads when you stop");
+        moduleChangedWhilePlaying_ = true;
+        return;
+    }
+    moduleChangedWhilePlaying_ = false;
+    if (!module_.loaded()) {   // it failed before: only retry when the file changes
+        static fs::file_time_type lastTried{};
+        std::error_code ec;
+        fs::file_time_type mt = fs::last_write_time(GameModule::libraryPath(fs::u8path(project::resolve(project_.module))), ec);
+        if (ec || mt == lastTried) return;
+        lastTried = mt;
+    }
+    loadGameModule();
 }
 
 // ---------------------------------------------------------------------------------------------

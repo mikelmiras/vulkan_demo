@@ -212,6 +212,7 @@ void Editor::handleShortcuts() {
         if (keyPressed(ImGuiKey_O)) loadFromFile();
         if (keyPressed(ImGuiKey_Q)) quit_ = true;
         if (keyPressed(ImGuiKey_D)) duplicateSelected();
+        if (keyPressed(ImGuiKey_R) && !project_.module.empty()) rebuildGameModule();
         return;
     }
     if (shift) {

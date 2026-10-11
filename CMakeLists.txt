@@ -8,6 +8,9 @@ if(NOT MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# Executables find the engine library next to them ($ORIGIN / @loader_path), so a build folder can be copied as is
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+
 find_package(Vulkan REQUIRED)
 find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/Bin REQUIRED)
 
@@ -29,10 +32,11 @@ foreach(src ${SHADER_SOURCES})
 endforeach()
 add_custom_target(shaders ALL DEPENDS ${SPIRV_OUTPUTS})
 
-# Vendored third-party UI libraries (Dear ImGui v1.92.9b, ImGuizmo)
+# Vendored third-party UI libraries (Dear ImGui v1.92.9b, ImGuizmo), compiled into the engine library: there must be
+# one ImGui context for the engine, the programs and game modules
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
 set(IMGUIZMO_DIR ${CMAKE_SOURCE_DIR}/third_party/ImGuizmo/src)
-add_library(imgui STATIC
+add_library(imgui OBJECT
   ${IMGUI_DIR}/imgui.cpp
   ${IMGUI_DIR}/imgui_draw.cpp
   ${IMGUI_DIR}/imgui_tables.cpp
@@ -43,9 +47,11 @@ add_library(imgui STATIC
   ${IMGUIZMO_DIR}/ImGuizmo.cpp)
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMGUIZMO_DIR})
 target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
+set_target_properties(imgui PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Engine: everything a game needs at runtime (platform, rendering, assets, scene, game loop)
-add_library(engine STATIC
+# Engine: everything a game needs at runtime (platform, rendering, assets, scene, game loop). A shared library, so
+# game modules (project code loaded at run time, see game/module.h) use the same engine as the editor and vkgame.
+add_library(engine SHARED
   src/core/json.cpp
   src/core/png.cpp
   src/core/project.cpp
@@ -66,6 +72,7 @@ add_library(engine STATIC
   src/game/input.cpp
   src/game/game.cpp
   src/game/builtin_behaviours.cpp
+  src/game/module.cpp
   src/render/renderer.cpp
   src/render/scene_draw.cpp
   src/app/application.cpp)
@@ -77,7 +84,12 @@ target_include_directories(engine PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb ${
 set_source_files_properties(src/audio/miniaudio_impl.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 find_package(Threads REQUIRED)
 target_link_libraries(engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
-target_link_libraries(engine PUBLIC imgui)
+# The ImGui objects go into the engine (PRIVATE: users get them through it, not a second copy); its headers are public
+target_link_libraries(engine PRIVATE imgui)
+target_include_directories(engine PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMGUIZMO_DIR})
+target_link_libraries(engine PUBLIC Vulkan::Vulkan)
+# Windows: export every function, like a Unix shared library does (data symbols aren't: the engine keeps none in headers)
+set_target_properties(engine PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 add_dependencies(engine shaders)
 
 # Editor: the application built on top of the engine
@@ -88,6 +100,8 @@ add_executable(vkworld
   src/editor/editor_viewport.cpp
   src/editor/editor_assets.cpp)
 target_link_libraries(vkworld PRIVATE engine)
+# For game modules built along with the engine: "{engineBuild}" in a project's moduleBuild command
+target_compile_definitions(vkworld PRIVATE VKWORLD_BUILD_DIR="${CMAKE_BINARY_DIR}")
 
 # Standalone game: the engine without the editor, playing a scene
 add_executable(vkgame src/runtime/main.cpp)
@@ -101,7 +115,7 @@ target_link_libraries(engine_bench PRIVATE engine)
 if(WIN32)
   target_sources(imgui PRIVATE ${IMGUI_DIR}/backends/imgui_impl_win32.cpp)
   if(NOT MSVC)
-    target_link_libraries(imgui PUBLIC gdi32 dwmapi)   # MSVC gets these via #pragma comment
+    target_link_libraries(engine PRIVATE gdi32 dwmapi)   # MSVC gets these via #pragma comment
   endif()
   target_sources(engine PRIVATE src/platform/platform_win32.cpp)
   target_link_libraries(engine PUBLIC comdlg32 shell32 ole32)
@@ -110,7 +124,7 @@ elseif(APPLE)
   enable_language(OBJCXX)
   target_sources(imgui PRIVATE ${IMGUI_DIR}/backends/imgui_impl_osx.mm)
   target_compile_options(imgui PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
-  target_link_libraries(imgui PUBLIC "-framework Cocoa" "-framework GameController")
+  target_link_libraries(engine PRIVATE "-framework Cocoa" "-framework GameController")
   target_sources(engine PRIVATE src/platform/platform_macos.mm)
   target_compile_options(engine PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
   target_link_libraries(engine PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework UniformTypeIdentifiers"
@@ -120,6 +134,38 @@ else()
   target_sources(engine PRIVATE src/platform/platform_xcb.cpp src/platform/imgui_impl_xcb.cpp)
   target_link_libraries(engine PUBLIC ${XCB_LIBRARY} m)
 endif()
+
+# Game modules: a project's own behaviours as a shared library that the editor and vkgame load at run time (see
+# src/game/module.h). The library goes into <PROJECT_DIR>/bin, where the project's "module" setting points.
+function(vkworld_add_game_module target)
+  cmake_parse_arguments(ARG "" "PROJECT_DIR" "SOURCES" ${ARGN})
+  add_library(${target} MODULE ${ARG_SOURCES})
+  target_link_libraries(${target} PRIVATE engine)
+  set_target_properties(${target} PROPERTIES PREFIX ""
+                        LIBRARY_OUTPUT_DIRECTORY ${ARG_PROJECT_DIR}/bin RUNTIME_OUTPUT_DIRECTORY ${ARG_PROJECT_DIR}/bin)
+  foreach(config ${CMAKE_CONFIGURATION_TYPES})   # multi-config generators: the same folder for every config
+    string(TOUPPER ${config} CONFIG)
+    set_target_properties(${target} PROPERTIES LIBRARY_OUTPUT_DIRECTORY_${CONFIG} ${ARG_PROJECT_DIR}/bin
+                          RUNTIME_OUTPUT_DIRECTORY_${CONFIG} ${ARG_PROJECT_DIR}/bin)
+  endforeach()
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8 /Zc:preprocessor)
+  else()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+  endif()
+endfunction()
+
+# The sample game (examples/sample_game) and any other game projects to build with the engine
+# (-DVKWORLD_GAME_PROJECTS="/path/to/game;..."; each folder has a CMakeLists.txt calling vkworld_add_game_module)
+option(VKWORLD_BUILD_EXAMPLES "Build the sample game's module" ON)
+set(VKWORLD_GAME_PROJECTS "" CACHE STRING "Game project folders whose modules are built with the engine")
+if(VKWORLD_BUILD_EXAMPLES)
+  add_subdirectory(examples/sample_game)
+endif()
+foreach(dir ${VKWORLD_GAME_PROJECTS})
+  get_filename_component(name ${dir} NAME)
+  add_subdirectory(${dir} ${CMAKE_BINARY_DIR}/games/${name})
+endforeach()
 
 # Tests: `make engine_tests && ctest` (or run ./engine_tests [name filter])
 option(VKWORLD_BUILD_TESTS "Build the engine unit tests" ON)
@@ -135,8 +181,13 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_prefabs.cpp
     tests/test_rendering_assets.cpp
     tests/test_audio.cpp
-    tests/test_project.cpp)
+    tests/test_project.cpp
+    tests/test_module.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
+  if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module
+    add_dependencies(engine_tests sample_game)
+    target_compile_definitions(engine_tests PRIVATE VKWORLD_SAMPLE_GAME="${CMAKE_SOURCE_DIR}/examples/sample_game")
+  endif()
   add_test(NAME engine_tests COMMAND engine_tests)
 endif()
 

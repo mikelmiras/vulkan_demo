@@ -75,6 +75,8 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     s.name = doc["name"].asString();
     if (s.name.empty()) s.name = dir.filename().u8string();
     if (!doc["startScene"].asString().empty()) s.startScene = doc["startScene"].asString();
+    s.module = doc["module"].asString();
+    s.moduleBuild = doc["moduleBuild"].asString();
     out = s;
     return true;
 }
@@ -85,6 +87,8 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     doc.set("version", 1);
     doc.set("name", settings.name);
     doc.set("startScene", settings.startScene);
+    if (!settings.module.empty()) doc.set("module", settings.module);
+    if (!settings.moduleBuild.empty()) doc.set("moduleBuild", settings.moduleBuild);
     std::ofstream f(dir / "project.json", std::ios::binary);
     if (!f) { error = "cannot write " + (dir / "project.json").u8string(); return false; }
     f << json::write(doc);

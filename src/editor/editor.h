@@ -4,6 +4,8 @@
 //   editor_viewport.cpp  navigation, gizmos, picking, shortcuts, overlays
 #pragma once
 
+#include <filesystem>
+#include <future>
 #include <string>
 #include <vector>
 
@@ -11,6 +13,7 @@
 #include "assets/meshes.h"
 #include "core/project.h"
 #include "game/game.h"
+#include "game/module.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
 
@@ -145,11 +148,19 @@ private:
     void setStatus(const std::string& msg);
     Vec3 spawnPoint(float lift) const;   // where new objects go: on the ground in front of the camera
 
+    // ---- Game module (the project's own behaviours, game/module.h)
+    void loadGameModule();      // (re)loads project_.module, keeping every scene's behaviours across the swap
+    void rebuildGameModule();   // runs project_.moduleBuild in the background, then reloads
+    void pollGameModule();      // once per frame: a finished build, or a library rebuilt outside the editor
+    template <class F> void forEachHeldScene(F&& f);   // the scene, the play copy, undo/redo snapshots
+
     // ---- Undo (whole-scene snapshots; the scene is small)
     void pushUndo();
     void undo();
     void redo();
 
+    // First member, so it's destroyed last: the scenes below hold behaviours whose code may live in it
+    GameModule module_;
     MeshLibrary& meshes_;
     TextureLibrary& textures_;
     AudioEngine* audio_ = nullptr;   // may be null or not ready (no sound)
@@ -204,6 +215,9 @@ private:
     float assetsH_ = 0.f;                 // layout: height of the browser panel
     bool openImport_ = false;
     std::string importPath_, importError_;
+    std::future<int> moduleBuild_;        // the running build command's exit code
+    double moduleCheckedAt_ = 0.0;
+    bool moduleChangedWhilePlaying_ = false;
     std::string status_;
     float statusTimer_ = 0.f;
     float fps_ = 0.f;
