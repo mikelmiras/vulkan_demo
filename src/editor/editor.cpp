@@ -142,7 +142,7 @@ const Mat4& Editor::worldOf(EntityId id) const {
 }
 
 void Editor::buildDrawItems() {
-    drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_);
+    drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_, &joints_, &meshes_);
     lights_ = collectLights(scene_, worlds_);
 }
 
@@ -150,6 +150,7 @@ SceneRenderInfo Editor::renderInfo() const {
     SceneRenderInfo info;
     info.items = &drawItems_;
     info.lights = &lights_;
+    info.joints = &joints_;
     info.viewProj = viewProj_;
     info.camPos = viewPos_;
     info.camForward = viewForward_;

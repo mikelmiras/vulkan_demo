@@ -194,6 +194,7 @@ private:
     std::vector<LightInfo> lights_;
     std::vector<Mat4> worlds_;
     std::vector<DrawItem> drawItems_;
+    std::vector<Mat4> joints_;   // skinned meshes' joint matrices (see DrawItem::jointOffset)
 
     std::vector<Snapshot> undo_, redo_;
     Snapshot frameStart_;

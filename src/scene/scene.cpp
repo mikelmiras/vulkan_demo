@@ -58,8 +58,12 @@ bool importGltfPrefab(const std::string& path, MeshLibrary& meshes, TextureLibra
                 mr.color = model.materials[(size_t)m].color;
                 mr.texture = model.materials[(size_t)m].texture;
             }
+            std::optional<Skin> skin;
+            if (n.skin >= 0 && meshes.get(mr.mesh).skinned)
+                skin = Skin{model.skins[(size_t)n.skin].joints, model.skins[(size_t)n.skin].inverseBind};
             if (k == 0) {
                 e.meshRenderer = mr;
+                e.skin = skin;
                 continue;
             }
             if (k == 1) p.entities.push_back(e);   // the node first, so its children come after it
@@ -68,9 +72,16 @@ bool importGltfPrefab(const std::string& path, MeshLibrary& meshes, TextureLibra
             part.name = n.name + " part " + std::to_string(k);
             part.parent = e.id;
             part.meshRenderer = mr;
+            part.skin = skin;
             p.entities.push_back(part);
         }
         if (n.meshes.size() < 2) p.entities.push_back(e);
+    }
+    // Animated or skinned: the root plays the first clip (and is where skins find their joints)
+    if (!model.animations.empty() || !model.skins.empty()) {
+        Animator a;
+        if (!model.animations.empty()) a.clip = model.animations[0];
+        p.entities[0].animator = a;
     }
     out = std::move(p);
     return true;
@@ -278,6 +289,22 @@ EntityId Scene::duplicate(EntityId id) {
     for (EntityId e : ids) insertAt = std::max(insertAt, indexOf(e) + 1);
     entities.insert(entities.begin() + insertAt, copies.begin(), copies.end());
     return remap[id];
+}
+
+EntityId Scene::modelRoot(EntityId id) const {
+    EntityId top = id;
+    int depth = 0;
+    for (const Entity* e = find(id); e && depth < 256; e = find(e->parent), ++depth) {
+        if (e->animator) return e->id;
+        top = e->id;
+    }
+    return top;
+}
+
+std::unordered_map<std::string, EntityId> Scene::namesUnder(EntityId root) const {
+    std::unordered_map<std::string, EntityId> names;
+    for (EntityId id : subtree(root)) names.emplace(find(id)->name, id);
+    return names;
 }
 
 std::string Scene::uniqueName(const std::string& wanted) const {

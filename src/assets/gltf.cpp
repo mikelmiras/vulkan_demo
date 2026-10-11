@@ -1,5 +1,6 @@
 #include "assets/gltf.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -61,6 +62,25 @@ std::string meshSource(const std::string& file, size_t mesh, size_t prim) {
 }
 
 std::string imageSource(const std::string& file, size_t image) { return file + "#image" + std::to_string(image); }
+std::string animationSource(const std::string& file, size_t anim) { return file + "#anim" + std::to_string(anim); }
+
+// Every node's entity name: its own (made unique), or "Node <index>". The same for every import of a file, so
+// skins and animation tracks can find their nodes' entities by name.
+std::vector<std::string> nodeNames(const cgltf_data& data) {
+    std::vector<std::string> names(data.nodes_count);
+    std::vector<std::string> taken;
+    for (size_t i = 0; i < data.nodes_count; ++i) {
+        const char* n = data.nodes[i].name;
+        names[i] = n && *n ? n : "Node " + std::to_string(i);
+    }
+    for (size_t i = 0; i < names.size(); ++i)
+        for (size_t j = 0; j < i; ++j)
+            if (names[j] == names[i]) {
+                names[i] += " (" + std::to_string(i) + ")";
+                break;
+            }
+    return names;
+}
 
 const cgltf_accessor* attribute(const cgltf_primitive& p, cgltf_attribute_type type) {
     for (size_t i = 0; i < p.attributes_count; ++i)
@@ -75,8 +95,25 @@ int importPrimitive(MeshLibrary& lib, const std::string& name, const std::string
     if (!pos || pos->count == 0) return -1;
     const cgltf_accessor* nrm = attribute(p, cgltf_attribute_type_normal);
     const cgltf_accessor* uv = attribute(p, cgltf_attribute_type_texcoord);
+    const cgltf_accessor* joints = attribute(p, cgltf_attribute_type_joints);
+    const cgltf_accessor* weights = attribute(p, cgltf_attribute_type_weights);
 
     std::vector<Vertex> verts(pos->count);
+    std::vector<SkinVertex> skin;
+    if (joints && weights && joints->count == pos->count && weights->count == pos->count) {
+        skin.resize(pos->count);
+        for (size_t i = 0; i < pos->count; ++i) {
+            cgltf_uint j[4] = {0, 0, 0, 0};
+            float w[4] = {0, 0, 0, 0};
+            cgltf_accessor_read_uint(joints, i, j, 4);
+            cgltf_accessor_read_float(weights, i, w, 4);
+            float sum = w[0] + w[1] + w[2] + w[3];
+            for (int k = 0; k < 4; ++k) {
+                skin[i].joints[k] = (uint16_t)std::min<cgltf_uint>(j[k], 65535);
+                skin[i].weights[k] = sum > 0.f ? w[k] / sum : (k == 0 ? 1.f : 0.f);
+            }
+        }
+    }
     for (size_t i = 0; i < pos->count; ++i) {
         float v[3] = {0, 0, 0}, n[3] = {0, 0, 0}, t[2] = {0, 0};
         cgltf_accessor_read_float(pos, i, v, 3);
@@ -105,6 +142,7 @@ int importPrimitive(MeshLibrary& lib, const std::string& name, const std::string
         }
         for (Vertex& v : verts) v.normal = normalize(v.normal);
     }
+    if (!skin.empty()) return addSkinnedMesh(lib, name, source, verts, skin, indices);
     return addMesh(lib, name, source, verts, indices);
 }
 
@@ -186,7 +224,81 @@ void importMeshes(MeshLibrary& lib, const cgltf_data& data, const std::string& f
     }
 }
 
+AnimationKeys::Interpolation interpolationOf(cgltf_interpolation_type t) {
+    if (t == cgltf_interpolation_type_step) return AnimationKeys::Interpolation::Step;
+    if (t == cgltf_interpolation_type_cubic_spline) return AnimationKeys::Interpolation::CubicSpline;
+    return AnimationKeys::Interpolation::Linear;
+}
+
+// Imports every animation; names[i] is animation i's clip name in the library
+void importAnimations(MeshLibrary& lib, const cgltf_data& data, const std::string& file, std::vector<std::string>& names) {
+    std::vector<std::string> nodes = nodeNames(data);
+    std::string stem = fs::path(file).stem().u8string();
+    names.clear();
+    for (size_t a = 0; a < data.animations_count; ++a) {
+        const cgltf_animation& anim = data.animations[a];
+        std::string source = animationSource(file, a);
+        bool have = false;
+        for (const AnimationClip& c : lib.animations)
+            if (c.source == source) { names.push_back(c.name); have = true; }
+        if (have) continue;
+        AnimationClip clip;
+        clip.name = stem + "/" + (anim.name && *anim.name ? std::string(anim.name) : "Animation " + std::to_string(a));
+        for (int n = 2; lib.findAnimation(clip.name); ++n) clip.name += " " + std::to_string(n);
+        clip.source = source;
+        for (size_t c = 0; c < anim.channels_count; ++c) {
+            const cgltf_animation_channel& ch = anim.channels[c];
+            if (!ch.target_node || !ch.sampler || !ch.sampler->input || !ch.sampler->output) continue;
+            int width = ch.target_path == cgltf_animation_path_type_rotation ? 4 : 3;
+            if (ch.target_path != cgltf_animation_path_type_translation && ch.target_path != cgltf_animation_path_type_rotation &&
+                ch.target_path != cgltf_animation_path_type_scale)
+                continue;   // morph target weights: not supported
+            const std::string& target = nodes[(size_t)(ch.target_node - data.nodes)];
+            AnimationTrack* track = nullptr;
+            for (AnimationTrack& t : clip.tracks)
+                if (t.target == target) track = &t;
+            if (!track) {
+                clip.tracks.push_back({target, {}, {}, {}});
+                track = &clip.tracks.back();
+            }
+            AnimationKeys& keys = width == 4 ? track->rotation
+                                  : ch.target_path == cgltf_animation_path_type_scale ? track->scale : track->translation;
+            keys.width = width;
+            keys.interpolation = interpolationOf(ch.sampler->interpolation);
+            const cgltf_accessor* in = ch.sampler->input;
+            const cgltf_accessor* out = ch.sampler->output;
+            keys.times.resize(in->count);
+            for (size_t k = 0; k < in->count; ++k) cgltf_accessor_read_float(in, k, &keys.times[k], 1);
+            keys.values.resize(out->count * (size_t)width);
+            for (size_t k = 0; k < out->count; ++k) cgltf_accessor_read_float(out, k, &keys.values[k * (size_t)width], (cgltf_size)width);
+            if (!keys.times.empty()) clip.duration = std::max(clip.duration, keys.times.back());
+        }
+        names.push_back(clip.name);
+        lib.animations.push_back(std::move(clip));
+    }
+}
+
 }  // namespace
+
+bool importGltfAnimations(MeshLibrary& meshes, const std::string& path, std::string& error) {
+    Data data = load(path, error);
+    if (!data) return false;
+    std::vector<std::string> names;
+    importAnimations(meshes, *data, canonical(path), names);
+    return true;
+}
+
+int importAnimationClip(MeshLibrary& meshes, const std::string& source, std::string& error) {
+    for (size_t i = 0; i < meshes.animations.size(); ++i)
+        if (meshes.animations[i].source == source) return (int)i;
+    size_t hash = source.rfind('#');
+    if (hash == std::string::npos) { error = source + ": not an animation source"; return -1; }
+    if (!importGltfAnimations(meshes, source.substr(0, hash), error)) return -1;
+    for (size_t i = 0; i < meshes.animations.size(); ++i)
+        if (meshes.animations[i].source == source) return (int)i;
+    error = source + ": no such animation in the file";
+    return -1;
+}
 
 bool importGltfMeshes(MeshLibrary& meshes, const std::string& path, std::string& error) {
     Data data = load(path, error);
@@ -213,8 +325,21 @@ bool importGltf(const std::string& path, MeshLibrary& meshes, TextureLibrary& te
     importImages(textures, *data, file, imageIds, warnings);
     std::vector<std::vector<int>> meshIds;
     importMeshes(meshes, *data, file, meshIds);
+    std::vector<std::string> names = nodeNames(*data);
 
     GltfModel model;
+    importAnimations(meshes, *data, file, model.animations);
+    for (size_t i = 0; i < data->skins_count; ++i) {
+        const cgltf_skin& sk = data->skins[i];
+        GltfModel::Skin skin;
+        for (size_t j = 0; j < sk.joints_count; ++j) {
+            skin.joints.push_back(names[(size_t)(sk.joints[j] - data->nodes)]);
+            Mat4 ibm;   // identity when the file has none
+            if (sk.inverse_bind_matrices) cgltf_accessor_read_float(sk.inverse_bind_matrices, j, ibm.m, 16);
+            skin.inverseBind.push_back(ibm);
+        }
+        model.skins.push_back(std::move(skin));
+    }
     for (size_t i = 0; i < data->materials_count; ++i) {
         const cgltf_material& m = data->materials[i];
         GltfModel::Material mat;
@@ -244,7 +369,8 @@ bool importGltf(const std::string& path, MeshLibrary& meshes, TextureLibrary& te
         Pending p = stack.back();
         stack.pop_back();
         GltfModel::Node n;
-        n.name = p.node->name && *p.node->name ? p.node->name : "Node " + std::to_string(model.nodes.size());
+        n.name = names[(size_t)(p.node - data->nodes)];
+        if (p.node->skin) n.skin = (int)(p.node->skin - data->skins);
         n.parent = p.parent;
         cgltf_node_transform_local(p.node, n.local.m);
         if (const cgltf_mesh* mesh = p.node->mesh) {

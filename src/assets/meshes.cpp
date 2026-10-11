@@ -12,6 +12,22 @@
 #include <sstream>
 #include <utility>
 
+const AnimationClip* MeshLibrary::findAnimation(const std::string& name) const {
+    for (const AnimationClip& a : animations)
+        if (a.name == name) return &a;
+    return nullptr;
+}
+
+int addSkinnedMesh(MeshLibrary& lib, const std::string& name, const std::string& source,
+                   const std::vector<Vertex>& vertices, const std::vector<SkinVertex>& skin,
+                   const std::vector<uint32_t>& indices) {
+    size_t first = lib.vertices.size();
+    int id = addMesh(lib, name, source, vertices, indices);
+    for (size_t i = 0; i < skin.size() && i < vertices.size(); ++i) lib.skin[first + i] = skin[i];
+    lib.meshes[(size_t)id].skinned = true;
+    return id;
+}
+
 int MeshLibrary::find(const std::string& name) const {
     for (int i = 0; i < count(); ++i)
         if (meshes[(size_t)i].name == name) return i;
@@ -134,6 +150,7 @@ MeshLibrary buildMeshLibrary() {
         return Vertex{ring * R + n * r, n, v * 4.f, u};
     });
     g.end("Torus");
+    lib.skin.resize(lib.vertices.size());   // built-ins aren't skinned
     return lib;
 }
 
@@ -261,7 +278,9 @@ int addMesh(MeshLibrary& lib, const std::string& name, const std::string& source
     m.firstIndex = (uint32_t)lib.indices.size();
     m.vertexOffset = (int32_t)lib.vertices.size();
     m.indexCount = (uint32_t)indices.size();
+    lib.skin.resize(lib.vertices.size());   // (built-in meshes add vertices directly)
     lib.vertices.insert(lib.vertices.end(), vertices.begin(), vertices.end());
+    lib.skin.resize(lib.vertices.size());
     lib.indices.insert(lib.indices.end(), indices.begin(), indices.end());
     computeBounds(lib, m);
     std::string unique = name;

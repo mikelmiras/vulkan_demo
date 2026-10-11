@@ -80,6 +80,44 @@ struct RigidBody {
 // mesh for everything else
 Collider fitCollider(const MeshLibrary& meshes, int mesh);
 
+// Deforms the entity's (skinned) mesh with a skeleton: the joint entities, found by name under the model's root
+// (the nearest ancestor with an Animator, else the topmost one). Imported with glTF models.
+struct Skin {
+    std::vector<std::string> joints;
+    std::vector<Mat4> inverseBind;   // per joint: from the mesh's space to the joint's, in the bind pose
+};
+
+// Plays animation clips (MeshLibrary::animations) on the entities under it, matched by name: a model's skeleton
+// or any named children. Clips cross-fade when play() switches them.
+struct Animator {
+    std::string clip;            // what plays (by name)
+    float speed = 1.f;
+    bool loop = true;
+    bool playOnStart = true;     // starts with Play; otherwise it waits for play()
+    // Runtime (saved in save games, not scene files)
+    bool playing = false;
+    float time = 0.f;
+    std::string fadeFrom;        // the clip being faded out, if any
+    float fadeFromTime = 0.f, fade = 0.f, fadeLength = 0.f;
+
+    void play(const std::string& name, float fadeSeconds = 0.2f, bool looping = true) {
+        if (playing && name == clip) return;
+        if (playing && fadeSeconds > 0.f && !clip.empty()) {
+            fadeFrom = clip;
+            fadeFromTime = time;
+            fade = 0.f;
+            fadeLength = fadeSeconds;
+        } else {
+            fadeFrom.clear();
+        }
+        clip = name;
+        time = 0.f;
+        loop = looping;
+        playing = true;
+    }
+    void stop() { playing = false; fadeFrom.clear(); }
+};
+
 // Marks an entity as part of a copy ("instance") of a prefab
 struct PrefabLink {
     uint32_t prefab = 0;           // Prefab::id
@@ -111,6 +149,8 @@ struct Entity {
     std::optional<Light> light;
     std::optional<RigidBody> rigidBody;
     std::optional<AudioSource> audioSource;
+    std::optional<Skin> skin;
+    std::optional<Animator> animator;
     std::optional<PrefabLink> prefab;
     std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
 
@@ -160,6 +200,11 @@ public:
     EntityId duplicate(EntityId id);    // deep copy of the subtree with fresh ids, same parent; returns the copy
 
     std::string uniqueName(const std::string& wanted) const;   // "Cube.001" -> "Cube.002" if taken, Blender style
+    // Where a Skin's joints and an Animator's targets are looked up: the nearest ancestor (or the entity itself)
+    // with an Animator, else the topmost ancestor
+    EntityId modelRoot(EntityId id) const;
+    // Name -> entity for the root and everything under it (the first one wins for repeated names)
+    std::unordered_map<std::string, EntityId> namesUnder(EntityId root) const;
 
     // ---- Prefabs
     Prefab& addPrefab(Prefab p);   // keeps p.id if it's free, otherwise assigns one

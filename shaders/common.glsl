@@ -18,8 +18,21 @@ layout(set = 0, binding = 0) uniform Frame {
 struct Instance {
     mat4 model;
     vec4 color;    // rgb = albedo (linear; sRGB for the outline), a unused
-    vec4 params;   // x = 1 for the procedural checker ground, y = texture tiling, z = 1 if textured
+    vec4 params;   // x = 1 for the procedural checker ground, y = texture tiling, z = 1 if textured,
+                   // w = first joint matrix (skinned meshes) or -1
 };
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
     Instance instances[];
 };
+layout(std430, set = 0, binding = 3) readonly buffer Joints {
+    mat4 joints[];
+};
+
+// The instance's model matrix, with the skeleton's deformation for skinned meshes (vertex shaders only: they
+// declare inJoints / inWeights at locations 3 and 4)
+#define SKINNED_MODEL(inst) \
+    ((inst).params.w < 0.0 ? (inst).model : (inst).model * ( \
+        inWeights.x * joints[int((inst).params.w) + int(inJoints.x)] + \
+        inWeights.y * joints[int((inst).params.w) + int(inJoints.y)] + \
+        inWeights.z * joints[int((inst).params.w) + int(inJoints.z)] + \
+        inWeights.w * joints[int((inst).params.w) + int(inJoints.w)]))

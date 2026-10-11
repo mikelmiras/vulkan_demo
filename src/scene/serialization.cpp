@@ -6,13 +6,14 @@
 #include <set>
 #include <sstream>
 
+#include "assets/gltf.h"
 #include "core/json.h"
 #include "core/project.h"
 
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 10;  // 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 11;  // 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -262,6 +263,35 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("minDistance", a.minDistance);
         c.set("maxDistance", a.maxDistance);
     }
+    if (e.skin) {
+        json::Value& c = v.set("skin", json::Value::object());
+        json::Value& names = c.set("joints", json::Value::array());
+        for (const std::string& j : e.skin->joints) names.push(j);
+        json::Value& ibms = c.set("inverseBind", json::Value::array());
+        for (const Mat4& m : e.skin->inverseBind) {
+            json::Value a = json::Value::array();
+            for (float f : m.m) a.push(f);
+            ibms.push(std::move(a));
+        }
+    }
+    if (e.animator) {
+        const Animator& a = *e.animator;
+        json::Value& c = v.set("animator", json::Value::object());
+        c.set("clip", a.clip);
+        c.set("speed", a.speed);
+        c.set("loop", a.loop);
+        c.set("playOnStart", a.playOnStart);
+        if (a.playing) {   // runtime state: only save games have it
+            c.set("playing", true);
+            c.set("time", a.time);
+            if (!a.fadeFrom.empty()) {
+                c.set("fadeFrom", a.fadeFrom);
+                c.set("fadeFromTime", a.fadeFromTime);
+                c.set("fade", a.fade);
+                c.set("fadeLength", a.fadeLength);
+            }
+        }
+    }
     if (e.rigidBody) {
         const RigidBody& rb = *e.rigidBody;
         json::Value& c = v.set("rigidBody", json::Value::object());
@@ -349,6 +379,34 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         a.maxDistance = c["maxDistance"].asFloat(a.maxDistance);
         e.audioSource = a;
     }
+    if (const json::Value& c = v["skin"]; c.isObject()) {
+        Skin skin;
+        for (const json::Value& j : c["joints"].elements()) skin.joints.push_back(j.asString());
+        for (const json::Value& m : c["inverseBind"].elements()) {
+            Mat4 ibm;
+            for (size_t k = 0; k < 16 && k < m.elements().size(); ++k) ibm.m[k] = m.elements()[k].asFloat(ibm.m[k]);
+            skin.inverseBind.push_back(ibm);
+        }
+        e.skin = std::move(skin);
+    }
+    if (const json::Value& c = v["animator"]; c.isObject()) {
+        Animator a;
+        auto clipName = [&](const std::string& n) {   // the file's name for it -> the library's
+            auto it = ids.animations.find(n);
+            return it != ids.animations.end() ? it->second : n;
+        };
+        a.clip = clipName(c["clip"].asString());
+        a.speed = c["speed"].asFloat(a.speed);
+        a.loop = c["loop"].asBool(a.loop);
+        a.playOnStart = c["playOnStart"].asBool(a.playOnStart);
+        a.playing = c["playing"].asBool(false);
+        a.time = c["time"].asFloat(0.f);
+        a.fadeFrom = c["fadeFrom"].asString().empty() ? "" : clipName(c["fadeFrom"].asString());
+        a.fadeFromTime = c["fadeFromTime"].asFloat(0.f);
+        a.fade = c["fade"].asFloat(0.f);
+        a.fadeLength = c["fadeLength"].asFloat(0.f);
+        e.animator = a;
+    }
     if (const json::Value& c = v["rigidBody"]; c.isObject()) {
         RigidBody rb;
         rb.mass = std::max(c["mass"].asFloat(rb.mass), 0.001f);
@@ -401,8 +459,13 @@ namespace {
 void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Entity>*>& lists, const MeshLibrary& meshes,
                       const TextureLibrary& textures) {
     std::set<int> usedMeshes, usedTextures;
+    std::set<std::string> usedClips;
     for (const auto* list : lists)
         for (const Entity& e : *list) {
+            if (e.animator) {
+                if (!e.animator->clip.empty()) usedClips.insert(e.animator->clip);
+                if (!e.animator->fadeFrom.empty()) usedClips.insert(e.animator->fadeFrom);
+            }
             if (!e.meshRenderer) continue;
             if (e.meshRenderer->mesh >= (int)MeshKind::Count) usedMeshes.insert(e.meshRenderer->mesh);
             if (e.meshRenderer->texture >= kBuiltinTextureCount) usedTextures.insert(e.meshRenderer->texture);
@@ -421,6 +484,15 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
         v.set("source", project::toStored(textures.get(id).source));
         t.push(std::move(v));
     }
+    json::Value& a = doc.set("animations", json::Value::array());
+    for (const std::string& name : usedClips) {
+        const AnimationClip* clip = meshes.findAnimation(name);
+        if (!clip || clip->source.empty()) continue;
+        json::Value v = json::Value::object();
+        v.set("name", name);
+        v.set("source", project::toStored(clip->source));
+        a.push(std::move(v));
+    }
 }
 
 // Imports the listed meshes and textures; fills the file's names -> library ids
@@ -436,6 +508,11 @@ bool assetListsFromJson(const json::Value& doc, MeshLibrary& meshes, TextureLibr
         int id = importTexture(textures, project::resolve(t["source"].asString()), error);
         if (id < 0) return false;
         ids.textures[t["name"].asString()] = id;
+    }
+    for (const json::Value& a : doc["animations"].elements()) {
+        int id = importAnimationClip(meshes, project::resolve(a["source"].asString()), error);
+        if (id < 0) return false;
+        ids.animations[a["name"].asString()] = meshes.animations[(size_t)id].name;
     }
     return true;
 }

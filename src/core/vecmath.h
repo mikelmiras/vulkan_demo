@@ -134,3 +134,54 @@ inline Mat4 lookRotation(Vec3 pos, Vec3 forward, const float scale[3]) {
         for (int r = 0; r < 3; ++r) m.m[c * 4 + r] *= scale[c];
     return m;
 }
+
+// Rotations as unit quaternions (x, y, z, w), as glTF stores them: for animation
+struct Quat { float x = 0, y = 0, z = 0, w = 1; };
+inline Quat normalizeQuat(Quat q) {
+    float l = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    return l > 0.f ? Quat{q.x / l, q.y / l, q.z / l, q.w / l} : Quat{};
+}
+// Shortest-path spherical interpolation
+inline Quat slerp(Quat a, Quat b, float t) {
+    float d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    if (d < 0.f) { b = {-b.x, -b.y, -b.z, -b.w}; d = -d; }
+    if (d > 0.9995f)   // nearly the same: a normalised lerp is exact enough and avoids dividing by ~0
+        return normalizeQuat(Quat{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t});
+    float th = std::acos(d), s = std::sin(th), wa = std::sin((1.f - t) * th) / s, wb = std::sin(t * th) / s;
+    return {a.x * wa + b.x * wb, a.y * wa + b.y * wb, a.z * wa + b.z * wb, a.w * wa + b.w * wb};
+}
+// Translation * rotation * scale, the glTF node order
+inline Mat4 composeTRS(Vec3 t, Quat q, Vec3 s) {
+    float xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z, xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z;
+    float wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
+    Mat4 m;
+    m.m[0] = (1.f - 2.f * (yy + zz)) * s.x; m.m[1] = 2.f * (xy + wz) * s.x;         m.m[2] = 2.f * (xz - wy) * s.x;
+    m.m[4] = 2.f * (xy - wz) * s.y;         m.m[5] = (1.f - 2.f * (xx + zz)) * s.y; m.m[6] = 2.f * (yz + wx) * s.y;
+    m.m[8] = 2.f * (xz + wy) * s.z;         m.m[9] = 2.f * (yz - wx) * s.z;         m.m[10] = (1.f - 2.f * (xx + yy)) * s.z;
+    m.m[12] = t.x; m.m[13] = t.y; m.m[14] = t.z;
+    return m;
+}
+// The rotation of an affine matrix (scale divided out) as a quaternion
+inline Quat rotationOf(const Mat4& m) {
+    Vec3 c0{m.m[0], m.m[1], m.m[2]}, c1{m.m[4], m.m[5], m.m[6]}, c2{m.m[8], m.m[9], m.m[10]};
+    float sx = length(c0), sy = length(c1), sz = length(c2);
+    if (sx < 1e-12f || sy < 1e-12f || sz < 1e-12f) return {};
+    float r00 = c0.x / sx, r10 = c0.y / sx, r20 = c0.z / sx, r01 = c1.x / sy, r11 = c1.y / sy, r21 = c1.z / sy;
+    float r02 = c2.x / sz, r12 = c2.y / sz, r22 = c2.z / sz;
+    float tr = r00 + r11 + r22;
+    Quat q;
+    if (tr > 0.f) {
+        float s = std::sqrt(tr + 1.f) * 2.f;
+        q = {(r21 - r12) / s, (r02 - r20) / s, (r10 - r01) / s, 0.25f * s};
+    } else if (r00 > r11 && r00 > r22) {
+        float s = std::sqrt(1.f + r00 - r11 - r22) * 2.f;
+        q = {0.25f * s, (r01 + r10) / s, (r02 + r20) / s, (r21 - r12) / s};
+    } else if (r11 > r22) {
+        float s = std::sqrt(1.f + r11 - r00 - r22) * 2.f;
+        q = {(r01 + r10) / s, 0.25f * s, (r12 + r21) / s, (r02 - r20) / s};
+    } else {
+        float s = std::sqrt(1.f + r22 - r00 - r11) * 2.f;
+        q = {(r02 + r20) / s, (r12 + r21) / s, 0.25f * s, (r10 - r01) / s};
+    }
+    return normalizeQuat(q);
+}

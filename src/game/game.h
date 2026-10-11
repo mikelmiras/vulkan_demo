@@ -169,7 +169,7 @@ public:
 
 private:
     friend class GameContext;
-    void begin();           // starts the current scene: physics, sounds, behaviours' start()
+    void begin(bool fresh = true);   // starts the current scene: physics, sounds, animators (if fresh), start()
     void stopSounds();
     void applyRequests();   // scene changes, saves and quitting asked for during the update
     void fixedUpdate(float dt);

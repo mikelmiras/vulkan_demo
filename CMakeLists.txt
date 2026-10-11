@@ -56,6 +56,7 @@ add_library(engine SHARED
   src/core/png.cpp
   src/core/project.cpp
   src/assets/meshes.cpp
+  src/assets/animation.cpp
   src/assets/textures.cpp
   src/assets/gltf.cpp
   src/scene/behaviour.cpp
@@ -74,6 +75,7 @@ add_library(engine SHARED
   src/game/builtin_behaviours.cpp
   src/game/module.cpp
   src/game/ui.cpp
+  src/game/animation.cpp
   src/render/renderer.cpp
   src/render/scene_draw.cpp
   src/app/application.cpp)
@@ -185,8 +187,10 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_project.cpp
     tests/test_module.cpp
     tests/test_scene_flow.cpp
-    tests/test_ui.cpp)
+    tests/test_ui.cpp
+    tests/test_animation.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
+  target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module
     add_dependencies(engine_tests sample_game)
     target_compile_definitions(engine_tests PRIVATE VKWORLD_SAMPLE_GAME="${CMAKE_SOURCE_DIR}/examples/sample_game")

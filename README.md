@@ -190,8 +190,27 @@ dropping on the right.
 - **Shadows**: one 2048x2048 shadow map for the sun, covering about 90 m around the camera, filtered 3x3, snapped
   to texels so edges don't shimmer.
 - 4x MSAA, distance fog, the selection outline, and a little dithering against banding.
+- **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
+  (joint matrices in a storage buffer, up to 4 joints per vertex) in every pass, shadows and outline included.
 - **Batching**: objects outside the camera's (or, for the shadow pass, the sun's) frustum are culled; the rest are
   drawn instanced, one draw call per mesh + texture, with per-object data in a storage buffer.
+
+## Animation
+
+Importing a glTF model brings in its **skins** and **animation clips** (translation / rotation / scale, linear,
+step or cubic spline; morph targets aren't supported). The model's root gets an **Animator** component, which plays
+a clip on the entities under it, matched by name; skinned meshes get a **Skin** component that finds its joints the
+same way. Clips are referenced by name ("tentacle/Bend") and re-imported from their files with the scene.
+
+In play mode the Animator advances with the fixed update (before physics, so colliders on animated parts follow).
+Game code switches clips with a cross-fade:
+
+```cpp
+if (self.animator) self.animator->play(running ? "Fox/Run" : "Fox/Survey", 0.3f);   // no-op if already playing
+```
+
+The sample game's tentacles (`examples/sample_game/models/tentacle.gltf`) curl, and stretch towards the player
+when it comes close (its `Lurker` behaviour).
 
 ## Audio
 

@@ -508,17 +508,22 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr},
     };
 
-    VkVertexInputBindingDescription vib{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX};
-    VkVertexInputAttributeDescription attrs[3] = {
+    // Binding 0: the vertices; binding 1: their skinning data (every vertex shader skins)
+    VkVertexInputBindingDescription vib[2] = {{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX},
+                                              {1, sizeof(SkinVertex), VK_VERTEX_INPUT_RATE_VERTEX}};
+    const VkVertexInputAttributeDescription all[3] = {
         {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)},
         {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
         {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)},
     };
+    std::vector<VkVertexInputAttributeDescription> attrs(all, all + d.vertexAttributes);
+    attrs.push_back({3, 1, VK_FORMAT_R16G16B16A16_UINT, offsetof(SkinVertex, joints)});
+    attrs.push_back({4, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(SkinVertex, weights)});
     VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vi.vertexBindingDescriptionCount = 1;
-    vi.pVertexBindingDescriptions = &vib;
-    vi.vertexAttributeDescriptionCount = d.vertexAttributes;
-    vi.pVertexAttributeDescriptions = attrs;
+    vi.vertexBindingDescriptionCount = 2;
+    vi.pVertexBindingDescriptions = vib;
+    vi.vertexAttributeDescriptionCount = (uint32_t)attrs.size();
+    vi.pVertexAttributeDescriptions = attrs.data();
 
     VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -599,13 +604,14 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[3] = {
+    VkDescriptorSetLayoutBinding frameBindings[4] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // joint matrices
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 3;
+    dslci.bindingCount = 4;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's texture
@@ -797,10 +803,15 @@ void Renderer::uploadMeshes() {
     if (vertexBuffer_.buffer) {   // replacing: the old buffers may still be in use by frames in flight
         vkDeviceWaitIdle(device_);
         destroyBuffer(vertexBuffer_);
+        destroyBuffer(skinBuffer_);
         destroyBuffer(indexBuffer_);
     }
     vertexBuffer_ = createBuffer(meshes_->vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                  meshes_->vertices.data());
+    std::vector<SkinVertex> skin = meshes_->skin;   // (kept aligned with the vertices; pad in case it isn't)
+    skin.resize(meshes_->vertices.size());
+    skinBuffer_ = createBuffer(std::max<size_t>(skin.size(), 1) * sizeof(SkinVertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                               skin.empty() ? nullptr : skin.data());
     indexBuffer_ = createBuffer(meshes_->indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                                 meshes_->indices.data());
     uploadedMeshVersion_ = meshes_->version;
@@ -811,7 +822,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
@@ -866,7 +877,11 @@ void Renderer::createResources(const MeshLibrary&) {
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
     }
 
-    for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) ensureInstanceCapacity(1024);
+    for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) {
+        ensureInstanceCapacity(1024);
+        SceneRenderInfo none;
+        uploadJoints(none);   // a one-matrix buffer, so binding 3 is always valid
+    }
     frame_ = 0;
 
     const uint8_t white[4] = {255, 255, 255, 255};
@@ -915,8 +930,9 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     const VkImageAspectFlags dsAspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 
-    VkDeviceSize vbOffset = 0;
-    vkCmdBindVertexBuffers(cb, 0, 1, &vertexBuffer_.buffer, &vbOffset);
+    VkBuffer vbs[2] = {vertexBuffer_.buffer, skinBuffer_.buffer};
+    VkDeviceSize vbOffsets[2] = {0, 0};
+    vkCmdBindVertexBuffers(cb, 0, 2, vbs, vbOffsets);
     vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 0, nullptr);
 
@@ -1123,6 +1139,28 @@ void Renderer::ensureInstanceCapacity(size_t count) {
     vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
 }
 
+void Renderer::uploadJoints(const SceneRenderInfo& info) {
+    size_t count = info.joints ? info.joints->size() : 0;
+    Buffer& buf = joints_[frame_];
+    if (!buf.buffer || buf.size < std::max<size_t>(count, 1) * sizeof(Mat4)) {
+        // This frame's fence has been waited on: its old buffer and descriptor set are free
+        if (buf.buffer) destroyBuffer(buf);
+        size_t capacity = 64;
+        while (capacity < count) capacity *= 2;
+        buf = createBuffer(capacity * sizeof(Mat4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        buf.size = capacity * sizeof(Mat4);
+        VkDescriptorBufferInfo bi{buf.buffer, 0, VK_WHOLE_SIZE};
+        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w.dstSet = descSets_[frame_];
+        w.dstBinding = 3;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        w.pBufferInfo = &bi;
+        vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+    }
+    if (count) std::memcpy(buf.mapped, info.joints->data(), count * sizeof(Mat4));
+}
+
 void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightViewProj) {
     sceneBatches_.clear();
     shadowBatches_.clear();
@@ -1142,9 +1180,11 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
     for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
         const DrawItem& o = items[i];
         const Mesh& mesh = meshes_->get(o.mesh);
-        if (view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) visible.push_back(i);
+        // Skinned meshes can move anywhere their skeleton takes them: never culled
+        bool skinned = o.jointOffset >= 0;
+        if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) visible.push_back(i);
         else stats_.culled++;
-        if (frameShadows_ && light.visible(o.model, mesh.boundsMin, mesh.boundsMax)) casters.push_back(i);
+        if (frameShadows_ && (skinned || light.visible(o.model, mesh.boundsMin, mesh.boundsMax))) casters.push_back(i);
     }
     std::stable_sort(visible.begin(), visible.end(), [&](uint32_t a, uint32_t b) {
         VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
@@ -1160,7 +1200,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
     uint32_t n = 0;
     auto append = [&](std::vector<Batch>& batches, const DrawItem& o, Vec3 rgb, VkDescriptorSet set) {
         bool textured = set != whiteTexture_.set;
-        out[n] = {o.model, {rgb.x, rgb.y, rgb.z, 1.f}, {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, 0.f}};
+        out[n] = {o.model, {rgb.x, rgb.y, rgb.z, 1.f},
+                  {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, (float)o.jointOffset}};
         if (!batches.empty() && batches.back().mesh == o.mesh && batches.back().texture == set &&
             batches.back().first + batches.back().count == n)
             batches.back().count++;
@@ -1232,6 +1273,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     }
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
     prepareInstances(info, u.lightViewProj);
+    uploadJoints(info);
 
     VK_CHECK(vkResetCommandBuffer(cmd_[frame_], 0));
     recordCommands(cmd_[frame_], imageIndex, info, ui);
@@ -1279,11 +1321,13 @@ void Renderer::shutdown() {
     vkDestroySampler(device_, shadowSampler_, nullptr);
     destroyImage(shadowMap_);
     destroyBuffer(vertexBuffer_);
+    destroyBuffer(skinBuffer_);
     destroyBuffer(indexBuffer_);
     if (readback_.buffer) destroyBuffer(readback_);
     for (int i = 0; i < MAX_FRAMES; ++i) {
         destroyBuffer(ubo_[i]);
         destroyBuffer(instances_[i]);
+        destroyBuffer(joints_[i]);
         vkDestroySemaphore(device_, imageAvailable_[i], nullptr);
         vkDestroyFence(device_, inFlight_[i], nullptr);
     }

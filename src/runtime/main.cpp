@@ -143,11 +143,13 @@ int main(int argc, char** argv) {
         CameraView cam;
         if (!game.activeCamera(cam)) cam.view = lookAt({0, 10, 40}, {0, 0, 0}, {0, 1, 0});   // no camera: a fixed view
         std::vector<Mat4> worlds = game.worldMatrices();
-        std::vector<DrawItem> items = collectDrawItems(scene, worlds);
+        std::vector<Mat4> joints;
+        std::vector<DrawItem> items = collectDrawItems(scene, worlds, kNoEntity, &joints, &meshes);
         std::vector<LightInfo> lights = collectLights(scene, worlds);
         SceneRenderInfo info;
         info.items = &items;
         info.lights = &lights;
+        info.joints = &joints;
         info.camForward = normalize(transformDir(inverseAffine(cam.view), {0, 0, -1}));
         info.viewProj = perspective(cam.fovY, aspect, cam.zNear, cam.zFar, true) * cam.view;
         info.camPos = cam.position;

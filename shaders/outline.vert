@@ -5,14 +5,17 @@
 
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
+layout(location = 3) in uvec4 inJoints;
+layout(location = 4) in vec4 inWeights;
 
 layout(location = 3) flat out vec4 vColor;
 
 void main() {
     Instance inst = instances[gl_InstanceIndex];
     vColor = inst.color;
-    vec4 world = inst.model * vec4(inPos, 1.0);
-    vec3 normal = normalize(transpose(inverse(mat3(inst.model))) * inNormal);
+    mat4 model = SKINNED_MODEL(inst);
+    vec4 world = model * vec4(inPos, 1.0);
+    vec3 normal = normalize(transpose(inverse(mat3(model))) * inNormal);
     vec4 clip = frame.viewProj * world;
     vec4 clipN = frame.viewProj * vec4(normal, 0.0);
 

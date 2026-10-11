@@ -23,6 +23,7 @@ struct DrawItem {
     float tiling = 1.f;         // texture repeats
     bool checker = false;       // procedural checkerboard + grid
     bool outlined = false;      // draw the selection outline around it
+    int jointOffset = -1;       // skinned: its joint matrices start here in SceneRenderInfo::joints
 };
 
 struct LightInfo {
@@ -38,6 +39,7 @@ struct LightInfo {
 struct SceneRenderInfo {
     const std::vector<DrawItem>* items = nullptr;
     const std::vector<LightInfo>* lights = nullptr;   // no directional light: a default sun is used
+    const std::vector<Mat4>* joints = nullptr;        // skinning matrices of every skinned item (see DrawItem)
     Mat4 viewProj;
     Vec3 camPos;
     Vec3 camForward{0, 0, -1};   // the shadow map covers the area in front of the camera
@@ -118,6 +120,7 @@ private:
     // Culls and batches the draw items into this frame's instance buffer (after its fence has been waited on)
     void prepareInstances(const SceneRenderInfo& info, const Mat4& lightViewProj);
     void ensureInstanceCapacity(size_t count);
+    void uploadJoints(const SceneRenderInfo& info);   // this frame's joint matrices into its storage buffer
     Mat4 shadowMatrix(const SceneRenderInfo& info, Vec3 sunDir) const;
     void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui);
 
@@ -182,6 +185,8 @@ private:
 
     Buffer vertexBuffer_, indexBuffer_, ubo_[MAX_FRAMES];
     Buffer instances_[MAX_FRAMES];   // InstanceData for every object drawn in the frame (storage buffer)
+    Buffer joints_[MAX_FRAMES];      // skinning matrices (storage buffer)
+    Buffer skinBuffer_;              // SkinVertex per vertex (vertex buffer, binding 1)
     // Consecutive instances drawn with one call: same mesh and texture
     struct Batch {
         int mesh = 0;

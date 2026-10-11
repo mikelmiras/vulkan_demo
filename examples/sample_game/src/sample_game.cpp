@@ -116,10 +116,34 @@ struct Chaser : BehaviourBase<Chaser> {
     }
 };
 
+// Animation from code: on an entity with an Animator, plays one clip while the target is far and another (cross-
+// faded) when it comes close
+struct Lurker : BehaviourBase<Lurker> {
+    static constexpr const char* kTypeName = "Lurker";
+    std::string target = "Player";
+    float range = 6.f;
+    std::string idleClip = "tentacle/Bend";
+    std::string alertClip = "tentacle/Stretch";
+
+    void fields(FieldVisitor& v) override {
+        v.field("target", target);
+        v.field("range", range, 0.1f, 0.f, 100.f);
+        v.field("idleClip", idleClip);
+        v.field("alertClip", alertClip);
+    }
+    void update(GameContext& ctx, Entity& self) override {
+        Entity* t = ctx.find(target);
+        if (!t || !self.animator) return;
+        bool close = length(ctx.worldPosition(t->id) - ctx.worldPosition(self.id)) < range;
+        self.animator->play(close ? alertClip : idleClip, 0.4f);   // no-op while that clip already plays
+    }
+};
+
 }  // namespace
 
 VKWORLD_GAME_MODULE() {
     registerBehaviour<ScoreKeeper>("Keeps the score; the game is won at the target");
     registerBehaviour<Coin>("Spins; adds points to the score when the collector touches its trigger");
     registerBehaviour<Chaser>("Homes in on the target when close and costs it points on contact");
+    registerBehaviour<Lurker>("Switches its Animator between two clips depending on how close the target is");
 }

@@ -1,6 +1,7 @@
 #include "game/game.h"
 
 #include "physics/dynamics.h"
+#include "game/animation.h"
 #include "core/project.h"
 #include "scene/serialization.h"
 
@@ -200,11 +201,19 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     applyRequests();   // a scene may move on right away (a splash screen, say)
 }
 
-void Game::begin() {
+void Game::begin(bool fresh) {
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();
     input_ = InputMap(scene_->inputActions);
+    if (fresh)   // (a loaded save game has its animators' state already)
+        for (Entity& e : scene_->entities)
+            if (e.animator && e.animator->playOnStart && !e.animator->clip.empty()) {
+                e.animator->playing = true;
+                e.animator->time = 0.f;
+                e.animator->fadeFrom.clear();
+            }
+    updateAnimators(*scene_, *meshes_, 0.f);   // the first frame shows the first pose
     physics_.build(*scene_, *meshes_);
     prepareContext(0.f);
     startAudio();
@@ -282,6 +291,7 @@ void Game::fixedUpdate(float dt) {
     auto started = std::chrono::steady_clock::now();
     time_ += dt;
     ++tick_;
+    updateAnimators(*scene_, *meshes_, dt);   // before physics: colliders on animated parts follow them
     physics_.build(*scene_, *meshes_);
     prepareContext(dt);
     for (size_t i = 0; i < scene_->entities.size(); ++i) {
@@ -542,7 +552,7 @@ bool Game::loadGame(const std::string& slot, std::string& error) {
     tick_ = (unsigned long long)doc["tick"].asNumber(0);
     accumulator_ = 0.f;
     state_.fromJson(doc["state"]);
-    begin();   // start() everything, then put back what it had built up
+    begin(false);   // start() everything, then put back what it had built up
     for (const json::Value& rec : doc["behaviours"].elements()) {
         Entity* e = scene_->find((EntityId)rec["entity"].asNumber(0));
         size_t i = (size_t)rec["index"].asInt(-1);

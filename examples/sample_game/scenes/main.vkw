@@ -1,8 +1,19 @@
 {
   "format": "vkworld-scene",
-  "version": 10,
-  "meshes": [],
+  "version": 11,
+  "meshes": [
+    {
+      "name": "Body",
+      "source": "models/tentacle.gltf#0.0"
+    }
+  ],
   "textures": [],
+  "animations": [
+    {
+      "name": "tentacle/Bend",
+      "source": "models/tentacle.gltf#anim0"
+    }
+  ],
   "entities": [
     {
       "id": 3,
@@ -671,6 +682,1007 @@
         "shape": "box",
         "center": [0, 0, 0],
         "size": [1, 1, 1]
+      }
+    },
+    {
+      "id": 29,
+      "name": "Tentacles",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 30,
+      "name": "Tentacle.1",
+      "parent": 29,
+      "prefab": {
+        "id": 0,
+        "source": 1
+      },
+      "transform": {
+        "position": [14.85515, 0, 14.84333],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 1.6, 1.6]
+      },
+      "animator": {
+        "clip": "tentacle/Bend",
+        "speed": 0.6,
+        "loop": true,
+        "playOnStart": true
+      },
+      "behaviours": [
+        {
+          "type": "Lurker",
+          "range": 7
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "name": "Bone0",
+      "parent": 30,
+      "prefab": {
+        "id": 0,
+        "source": 2
+      },
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 32,
+      "name": "Bone1",
+      "parent": 31,
+      "prefab": {
+        "id": 0,
+        "source": 3
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 33,
+      "name": "Bone2",
+      "parent": 32,
+      "prefab": {
+        "id": 0,
+        "source": 4
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 34,
+      "name": "Bone3",
+      "parent": 33,
+      "prefab": {
+        "id": 0,
+        "source": 5
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 35,
+      "name": "Bone4",
+      "parent": 34,
+      "prefab": {
+        "id": 0,
+        "source": 6
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 36,
+      "name": "Bone5",
+      "parent": 35,
+      "prefab": {
+        "id": 0,
+        "source": 7
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 37,
+      "name": "Body",
+      "parent": 30,
+      "prefab": {
+        "id": 0,
+        "source": 8
+      },
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Body",
+        "color": [0.7620493, 0.5325205, 0.8774243]
+      },
+      "skin": {
+        "joints": [
+          "Bone0",
+          "Bone1",
+          "Bone2",
+          "Bone3",
+          "Bone4",
+          "Bone5"
+        ],
+        "inverseBind": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -0.5,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1.5,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -2,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -2.5,
+            0,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "id": 38,
+      "name": "Tentacle.2",
+      "parent": 29,
+      "prefab": {
+        "id": 0,
+        "source": 1
+      },
+      "transform": {
+        "position": [-14.84333, 0, 14.85515],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 1.6, 1.6]
+      },
+      "animator": {
+        "clip": "tentacle/Bend",
+        "speed": 0.75,
+        "loop": true,
+        "playOnStart": true
+      },
+      "behaviours": [
+        {
+          "type": "Lurker",
+          "range": 7
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "name": "Bone0",
+      "parent": 38,
+      "prefab": {
+        "id": 0,
+        "source": 2
+      },
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 40,
+      "name": "Bone1",
+      "parent": 39,
+      "prefab": {
+        "id": 0,
+        "source": 3
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 41,
+      "name": "Bone2",
+      "parent": 40,
+      "prefab": {
+        "id": 0,
+        "source": 4
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 42,
+      "name": "Bone3",
+      "parent": 41,
+      "prefab": {
+        "id": 0,
+        "source": 5
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 43,
+      "name": "Bone4",
+      "parent": 42,
+      "prefab": {
+        "id": 0,
+        "source": 6
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 44,
+      "name": "Bone5",
+      "parent": 43,
+      "prefab": {
+        "id": 0,
+        "source": 7
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 45,
+      "name": "Body",
+      "parent": 38,
+      "prefab": {
+        "id": 0,
+        "source": 8
+      },
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Body",
+        "color": [0.7620493, 0.5325205, 0.8774243]
+      },
+      "skin": {
+        "joints": [
+          "Bone0",
+          "Bone1",
+          "Bone2",
+          "Bone3",
+          "Bone4",
+          "Bone5"
+        ],
+        "inverseBind": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -0.5,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1.5,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -2,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -2.5,
+            0,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "id": 46,
+      "name": "Tentacle.3",
+      "parent": 29,
+      "prefab": {
+        "id": 0,
+        "source": 1
+      },
+      "transform": {
+        "position": [-14.85515, 0, -14.84333],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 1.6, 1.6]
+      },
+      "animator": {
+        "clip": "tentacle/Bend",
+        "speed": 0.9,
+        "loop": true,
+        "playOnStart": true
+      },
+      "behaviours": [
+        {
+          "type": "Lurker",
+          "range": 7
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "name": "Bone0",
+      "parent": 46,
+      "prefab": {
+        "id": 0,
+        "source": 2
+      },
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 48,
+      "name": "Bone1",
+      "parent": 47,
+      "prefab": {
+        "id": 0,
+        "source": 3
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 49,
+      "name": "Bone2",
+      "parent": 48,
+      "prefab": {
+        "id": 0,
+        "source": 4
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 50,
+      "name": "Bone3",
+      "parent": 49,
+      "prefab": {
+        "id": 0,
+        "source": 5
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 51,
+      "name": "Bone4",
+      "parent": 50,
+      "prefab": {
+        "id": 0,
+        "source": 6
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 52,
+      "name": "Bone5",
+      "parent": 51,
+      "prefab": {
+        "id": 0,
+        "source": 7
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 53,
+      "name": "Body",
+      "parent": 46,
+      "prefab": {
+        "id": 0,
+        "source": 8
+      },
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Body",
+        "color": [0.7620493, 0.5325205, 0.8774243]
+      },
+      "skin": {
+        "joints": [
+          "Bone0",
+          "Bone1",
+          "Bone2",
+          "Bone3",
+          "Bone4",
+          "Bone5"
+        ],
+        "inverseBind": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -0.5,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1.5,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -2,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -2.5,
+            0,
+            1
+          ]
+        ]
+      }
+    },
+    {
+      "id": 54,
+      "name": "Tentacle.4",
+      "parent": 29,
+      "prefab": {
+        "id": 0,
+        "source": 1
+      },
+      "transform": {
+        "position": [14.84333, 0, -14.85515],
+        "rotation": [0, 0, 0],
+        "scale": [1.6, 1.6, 1.6]
+      },
+      "animator": {
+        "clip": "tentacle/Bend",
+        "speed": 1.05,
+        "loop": true,
+        "playOnStart": true
+      },
+      "behaviours": [
+        {
+          "type": "Lurker",
+          "range": 7
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "name": "Bone0",
+      "parent": 54,
+      "prefab": {
+        "id": 0,
+        "source": 2
+      },
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 56,
+      "name": "Bone1",
+      "parent": 55,
+      "prefab": {
+        "id": 0,
+        "source": 3
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 57,
+      "name": "Bone2",
+      "parent": 56,
+      "prefab": {
+        "id": 0,
+        "source": 4
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 58,
+      "name": "Bone3",
+      "parent": 57,
+      "prefab": {
+        "id": 0,
+        "source": 5
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 59,
+      "name": "Bone4",
+      "parent": 58,
+      "prefab": {
+        "id": 0,
+        "source": 6
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 60,
+      "name": "Bone5",
+      "parent": 59,
+      "prefab": {
+        "id": 0,
+        "source": 7
+      },
+      "transform": {
+        "position": [0, 0.5, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      }
+    },
+    {
+      "id": 61,
+      "name": "Body",
+      "parent": 54,
+      "prefab": {
+        "id": 0,
+        "source": 8
+      },
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, -0, 0],
+        "scale": [1, 1, 1]
+      },
+      "meshRenderer": {
+        "mesh": "Body",
+        "color": [0.7620493, 0.5325205, 0.8774243]
+      },
+      "skin": {
+        "joints": [
+          "Bone0",
+          "Bone1",
+          "Bone2",
+          "Bone3",
+          "Bone4",
+          "Bone5"
+        ],
+        "inverseBind": [
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -0.5,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -1.5,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -2,
+            0,
+            1
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            -2.5,
+            0,
+            1
+          ]
+        ]
       }
     }
   ],

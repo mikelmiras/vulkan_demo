@@ -29,6 +29,7 @@ bool loadPrefab(const std::string& path, Prefab& prefab, MeshLibrary& meshes, Te
 // Names used in a file -> library ids (meshes and textures are referenced by name)
 struct AssetIds {
     std::map<std::string, int> meshes, textures;
+    std::map<std::string, std::string> animations;   // clip name in the file -> in the library (they can differ)
 };
 AssetIds builtinAssetIds(const MeshLibrary& meshes, const TextureLibrary& textures);
 

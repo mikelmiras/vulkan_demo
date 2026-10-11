@@ -625,6 +625,40 @@ void Editor::drawComponents(Entity& e) {
             else ImGui::TextDisabled("Inactive: %s comes first", first ? first->name.c_str() : "?");
         }
     }
+    if (e.animator) {
+        if (!componentHeader("Animator", open)) { pushUndo(); e.animator.reset(); }
+        else if (open) {
+            Animator& a = *e.animator;
+            if (ImGui::BeginCombo("Clip", a.clip.empty() ? "(none)" : a.clip.c_str())) {
+                if (ImGui::Selectable("(none)", a.clip.empty())) { pushUndo(); a.clip.clear(); }
+                for (const AnimationClip& c : meshes_.animations)
+                    if (ImGui::Selectable(c.name.c_str(), a.clip == c.name)) { pushUndo(); a.clip = c.name; }
+                ImGui::EndCombo();
+            }
+            if (const AnimationClip* c = meshes_.findAnimation(a.clip))
+                ImGui::TextDisabled("%.2f s, %zu animated nodes", c->duration, c->tracks.size());
+            else if (!a.clip.empty())
+                ImGui::TextColored(ImVec4(1.f, 0.6f, 0.3f, 1.f), "No clip with that name is loaded");
+            ImGui::DragFloat("Speed", &a.speed, 0.01f, -10.f, 10.f, "%.2f");
+            track();
+            ImGui::Checkbox("Loop", &a.loop);
+            track();
+            ImGui::SameLine();
+            ImGui::Checkbox("Play on start", &a.playOnStart);
+            track();
+            tooltip("Plays the clip on the entities under this one, matched by name; game code switches clips with "
+                    "animator->play(\"Clip\", fadeSeconds)");
+        }
+    }
+    if (e.skin) {
+        if (!componentHeader("Skin", open)) { pushUndo(); e.skin.reset(); }
+        else if (open) {
+            ImGui::TextWrapped("Deforms the mesh with %zu joints, found by name under %s.", e.skin->joints.size(),
+                               scene_.find(scene_.modelRoot(e.id)) ? scene_.find(scene_.modelRoot(e.id))->name.c_str() : "?");
+            if (e.meshRenderer && !meshes_.get(e.meshRenderer->mesh).skinned)
+                ImGui::TextColored(ImVec4(1.f, 0.6f, 0.3f, 1.f), "Its mesh has no joint weights: drawn as is");
+        }
+    }
     if (e.audioSource) {
         if (!componentHeader("Audio Source", open)) { pushUndo(); e.audioSource.reset(); }
         else if (open) {
@@ -782,6 +816,7 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Camera", nullptr, false, !e.camera)) { pushUndo(); e.camera = Camera{}; }
         if (ImGui::MenuItem("Light", nullptr, false, !e.light)) { pushUndo(); e.light = Light{}; }
         if (ImGui::MenuItem("Audio Source", nullptr, false, !e.audioSource)) { pushUndo(); e.audioSource = AudioSource{}; }
+        if (ImGui::MenuItem("Animator", nullptr, false, !e.animator)) { pushUndo(); e.animator = Animator{}; }
         if (ImGui::MenuItem("Rigid Body", nullptr, false, !e.rigidBody)) {
             pushUndo();
             e.rigidBody = RigidBody{};

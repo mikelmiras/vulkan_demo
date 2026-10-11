@@ -7,7 +7,10 @@
 #include "scene/scene.h"
 
 // Every visible entity with a mesh renderer; `worlds` from Scene::worldMatrices(). `outlined` gets the selection outline.
+// With `joints`, skinned meshes (a Skin on a skinned mesh) get their joint matrices appended there (else they're
+// drawn in their bind pose).
 std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat4>& worlds,
-                                       EntityId outlined = kNoEntity);
+                                       EntityId outlined = kNoEntity, std::vector<Mat4>* joints = nullptr,
+                                       const MeshLibrary* meshes = nullptr);
 // Every visible entity with a light (directional lights shine along the entity's -Z)
 std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>& worlds);
