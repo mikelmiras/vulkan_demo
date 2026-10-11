@@ -30,6 +30,9 @@ constexpr int kBuiltinTextureCount = 5;   // Checker, Bricks, Tiles, Bricks Norm
 int addTexture(TextureLibrary& lib, const std::string& name, const std::string& source, uint32_t width, uint32_t height,
                std::vector<uint8_t> rgba);
 // PNG, JPEG, TGA, BMP, ... (stb_image). Already loaded sources return their id; -1 with `error` on failure.
+// A small copy of an image file (at most maxSize pixels across, box-filtered) added under `name`, for previews
+// (the editor's asset thumbnails). -1 with `error` if it can't be read.
+int addThumbnail(TextureLibrary& lib, const std::string& name, const std::string& path, uint32_t maxSize, std::string& error);
 int loadTexture(TextureLibrary& lib, const std::string& path, std::string& error);
 int loadTextureFromMemory(TextureLibrary& lib, const std::string& name, const std::string& source, const uint8_t* data,
                           size_t size, std::string& error);

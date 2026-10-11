@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstring>
 
+#include "imgui_impl_vulkan.h"
 #include "render/renderer_internal.h"
 
 using namespace render_detail;
@@ -75,19 +76,6 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
         endOneTimeCommands(cb);
         destroyBuffer(staging);
     }
-
-    VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-    dsai.descriptorPool = texturePool_;
-    dsai.descriptorSetCount = 1;
-    dsai.pSetLayouts = &textureSetLayout_;
-    VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &t.set));
-    VkDescriptorImageInfo ii{sampler_, t.linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};   // (UI: bytes as they are)
-    VkWriteDescriptorSet wr{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    wr.dstSet = t.set;
-    wr.descriptorCount = 1;
-    wr.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    wr.pImageInfo = &ii;
-    vkUpdateDescriptorSets(device_, 1, &wr, 0, nullptr);
     return t;
 }
 
@@ -161,8 +149,12 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
 }
 
 ImTextureID Renderer::uiTexture(int id) const {
-    // A texture's descriptor set layout (one combined image sampler for the fragment stage) is the same as the
-    // ImGui backend's, so its set can be handed to ImGui as is
-    if (id < 0 || id >= (int)gpuTextures_.size()) return (ImTextureID)0;
-    return (ImTextureID)gpuTextures_[(size_t)id].set;
+    // The ImGui backend takes its own kind of descriptor set (a sampled image; it brings the sampler): made for each
+    // texture the first time the UI shows it, from the UNORM view (the UI's colours are already as they should look)
+    if (id < 0 || id >= (int)gpuTextures_.size() || !imguiInitialized_) return (ImTextureID)0;
+    auto it = uiSets_.find(id);
+    if (it == uiSets_.end())
+        it = uiSets_.emplace(id, ImGui_ImplVulkan_AddTexture(gpuTextures_[(size_t)id].linear,
+                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)).first;
+    return (ImTextureID)it->second;
 }

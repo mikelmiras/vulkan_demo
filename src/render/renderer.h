@@ -102,7 +102,7 @@ public:
     const RenderStats& stats() const { return stats_; }
     static int validationErrors();   // errors the validation layer has reported (VKWORLD_VALIDATION=1)
     // A TextureLibrary texture for Dear ImGui (AddImage); 0 until it has been uploaded (the next render() does it)
-    ImTextureID uiTexture(int id) const;
+    ImTextureID uiTexture(int id) const;   // a library texture for Dear ImGui (made on first use)
 
 private:
     static constexpr int MAX_FRAMES = 2;
@@ -145,7 +145,6 @@ private:
     struct GpuTexture {
         Image image;                             // image.view reads it as sRGB colour (albedo, emissive)
         VkImageView linear = VK_NULL_HANDLE;     // the same bytes as plain numbers (normal and metal/rough maps, UI)
-        VkDescriptorSet set = VK_NULL_HANDLE;    // the linear view alone, for Dear ImGui
     };
     // Set 1 for a draw: albedo, normal, metal/rough and emissive maps (defaults where it has none), made on first use
     VkDescriptorSet materialSet(const DrawItem& item);
@@ -205,8 +204,7 @@ private:
     VkDescriptorSetLayout materialSetLayout_ = VK_NULL_HANDLE;
     VkDescriptorPool materialPool_ = VK_NULL_HANDLE;
     std::unordered_map<uint64_t, VkDescriptorSet> materialSets_;   // by the four texture ids
-    VkDescriptorSetLayout textureSetLayout_ = VK_NULL_HANDLE;
-    VkDescriptorPool texturePool_ = VK_NULL_HANDLE;
+    mutable std::unordered_map<int, VkDescriptorSet> uiSets_;      // texture id -> ImGui's set for it
     VkSampler sampler_ = VK_NULL_HANDLE;
     float maxAnisotropy_ = 1.f;             // 1 = anisotropic filtering not available
 

@@ -445,7 +445,7 @@ Prefab Scene::makePrefab(EntityId root, const std::string& name) const {
     p.name = name;
     for (EntityId id : subtree(root)) {
         p.entities.push_back(*find(id));
-        p.entities.back().prefab.reset();
+        p.entities.back().nestedPrefab.reset();   // (only one level is kept: the link it has here)
     }
     if (!p.entities.empty()) {
         Entity& r = p.entities[0];
@@ -463,6 +463,7 @@ std::vector<Entity> Scene::instantiate(const Prefab& prefab, EntityId parent) {
         Entity e = prefab.entities[i];
         e.id = remap[e.id];
         e.parent = i == 0 ? parent : remap.count(e.parent) ? remap[e.parent] : kNoEntity;
+        e.nestedPrefab = prefab.entities[i].prefab;   // (it's an instance of an inner prefab too)
         e.prefab = PrefabLink{prefab.id, prefab.entities[i].id};
         out.push_back(std::move(e));
     }

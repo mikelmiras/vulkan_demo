@@ -243,6 +243,11 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         link.set("id", e.prefab->prefab);
         link.set("source", e.prefab->source);
     }
+    if (e.nestedPrefab) {
+        json::Value& link = v.set("nestedPrefab", json::Value::object());
+        link.set("id", e.nestedPrefab->prefab);
+        link.set("source", e.nestedPrefab->source);
+    }
     if (!e.visible) v.set("visible", false);
     if (e.locked) v.set("locked", true);
     if (!e.tags.empty()) {
@@ -516,6 +521,8 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
     e.parent = (EntityId)v["parent"].asNumber(0);
     if (const json::Value& link = v["prefab"]; link.isObject())
         e.prefab = PrefabLink{(uint32_t)link["id"].asNumber(0), (EntityId)link["source"].asNumber(0)};
+    if (const json::Value& link = v["nestedPrefab"]; link.isObject())
+        e.nestedPrefab = PrefabLink{(uint32_t)link["id"].asNumber(0), (EntityId)link["source"].asNumber(0)};
     e.visible = v["visible"].asBool(true);
     e.locked = v["locked"].asBool(false);
     for (const json::Value& t : v["tags"].elements())

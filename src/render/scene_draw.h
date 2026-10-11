@@ -11,6 +11,7 @@
 // drawn in their bind pose).
 std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat4>& worlds,
                                        EntityId outlined = kNoEntity, std::vector<Mat4>* joints = nullptr,
-                                       const MeshLibrary* meshes = nullptr);
+                                       const MeshLibrary* meshes = nullptr,
+                                       const std::vector<EntityId>* alsoOutlined = nullptr);
 // Every visible entity with a light (directional lights shine along the entity's -Z)
 std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>& worlds);

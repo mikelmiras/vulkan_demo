@@ -35,6 +35,10 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
 
     if (Entity* sel = selection()) {
         Entity& e = *sel;
+        if (!extraSelected_.empty()) {
+            ImGui::TextColored(ImVec4(1.f, 0.75f, 0.35f, 1.f), "%zu objects selected", selectionIds().size());
+            ImGui::TextDisabled("The gizmo moves them all; below: %s", e.name.c_str());
+        }
         ImGui::InputText("Name", &e.name);
         track();
         ImGui::Checkbox("Visible", &e.visible);

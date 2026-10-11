@@ -352,6 +352,9 @@ struct Entity {
     std::optional<Animator> animator;
     std::optional<ParticleEmitter> particleEmitter;
     std::optional<PrefabLink> prefab;
+    // In an instance of a prefab that itself contains an instance of another prefab (or is a variant of one), the
+    // link the prefab's entity has to that inner prefab. Inside a prefab's own entities, `prefab` is that link.
+    std::optional<PrefabLink> nestedPrefab;
     std::vector<BehaviourPtr> behaviours;   // game logic, run in play mode (see scene/behaviour.h)
 
     template <class T> T* behaviour() {   // first behaviour of type T, or nullptr
@@ -462,7 +465,7 @@ public:
     Prefab* findPrefab(uint32_t id);
     const Prefab* findPrefab(uint32_t id) const;
     // Copies the subtree under `root` into a prefab (the root's position is zeroed: instances are placed anew).
-    // The copies lose any prefab links of their own.
+    // Instances of other prefabs in it stay linked to them: nested prefabs (a variant, when `root` is one).
     Prefab makePrefab(EntityId root, const std::string& name) const;
     // Copies of the prefab's entities with fresh ids, linked to the prefab, the root under `parent`. Not added to
     // the scene: pass them to add() (in order). Ids are reserved, so they stay unique even if added later.

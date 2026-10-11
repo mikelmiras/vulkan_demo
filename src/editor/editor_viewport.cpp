@@ -120,10 +120,23 @@ void Editor::handleGizmo() {
         ImGuizmo::Enable(nav_ == Nav::None);
         Mat4 parentWorld = scene_.parentWorldMatrix(e->id);
         Mat4 m = parentWorld * e->transform.matrix();
+        Mat4 before = m;
+        std::vector<EntityId> group = topLevelSelection();
         if (ImGuizmo::Manipulate(view.m, proj.m, op, localSpace_ ? ImGuizmo::LOCAL : ImGuizmo::WORLD, m.m, nullptr,
                                  useSnap ? snapValues : nullptr)) {
-            e->transform.setMatrix(inverseAffine(parentWorld) * m);
-            for (float& s : e->transform.scale) s = std::max(s, 0.001f);
+            // The others move with it, as if attached: the pivot's change, applied to each one's world
+            Mat4 delta = m * inverseAffine(before);
+            for (EntityId id : group) {
+                if (id == e->id || scene_.isAncestor(id, e->id)) continue;
+                Entity* o = scene_.find(id);
+                Mat4 pw = scene_.parentWorldMatrix(id);
+                o->transform.setMatrix(inverseAffine(pw) * (delta * (pw * o->transform.matrix())));
+                for (float& s : o->transform.scale) s = std::max(s, 0.001f);
+            }
+            if (std::find(group.begin(), group.end(), e->id) != group.end() || group.empty()) {
+                e->transform.setMatrix(inverseAffine(parentWorld) * m);
+                for (float& s : e->transform.scale) s = std::max(s, 0.001f);
+            }
         }
         gizmoDrawn_ = true;
     }
@@ -150,6 +163,10 @@ void Editor::handlePicking() {
     if (ImGuizmo::IsUsingAny() || ImGuizmo::IsViewManipulateHovered() || (gizmoDrawn_ && ImGuizmo::IsOver())) return;
 
     EntityId best = pickAt(ImGui::GetIO().MousePos);
+    if (ImGui::GetIO().KeyCtrl) {   // add to / take from the selection
+        if (best) toggleSelect(best);
+        return;
+    }
     if (best) select(best);
     else selected_ = kNoEntity;
 }
@@ -212,6 +229,7 @@ void Editor::handleShortcuts() {
         if (keyPressed(ImGuiKey_O)) loadFromFile();
         if (keyPressed(ImGuiKey_Q)) quit_ = true;
         if (keyPressed(ImGuiKey_D)) duplicateSelected();
+        if (keyPressed(ImGuiKey_A)) selectAllRoots();
         if (keyPressed(ImGuiKey_R) && !project_.module.empty()) rebuildGameModule();
         return;
     }

@@ -51,8 +51,11 @@ public:
     void openProject(const std::filesystem::path& dir);
     void play() { startPlay(); }
     void newStressScene();   // the demo plus thousands of objects: for measuring performance
-    void setUiTextures(GameUI::TextureLookup lookup) { gameUi_.setTextureLookup(std::move(lookup)); }
-    bool selectByName(const std::string& name);
+    void setUiTextures(GameUI::TextureLookup lookup) {
+        uiTextures_ = lookup;
+        gameUi_.setTextureLookup(std::move(lookup));
+    }
+    bool selectByName(const std::string& names);   // "A" or "A,B,C" (A is the primary)
 
 private:
     enum class Tool { Select, Move, Rotate, Scale };
@@ -133,6 +136,16 @@ private:
 
     // ---- Operations
     Entity* selection() { return scene_.find(selected_); }
+    // Multi-selection: the primary (selected_: the inspector's, the gizmo's pivot) and others (Ctrl / Shift click)
+    std::vector<EntityId> selectionIds() const;          // primary first
+    std::vector<EntityId> topLevelSelection() const;     // without those under another selected entity
+    bool isSelected(EntityId id) const;
+    void toggleSelect(EntityId id);
+    void selectRange(EntityId id);                        // the primary to `id`, in the outliner's order
+    void selectAllRoots();
+    void makePrefabVariant(int prefabIndex);
+    void drawSplitter(const char* id, ImVec2 pos, ImVec2 size, bool horizontal, float& value, float sign);
+    float outlinerW_ = 0.f, inspectorW_ = 0.f, assetsPanelH_ = 0.f;   // panel sizes (unscaled; 0: defaults)
     void select(EntityId id);
     void addObject(int mesh);
     void addEmpty();
@@ -185,6 +198,8 @@ private:
     float uiScale_ = 1.f;
     Scene scene_;
     EntityId selected_ = kNoEntity;
+    std::vector<EntityId> extraSelected_;
+    std::vector<std::pair<size_t, Entity>> frameGroup_;   // the other selected entities at the frame's start (undo)
     EditorCamera cam_;
 
     Tool tool_ = Tool::Move;
@@ -257,6 +272,9 @@ private:
     bool showAssets_ = true;
     std::filesystem::path assetDir_;      // the folder the browser shows (absolute)
     std::vector<AssetEntry> assets_;
+    GameUI::TextureLookup uiTextures_;
+    std::unordered_map<std::string, int> thumbnails_;   // image path -> its thumbnail in the texture library (-1: failed)
+    ImTextureID thumbnail(const AssetEntry& a, int& budget, float& aspect);   // aspect: width / height
     double assetsScannedAt_ = -1.0;
     float assetsH_ = 0.f;                 // layout: height of the browser panel
     bool openImport_ = false;

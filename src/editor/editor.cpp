@@ -64,6 +64,9 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     frameSelected_ = selected_;
     frameEntity_.reset();
     if (int i = scene_.indexOf(selected_); i >= 0) frameEntity_.emplace((size_t)i, scene_.entities[(size_t)i]);
+    frameGroup_.clear();
+    for (EntityId id : extraSelected_)
+        if (int i = scene_.indexOf(id); i >= 0) frameGroup_.emplace_back((size_t)i, scene_.entities[(size_t)i]);
     frameRender_ = scene_.render;
     frameNav_ = scene_.navigation;
     frameLayers_ = scene_.layers;
@@ -84,11 +87,21 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     topH_ = menuH + toolbarH;
     statusH_ = ImGui::GetTextLineHeight() + style.WindowPadding.y * 2.f;
     bool panels = !(playing() && maximizeOnPlay_);
-    float leftW = panels && showOutliner_ ? px(250.f) : 0.f, rightW = panels && showInspector_ ? px(340.f) : 0.f;
+    // (panel sizes: dragged by their edges, in unscaled units; kept so the viewport has some room)
+    if (outlinerW_ <= 0.f) outlinerW_ = 250.f, inspectorW_ = 340.f, assetsPanelH_ = 160.f;
+    float minView = px(200.f);
+    float leftW = panels && showOutliner_ ? std::clamp(px(outlinerW_), px(140.f), std::max(io.DisplaySize.x * 0.45f, px(140.f))) : 0.f;
+    float rightW = panels && showInspector_ ? std::clamp(px(inspectorW_), px(220.f), std::max(io.DisplaySize.x * 0.5f, px(220.f))) : 0.f;
+    if (io.DisplaySize.x - leftW - rightW < minView) {   // a small window: the panels give way
+        float over = minView - (io.DisplaySize.x - leftW - rightW);
+        float l = std::min(over * 0.5f, std::max(leftW - px(140.f), 0.f));
+        leftW -= l;
+        rightW = std::max(rightW - (over - l), 0.f);
+    }
     vx_ = leftW;
     vy_ = topH_;
     vw_ = std::max(io.DisplaySize.x - leftW - rightW, 1.f);
-    assetsH_ = panels && showAssets_ ? std::min(px(160.f), io.DisplaySize.y * 0.3f) : 0.f;
+    assetsH_ = panels && showAssets_ ? std::clamp(px(assetsPanelH_), px(70.f), std::max(io.DisplaySize.y * 0.6f, px(70.f))) : 0.f;
     vh_ = std::max(io.DisplaySize.y - topH_ - statusH_ - assetsH_, 1.f);
     updateView();
 
@@ -103,6 +116,10 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawImportPopup();
     if (showInputBindings_) drawInputBindings();
     if (animGraphEntity_ != kNoEntity) drawAnimatorGraph();
+    // Splitters on the panels' inner edges: drag to resize
+    if (leftW > 0.f) drawSplitter("##split-left", ImVec2(vx_ - px(3.f), vy_), ImVec2(px(6.f), io.DisplaySize.y - vy_ - statusH_), false, outlinerW_, 1.f);
+    if (rightW > 0.f) drawSplitter("##split-right", ImVec2(vx_ + vw_ - px(3.f), vy_), ImVec2(px(6.f), io.DisplaySize.y - vy_ - statusH_), false, inspectorW_, -1.f);
+    if (assetsH_ > 0.f) drawSplitter("##split-assets", ImVec2(vx_, vy_ + vh_ - px(3.f)), ImVec2(vw_, px(6.f)), true, assetsPanelH_, -1.f);
 
     handleNavigation(dt);
     handleGizmo();
@@ -124,6 +141,10 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
 
     commitUndo();
     if (!scene_.find(selected_)) selected_ = kNoEntity;
+    if (selected_ == kNoEntity) extraSelected_.clear();
+    extraSelected_.erase(std::remove_if(extraSelected_.begin(), extraSelected_.end(),
+                                        [&](EntityId id) { return !scene_.find(id) || id == selected_; }),
+                         extraSelected_.end());
     updateView();   // the scene or the camera may have changed during this frame
     buildDrawItems();
 }
@@ -167,11 +188,12 @@ void Editor::buildDrawItems() {
         for (const Entity& o : scene_.entities) saved.push_back(o.transform);
         poseClip(scene_, meshes_, animPreview_.entity, clip->name, animPreview_.time);
         drawItems_ = collectDrawItems(scene_, scene_.worldMatrices(), viewingGameCamera() ? kNoEntity : selected_,
-                                      &joints_, &meshes_);
+                                      &joints_, &meshes_, viewingGameCamera() ? nullptr : &extraSelected_);
         for (size_t i = 0; i < saved.size(); ++i) scene_.entities[i].transform = saved[i];
     } else {
         if (playing()) animPreview_ = {};
-        drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_, &joints_, &meshes_);
+        drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_, &joints_, &meshes_,
+                                      viewingGameCamera() ? nullptr : &extraSelected_);
     }
     lights_ = collectLights(scene_, worlds_);
     particles_.clear();
@@ -253,7 +275,103 @@ void Editor::togglePause() {
 // ---------------------------------------------------------------------------------------------
 void Editor::select(EntityId id) {
     selected_ = id;
+    extraSelected_.clear();
     scrollToSelected_ = true;
+}
+
+std::vector<EntityId> Editor::selectionIds() const {
+    std::vector<EntityId> out;
+    if (scene_.find(selected_)) out.push_back(selected_);
+    for (EntityId id : extraSelected_)
+        if (scene_.find(id) && std::find(out.begin(), out.end(), id) == out.end()) out.push_back(id);
+    return out;
+}
+
+std::vector<EntityId> Editor::topLevelSelection() const {
+    std::vector<EntityId> all = selectionIds(), out;
+    for (EntityId id : all) {
+        bool under = false;
+        for (EntityId other : all) under = under || (other != id && scene_.isAncestor(other, id));
+        if (!under) out.push_back(id);
+    }
+    return out;
+}
+
+bool Editor::isSelected(EntityId id) const {
+    return id != kNoEntity && (id == selected_ || std::find(extraSelected_.begin(), extraSelected_.end(), id) != extraSelected_.end());
+}
+
+void Editor::toggleSelect(EntityId id) {
+    if (!scene_.find(id)) return;
+    if (id == selected_) {   // the primary goes; the next one takes over
+        selected_ = extraSelected_.empty() ? kNoEntity : extraSelected_.front();
+        if (!extraSelected_.empty()) extraSelected_.erase(extraSelected_.begin());
+    } else if (auto it = std::find(extraSelected_.begin(), extraSelected_.end(), id); it != extraSelected_.end()) {
+        extraSelected_.erase(it);
+    } else if (selected_ == kNoEntity) {
+        selected_ = id;
+    } else {
+        extraSelected_.push_back(id);
+    }
+}
+
+void Editor::makePrefabVariant(int index) {
+    if (index < 0 || index >= (int)scene_.prefabs.size()) return;
+    pushUndo();
+    Prefab base = scene_.prefabs[(size_t)index];
+    // An instance of the base, made a prefab of its own (so its root stays linked to the base), then removed
+    std::vector<Entity> made = scene_.instantiate(base);
+    EntityId root = made[0].id;
+    for (Entity& e : made) scene_.add(std::move(e));
+    std::string name = scene_.uniquePrefabName(base.name + " Variant");
+    scene_.addPrefab(scene_.makePrefab(root, name));
+    scene_.remove(root);
+    selectedPrefab_ = (int)scene_.prefabs.size() - 1;
+    setStatus("Made " + name + ": change it (an instance, then Apply) and it keeps following " + base.name);
+}
+
+// A thin handle over a panel's edge: dragging it changes `size` (unscaled units) by the mouse movement times `sign`
+void Editor::drawSplitter(const char* id, ImVec2 pos, ImVec2 size, bool horizontal, float& value, float sign) {
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(size);
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoSavedSettings |
+                             ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollWithMouse;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(1.f, 1.f));
+    ImGui::Begin(id, nullptr, flags);
+    ImGui::InvisibleButton("##handle", size);
+    bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+    if (hot) ImGui::SetMouseCursor(horizontal ? ImGuiMouseCursor_ResizeNS : ImGuiMouseCursor_ResizeEW);
+    if (ImGui::IsItemActive()) {
+        ImVec2 d = ImGui::GetIO().MouseDelta;
+        value += (horizontal ? d.y : d.x) * sign / std::max(uiScale_, 0.01f);
+    }
+    if (hot) {   // a highlight line along the edge
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImVec2 c(pos.x + size.x * 0.5f, pos.y + size.y * 0.5f);
+        if (horizontal) dl->AddLine(ImVec2(pos.x, c.y), ImVec2(pos.x + size.x, c.y), IM_COL32(90, 150, 230, 255), 2.f);
+        else dl->AddLine(ImVec2(c.x, pos.y), ImVec2(c.x, pos.y + size.y), IM_COL32(90, 150, 230, 255), 2.f);
+    }
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+}
+
+void Editor::selectAllRoots() {
+    extraSelected_.clear();
+    selected_ = kNoEntity;
+    for (const Entity& e : scene_.entities)
+        if (e.parent == kNoEntity) {
+            if (selected_ == kNoEntity) selected_ = e.id;
+            else extraSelected_.push_back(e.id);
+        }
+}
+
+void Editor::selectRange(EntityId id) {
+    int a = scene_.indexOf(selected_), b = scene_.indexOf(id);
+    if (a < 0 || b < 0) { select(id); return; }
+    extraSelected_.clear();
+    for (int i = std::min(a, b); i <= std::max(a, b); ++i)
+        if (scene_.entities[(size_t)i].id != selected_) extraSelected_.push_back(scene_.entities[(size_t)i].id);
 }
 
 Vec3 Editor::spawnPoint(float lift) const {
@@ -456,6 +574,22 @@ void Editor::importPrefabFile(const std::filesystem::path& path, const Vec3* pla
 void Editor::duplicateSelected() {
     Entity* e = selection();
     if (!e) return;
+    if (!extraSelected_.empty()) {   // a group: each top-level one, the copies selected
+        pushUndo();
+        std::vector<EntityId> copies;
+        for (EntityId id : topLevelSelection()) {
+            EntityId copy = scene_.duplicate(id);
+            Entity* c = scene_.find(copy);
+            Vec3 offset = transformDir(inverseAffine(scene_.parentWorldMatrix(copy)), cam_.right());
+            c->transform.position[0] += offset.x;
+            c->transform.position[2] += offset.z;
+            copies.push_back(copy);
+        }
+        select(copies.front());
+        extraSelected_.assign(copies.begin() + 1, copies.end());
+        setStatus("Duplicated " + std::to_string(copies.size()) + " objects");
+        return;
+    }
     pushUndo();
     float offsetBy = std::max(e->transform.scale[0], 1.f);
     EntityId copy = scene_.duplicate(e->id);
@@ -471,6 +605,15 @@ void Editor::duplicateSelected() {
 void Editor::deleteSelected() {
     Entity* e = selection();
     if (!e) return;
+    if (!extraSelected_.empty()) {
+        pushUndo();
+        std::vector<EntityId> gone = topLevelSelection();
+        scene_.remove(gone);
+        setStatus("Deleted " + std::to_string(gone.size()) + " objects");
+        selected_ = kNoEntity;
+        extraSelected_.clear();
+        return;
+    }
     pushUndo();
     size_t count = scene_.subtree(e->id).size();
     setStatus("Deleted " + e->name + (count > 1 ? " and " + std::to_string(count - 1) + " children" : ""));
@@ -565,10 +708,21 @@ void Editor::saveToFile() {
     else setStatus("Save failed: " + error);
 }
 
-bool Editor::selectByName(const std::string& name) {
-    const Entity* e = scene_.findByName(name);
-    if (e) select(e->id);
-    return e != nullptr;
+bool Editor::selectByName(const std::string& names) {
+    // (several, separated by commas: the first is the primary)
+    bool all = true, first = true;
+    size_t at = 0;
+    while (at <= names.size()) {
+        size_t comma = names.find(',', at);
+        std::string name = names.substr(at, comma == std::string::npos ? std::string::npos : comma - at);
+        at = comma == std::string::npos ? names.size() + 1 : comma + 1;
+        const Entity* e = scene_.findByName(name);
+        if (!e) { all = false; continue; }
+        if (first) select(e->id);
+        else toggleSelect(e->id);
+        first = false;
+    }
+    return all;
 }
 
 void Editor::openScene(const std::string& path) {
@@ -615,6 +769,10 @@ void Editor::commitUndo() {
             const Entity* now = scene_.find(frameEntity_->second.id);
             if (now && !sameEntity(*now, frameEntity_->second)) step.delta.entities.push_back(*frameEntity_);
         }
+        for (const auto& g : frameGroup_) {   // a group moved with the gizmo
+            const Entity* now = scene_.find(g.second.id);
+            if (now && !sameEntity(*now, g.second)) step.delta.entities.push_back(g);
+        }
         if (!sameRenderSettings(frameRender_, scene_.render)) step.delta.render = frameRender_;
         if (!sameNavigationSettings(frameNav_, scene_.navigation)) step.delta.navigation = frameNav_;
         if (!sameLayerSettings(frameLayers_, scene_.layers)) step.delta.layers = frameLayers_;
@@ -635,6 +793,7 @@ void Editor::undo() {
     applyDelta(scene_, undo_.back().delta);
     redo_.push_back({diffScenes(now, scene_), selected_});
     selected_ = undo_.back().selected;
+    extraSelected_.clear();
     undo_.pop_back();
     setStatus("Undo");
 }
@@ -645,6 +804,7 @@ void Editor::redo() {
     applyDelta(scene_, redo_.back().delta);
     undo_.push_back({diffScenes(now, scene_), selected_});
     selected_ = redo_.back().selected;
+    extraSelected_.clear();
     redo_.pop_back();
     setStatus("Redo");
 }

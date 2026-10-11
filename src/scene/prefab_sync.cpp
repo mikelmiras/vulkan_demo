@@ -88,6 +88,7 @@ void syncInstance(Scene& scene, EntityId root, const Prefab& before, const Prefa
         updated.id = e.id;   // identity stays the instance's
         updated.parent = e.parent;
         updated.prefab = e.prefab;
+        updated.nestedPrefab = a->prefab;
         e = std::move(updated);
     }
     for (EntityId id : removed) scene.remove(id);
@@ -100,6 +101,7 @@ void syncInstance(Scene& scene, EntityId root, const Prefab& before, const Prefa
         Entity e = a;
         e.id = scene.reserveId();
         e.parent = parent->second;
+        e.nestedPrefab = a.prefab;
         e.prefab = PrefabLink{after.id, a.id};
         bySource[a.id] = e.id;
         scene.add(std::move(e));
@@ -141,7 +143,10 @@ static Prefab prefabFromTree(const Scene& scene, EntityId root, const Prefab& pr
         Entity e = *scene.find(id);
         e.id = ids[id];
         e.parent = id == root ? kNoEntity : ids[e.parent];
-        e.prefab.reset();
+        // What it's an instance of inside the prefab: an inner prefab it came from, or another one it is now
+        bool ours = e.prefab && e.prefab->prefab == prefab.id;
+        e.prefab = ours ? e.nestedPrefab : e.prefab;
+        e.nestedPrefab.reset();
         if (id == root) {   // the root's placement and name belong to the instance
             e.transform.position[0] = e.transform.position[1] = e.transform.position[2] = 0.f;
             e.name = prefab.entities.empty() ? e.name : prefab.entities[0].name;
@@ -158,9 +163,48 @@ int applyToPrefab(Scene& scene, EntityId root, uint32_t prefabId, const MeshLibr
     Prefab before = *prefab;
     std::map<EntityId, EntityId> ids;
     Prefab after = prefabFromTree(scene, root, before, ids);
-    for (const auto& [sceneId, prefabEntityId] : ids) scene.find(sceneId)->prefab = PrefabLink{prefabId, prefabEntityId};
+    for (const auto& [sceneId, prefabEntityId] : ids) {
+        Entity* e = scene.find(sceneId);
+        e->prefab = PrefabLink{prefabId, prefabEntityId};
+        e->nestedPrefab = prefabEntity(after, prefabEntityId)->prefab;
+    }
     *prefab = after;
-    return syncPrefabInstances(scene, before, after, meshes, textures, root);
+    return propagatePrefabChange(scene, before, after, meshes, textures, root);
+}
+
+int propagatePrefabChange(Scene& scene, const Prefab& before, const Prefab& after, const MeshLibrary& meshes,
+                          const TextureLibrary& textures, EntityId skipRoot, int depth) {
+    int count = syncPrefabInstances(scene, before, after, meshes, textures, skipRoot);
+    if (depth >= 8) return count;   // (prefabs containing each other: stop somewhere)
+    // Prefabs with instances of this one inside them: update those as if each were a little scene, then their own
+    // instances (and the prefabs that contain them...)
+    std::vector<uint32_t> containing;
+    for (const Prefab& p : scene.prefabs) {
+        if (p.id == after.id || before.entities.empty()) continue;
+        for (const Entity& e : p.entities)
+            if (e.prefab && e.prefab->prefab == after.id && e.prefab->source == before.entities[0].id) {
+                containing.push_back(p.id);
+                break;
+            }
+    }
+    for (uint32_t id : containing) {
+        Prefab* outer = scene.findPrefab(id);
+        if (!outer) continue;
+        Prefab old = *outer;
+        Scene inner;
+        for (const Entity& e : old.entities) inner.add(e);
+        syncPrefabInstances(inner, before, after, meshes, textures);
+        outer = scene.findPrefab(id);
+        outer->entities.clear();
+        const Entity* root = inner.find(old.entities[0].id);
+        if (root) outer->entities.push_back(*root);   // (the root first)
+        for (const Entity& e : inner.entities)
+            if (e.id != old.entities[0].id) outer->entities.push_back(e);
+        for (Entity& e : outer->entities) e.nestedPrefab.reset();
+        Prefab now = *outer;
+        count += propagatePrefabChange(scene, old, now, meshes, textures, kNoEntity, depth + 1);
+    }
+    return count;
 }
 
 int syncPrefabInstances(Scene& scene, const Prefab& before, const Prefab& after, const MeshLibrary& meshes,
@@ -215,7 +259,8 @@ std::vector<std::string> instanceOverrides(const Scene& scene, EntityId id, cons
     walk(a, b, "");
     out.erase(std::remove_if(out.begin(), out.end(),
                              [&](const std::string& p) {
-                                 return p == "id" || p == "parent" || p.rfind("prefab", 0) == 0 || (isRoot && p == "name");
+                                 return p == "id" || p == "parent" || p.rfind("prefab", 0) == 0 ||
+                                        p.rfind("nestedPrefab", 0) == 0 || (isRoot && p == "name");
                              }),
               out.end());
     return out;

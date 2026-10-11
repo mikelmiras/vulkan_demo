@@ -2,6 +2,7 @@
 #include "editor/editor.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -30,6 +31,51 @@ ImVec4 kindColor(int kind) {
                                     {0.95f, 0.6f, 0.4f, 1},   {0.85f, 0.55f, 0.9f, 1},  {0.5f, 0.85f, 0.85f, 1},
                                     {0.6f, 0.6f, 0.6f, 1}};
     return colors[kind];
+}
+
+
+// Line drawings for the kinds of asset without a picture of their own (folder, scene, prefab, model, image, sound)
+void drawAssetIcon(ImDrawList* dl, int kind, ImVec2 o, float s, ImU32 col) {
+    auto P = [&](float x, float y) { return ImVec2(o.x + x * s, o.y + y * s); };
+    const float t = std::max(1.5f, s * 0.035f);
+    switch (kind) {
+    case 0:   // folder
+        dl->AddRectFilled(P(0.1f, 0.25f), P(0.45f, 0.35f), col, s * 0.04f);
+        dl->AddRectFilled(P(0.1f, 0.32f), P(0.9f, 0.8f), col, s * 0.05f);
+        break;
+    case 1:   // scene: a landscape with a sun
+        dl->AddRect(P(0.12f, 0.18f), P(0.88f, 0.82f), col, s * 0.05f, 0, t);
+        dl->AddTriangleFilled(P(0.18f, 0.76f), P(0.42f, 0.42f), P(0.62f, 0.76f), col);
+        dl->AddTriangleFilled(P(0.48f, 0.76f), P(0.66f, 0.52f), P(0.82f, 0.76f), col);
+        dl->AddCircleFilled(P(0.7f, 0.34f), s * 0.07f, col);
+        break;
+    case 2:   // prefab: a cube with a plus (a template)
+    case 3: {  // model: a wire cube
+        ImVec2 f0 = P(0.18f, 0.38f), f1 = P(0.62f, 0.38f), f2 = P(0.62f, 0.82f), f3 = P(0.18f, 0.82f);
+        ImVec2 d = ImVec2(s * 0.2f, -s * 0.2f);
+        auto off = [&](ImVec2 v) { return ImVec2(v.x + d.x, v.y + d.y); };
+        dl->AddQuad(f0, f1, f2, f3, col, t);
+        dl->AddLine(f0, off(f0), col, t);
+        dl->AddLine(f1, off(f1), col, t);
+        dl->AddLine(f2, off(f2), col, t);
+        dl->AddLine(off(f0), off(f1), col, t);
+        dl->AddLine(off(f1), off(f2), col, t);
+        if (kind == 2) {
+            dl->AddLine(P(0.4f, 0.5f), P(0.4f, 0.7f), col, t);
+            dl->AddLine(P(0.3f, 0.6f), P(0.5f, 0.6f), col, t);
+        }
+        break;
+    }
+    case 5:   // sound: a waveform
+        for (int i = 0; i < 9; ++i) {
+            float x = 0.14f + i * 0.09f, hgt = 0.08f + 0.3f * std::fabs(std::sin(i * 1.7f + 0.4f));
+            dl->AddRectFilled(P(x, 0.5f - hgt), P(x + 0.05f, 0.5f + hgt), col, s * 0.02f);
+        }
+        break;
+    default:   // an image not shown yet, or anything else: a page
+        dl->AddRect(P(0.22f, 0.12f), P(0.78f, 0.88f), col, s * 0.04f, 0, t);
+        break;
+    }
 }
 
 }  // namespace
@@ -242,7 +288,8 @@ void Editor::drawAssetBrowser() {
     ImGui::TextDisabled("| double-click to open, drag onto the viewport or the Inspector");
 
     ImGui::BeginChild("##asset-grid");
-    const float cell = px(112.f), h = ImGui::GetTextLineHeightWithSpacing() * 2.f + px(6.f);
+    const float cell = px(112.f), icon = px(64.f), h = icon + ImGui::GetTextLineHeightWithSpacing() * 2.f + px(10.f);
+    int thumbBudget = 2;   // images decoded per frame (the rest next frames)
     int columns = std::max(1, (int)(ImGui::GetContentRegionAvail().x / (cell + ImGui::GetStyle().ItemSpacing.x)));
     if (assets_.empty()) ImGui::TextDisabled("No scenes, prefabs, models, textures or sounds here.");
     AssetEntry open;
@@ -265,18 +312,46 @@ void Editor::drawAssetBrowser() {
             ImGui::Text("%s %s", kindLabel((int)a.kind), a.name.c_str());
             ImGui::EndDragDropSource();
         }
-        // Two lines in the cell: the kind (coloured) and the name (clipped)
+        // The thumbnail (images) or an icon for the kind, then the kind (coloured) and the name (clipped)
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        dl->AddText(ImVec2(p.x + px(4.f), p.y + px(2.f)), ImGui::ColorConvertFloat4ToU32(kindColor((int)a.kind)),
-                    kindLabel((int)a.kind));
+        ImVec2 i0(p.x + (cell - icon) * 0.5f, p.y + px(3.f)), i1(i0.x + icon, i0.y + icon);
+        ImU32 kc = ImGui::ColorConvertFloat4ToU32(kindColor((int)a.kind));
+        float aspect = 1.f;
+        if (ImTextureID tex = thumbnail(a, thumbBudget, aspect)) {   // fitted in the square, its shape kept
+            dl->AddRectFilled(i0, i1, IM_COL32(40, 40, 46, 255));
+            float w = aspect >= 1.f ? icon : icon * aspect, hh = aspect >= 1.f ? icon / aspect : icon;
+            ImVec2 c((i0.x + i1.x) * 0.5f, (i0.y + i1.y) * 0.5f);
+            dl->AddImage(tex, ImVec2(c.x - w * 0.5f, c.y - hh * 0.5f), ImVec2(c.x + w * 0.5f, c.y + hh * 0.5f));
+        } else {
+            drawAssetIcon(dl, (int)a.kind, i0, icon, kc);
+        }
+        float ty = i1.y + px(3.f);
+        dl->AddText(ImVec2(p.x + px(4.f), ty), kc, kindLabel((int)a.kind));
         ImVec4 clip(p.x, p.y, p.x + cell - px(4.f), p.y + h);
-        dl->AddText(nullptr, 0.f, ImVec2(p.x + px(4.f), p.y + px(2.f) + ImGui::GetTextLineHeightWithSpacing()),
+        dl->AddText(nullptr, 0.f, ImVec2(p.x + px(4.f), ty + ImGui::GetTextLineHeightWithSpacing()),
                     ImGui::GetColorU32(ImGuiCol_Text), a.name.c_str(), nullptr, 0.f, &clip);
         ImGui::PopID();
     }
     ImGui::EndChild();
     ImGui::End();
     if (doOpen) openAsset(open);
+}
+
+// An image's thumbnail, made the first time it's shown (a few per frame)
+ImTextureID Editor::thumbnail(const AssetEntry& a, int& budget, float& aspect) {
+    if (a.kind != AssetKind::Texture || !uiTextures_) return (ImTextureID)0;
+    std::string key = a.path.u8string();
+    auto it = thumbnails_.find(key);
+    if (it == thumbnails_.end()) {
+        if (budget <= 0) return (ImTextureID)0;
+        --budget;
+        std::string error;
+        it = thumbnails_.emplace(key, addThumbnail(textures_, "thumbnail: " + key, key, 96, error)).first;
+    }
+    if (it->second < 0) return (ImTextureID)0;
+    const Texture& t = textures_.get(it->second);
+    aspect = t.height ? (float)t.width / (float)t.height : 1.f;
+    return uiTextures_(t.name);
 }
 
 void Editor::assignTexture(EntityId id, const fs::path& file) {

@@ -343,3 +343,97 @@ TEST(prefab_links_saved_and_survive_rename) {
     CHECK(applyToPrefab(loaded, t.a, t.prefab, t.meshes, textures()) == 1);
     CHECK_VEC(loaded.find(t.b)->meshRenderer->color, test::v3(0, 1, 1), 1e-6f);
 }
+
+namespace {
+
+// Instantiates a prefab by name, as the editor does; returns the instance's root
+EntityId place(Scene& s, const char* prefab, float x = 0.f) {
+    std::vector<Entity> made = s.instantiate(*s.findPrefab(prefab));
+    EntityId root = made[0].id;
+    made[0].transform.position[0] = x;
+    for (Entity& e : made) s.add(std::move(e));
+    return root;
+}
+
+EntityId childNamed(const Scene& s, EntityId root, const char* name) {
+    for (EntityId id : s.subtree(root))
+        if (s.find(id)->name == name) return id;
+    return kNoEntity;
+}
+
+}  // namespace
+
+// A prefab inside a prefab: changing the inner one updates the outer prefab and its instances (overrides kept)
+TEST(prefab_nested) {
+    Scene s;
+    EntityId lamp = s.create("Lamp").id;
+    EntityId bulb = s.create("Bulb", lamp).id;
+    s.find(bulb)->meshRenderer = MeshRenderer{};
+    s.find(bulb)->meshRenderer->color = {1, 1, 1};
+    s.addPrefab(s.makePrefab(lamp, "Lamp"));
+    s.remove(lamp);
+    // A room with a lamp in it, made a prefab of its own
+    EntityId room = s.create("Room").id;
+    s.create("Floor", room);
+    EntityId lampInRoom = place(s, "Lamp");
+    s.setParent(lampInRoom, room);
+    s.addPrefab(s.makePrefab(room, "Room"));
+    s.remove(room);
+    const Prefab& roomPrefab = *s.findPrefab("Room");
+    int linkedToLamp = 0;
+    for (const Entity& e : roomPrefab.entities) linkedToLamp += e.prefab && e.prefab->prefab == s.findPrefab("Lamp")->id;
+    CHECK(linkedToLamp == 2);   // the lamp and its bulb, inside the room prefab
+
+    EntityId roomA = place(s, "Room", 0.f), roomB = place(s, "Room", 10.f);
+    EntityId bulbB = childNamed(s, roomB, "Bulb");
+    REQUIRE(bulbB != kNoEntity);
+    REQUIRE(s.find(bulbB)->nestedPrefab);
+    s.find(bulbB)->meshRenderer->color = {0, 1, 0};   // an override in room B
+    // Turn the lamp prefab's bulb red, through a lamp of its own
+    EntityId solo = place(s, "Lamp", -10.f);
+    s.find(childNamed(s, solo, "Bulb"))->meshRenderer->color = {1, 0, 0};
+    int updated = applyToPrefab(s, solo, s.findPrefab("Lamp")->id, meshes(), textures());
+    CHECK(updated == 2);   // both rooms (through the room prefab)
+    for (const Entity& e : s.findPrefab("Room")->entities)
+        if (e.name == "Bulb") CHECK_VEC(e.meshRenderer->color, test::v3(1, 0, 0), 1e-6f);
+    CHECK_VEC(s.find(childNamed(s, roomA, "Bulb"))->meshRenderer->color, test::v3(1, 0, 0), 1e-6f);
+    CHECK_VEC(s.find(bulbB)->meshRenderer->color, test::v3(0, 1, 0), 1e-6f);   // kept
+
+    // A new part in the lamp shows up in the rooms too
+    EntityId shade = s.create("Shade", solo).id;
+    (void)shade;
+    applyToPrefab(s, solo, s.findPrefab("Lamp")->id, meshes(), textures());
+    CHECK(childNamed(s, roomA, "Shade") != kNoEntity);
+    CHECK(childNamed(s, roomB, "Shade") != kNoEntity);
+
+    // Saved and loaded with the links
+    std::string error, path = test::tempPath("nested.vkw").string();
+    REQUIRE(saveScene(path, s, meshes(), textures(), error));
+    Scene loaded;
+    MeshLibrary lib = buildMeshLibrary();
+    REQUIRE(loadScene(path, loaded, lib, textures(), error));
+    const Entity* lb = loaded.find(bulbB);
+    REQUIRE(lb && lb->nestedPrefab && lb->prefab);
+    CHECK(lb->nestedPrefab->prefab == loaded.findPrefab("Lamp")->id);
+    CHECK(lb->prefab->prefab == loaded.findPrefab("Room")->id);
+}
+
+// A variant: a prefab made from an instance of another follows it, keeping what it changed
+TEST(prefab_variants) {
+    Scene s = sceneWithPrefab();   // "Thing": scale 2, a mesh, a child
+    EntityId base = place(s, "Thing");
+    s.find(base)->meshRenderer->color = {1, 0, 0};   // the variant's own colour
+    s.addPrefab(s.makePrefab(base, "Red Thing"));
+    s.remove(base);
+    REQUIRE(s.findPrefab("Red Thing")->entities[0].prefab);   // linked to Thing: a variant
+    EntityId red = place(s, "Red Thing", 5.f);
+    CHECK_VEC(s.find(red)->meshRenderer->color, test::v3(1, 0, 0), 1e-6f);
+    // Thing gets bigger
+    EntityId thing = place(s, "Thing", -5.f);
+    s.find(thing)->transform.scale[0] = 3.f;
+    applyToPrefab(s, thing, s.findPrefab("Thing")->id, meshes(), textures());
+    CHECK_NEAR(s.findPrefab("Red Thing")->entities[0].transform.scale[0], 3.0, 1e-6);
+    CHECK_NEAR(s.find(red)->transform.scale[0], 3.0, 1e-6);                    // the variant's instance follows
+    CHECK_VEC(s.find(red)->meshRenderer->color, test::v3(1, 0, 0), 1e-6f);   // and stays red
+    CHECK_NEAR(s.find(red)->transform.position[0], 5.0, 1e-6);               // where it was put
+}

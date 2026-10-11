@@ -128,7 +128,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
         return false;
     if (!eq(a.meshRenderer, b.meshRenderer) || !eq(a.camera, b.camera) || !eq(a.collider, b.collider) ||
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
-        !eq(a.prefab, b.prefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
+        !eq(a.prefab, b.prefab) || !eq(a.nestedPrefab, b.nestedPrefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;

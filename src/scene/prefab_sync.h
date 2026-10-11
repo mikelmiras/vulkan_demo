@@ -29,6 +29,11 @@ int applyToPrefab(Scene& scene, EntityId root, uint32_t prefabId, const MeshLibr
 int syncPrefabInstances(Scene& scene, const Prefab& before, const Prefab& after, const MeshLibrary& meshes,
                         const TextureLibrary& textures, EntityId skipRoot = kNoEntity);
 
+// The same, then into the prefabs that contain instances of it (nested prefabs, variants) and on to their
+// instances, recursively. applyToPrefab does this.
+int propagatePrefabChange(Scene& scene, const Prefab& before, const Prefab& after, const MeshLibrary& meshes,
+                          const TextureLibrary& textures, EntityId skipRoot = kNoEntity, int depth = 0);
+
 // Drops the instance's overrides (except where its root is placed and its name) and restores entities the instance
 // deleted. Entities added to the instance stay.
 void revertInstance(Scene& scene, EntityId root, const MeshLibrary& meshes, const TextureLibrary& textures);

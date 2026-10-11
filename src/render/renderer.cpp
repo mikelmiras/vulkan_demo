@@ -559,12 +559,6 @@ void Renderer::createPipelines() {
     dslci.bindingCount = 7;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
-    // One texture alone (Dear ImGui's layout, for UI images)
-    VkDescriptorSetLayoutBinding texBinding{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                            nullptr};
-    dslci.bindingCount = 1;
-    dslci.pBindings = &texBinding;
-    VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &textureSetLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
     VkDescriptorSetLayoutBinding matBindings[4];
     for (uint32_t i = 0; i < 4; ++i)
@@ -847,13 +841,10 @@ void Renderer::createResources(const MeshLibrary&) {
     dpci.poolSizeCount = 3;
     dpci.pPoolSizes = poolSizes;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &descPool_));
-    // One set per texture
-    VkDescriptorPoolSize texSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4096};
+    // Material sets (four maps each), made as materials are first drawn
+    VkDescriptorPoolSize matSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * 4096};
     dpci.maxSets = 4096;
     dpci.poolSizeCount = 1;
-    dpci.pPoolSizes = &texSize;
-    VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &texturePool_));
-    VkDescriptorPoolSize matSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * 4096};
     dpci.pPoolSizes = &matSize;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &materialPool_));
 
@@ -955,7 +946,7 @@ void Renderer::initImGui() {
     info.Device = device_;
     info.QueueFamily = queueFamily_;
     info.Queue = queue_;
-    info.DescriptorPoolSize = 64;
+    info.DescriptorPoolSize = 1024;   // (the font atlas, plus one per texture shown in the UI: images, thumbnails)
     info.MinImageCount = 2;
     info.ImageCount = (uint32_t)swapImages_.size();
     info.UseDynamicRendering = true;
@@ -1297,12 +1288,10 @@ void Renderer::shutdown() {
     vkDestroySampler(device_, postSampler_, nullptr);
     vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, setLayout_, nullptr);
-    vkDestroyDescriptorSetLayout(device_, textureSetLayout_, nullptr);
     vkDestroyDescriptorPool(device_, descPool_, nullptr);
     for (GpuTexture& t : gpuTextures_) destroyTexture(t);
     destroyTexture(whiteTexture_);
     destroyTexture(flatNormal_);
-    vkDestroyDescriptorPool(device_, texturePool_, nullptr);
     vkDestroyDescriptorPool(device_, materialPool_, nullptr);
     vkDestroyDescriptorSetLayout(device_, materialSetLayout_, nullptr);
     vkDestroySampler(device_, sampler_, nullptr);

@@ -1,9 +1,11 @@
 #include "render/scene_draw.h"
 
+#include <algorithm>
 #include <unordered_map>
 
 std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat4>& worlds, EntityId outlined,
-                                       std::vector<Mat4>* joints, const MeshLibrary* meshes) {
+                                       std::vector<Mat4>* joints, const MeshLibrary* meshes,
+                                       const std::vector<EntityId>* alsoOutlined) {
     std::vector<DrawItem> items;
     if (joints) joints->clear();
     std::unordered_map<EntityId, std::unordered_map<std::string, EntityId>> skeletons;   // model root -> names
@@ -17,7 +19,8 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
         d.texture = e.meshRenderer->texture;
         d.tiling = e.meshRenderer->tiling;
         d.checker = e.meshRenderer->checker;
-        d.outlined = e.id == outlined && outlined != kNoEntity;
+        d.outlined = (e.id == outlined && outlined != kNoEntity) ||
+                     (alsoOutlined && std::find(alsoOutlined->begin(), alsoOutlined->end(), e.id) != alsoOutlined->end());
         const MeshRenderer& mr = *e.meshRenderer;
         d.metallic = mr.metallic;
         d.roughness = mr.roughness;

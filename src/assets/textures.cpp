@@ -1,5 +1,6 @@
 #include "assets/textures.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 
@@ -167,6 +168,33 @@ int loadTexture(TextureLibrary& lib, const std::string& path, std::string& error
     std::vector<uint8_t> rgba(pixels, pixels + (size_t)w * h * 4);
     stbi_image_free(pixels);
     return addTexture(lib, fs::path(path).stem().u8string(), source, (uint32_t)w, (uint32_t)h, std::move(rgba));
+}
+
+int addThumbnail(TextureLibrary& lib, const std::string& name, const std::string& path, uint32_t maxSize, std::string& error) {
+    if (int have = lib.find(name); have >= 0) return have;
+    std::string bytes;
+    int w = 0, h = 0, channels = 0;
+    stbi_uc* pixels = vfs::read(path, bytes) ? stbi_load_from_memory((const stbi_uc*)bytes.data(), (int)bytes.size(), &w,
+                                                                     &h, &channels, 4)
+                                             : nullptr;
+    if (!pixels) {
+        error = path + ": " + (stbi_failure_reason() ? stbi_failure_reason() : "cannot load image");
+        return -1;
+    }
+    // Every thumbnail pixel averages the block of source pixels it covers
+    uint32_t step = std::max(1u, (uint32_t)std::ceil((float)std::max(w, h) / (float)std::max(maxSize, 1u)));
+    uint32_t tw = std::max(1u, (uint32_t)w / step), th = std::max(1u, (uint32_t)h / step);
+    std::vector<uint8_t> rgba((size_t)tw * th * 4);
+    for (uint32_t y = 0; y < th; ++y)
+        for (uint32_t x = 0; x < tw; ++x) {
+            uint32_t sum[4] = {0, 0, 0, 0}, n = 0;
+            for (uint32_t sy = y * step; sy < std::min((y + 1) * step, (uint32_t)h); ++sy)
+                for (uint32_t sx = x * step; sx < std::min((x + 1) * step, (uint32_t)w); ++sx, ++n)
+                    for (int c = 0; c < 4; ++c) sum[c] += pixels[((size_t)sy * w + sx) * 4 + c];
+            for (int c = 0; c < 4; ++c) rgba[((size_t)y * tw + x) * 4 + c] = (uint8_t)(sum[c] / std::max(n, 1u));
+        }
+    stbi_image_free(pixels);
+    return addTexture(lib, name, "", tw, th, std::move(rgba));
 }
 
 int importTexture(TextureLibrary& lib, const std::string& source, std::string& error) {

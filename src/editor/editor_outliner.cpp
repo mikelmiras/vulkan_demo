@@ -57,7 +57,11 @@ void Editor::drawOutliner() {
         for (const Entity& e : scene_.entities)
             if (filter_.PassFilter(e.name.c_str())) {
                 ImGui::PushID((int)e.id);
-                if (ImGui::Selectable(e.name.c_str(), e.id == selected_)) select(e.id);
+                if (ImGui::Selectable(e.name.c_str(), isSelected(e.id))) {
+                    if (ImGui::GetIO().KeyCtrl) toggleSelect(e.id);
+                    else if (ImGui::GetIO().KeyShift) selectRange(e.id);
+                    else select(e.id);
+                }
                 ImGui::PopID();
             }
     } else {
@@ -121,6 +125,17 @@ void Editor::drawPrefabs() {
     for (const Entity& e : scene_.entities)
         instances += e.prefab && e.prefab->prefab == p.id && !p.entities.empty() && e.prefab->source == p.entities[0].id;
     ImGui::TextDisabled("%zu entities, %d instance(s) in the scene", p.entities.size(), instances);
+    // What it's built on: a variant of another prefab (its root is an instance of it), or prefabs nested inside
+    std::vector<std::string> inner;
+    for (const Entity& e : p.entities)
+        if (e.prefab && &e != &p.entities[0])
+            if (const Prefab* q = scene_.findPrefab(e.prefab->prefab); q && !q->entities.empty() && e.prefab->source == q->entities[0].id &&
+                                                                        std::find(inner.begin(), inner.end(), q->name) == inner.end())
+                inner.push_back(q->name);
+    if (p.entities[0].prefab)
+        if (const Prefab* base = scene_.findPrefab(p.entities[0].prefab->prefab))
+            ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.f, 1.f), "Variant of %s", base->name.c_str());
+    for (const std::string& n : inner) ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.f, 1.f), "Contains %s", n.c_str());
     float w = ImGui::GetContentRegionAvail().x;
     if (ImGui::Button("Add to scene", ImVec2(w, 0))) instantiatePrefab(selectedPrefab_);
     ImGui::BeginDisabled(selection() == nullptr);
@@ -128,6 +143,8 @@ void Editor::drawPrefabs() {
     tooltip("Make the prefab match the selected instance (or entity tree). Every other instance follows, keeping "
             "its own changes (overrides).");
     ImGui::EndDisabled();
+    if (ImGui::Button("Make variant", ImVec2(w, 0))) makePrefabVariant(selectedPrefab_);
+    tooltip("A new prefab based on this one: it follows every change to this one, except what it changes itself");
     if (ImGui::Button("Export", ImVec2(w * 0.5f - 2.f, 0))) exportPrefab(selectedPrefab_);
     tooltip("Save as <name>.prefab in the working directory");
     ImGui::SameLine();
@@ -152,7 +169,7 @@ void Editor::drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityI
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick |
                                ImGuiTreeNodeFlags_SpanAvailWidth;
     if (kids.empty()) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    if (e.id == selected_) flags |= ImGuiTreeNodeFlags_Selected;
+    if (isSelected(e.id)) flags |= ImGuiTreeNodeFlags_Selected;
     bool dim = !scene_.visibleInHierarchy(e.id);
     bool linked = e.prefab.has_value();
     if (dim) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
@@ -167,7 +184,11 @@ void Editor::drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityI
     bool open = ImGui::TreeNodeEx((void*)(uintptr_t)e.id, flags, "%s%s", e.name.c_str(), tag);
     if (dim || linked) ImGui::PopStyleColor();
 
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) select(e.id);
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
+        if (ImGui::GetIO().KeyCtrl) toggleSelect(e.id);        // add to / take from the selection
+        else if (ImGui::GetIO().KeyShift) selectRange(e.id);   // everything from the selected one to here
+        else select(e.id);
+    }
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) pendingFocus_ = e.id;
 
     if (ImGui::BeginDragDropSource()) {

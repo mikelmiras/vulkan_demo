@@ -85,6 +85,7 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Hide / show selected", "H", false, sel)) toggleHideSelected();
         if (ImGui::MenuItem("Unhide all", "Alt+H")) unhideAll();
+        if (ImGui::MenuItem("Select all", "Ctrl+A")) selectAllRoots();
         if (ImGui::MenuItem("Deselect", "Esc", false, sel)) selected_ = kNoEntity;
         ImGui::EndMenu();
     }
@@ -267,6 +268,8 @@ void Editor::drawHelp() {
         {"End", "Drop selected to the ground"},
         {"H / Alt+H", "Hide selected / unhide all"},
         {"Esc", "Deselect"},
+        {"Ctrl+click", "Add to / take from the selection (Shift+click in the outliner: a range)"},
+        {"Ctrl+A", "Select every top-level object"},
         {"Ctrl+P", "Play / stop the game (the scene is restored on stop)"},
         {"Ctrl+Shift+P", "Pause / resume the game"},
         {"Click / Esc (playing)", "Capture / release the mouse for the game"},
