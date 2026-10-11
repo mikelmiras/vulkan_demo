@@ -57,17 +57,20 @@ public:
     void remapMeshes(const std::vector<int>& map);
     size_t bodyCount() const;     // bodies in the simulation (characters not included)
 
+    // Queries see the colliders on the `layers` given (bit 1 << layer; all by default; see LayerSettings).
     // Closest solid collider along the ray (dir need not be normalised); triggers are ignored
-    bool raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore = kNoEntity) const;
+    bool raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore = kNoEntity,
+                 uint32_t layers = ~0u) const;
     // Every solid surface along the ray that faces it (one hit per convex body, per triangle for meshes), nearest
     // first: the floors stacked under a point, say
-    std::vector<RaycastHit> raycastAll(Vec3 origin, Vec3 dir, float maxDistance) const;
+    std::vector<RaycastHit> raycastAll(Vec3 origin, Vec3 dir, float maxDistance, uint32_t layers = ~0u) const;
     // The box around every body; false if there are none
     bool bounds(Vec3& min, Vec3& max) const;
     // Entities whose collider touches the sphere
     std::vector<EntityId> overlapSphere(Vec3 center, float radius, bool includeTriggers = true,
-                                        EntityId ignore = kNoEntity) const;
-    // (trigger, other) pairs overlapping now, triggers in scene order; triggers don't trigger each other
+                                        EntityId ignore = kNoEntity, uint32_t layers = ~0u) const;
+    // (trigger, other) pairs overlapping now, triggers in scene order; triggers don't trigger each other, nor
+    // colliders on layers they don't meet
     std::vector<std::pair<EntityId, EntityId>> triggerOverlaps(const Scene& scene) const;
 
     // Moves `self` by `delta` (world space) as a character, over `dt` seconds. Needs a capsule or sphere collider

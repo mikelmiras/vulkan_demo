@@ -30,17 +30,18 @@
 
 namespace {
 
-// ---- Layers: things that never move don't collide with each other
-namespace Layers {
-constexpr JPH::ObjectLayer kStatic = 0, kMoving = 1;
-}
+// ---- Layers. A Jolt object layer is the entity's layer (0..31) times two, plus one if the body can move: things
+// that never move don't collide with each other, and the scene's layer matrix (LayerSettings) says which layers meet.
+JPH::ObjectLayer objectLayer(int layer, bool moving) { return (JPH::ObjectLayer)(((layer & 31) << 1) | (moving ? 1 : 0)); }
+bool isMoving(JPH::ObjectLayer l) { return (l & 1) != 0; }
+int userLayer(JPH::ObjectLayer l) { return (int)(l >> 1); }
 const JPH::BroadPhaseLayer kBroadStatic(0), kBroadMoving(1);
 
 class BroadPhaseLayers final : public JPH::BroadPhaseLayerInterface {
 public:
     JPH::uint GetNumBroadPhaseLayers() const override { return 2; }
     JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override {
-        return layer == Layers::kStatic ? kBroadStatic : kBroadMoving;
+        return isMoving(layer) ? kBroadMoving : kBroadStatic;
     }
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
     const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer layer) const override {
@@ -52,14 +53,18 @@ public:
 class ObjectVsBroadPhase final : public JPH::ObjectVsBroadPhaseLayerFilter {
 public:
     bool ShouldCollide(JPH::ObjectLayer layer, JPH::BroadPhaseLayer broad) const override {
-        return layer == Layers::kMoving || broad == kBroadMoving;
+        return isMoving(layer) || broad == kBroadMoving;
     }
 };
 
 class ObjectPairs final : public JPH::ObjectLayerPairFilter {
 public:
+    uint32_t collides[32];   // the scene's LayerSettings::collides
+    ObjectPairs() {
+        for (uint32_t& c : collides) c = ~0u;
+    }
     bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
-        return a == Layers::kMoving || b == Layers::kMoving;
+        return (isMoving(a) || isMoving(b)) && ((collides[userLayer(a)] >> userLayer(b)) & 1u);
     }
 };
 
@@ -143,14 +148,16 @@ bool near(Quat a, Quat b, float eps) {
 // Which bodies a query sees: not sensors (unless asked), not the entity asking
 class QueryFilter final : public JPH::BodyFilter {
 public:
-    QueryFilter(bool sensors, EntityId ignore) : sensors_(sensors), ignore_(ignore) {}
+    QueryFilter(bool sensors, EntityId ignore, uint32_t layers = ~0u) : sensors_(sensors), ignore_(ignore), layers_(layers) {}
     bool ShouldCollideLocked(const JPH::Body& body) const override {
         if (!sensors_ && body.IsSensor()) return false;
+        if (!((layers_ >> userLayer(body.GetObjectLayer())) & 1u)) return false;
         return ignore_ == kNoEntity || (EntityId)body.GetUserData() != ignore_;
     }
 private:
     bool sensors_;
     EntityId ignore_;
+    uint32_t layers_;
 };
 
 }  // namespace
@@ -160,6 +167,7 @@ struct Physics::Impl {
         JPH::BodyID id;
         ShapeKey key;
         bool dynamic = false, kinematic = false, moving = false;
+        uint8_t layer = 0;
         Vec3 position, velocity, angularVelocity;   // as last written to (or read from) the entity
         Quat rotation;
         bool seen = false;
@@ -275,7 +283,8 @@ struct Physics::Impl {
         if (!shape) return false;
         JPH::BodyCreationSettings s(shape, JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation),
                                     dynamic ? JPH::EMotionType::Dynamic : JPH::EMotionType::Static,
-                                    dynamic ? Layers::kMoving : Layers::kStatic);
+                                    objectLayer(e.layer, dynamic));
+        t.layer = e.layer;
         s.mUserData = e.id;
         s.mAllowDynamicOrKinematic = !dynamic;   // a static one becomes kinematic once game code moves it
         s.mIsSensor = e.collider->trigger;      // (overlaps are found by triggerOverlaps(), not contacts)
@@ -349,6 +358,7 @@ void Physics::clear() {
 std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings) {
     Impl& im = *impl_;
     im.system.SetGravity(toJ(settings.gravity));
+    for (int i = 0; i < 32; ++i) im.objectPairs.collides[i] = scene.layers.collides[i];
     std::vector<Mat4> worlds = scene.worldMatrices();
     for (auto& [id, t] : im.bodies) t.seen = false;
 
@@ -387,6 +397,10 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
         }
         Impl::Tracked& t = it->second;
         t.seen = true;
+        if (t.layer != e.layer) {   // moved to another layer
+            t.layer = e.layer;
+            im.bi().SetObjectLayer(t.id, objectLayer(e.layer, t.dynamic || t.kinematic));
+        }
         bool moved = !near(p.position, t.position, 1e-5f) || !near(p.rotation, t.rotation, 1e-6f);
         if (t.dynamic) {   // game code teleported it or changed its velocity: tell Jolt
             const RigidBody& rb = *e.rigidBody;
@@ -401,7 +415,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
         } else if (moved || t.moving) {
             // Moved by game code (or just stopped): kinematic, so it pushes what it moves into
             if (!t.kinematic) {
-                im.bi().SetObjectLayer(t.id, Layers::kMoving);
+                im.bi().SetObjectLayer(t.id, objectLayer(t.layer, true));
                 im.bi().SetMotionType(t.id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
                 t.kinematic = true;
             }
@@ -470,7 +484,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
 // ---------------------------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------------------------
-bool Physics::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore) const {
+bool Physics::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore, uint32_t layers) const {
     float len = length(dir);
     if (len < 1e-9f || maxDistance <= 0.f) return false;
     dir = dir * (1.f / len);
@@ -478,7 +492,7 @@ bool Physics::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit,
     JPH::RayCastSettings settings;
     settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;   // meshes are double-sided
     JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
-    QueryFilter filter(false, ignore);
+    QueryFilter filter(false, ignore, layers);
     impl_->system.GetNarrowPhaseQueryNoLock().CastRay(ray, settings, collector, {}, {}, filter);
     if (!collector.HadHit()) return false;
     const JPH::RayCastResult& r = collector.mHit;
@@ -492,7 +506,7 @@ bool Physics::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit,
     return true;
 }
 
-std::vector<RaycastHit> Physics::raycastAll(Vec3 origin, Vec3 dir, float maxDistance) const {
+std::vector<RaycastHit> Physics::raycastAll(Vec3 origin, Vec3 dir, float maxDistance, uint32_t layers) const {
     std::vector<RaycastHit> hits;
     float len = length(dir);
     if (len < 1e-9f || maxDistance <= 0.f) return hits;
@@ -501,7 +515,7 @@ std::vector<RaycastHit> Physics::raycastAll(Vec3 origin, Vec3 dir, float maxDist
     JPH::RayCastSettings settings;
     settings.mBackFaceModeTriangles = JPH::EBackFaceMode::IgnoreBackFaces;
     JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
-    QueryFilter filter(false, kNoEntity);
+    QueryFilter filter(false, kNoEntity, layers);
     impl_->system.GetNarrowPhaseQueryNoLock().CastRay(ray, settings, collector, {}, {}, filter);
     collector.Sort();
     for (const JPH::RayCastResult& r : collector.mHits) {
@@ -529,14 +543,15 @@ bool Physics::bounds(Vec3& min, Vec3& max) const {
     return true;
 }
 
-std::vector<EntityId> Physics::overlapSphere(Vec3 center, float radius, bool includeTriggers, EntityId ignore) const {
+std::vector<EntityId> Physics::overlapSphere(Vec3 center, float radius, bool includeTriggers, EntityId ignore,
+                                            uint32_t layers) const {
     std::vector<EntityId> out;
     if (radius <= 0.f) return out;
     JPH::SphereShape sphere(radius);
     sphere.SetEmbedded();
     JPH::CollideShapeSettings settings;
     JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
-    QueryFilter filter(includeTriggers, ignore);
+    QueryFilter filter(includeTriggers, ignore, layers);
     impl_->system.GetNarrowPhaseQueryNoLock().CollideShape(&sphere, JPH::Vec3::sReplicate(1.f),
                                                           JPH::RMat44::sTranslation(JPH::RVec3(center.x, center.y, center.z)),
                                                           settings, JPH::RVec3::sZero(), collector, {}, {}, filter);
@@ -565,7 +580,7 @@ std::vector<std::pair<EntityId, EntityId>> Physics::triggerOverlaps(const Scene&
         }
         JPH::CollideShapeSettings settings;
         JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
-        QueryFilter filter(false, e.id);
+        QueryFilter filter(false, e.id, impl_->objectPairs.collides[e.layer & 31]);   // the layers it meets
         impl_->system.GetNarrowPhaseQueryNoLock().CollideShape(shape, JPH::Vec3::sReplicate(1.f), transform, settings,
                                                               JPH::RVec3::sZero(), collector, {}, {}, filter);
         std::vector<EntityId> others;
@@ -598,7 +613,8 @@ CharacterMove Physics::moveCharacter(Scene& scene, const MeshLibrary& meshes, En
         ShapeKey key;
         key.shape = (int)self.collider->shape;
         const Collider& c = *self.collider;
-        const float values[9] = {p.scale.x, p.scale.y, p.scale.z, c.center.x, c.center.y, c.center.z, 0.f, c.radius, c.height};
+        const float values[9] = {p.scale.x, p.scale.y, p.scale.z, c.center.x, c.center.y, c.center.z,
+                                 (float)self.layer, c.radius, c.height};   // (a new layer: made again)
         std::memcpy(key.values, values, sizeof(values));
         auto it = im.characters.find(self.id);
         if (it == im.characters.end() || !(it->second.key == key)) {
@@ -611,7 +627,7 @@ CharacterMove Physics::moveCharacter(Scene& scene, const MeshLibrary& meshes, En
                 JPH::CharacterVirtualSettings cs;
                 cs.mShape = shape;
                 cs.mInnerBodyShape = shape;            // a body too, so rays, overlaps and triggers find it
-                cs.mInnerBodyLayer = Layers::kMoving;
+                cs.mInnerBodyLayer = objectLayer(self.layer, true);
                 cs.mMaxSlopeAngle = 50.f * DEG2RAD;
                 cs.mMass = 70.f;
                 cs.mMaxStrength = 100.f;               // how hard it pushes bodies
@@ -645,8 +661,9 @@ CharacterMove Physics::moveCharacter(Scene& scene, const MeshLibrary& meshes, En
                 settings.mStickToFloorStepDown = JPH::Vec3(0, -0.4f, 0);
                 settings.mWalkStairsStepUp = JPH::Vec3(0, 0.4f, 0);
                 QueryFilter filter(false, kNoEntity);
-                cv.ExtendedUpdate(dt, JPH::Vec3(0, -18.f, 0), settings, im.system.GetDefaultBroadPhaseLayerFilter(Layers::kMoving),
-                                  im.system.GetDefaultLayerFilter(Layers::kMoving), filter, {}, im.temp);
+                cv.ExtendedUpdate(dt, JPH::Vec3(0, -18.f, 0), settings,
+                                  im.system.GetDefaultBroadPhaseLayerFilter(objectLayer(self.layer, true)),
+                                  im.system.GetDefaultLayerFilter(objectLayer(self.layer, true)), filter, {}, im.temp);
             } else {
                 cv.SetPosition(before + JPH::RVec3(delta.x, delta.y, delta.z));
             }

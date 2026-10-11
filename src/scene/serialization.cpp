@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 17;  // 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 18;  // 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -245,6 +245,11 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
     }
     if (!e.visible) v.set("visible", false);
     if (e.locked) v.set("locked", true);
+    if (!e.tags.empty()) {
+        json::Value& tags = v.set("tags", json::Value::array());
+        for (const std::string& t : e.tags) tags.push(t);
+    }
+    if (e.layer) v.set("layer", (int)e.layer);
 
     json::Value& t = v.set("transform", json::Value::object());
     t.set("position", json::Value::vec3(e.transform.position));
@@ -442,6 +447,9 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         e.prefab = PrefabLink{(uint32_t)link["id"].asNumber(0), (EntityId)link["source"].asNumber(0)};
     e.visible = v["visible"].asBool(true);
     e.locked = v["locked"].asBool(false);
+    for (const json::Value& t : v["tags"].elements())
+        if (!t.asString().empty()) e.tags.push_back(t.asString());
+    e.layer = (uint8_t)(v["layer"].asInt(0) & 31);
 
     const json::Value& t = v["transform"];
     t["position"].readVec3(e.transform.position);
@@ -798,6 +806,17 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
         nv.set("maxClimb", n.maxClimb);
         nv.set("maxSlope", n.maxSlope);
     }
+    {
+        const LayerSettings& l = scene.layers;
+        json::Value& lv = settings.set("layers", json::Value::object());
+        json::Value names = json::Value::array(), collides = json::Value::array();
+        for (int i = 0; i < LayerSettings::kCount; ++i) {
+            names.push(l.names[i]);
+            collides.push((double)l.collides[i]);
+        }
+        lv.set("names", std::move(names));   // (set() may move the members: no references held across it)
+        lv.set("collides", std::move(collides));
+    }
     json::Value& input = settings.set("input", json::Value::array());
     for (const InputAction& a : scene.inputActions) {
         json::Value av = json::Value::object();
@@ -861,6 +880,15 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
         r.exposure = rv["exposure"].asFloat(r.exposure);
         r.bloomStrength = rv["bloomStrength"].asFloat(r.bloomStrength);
         r.bloomThreshold = rv["bloomThreshold"].asFloat(r.bloomThreshold);
+    }
+    if (const json::Value& lv = doc["settings"]["layers"]; lv.isObject()) {
+        LayerSettings& l = result.layers;
+        const auto& names = lv["names"].elements();
+        const auto& collides = lv["collides"].elements();
+        for (int i = 0; i < LayerSettings::kCount; ++i) {
+            if ((size_t)i < names.size()) l.names[i] = names[(size_t)i].asString();
+            if ((size_t)i < collides.size()) l.collides[i] = (uint32_t)collides[(size_t)i].asNumber(4294967295.0);
+        }
     }
     if (const json::Value& nv = doc["settings"]["navigation"]; nv.isObject()) {
         NavigationSettings& n = result.navigation;

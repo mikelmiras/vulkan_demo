@@ -13,6 +13,7 @@ bool sameEntity(const Entity& a, const Entity& b);
 bool sameInputActions(const std::vector<InputAction>& a, const std::vector<InputAction>& b);
 bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b);
 bool sameNavigationSettings(const NavigationSettings& a, const NavigationSettings& b);
+bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b);
 
 // How to turn one state of a scene back into another: apply it to the later state to get the earlier one
 struct SceneDelta {
@@ -23,9 +24,11 @@ struct SceneDelta {
     std::optional<std::vector<InputAction>> inputActions;
     std::optional<RenderSettings> render;
     std::optional<NavigationSettings> navigation;
+    std::optional<LayerSettings> layers;
 
     bool empty() const {
-        return entities.empty() && added.empty() && !order && !prefabs && !inputActions && !render && !navigation;
+        return entities.empty() && added.empty() && !order && !prefabs && !inputActions && !render && !navigation &&
+               !layers;
     }
     size_t entityCount() const { return entities.size() + added.size(); }
 };

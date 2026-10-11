@@ -137,7 +137,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | # | Task | Why |
 |---|------|-----|
 | 21 (done) | Loading without hitches: physics bodies made off the main thread, incremental GPU uploads (only new meshes / textures, through a staging ring), load progress, the first scene behind the loading screen too | Async loading (task 20) still stalls on Game::start (~55 ms on the stress scene) and on uploading a new scene's assets in one frame |
-| 22 | Gameplay framework: timers and coroutine-style waits (`ctx.after(seconds, ...)`), messages between entities, tags and layers (queries and collisions filtered by them) | Behaviours hand-roll timers, find each other by name, and every query hits everything |
+| 22 (done) | Gameplay framework: timers and coroutine-style waits (`ctx.after(seconds, ...)`), messages between entities, tags and layers (queries and collisions filtered by them) | Behaviours hand-roll timers, find each other by name, and every query hits everything |
 | 23 | Physics joints and constraints (hinge, fixed, distance, slider) as a component, ragdolls from a skeleton, collision layers | Bodies can't be connected; skeletons can't go limp; nothing filters collisions |
 | 24 | Animation layers and blend trees: 1D blends (walk / run by speed), upper-body masks, root motion, a graph view of the state machine | The state machine (task 17) plays one clip at a time |
 | 25 | Smarter navigation: dynamic obstacles (moving things carve the grid), avoidance between agents, off-mesh links (jumps, ladders, drops), baking in the background and saving the result | Agents walk through each other and through crates; a big level re-bakes (1.3 s) each run |
@@ -158,3 +158,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
   new ranges are copied (host-visible); textures upload inside the frame's command buffer, 24 MB per frame, staging
   freed after that frame's fence. Stress scene change: 118 ms -> 2.6 ms on the main thread. Not done: the old
   world is still destroyed on the main thread; a real staging ring / transfer queue; mesh buffers device-local.
+- Task 22: Entity::tags and Entity::layer (scene format 18), LayerSettings (32 names, symmetric collides matrix;
+  undo covers it); Jolt object layer = layer * 2 + moving, ObjectPairs checks the matrix, triggers query with the
+  sensor's row, characters use their layer (in their shape key), queries take a layer mask (Physics::raycast /
+  raycastAll / overlapSphere, ctx.layerMask). GameContext: findWithTag / findFirstWithTag (spawned included),
+  send / sendToTag / broadcast with Behaviour::onMessage (delivered in flushQueues, interleaved with spawns, 8 rounds
+  then dropped), after / every / cancel / sequence (Game::runTimers after the behaviours' updates; owner-bound;
+  cleared by begin). Editor: tag chips + layer combo, Layers settings with a meet matrix. Fixed a dangling
+  json::Value reference pattern in the writer. Module API 14. Not done: timers in save games, layer-filtered
+  navigation, a message log in the editor.
+

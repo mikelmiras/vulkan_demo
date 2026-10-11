@@ -102,7 +102,8 @@ bool samePrefabs(const std::vector<Prefab>& a, const std::vector<Prefab>& b) {
 }  // namespace
 
 bool sameEntity(const Entity& a, const Entity& b) {
-    if (a.id != b.id || a.name != b.name || a.parent != b.parent || a.visible != b.visible || a.locked != b.locked)
+    if (a.id != b.id || a.name != b.name || a.parent != b.parent || a.visible != b.visible || a.locked != b.locked ||
+        a.tags != b.tags || a.layer != b.layer)
         return false;
     if (!eq(a.transform.position, b.transform.position, 3) || !eq(a.transform.rotation, b.transform.rotation, 3) ||
         !eq(a.transform.scale, b.transform.scale, 3))
@@ -135,6 +136,12 @@ bool sameInputActions(const std::vector<InputAction>& a, const std::vector<Input
 bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
     return eq(a.sky, b.sky) && eq(a.zenith, b.zenith) && eq(a.ground, b.ground) && a.fogDensity == b.fogDensity && a.ambient == b.ambient && a.exposure == b.exposure &&
            a.bloomStrength == b.bloomStrength && a.bloomThreshold == b.bloomThreshold;
+}
+
+bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b) {
+    for (int i = 0; i < LayerSettings::kCount; ++i)
+        if (a.names[i] != b.names[i] || a.collides[i] != b.collides[i]) return false;
+    return true;
 }
 
 bool sameNavigationSettings(const NavigationSettings& a, const NavigationSettings& b) {
@@ -174,6 +181,7 @@ SceneDelta diffScenes(const Scene& before, const Scene& after) {
     if (!sameInputActions(before.inputActions, after.inputActions)) d.inputActions = before.inputActions;
     if (!sameRenderSettings(before.render, after.render)) d.render = before.render;
     if (!sameNavigationSettings(before.navigation, after.navigation)) d.navigation = before.navigation;
+    if (!sameLayerSettings(before.layers, after.layers)) d.layers = before.layers;
     return d;
 }
 
@@ -206,4 +214,5 @@ void applyDelta(Scene& scene, const SceneDelta& d) {
     if (d.inputActions) scene.inputActions = *d.inputActions;
     if (d.render) scene.render = *d.render;
     if (d.navigation) scene.navigation = *d.navigation;
+    if (d.layers) scene.layers = *d.layers;
 }

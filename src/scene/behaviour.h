@@ -67,6 +67,14 @@ public:
     }
 };
 
+// What GameContext::send() delivers: a name, who sent it, and a number and a text to go with it
+struct Message {
+    std::string name;
+    uint32_t from = 0;   // the sender's EntityId (0: nobody in particular)
+    float value = 0.f;
+    std::string text;
+};
+
 class Behaviour {
 public:
     virtual ~Behaviour();   // out of line: the type info lives in the engine, shared with game modules
@@ -89,6 +97,9 @@ public:
     virtual void drawUI(GameContext&, Entity& /*self*/, GameUI&) {}
     // The entity's Animator passed one of its events (see AnimationEvent)
     virtual void onAnimationEvent(GameContext&, Entity& /*self*/, const std::string& /*event*/) {}
+    // A message sent to this entity (GameContext::send, sendToTag, broadcast), delivered after the update it was
+    // sent in
+    virtual void onMessage(GameContext&, Entity& /*self*/, const Message& /*message*/) {}
 };
 
 // CRTP helper: implements typeName() and clone() from T::kTypeName and T's copy constructor

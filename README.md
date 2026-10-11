@@ -430,6 +430,28 @@ that matches nothing.
 collision queries, deferred `spawn()` / `destroy()` and `log()`. Behaviours also get `onTriggerEnter` / `onTriggerExit`
 and `onAnimationEvent`.
 
+### Tags, layers, messages and timers
+
+Entities carry **tags** (the inspector's Tags row) and sit on one of 32 named **layers** (the scene's Layers
+settings, with a matrix of which layers meet: colliders on layers that don't meet pass through each other and
+don't set off each other's triggers):
+
+```cpp
+for (EntityId id : ctx.findWithTag("Enemy")) ...;
+ctx.raycast(eye, forward, 50.f, hit, self.id, ctx.layerMask({"Default", "Enemy"}));   // sees only those
+
+ctx.send(other, {"hit", self.id, 10.f});        // Behaviour::onMessage(ctx, self, message) after this update
+ctx.sendToTag("Enemy", {"alarm"});
+ctx.broadcast({"level-start"});
+
+ctx.after(2.f, [](GameContext& c) { c.log("two seconds later"); }, self.id);   // dropped if self is destroyed
+ctx.every(0.5f, [](GameContext& c) { /* ... */ });
+ctx.sequence(self.id).wait(1.f).then(openDoor).wait(3.f).then(closeDoor);
+```
+
+Timers run on game time (they stop while paused) and, holding code, aren't kept in save games or across scene
+changes.
+
 ### Scene flow and save games
 
 Game code moves between scenes and keeps progress through the `GameContext`:

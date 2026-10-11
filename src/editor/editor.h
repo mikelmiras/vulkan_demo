@@ -93,6 +93,8 @@ private:
     bool acceptAssetDrop(AssetKind kind, std::filesystem::path& out);   // after an Inspector widget: dropped on it?
     void assignTexture(EntityId id, const std::filesystem::path& file);
     void drawAnimatorInspector(Entity& e);   // editor_animation.cpp
+    void drawTagsAndLayer(Entity& e);
+    void drawLayerSettings();
     void pickReference(const char* label, std::string& value, FieldRef kind);   // a behaviour's FieldRef field
     void track();   // call after an editing widget: records an undo step when the edit starts
 
@@ -214,6 +216,7 @@ private:
     ParticleSystem previewParticles_;   // emitters outside Play (View > Preview particles)
     bool previewParticles_on_ = true;
     NavGrid navPreview_;
+    std::string newTag_;
     std::vector<Vec3> navLinks_;   // navPreview_.links(), made when first drawn
     bool showNavigation_ = false;
     // Clip preview outside Play: the entity's clip drawn at `time` (the scene itself isn't changed)
@@ -231,6 +234,7 @@ private:
     std::optional<std::pair<size_t, Entity>> frameEntity_;
     RenderSettings frameRender_;
     NavigationSettings frameNav_;
+    LayerSettings frameLayers_;
     std::vector<InputAction> frameInput_;
     EntityId frameSelected_ = kNoEntity;
     bool editBegan_ = false;

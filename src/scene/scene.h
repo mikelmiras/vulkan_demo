@@ -229,6 +229,14 @@ struct Entity {
     EntityId parent = kNoEntity;
     bool visible = true;    // also hides the children
     bool locked = false;    // not pickable by clicking in the viewport
+    std::vector<std::string> tags;   // labels game code finds entities by (GameContext::findWithTag)
+    uint8_t layer = 0;               // 0..31: which others its collider meets, and which queries see it (LayerSettings)
+
+    bool hasTag(const std::string& tag) const {
+        for (const std::string& t : tags)
+            if (t == tag) return true;
+        return false;
+    }
 
     Transform transform;
     std::optional<MeshRenderer> meshRenderer;
@@ -259,6 +267,29 @@ struct NavigationSettings {
     float maxSlope = 45.f;      // steepest walkable surface, degrees
 };
 
+// Layers: up to 32, named per scene. Colliders on two layers only meet (collide, or set off triggers) when the
+// matrix allows it; queries can be limited to some layers (a mask of 1 << layer bits).
+struct LayerSettings {
+    static constexpr int kCount = 32;
+    std::string names[kCount] = {"Default"};
+    uint32_t collides[kCount];   // bit b of collides[a]: layers a and b meet (kept symmetric)
+    LayerSettings() {
+        for (uint32_t& c : collides) c = ~0u;
+    }
+    bool meet(int a, int b) const { return (collides[a & 31] >> (b & 31)) & 1u; }
+    void setMeet(int a, int b, bool on) {
+        a &= 31;
+        b &= 31;
+        if (on) { collides[a] |= 1u << b; collides[b] |= 1u << a; }
+        else { collides[a] &= ~(1u << b); collides[b] &= ~(1u << a); }
+    }
+    int find(const std::string& name) const {   // -1 if no layer has that name
+        for (int i = 0; i < kCount; ++i)
+            if (!name.empty() && names[i] == name) return i;
+        return -1;
+    }
+};
+
 // How the scene looks: the renderer's per-scene settings (saved with the scene)
 struct RenderSettings {
     Vec3 sky{0.62f, 0.75f, 0.90f};    // sRGB: the sky at the horizon, and the fog
@@ -286,6 +317,7 @@ public:
     std::vector<InputAction> inputActions = defaultInputActions();   // the game's controls
     RenderSettings render;
     NavigationSettings navigation;
+    LayerSettings layers;
 
     Entity& create(const std::string& name, EntityId parent = kNoEntity);   // appended with a fresh id
     Entity& add(Entity e);   // keeps e.id if it's free, otherwise assigns a new one

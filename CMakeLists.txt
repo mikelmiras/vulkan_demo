@@ -255,7 +255,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_scene_diff.cpp
     tests/test_particles.cpp
     tests/test_navigation.cpp
-    tests/test_loading.cpp)
+    tests/test_loading.cpp
+    tests/test_gameplay.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

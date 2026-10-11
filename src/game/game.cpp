@@ -113,6 +113,66 @@ CharacterMove GameContext::moveCharacter(Entity& self, Vec3 delta) {
     return physics_->moveCharacter(*scene_, *meshes_, self, delta, dt_);
 }
 
+uint32_t GameContext::layerMask(std::initializer_list<const char*> layerNames) const {
+    uint32_t mask = 0;
+    for (const char* n : layerNames)
+        if (int l = scene_->layers.find(n); l >= 0) mask |= 1u << l;
+    return mask;
+}
+
+std::vector<EntityId> GameContext::findWithTag(const std::string& tag) {
+    std::vector<EntityId> out;
+    for (const Entity& e : scene_->entities)
+        if (e.hasTag(tag) && !isDestroyed(e.id)) out.push_back(e.id);
+    for (const Entity& e : spawnQueue_)
+        if (e.hasTag(tag)) out.push_back(e.id);
+    return out;
+}
+
+Entity* GameContext::findFirstWithTag(const std::string& tag) {
+    for (Entity& e : scene_->entities)
+        if (e.hasTag(tag) && !isDestroyed(e.id)) return &e;
+    for (Entity& e : spawnQueue_)
+        if (e.hasTag(tag)) return &e;
+    return nullptr;
+}
+
+void GameContext::send(EntityId to, const Message& message) { messages_.emplace_back(to, message); }
+
+void GameContext::sendToTag(const std::string& tag, const Message& message) {
+    for (EntityId id : findWithTag(tag)) send(id, message);
+}
+
+void GameContext::broadcast(const Message& message) {
+    for (const Entity& e : scene_->entities)
+        if (!e.behaviours.empty()) send(e.id, message);
+    for (const Entity& e : spawnQueue_)
+        if (!e.behaviours.empty()) send(e.id, message);
+}
+
+GameContext::TimerId GameContext::after(float seconds, std::function<void(GameContext&)> fn, EntityId owner) {
+    Game::Timer t{game_->nextTimer_++, (double)game_->time_ + std::max(seconds, 0.f), 0.f, owner, std::move(fn)};
+    game_->timers_.push_back(std::move(t));
+    return game_->timers_.back().id;
+}
+
+GameContext::TimerId GameContext::every(float seconds, std::function<void(GameContext&)> fn, EntityId owner) {
+    float interval = std::max(seconds, Game::kFixedDt);
+    Game::Timer t{game_->nextTimer_++, (double)game_->time_ + interval, interval, owner, std::move(fn)};
+    game_->timers_.push_back(std::move(t));
+    return game_->timers_.back().id;
+}
+
+void GameContext::cancel(TimerId timer) {
+    for (Game::Timer& t : game_->timers_)
+        if (t.id == timer) t.done = true;
+}
+
+Sequence& Sequence::then(std::function<void(GameContext&)> step) {
+    ctx_->after(at_, std::move(step), owner_);
+    return *this;
+}
+
 bool GameContext::loading() const { return game_->loading(); }
 void GameContext::showLoadingScreen(bool show) { game_->loadingScreen_ = show; }
 
@@ -244,6 +304,8 @@ void Game::begin(bool fresh, bool keepPhysics) {
                 }
             }
     updateAnimators(*scene_, *meshes_, 0.f);   // the first frame shows the first pose
+    timers_.clear();
+    ctx_.messages_.clear();
     physics_.step(*scene_, *meshes_, 0.f);   // make the bodies now (or catch up: kept ones are made already)
     prepareContext(0.f);
     startAudio();
@@ -438,6 +500,7 @@ void Game::fixedUpdate(float dt) {
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
     }
     flushQueues();
+    runTimers();
     playImpacts(physics_.step(*scene_, *meshes_, dt));
     particles_.update(*scene_, scene_->worldMatrices(), dt);
     updateTriggers();
@@ -544,6 +607,56 @@ void Game::flushSpawned() {
                 for (size_t b = 0; b < e->behaviours.size(); ++b) e->behaviours[b]->start(ctx_, *e);
     }
     ctx_.spawnQueue_.clear();   // runaway spawning from start(): drop the rest
+}
+
+void Game::flushQueues() {
+    // Spawned entities join first (messages may be for them), then messages go out, which may spawn and send more
+    for (int round = 0; round < 8 && (!ctx_.spawnQueue_.empty() || !ctx_.messages_.empty()); ++round) {
+        flushSpawned();
+        deliverMessages();
+    }
+    flushSpawned();
+    if (!ctx_.messages_.empty()) {
+        ctx_.log("Messages kept sending messages: " + std::to_string(ctx_.messages_.size()) + " dropped");
+        ctx_.messages_.clear();
+    }
+    flushDestroyed();
+}
+
+void Game::deliverMessages() {
+    std::vector<std::pair<EntityId, Message>> batch = std::move(ctx_.messages_);
+    ctx_.messages_.clear();
+    for (const auto& [to, message] : batch) {
+        Entity* e = scene_->find(to);
+        if (!e || ctx_.isDestroyed(to)) continue;
+        for (size_t b = 0; b < e->behaviours.size(); ++b) {
+            e->behaviours[b]->onMessage(ctx_, *e, message);
+            if (!(e = scene_->find(to))) break;
+        }
+    }
+}
+
+void Game::runTimers() {
+    if (timers_.empty()) return;
+    std::vector<std::pair<double, GameContext::TimerId>> due;   // (when, id): fired in that order
+    for (const Timer& t : timers_)
+        if (!t.done && t.at <= (double)time_ + 1e-6) due.emplace_back(t.at, t.id);
+    std::sort(due.begin(), due.end());
+    for (const auto& [at, id] : due) {
+        // (looked up again each time: a timer's function may add or cancel timers)
+        auto it = std::find_if(timers_.begin(), timers_.end(), [&](const Timer& t) { return t.id == id; });
+        if (it == timers_.end() || it->done) continue;
+        if (it->owner != kNoEntity && (!scene_->find(it->owner) || ctx_.isDestroyed(it->owner))) {
+            it->done = true;
+            continue;
+        }
+        std::function<void(GameContext&)> fn = it->fn;   // (a copy: the vector may grow while it runs)
+        if (it->interval > 0.f) it->at = std::max(it->at + it->interval, (double)time_ + 1e-4);
+        else it->done = true;
+        fn(ctx_);
+    }
+    timers_.erase(std::remove_if(timers_.begin(), timers_.end(), [](const Timer& t) { return t.done; }), timers_.end());
+    flushQueues();
 }
 
 void Game::flushDestroyed() {

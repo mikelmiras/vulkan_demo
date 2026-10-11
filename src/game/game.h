@@ -2,6 +2,8 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
+#include <initializer_list>
 #include <map>
 #include <string>
 #include <utility>
@@ -27,6 +29,25 @@ struct CameraView {
 };
 
 class Game;
+class GameContext;
+
+// A chain of timed steps: ctx.sequence(self.id).wait(1.f).then(openDoor).wait(2.f).then(closeDoor). Each wait()
+// adds to the time from now; then() runs at the time reached so far. Dropped with its owner entity.
+class Sequence {
+public:
+    Sequence& wait(float seconds) {
+        at_ += seconds;
+        return *this;
+    }
+    Sequence& then(std::function<void(GameContext&)> step);
+
+private:
+    friend class GameContext;
+    Sequence(GameContext& ctx, uint32_t owner) : ctx_(&ctx), owner_(owner) {}
+    GameContext* ctx_;
+    uint32_t owner_;
+    float at_ = 0.f;
+};
 
 // Values that outlive a scene (score, lives, inventory, progress): kept when ctx.loadScene() changes the scene,
 // saved in save games, empty when the game starts
@@ -74,6 +95,32 @@ public:
         return physics_->raycast(origin, dir, maxDistance, hit, ignore);
     }
     std::vector<EntityId> overlapSphere(Vec3 center, float radius) const { return physics_->overlapSphere(center, radius); }
+    // The same, seeing only some layers: ctx.layerMask({"Enemy", "Default"}) (unknown names add nothing)
+    uint32_t layerMask(std::initializer_list<const char*> layerNames) const;
+    bool raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore, uint32_t layers) const {
+        return physics_->raycast(origin, dir, maxDistance, hit, ignore, layers);
+    }
+    std::vector<EntityId> overlapSphere(Vec3 center, float radius, uint32_t layers) const {
+        return physics_->overlapSphere(center, radius, true, kNoEntity, layers);
+    }
+
+    // Tags (Entity::tags): every entity with one, in scene order (spawned ones included), or the first
+    std::vector<EntityId> findWithTag(const std::string& tag);
+    Entity* findFirstWithTag(const std::string& tag);
+
+    // Messages: delivered to the entity's behaviours (onMessage) once this update's behaviours have run (or the
+    // trigger callbacks, if sent from those). Messages sent while delivering go out in the same round, up to a limit.
+    void send(EntityId to, const Message& message);
+    void sendToTag(const std::string& tag, const Message& message);
+    void broadcast(const Message& message);   // to every entity with behaviours
+
+    // Timers, in game time (paused with the game), run after the update they come due in. With an owner they're
+    // dropped when it's destroyed. Not kept in save games or across scene changes.
+    using TimerId = uint32_t;
+    TimerId after(float seconds, std::function<void(GameContext&)> fn, EntityId owner = kNoEntity);
+    TimerId every(float seconds, std::function<void(GameContext&)> fn, EntityId owner = kNoEntity);
+    void cancel(TimerId timer);
+    Sequence sequence(EntityId owner = kNoEntity) { return Sequence(*this, owner); }
     // Moves `self` by `delta` (world space) as a character: with a capsule or sphere collider it slides along walls,
     // climbs slopes and steps, rides moving platforms and pushes rigid bodies. Without one it just moves.
     CharacterMove moveCharacter(Entity& self, Vec3 delta);
@@ -144,6 +191,7 @@ private:
     float time_ = 0.f, dt_ = 0.f;
     std::vector<EntityId> destroyQueue_;
     std::vector<Entity> spawnQueue_;
+    std::vector<std::pair<EntityId, Message>> messages_;
     std::vector<std::pair<float, std::string>>* log_ = nullptr;
 };
 
@@ -222,7 +270,9 @@ private:
     void prepareContext(float dt);
     void flushDestroyed();
     void flushSpawned();
-    void flushQueues() { flushSpawned(); flushDestroyed(); }
+    void flushQueues();
+    void deliverMessages();   // one round
+    void runTimers();
     void updateTriggers();
     void startAudio();
     void updateAudio();
@@ -251,6 +301,16 @@ private:
         bool cancelled = false;
     };
     std::vector<Chunk> chunks_;
+    struct Timer {
+        GameContext::TimerId id;
+        double at;
+        float interval;   // 0: once
+        EntityId owner;
+        std::function<void(GameContext&)> fn;
+        bool done = false;
+    };
+    std::vector<Timer> timers_;
+    GameContext::TimerId nextTimer_ = 1;
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity

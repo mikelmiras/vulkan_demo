@@ -41,6 +41,7 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::Checkbox("Locked", &e.locked);
         track();
         tooltip("Locked objects ignore viewport clicks (select them in the outliner)");
+        drawTagsAndLayer(e);
         if (const Entity* parent = scene_.find(e.parent)) {
             ImGui::TextDisabled("Child of %s", parent->name.c_str());
             ImGui::SameLine();
@@ -143,6 +144,8 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         tooltip("How much bright parts (emissive materials, strong highlights) glow");
         ImGui::SliderFloat("Bloom threshold", &r.bloomThreshold, 0.f, 4.f, "%.2f");
         track();
+
+        drawLayerSettings();
 
         ImGui::SeparatorText("Navigation");
         NavigationSettings& n = scene_.navigation;
@@ -652,4 +655,88 @@ void Editor::pickReference(const char* label, std::string& value, FieldRef kind)
         tooltip("Nothing in this scene has that name");
     }
     ImGui::PopID();
+}
+
+namespace {
+
+std::string layerLabel(const LayerSettings& l, int i) {
+    return l.names[i].empty() ? "Layer " + std::to_string(i) : l.names[i];
+}
+
+}  // namespace
+
+// Tags as removable chips plus a box to add one; the layer as a list of the scene's named layers
+void Editor::drawTagsAndLayer(Entity& e) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Tags");
+    int remove = -1;
+    for (size_t i = 0; i < e.tags.size(); ++i) {
+        ImGui::SameLine();
+        ImGui::PushID((int)i);
+        if (ImGui::SmallButton((e.tags[i] + "  x").c_str())) remove = (int)i;
+        tooltip("Remove this tag");
+        ImGui::PopID();
+    }
+    if (remove >= 0) { pushUndo(); e.tags.erase(e.tags.begin() + remove); }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x, px(60.f)));
+    if (ImGui::InputTextWithHint("##newtag", "add a tag", &newTag_, ImGuiInputTextFlags_EnterReturnsTrue) &&
+        !newTag_.empty() && !e.hasTag(newTag_)) {
+        pushUndo();
+        e.tags.push_back(newTag_);
+        newTag_.clear();
+    }
+    tooltip("Game code finds entities by tag: ctx.findWithTag(\"Enemy\"), ctx.sendToTag(...)");
+
+    const LayerSettings& layers = scene_.layers;
+    if (ImGui::BeginCombo("Layer", layerLabel(layers, e.layer).c_str())) {
+        for (int i = 0; i < LayerSettings::kCount; ++i) {
+            if (layers.names[i].empty() && i != e.layer) continue;
+            if (ImGui::Selectable(layerLabel(layers, i).c_str(), i == e.layer)) { pushUndo(); e.layer = (uint8_t)i; }
+        }
+        ImGui::EndCombo();
+    }
+    tooltip("Which other layers its collider meets (the scene's layer matrix) and which queries see it. Name more "
+            "layers in the scene settings (Inspector with nothing selected).");
+}
+
+// The scene's layer names, and which named layers meet, as a triangle of checkboxes
+void Editor::drawLayerSettings() {
+    ImGui::SeparatorText("Layers");
+    LayerSettings& l = scene_.layers;
+    int shown = 0;
+    for (int i = 0; i < LayerSettings::kCount; ++i) {
+        if (l.names[i].empty() && shown > 0 && (i == 0 || l.names[i - 1].empty())) continue;   // one blank to add more
+        ImGui::PushID(i);
+        ImGui::SetNextItemWidth(-px(60.f));
+        ImGui::InputTextWithHint("##name", ("Layer " + std::to_string(i)).c_str(), &l.names[i]);
+        track();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d", i);
+        ImGui::PopID();
+        ++shown;
+    }
+    std::vector<int> named;
+    for (int i = 0; i < LayerSettings::kCount; ++i)
+        if (!l.names[i].empty()) named.push_back(i);
+    if (named.size() < 2) return;
+    if (ImGui::TreeNode("Which layers meet")) {
+        // Rows: each layer; columns: it and the layers before it
+        for (size_t r = 0; r < named.size(); ++r) {
+            ImGui::PushID((int)r);
+            for (size_t c = 0; c <= r; ++c) {
+                if (c) ImGui::SameLine();
+                bool on = l.meet(named[r], named[c]);
+                ImGui::PushID((int)c);
+                if (ImGui::Checkbox("##m", &on)) { pushUndo(); l.setMeet(named[r], named[c], on); }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s and %s", l.names[named[r]].c_str(), l.names[named[c]].c_str());
+                ImGui::PopID();
+            }
+            ImGui::SameLine();
+            ImGui::TextUnformatted(l.names[named[r]].c_str());
+            ImGui::PopID();
+        }
+        ImGui::TreePop();
+    }
 }
