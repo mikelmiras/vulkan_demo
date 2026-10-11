@@ -25,7 +25,7 @@ struct TextureLibrary {
 
 // Built-in procedural textures ("Checker", "Bricks", "Tiles"), handy without any image files
 TextureLibrary buildTextureLibrary();
-constexpr int kBuiltinTextureCount = 4;   // Checker, Bricks, Tiles, Bricks Normal
+constexpr int kBuiltinTextureCount = 5;   // Checker, Bricks, Tiles, Bricks Normal, Grate
 
 int addTexture(TextureLibrary& lib, const std::string& name, const std::string& source, uint32_t width, uint32_t height,
                std::vector<uint8_t> rgba);

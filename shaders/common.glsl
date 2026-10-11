@@ -40,8 +40,9 @@ struct Instance {
     vec4 color;    // rgb = albedo (linear; sRGB for the outline), a unused
     vec4 params;   // x = 1 for the procedural checker ground, y = texture tiling, z = 1 if textured,
                    // w = first joint matrix (skinned meshes) or -1
-    vec4 material; // x = metallic, y = roughness, z = normal map strength (0: no normal map)
-    vec4 emissive; // rgb = emitted light (linear, times its strength)
+    vec4 material; // x = metallic, y = roughness, z = normal map strength (0: no normal map), w = alpha mode
+                   // (0 opaque, 1 cut-out, 2 see-through); color.a = opacity
+    vec4 emissive; // rgb = emitted light (linear, times its strength), w = alpha cutoff (cut-outs)
 };
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
     Instance instances[];

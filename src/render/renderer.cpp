@@ -495,6 +495,15 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
     cba.colorWriteMask = d.colorWrite ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT)
                                       : 0;
+    if (d.blend) {
+        cba.blendEnable = VK_TRUE;
+        cba.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        cba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        cba.colorBlendOp = VK_BLEND_OP_ADD;
+        cba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        cba.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cb.attachmentCount = depthOnly ? 0 : 1;
     cb.pAttachments = &cba;
@@ -571,6 +580,9 @@ void Renderer::createPipelines() {
     // Lit scene objects: depth tested, no stencil
     scenePipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_BACK_BIT,
                                      false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    // See-through objects: depth-tested, but not hiding what's drawn after them
+    transparentPipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
+                                           false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, true});
     // Selected object's full silhouette into stencil (ignores depth so occluded parts are marked too)
     stencilPipeline_ = createPipeline({"scene.vert.spv", "outline.frag.spv", false, false, false, VK_CULL_MODE_NONE,
                                        true, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_REPLACE, 0xff});
@@ -1020,6 +1032,15 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
         vkCmdDraw(cb, 3, 1, 0, 0);
 
+        // See-through objects, back to front
+        if (!transparentBatches_.empty()) {
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline_);
+            for (const Batch& b : transparentBatches_) {
+                draw(b);
+                stats_.drawCalls++;
+            }
+        }
+
         // Particles: see-through ones (sorted back to front), then the additive ones
         if (particleAlpha_) {
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAlphaPipeline_);
@@ -1225,7 +1246,7 @@ void Renderer::shutdown() {
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
-    for (VkPipeline p : {scenePipeline_, stencilPipeline_, outlinePipeline_, shadowPipeline_, bloomDownPipeline_,
+    for (VkPipeline p : {scenePipeline_, transparentPipeline_, stencilPipeline_, outlinePipeline_, shadowPipeline_, bloomDownPipeline_,
                          bloomUpPipeline_, compositePipeline_, particleAlphaPipeline_, particleAdditivePipeline_,
                          skyPipeline_})
         vkDestroyPipeline(device_, p, nullptr);

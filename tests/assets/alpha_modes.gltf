@@ -1,0 +1,110 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "vkworld test asset"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0,
+    1
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "Glass",
+   "mesh": 0
+  },
+  {
+   "name": "Leaf",
+   "mesh": 1
+  }
+ ],
+ "meshes": [
+  {
+   "name": "GlassTri",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0
+     },
+     "material": 0
+    }
+   ]
+  },
+  {
+   "name": "LeafTri",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0
+     },
+     "material": 1
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "Glass",
+   "alphaMode": "BLEND",
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.8,
+     0.9,
+     1.0,
+     0.4
+    ],
+    "metallicFactor": 0,
+    "roughnessFactor": 0.1
+   }
+  },
+  {
+   "name": "Leaf",
+   "alphaMode": "MASK",
+   "alphaCutoff": 0.3,
+   "pbrMetallicRoughness": {
+    "baseColorFactor": [
+     0.2,
+     0.6,
+     0.1,
+     1.0
+    ],
+    "metallicFactor": 0
+   }
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 36,
+   "uri": "data:application/octet-stream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAA"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 36
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 3,
+   "type": "VEC3",
+   "min": [
+    0,
+    0,
+    0
+   ],
+   "max": [
+    1,
+    1,
+    0
+   ]
+  }
+ ]
+}

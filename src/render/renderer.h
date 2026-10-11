@@ -31,6 +31,8 @@ struct DrawItem {
     int metalRoughTexture = -1, normalTexture = -1, emissiveTexture = -1;
     float normalScale = 1.f;
     Vec3 emissive;              // linear, times its strength
+    int alphaMode = 0;          // 0 opaque, 1 mask (cut out below alphaCutoff), 2 blend (see-through)
+    float opacity = 1.f, alphaCutoff = 0.5f;
 };
 
 // One particle to draw: a camera-facing dot
@@ -121,6 +123,7 @@ private:
         VkStencilOp stencilPass;
         uint32_t stencilWriteMask;
         uint32_t vertexAttributes = 3;   // position, normal, uv: only as many as the vertex shader reads
+        bool blend = false;              // premultiplied see-through (colour only: alpha is the outline marker)
     };
 
     void createInstance();
@@ -229,6 +232,7 @@ private:
     VkDescriptorSetLayout setLayout_ = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline scenePipeline_ = VK_NULL_HANDLE;     // lit objects
+    VkPipeline transparentPipeline_ = VK_NULL_HANDLE;   // lit see-through objects (no depth writes)
     VkPipeline stencilPipeline_ = VK_NULL_HANDLE;   // marks the selected object's silhouette in stencil
     VkPipeline outlinePipeline_ = VK_NULL_HANDLE;   // extruded hull drawn where stencil != 1
     VkDescriptorPool descPool_ = VK_NULL_HANDLE;
@@ -246,7 +250,7 @@ private:
         VkDescriptorSet texture = VK_NULL_HANDLE;
         uint32_t first = 0, count = 0;
     };
-    std::vector<Batch> sceneBatches_, outlineBatches_;
+    std::vector<Batch> sceneBatches_, outlineBatches_, transparentBatches_;   // (transparent: back to front)
     std::vector<Batch> shadowBatches_[8];   // per shadow layer
     Mat4 shadowViewProj_[8];
     VkPipeline skyPipeline_ = VK_NULL_HANDLE;

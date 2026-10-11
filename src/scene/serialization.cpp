@@ -13,7 +13,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 14;  // 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 15;  // 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -258,6 +258,11 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             if (mr.emissiveStrength != 1.f) c.set("emissiveStrength", mr.emissiveStrength);
         }
         tex("emissiveTexture", mr.emissiveTexture);
+        if (mr.alphaMode != MeshRenderer::AlphaMode::Opaque) {
+            c.set("alphaMode", alphaModeName(mr.alphaMode));
+            c.set("opacity", mr.opacity);
+            c.set("alphaCutoff", mr.alphaCutoff);
+        }
     }
     if (e.camera) {
         json::Value& c = v.set("camera", json::Value::object());
@@ -414,6 +419,11 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         mr.normalScale = c["normalScale"].asFloat(mr.normalScale);
         mr.emissive = readVec3(c["emissive"], mr.emissive);
         mr.emissiveStrength = c["emissiveStrength"].asFloat(mr.emissiveStrength);
+        std::string alpha = c["alphaMode"].asString();
+        mr.alphaMode = alpha == "mask" ? MeshRenderer::AlphaMode::Mask : alpha == "blend" ? MeshRenderer::AlphaMode::Blend
+                                                                                           : MeshRenderer::AlphaMode::Opaque;
+        mr.opacity = c["opacity"].asFloat(mr.opacity);
+        mr.alphaCutoff = c["alphaCutoff"].asFloat(mr.alphaCutoff);
         e.meshRenderer = mr;
     }
     if (const json::Value& c = v["camera"]; c.isObject()) {

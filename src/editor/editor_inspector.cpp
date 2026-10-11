@@ -238,6 +238,20 @@ void Editor::drawComponents(Entity& e) {
             track();
             tooltip("Light it gives off itself; above 1 it glows");
             texturePicker("Emissive map", mr.emissiveTexture, "Times the emissive colour");
+            int alphaMode = (int)mr.alphaMode;
+            if (ImGui::Combo("Transparency", &alphaMode, "Opaque\0Cut-out (mask)\0See-through (blend)\0")) {
+                pushUndo();
+                mr.alphaMode = (MeshRenderer::AlphaMode)alphaMode;
+            }
+            tooltip("Cut-out: holes where the texture's alpha is below the cutoff (leaves, grates). See-through: "
+                    "glass, water, ghosts");
+            if (mr.alphaMode == MeshRenderer::AlphaMode::Mask) {
+                ImGui::SliderFloat("Alpha cutoff", &mr.alphaCutoff, 0.f, 1.f, "%.2f");
+                track();
+            } else if (mr.alphaMode == MeshRenderer::AlphaMode::Blend) {
+                ImGui::SliderFloat("Opacity", &mr.opacity, 0.f, 1.f, "%.2f");
+                track();
+            }
             ImGui::TextDisabled("%u triangles", meshes_.get(mr.mesh).indexCount / 3);
         }
     }

@@ -21,6 +21,8 @@ struct GltfModel {
         Vec3 emissive{0, 0, 0};                  // sRGB
         float emissiveStrength = 1.f;
         int emissiveTexture = -1;
+        int alphaMode = 0;                       // 0 opaque, 1 mask, 2 blend (MeshRenderer::AlphaMode)
+        float opacity = 1.f, alphaCutoff = 0.5f;
     };
     struct Skin {
         std::vector<std::string> joints;     // node names (the joint entities)

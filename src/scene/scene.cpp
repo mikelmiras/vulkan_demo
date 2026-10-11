@@ -36,6 +36,10 @@ void Transform::setMatrix(const Mat4& m) {
     ImGuizmo::DecomposeMatrixToComponents(m.m, position, rotation, scale);
 }
 
+const char* alphaModeName(MeshRenderer::AlphaMode mode) {
+    return mode == MeshRenderer::AlphaMode::Mask ? "mask" : mode == MeshRenderer::AlphaMode::Blend ? "blend" : "opaque";
+}
+
 const char* lightTypeName(Light::Type type) {
     return type == Light::Type::Directional ? "directional" : type == Light::Type::Spot ? "spot" : "point";
 }
@@ -78,6 +82,9 @@ bool importGltfPrefab(const std::string& path, MeshLibrary& meshes, TextureLibra
                 mr.emissive = mat.emissive;
                 mr.emissiveStrength = mat.emissiveStrength;
                 mr.emissiveTexture = mat.emissiveTexture;
+                mr.alphaMode = (MeshRenderer::AlphaMode)mat.alphaMode;
+                mr.opacity = mat.opacity;
+                mr.alphaCutoff = mat.alphaCutoff;
             }
             std::optional<Skin> skin;
             if (n.skin >= 0 && meshes.get(mr.mesh).skinned)
@@ -527,7 +534,7 @@ Scene buildDefaultScene() {
     ground.locked = true;
 
     // Materials: a row in front of the player, from glossy and matte plastic to gold and steel, a brick block with
-    // a normal map, and a glowing orb (it blooms)
+    // a normal map, a glowing orb (it blooms), glass and a grate (see-through and cut-out)
     {
         EntityId row = group(scene, "Materials", {0, 0, 24}).id;
         struct Sample { const char* name; MeshKind mesh; Vec3 color; float metallic, roughness; };
@@ -538,10 +545,12 @@ Scene buildDefaultScene() {
             {"Steel", MeshKind::Sphere, {0.8f, 0.8f, 0.82f}, 1.f, 0.55f},
             {"Brick Block", MeshKind::Cube, {1.f, 1.f, 1.f}, 0.f, 0.85f},
             {"Glow Orb", MeshKind::Sphere, {0.1f, 0.1f, 0.12f}, 0.f, 0.4f},
+            {"Glass", MeshKind::Sphere, {0.75f, 0.9f, 1.f}, 0.f, 0.05f},
+            {"Grate", MeshKind::Cube, {1.f, 1.f, 1.f}, 1.f, 0.4f},
         };
-        for (int i = 0; i < 6; ++i) {
+        for (int i = 0; i < 8; ++i) {
             const Sample& m = samples[i];
-            Entity& e = make(scene, m.name, row, m.mesh, {-7.5f + 3.f * (float)i, 1.f, 0.f}, {1.6f, 1.6f, 1.6f}, m.color);
+            Entity& e = make(scene, m.name, row, m.mesh, {-10.5f + 3.f * (float)i, 1.f, 0.f}, {1.6f, 1.6f, 1.6f}, m.color);
             e.meshRenderer->metallic = m.metallic;
             e.meshRenderer->roughness = m.roughness;
             if (m.mesh == MeshKind::Cube) {
@@ -552,6 +561,15 @@ Scene buildDefaultScene() {
             if (i == 5) {
                 e.meshRenderer->emissive = {0.3f, 0.9f, 1.f};
                 e.meshRenderer->emissiveStrength = 4.f;
+            }
+            if (i == 6) {   // see-through
+                e.meshRenderer->alphaMode = MeshRenderer::AlphaMode::Blend;
+                e.meshRenderer->opacity = 0.3f;
+            }
+            if (i == 7) {   // cut-out holes from the texture's alpha
+                e.meshRenderer->texture = 4;   // Grate
+                e.meshRenderer->alphaMode = MeshRenderer::AlphaMode::Mask;
+                e.transform.rotation[1] = -25.f;
             }
         }
     }

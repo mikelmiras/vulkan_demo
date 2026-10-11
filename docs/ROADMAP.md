@@ -66,7 +66,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 12 (done) | One physics world: queries, triggers and the character on Jolt (CharacterVirtual: slopes, stairs, moving platforms), retire the duplicate PhysicsWorld snapshot | Two worlds are rebuilt per update (most of the 7 ms stress update); characters don't ride platforms |
 | 13 (done) | Particles: GPU or CPU emitters (sparks, smoke, pickups), a component with an editor | The most visible missing engine feature for games |
 | 14 (done) | Shadows and sky: cascaded sun shadows, point / spot light shadows, a sky and image-based lighting | One 90 m shadow map; hemisphere ambient only |
-| 15 | Transparency: glTF alpha modes (mask, blend), sorted transparent pass | Every material is opaque today |
+| 15 (done) | Transparency: glTF alpha modes (mask, blend), sorted transparent pass | Every material is opaque today |
 | 16 | Single-file shipping: assets packed into one archive, optional static engine, icons / app bundles | Exports are a folder of loose files |
 | 17 | Animation tools: clip preview in the editor, animation events, a simple state machine, render interpolation between fixed steps | Animators only run in Play; motion is stepped at 60 Hz |
 | 18 | Behaviour fields: int, enum, entity and asset references with pickers in the inspector | Behaviours refer to entities and prefabs by typed-in names |
@@ -92,3 +92,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
   (cone + softness, scene format 14); procedural sky pass (after opaque, at the far plane) and sky-based IBL
   (irradiance + roughness-blurred reflection). Not done: point-light (cube) shadows, a real prefiltered cubemap.
   Module API 8.
+- Task 15: MeshRenderer alphaMode / opacity / alphaCutoff (scene format 15, glTF import), cut-outs discard in the
+  opaque pass, see-through objects in a transparent pipeline (premultiplied, no depth writes, sorted by centre).
+  Built-in Grate texture; demo Glass and Grate. Not done: alpha-tested / tinted shadows, order-independent
+  transparency. Module API 9.

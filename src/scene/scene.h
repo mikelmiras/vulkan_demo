@@ -43,7 +43,13 @@ struct MeshRenderer {
     Vec3 emissive{0, 0, 0};           // sRGB colour of the light it gives off (black: none)
     float emissiveStrength = 1.f;     // above 1 it glows (bloom)
     int emissiveTexture = -1;         // times `emissive`
+    // Transparency (glTF alpha modes): opacity times the texture's alpha
+    enum class AlphaMode { Opaque, Mask, Blend };
+    AlphaMode alphaMode = AlphaMode::Opaque;
+    float opacity = 1.f;              // Blend: how much it hides what's behind (0..1)
+    float alphaCutoff = 0.5f;         // Mask: below this it's a hole
 };
+const char* alphaModeName(MeshRenderer::AlphaMode mode);
 
 // Lights the scene. Without any directional light the renderer uses a default sun.
 struct Light {

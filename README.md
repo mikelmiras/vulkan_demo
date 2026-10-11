@@ -227,6 +227,9 @@ dropping on the right.
   lights don't cast shadows.
 - **Sky**: a gradient from the horizon (also the fog colour) to the zenith, the ground below, and the sun's disc
   and glow. It also lights the scene: ambient light and reflections come from it (blurrier on rougher surfaces).
+- **Transparency** (glTF alpha modes): cut-out materials (Mask) have holes wherever their texture's alpha is below a
+  cutoff (the built-in Grate texture has them); see-through ones (Blend) are drawn after everything solid, sorted
+  back to front, with their opacity. Shadows ignore transparency.
 - **HDR**: the scene renders into a floating-point image; **bloom** (a 13-tap down / tent up mip chain, with a
   soft threshold) makes bright parts glow, and the final pass applies exposure and the Khronos **PBR Neutral**
   tonemapper (colours below about 0.8 come out as they are). Sky colour, fog, ambient, exposure and bloom are

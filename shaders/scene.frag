@@ -111,7 +111,14 @@ vec3 environment(vec3 r, float rough) {
 
 void main() {
     vec3 base = vColor.rgb;
-    if (vParams.z > 0.5) base *= texture(albedoMap, vUV).rgb;
+    float alpha = vColor.a;
+    if (vParams.z > 0.5) {
+        vec4 t = texture(albedoMap, vUV);
+        base *= t.rgb;
+        alpha *= t.a;
+    }
+    int alphaMode = int(vMaterial.w + 0.5);
+    if (alphaMode == 1 && alpha < vEmissive.w) discard;   // a hole in a cut-out
     bool ground = vParams.x > 0.5;
     vec4 mr = texture(metalRoughMap, vUV);
     float metallic = clamp(vMaterial.x * mr.b, 0.0, 1.0);
@@ -170,5 +177,6 @@ void main() {
     float dist = length(frame.camPos.xyz - vWorldPos);
     float fog = 1.0 - exp(-pow(dist * frame.fogColor.w, 2.0));
     color = mix(color, frame.fogColor.rgb, fog);
-    outColor = vec4(color, 1.0);
+    // See-through: premultiplied (the blend adds what's behind, times 1 - alpha); alpha stays the outline marker
+    outColor = alphaMode == 2 ? vec4(color * alpha, alpha) : vec4(color, 1.0);
 }

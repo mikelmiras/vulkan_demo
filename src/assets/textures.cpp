@@ -100,6 +100,23 @@ TextureLibrary buildTextureLibrary() {
         c[1] = n.y * 0.5f + 0.5f;
         c[2] = n.z * 0.5f + 0.5f;
     }));
+    // A metal grate: bars with see-through holes (alpha 0) between them, for cut-out materials
+    {
+        Texture grate = procedural("Grate", 256, [](float u, float v, float* c) {
+            float fu = u * 8.f - std::floor(u * 8.f), fv = v * 8.f - std::floor(v * 8.f);
+            float edge = std::fmin(std::fmin(fu, 1.f - fu), std::fmin(fv, 1.f - fv));
+            c[0] = c[1] = c[2] = 0.55f + edge * 0.4f;
+        });
+        for (uint32_t y = 0; y < grate.height; ++y)
+            for (uint32_t x = 0; x < grate.width; ++x) {
+                float fu = x * 8.f / grate.width, fv = y * 8.f / grate.height;
+                fu -= std::floor(fu);
+                fv -= std::floor(fv);
+                bool bar = fu < 0.18f || fv < 0.18f;
+                grate.rgba[((size_t)y * grate.width + x) * 4 + 3] = bar ? 255 : 0;
+            }
+        lib.textures.push_back(std::move(grate));
+    }
     return lib;
 }
 

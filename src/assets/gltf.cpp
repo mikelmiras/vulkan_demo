@@ -349,6 +349,7 @@ bool importGltf(const std::string& path, MeshLibrary& meshes, TextureLibrary& te
             mat.color = {std::pow(c[0], 1.f / 2.2f), std::pow(c[1], 1.f / 2.2f), std::pow(c[2], 1.f / 2.2f)};
             const cgltf_texture* tex = m.pbr_metallic_roughness.base_color_texture.texture;
             if (tex && tex->image) mat.texture = imageIds[(size_t)(tex->image - data->images)];
+            mat.opacity = c[3];
             mat.metallic = m.pbr_metallic_roughness.metallic_factor;
             mat.roughness = m.pbr_metallic_roughness.roughness_factor;
             const cgltf_texture* mr = m.pbr_metallic_roughness.metallic_roughness_texture.texture;
@@ -358,6 +359,8 @@ bool importGltf(const std::string& path, MeshLibrary& meshes, TextureLibrary& te
             mat.normalTexture = imageIds[(size_t)(n->image - data->images)];
             mat.normalScale = m.normal_texture.scale;
         }
+        mat.alphaMode = m.alpha_mode == cgltf_alpha_mode_mask ? 1 : m.alpha_mode == cgltf_alpha_mode_blend ? 2 : 0;
+        mat.alphaCutoff = m.alpha_cutoff;
         const float* e = m.emissive_factor;
         mat.emissive = {std::pow(e[0], 1.f / 2.2f), std::pow(e[1], 1.f / 2.2f), std::pow(e[2], 1.f / 2.2f)};
         if (m.has_emissive_strength) mat.emissiveStrength = m.emissive_strength.emissive_strength;

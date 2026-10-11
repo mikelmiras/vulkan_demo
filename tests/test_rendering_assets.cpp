@@ -247,3 +247,35 @@ TEST(spot_lights_and_sky_saved) {
     CHECK_VEC(loaded.render.zenith, test::v3(0.1f, 0.2f, 0.9f), 1e-6f);
     CHECK_VEC(loaded.render.ground, test::v3(0.3f, 0.2f, 0.1f), 1e-6f);
 }
+
+#ifdef VKWORLD_TEST_ASSETS
+// glTF alpha modes come through import and a save / load
+TEST(gltf_alpha_modes) {
+    MeshLibrary meshes = buildMeshLibrary();
+    Prefab p;
+    std::string error, warning;
+    REQUIRE(importGltfPrefab(std::string(VKWORLD_TEST_ASSETS) + "/alpha_modes.gltf", meshes, textures(), p, error, warning));
+    const MeshRenderer* glass = nullptr;
+    const MeshRenderer* leaf = nullptr;
+    for (const Entity& e : p.entities) {
+        if (e.name == "Glass") glass = &*e.meshRenderer;
+        if (e.name == "Leaf") leaf = &*e.meshRenderer;
+    }
+    REQUIRE(glass && leaf);
+    CHECK(glass->alphaMode == MeshRenderer::AlphaMode::Blend);
+    CHECK_NEAR(glass->opacity, 0.4, 1e-6);
+    CHECK(leaf->alphaMode == MeshRenderer::AlphaMode::Mask);
+    CHECK_NEAR(leaf->alphaCutoff, 0.3, 1e-6);
+
+    Scene s;
+    for (Entity& e : s.instantiate(p)) s.add(std::move(e));
+    auto path = test::tempPath("alpha.vkw").string();
+    REQUIRE(saveScene(path, s, meshes, textures(), error));
+    Scene loaded;
+    MeshLibrary fresh = buildMeshLibrary();
+    REQUIRE(loadScene(path, loaded, fresh, textures(), error));
+    CHECK(loaded.findByName("Glass")->meshRenderer->alphaMode == MeshRenderer::AlphaMode::Blend);
+    CHECK_NEAR(loaded.findByName("Glass")->meshRenderer->opacity, 0.4, 1e-6);
+    CHECK_NEAR(loaded.findByName("Leaf")->meshRenderer->alphaCutoff, 0.3, 1e-6);
+}
+#endif

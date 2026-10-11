@@ -18,7 +18,8 @@ bool eq(const MeshRenderer& a, const MeshRenderer& b) {
            a.checker == b.checker && a.metallic == b.metallic && a.roughness == b.roughness &&
            a.metalRoughTexture == b.metalRoughTexture && a.normalTexture == b.normalTexture &&
            a.normalScale == b.normalScale && eq(a.emissive, b.emissive) && a.emissiveStrength == b.emissiveStrength &&
-           a.emissiveTexture == b.emissiveTexture;
+           a.emissiveTexture == b.emissiveTexture && a.alphaMode == b.alphaMode && a.opacity == b.opacity &&
+           a.alphaCutoff == b.alphaCutoff;
 }
 bool eq(const Camera& a, const Camera& b) { return a.fovY == b.fovY && a.zNear == b.zNear && a.zFar == b.zFar; }
 bool eq(const Collider& a, const Collider& b) {

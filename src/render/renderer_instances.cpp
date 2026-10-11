@@ -51,6 +51,7 @@ void Renderer::uploadJoints(const SceneRenderInfo& info) {
 
 void Renderer::prepareInstances(const SceneRenderInfo& info) {
     sceneBatches_.clear();
+    transparentBatches_.clear();
     for (auto& b : shadowBatches_) b.clear();
     outlineBatches_.clear();
     stats_ = {};
@@ -68,14 +69,14 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
 
     auto textureSet = [&](const DrawItem& o) { return materialSet(o); };
     // Visible items, sorted so that equal (texture, mesh) pairs sit together and can be drawn as one batch
-    std::vector<uint32_t> visible;
+    std::vector<uint32_t> visible, transparent;
     visible.reserve(items.size());
     for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
         const DrawItem& o = items[i];
         const Mesh& mesh = meshes_->get(o.mesh);
         // Skinned meshes can move anywhere their skeleton takes them: never culled
         bool skinned = o.jointOffset >= 0;
-        if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) visible.push_back(i);
+        if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) (o.alphaMode == 2 ? transparent : visible).push_back(i);
         else stats_.culled++;
         for (size_t k = 0; k < shadowViews.size(); ++k)   // each shadow camera: what it sees
             if (skinned || shadowViews[k].visible(o.model, mesh.boundsMin, mesh.boundsMax)) casters[k].push_back(i);
@@ -85,6 +86,15 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
         if (ta != tb) return ta < tb;
         return items[a].mesh < items[b].mesh;
     });
+    // See-through ones blend correctly only back to front (by their centres)
+    auto centre = [&](uint32_t i) {
+        const Mesh& m = meshes_->get(items[i].mesh);
+        return transformPoint(items[i].model, (m.boundsMin + m.boundsMax) * 0.5f);
+    };
+    std::sort(transparent.begin(), transparent.end(), [&](uint32_t a, uint32_t b) {
+        Vec3 da = centre(a) - info.camPos, db = centre(b) - info.camPos;
+        return dot(da, da) > dot(db, db);
+    });
     size_t casterCount = 0;
     for (auto& list : casters) {
         std::stable_sort(list.begin(), list.end(), [&](uint32_t a, uint32_t b) { return items[a].mesh < items[b].mesh; });
@@ -93,15 +103,16 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
     size_t outlined = 0;
     for (const DrawItem& o : items) outlined += o.outlined;
 
-    ensureInstanceCapacity(visible.size() + casterCount + outlined);
+    ensureInstanceCapacity(visible.size() + transparent.size() + casterCount + outlined);
     InstanceData* out = static_cast<InstanceData*>(instances_[frame_].mapped);
     uint32_t n = 0;
     auto append = [&](std::vector<Batch>& batches, const DrawItem& o, Vec3 rgb, VkDescriptorSet set) {
         bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
         out[n] = {o.model, {rgb.x, rgb.y, rgb.z, 1.f},
                   {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, (float)o.jointOffset},
-                  {o.metallic, o.roughness, o.normalTexture >= 0 ? o.normalScale : 0.f, 0.f},
-                  {o.emissive.x, o.emissive.y, o.emissive.z, 0.f}};
+                  {o.metallic, o.roughness, o.normalTexture >= 0 ? o.normalScale : 0.f, (float)o.alphaMode},
+                  {o.emissive.x, o.emissive.y, o.emissive.z, o.alphaCutoff}};
+        out[n].color[3] = o.alphaMode == 2 ? o.opacity : 1.f;
         if (!batches.empty() && batches.back().mesh == o.mesh && batches.back().texture == set &&
             batches.back().first + batches.back().count == n)
             batches.back().count++;
@@ -110,6 +121,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
         ++n;
     };
     for (uint32_t i : visible) append(sceneBatches_, items[i], srgbToLinear(items[i].color), textureSet(items[i]));
+    for (uint32_t i : transparent) append(transparentBatches_, items[i], srgbToLinear(items[i].color), textureSet(items[i]));
     VkDescriptorSet plain = materialSet(DrawItem{});
     for (size_t k = 0; k < casters.size(); ++k)
         for (uint32_t i : casters[k]) append(shadowBatches_[shadowLayers[k]], items[i], {}, plain);
@@ -119,7 +131,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
             append(single, o, kOutlineSrgb, textureSet(o));
             outlineBatches_.push_back(single[0]);
         }
-    stats_.objects = (uint32_t)visible.size();
+    stats_.objects = (uint32_t)(visible.size() + transparent.size());
     stats_.shadowCasters = (uint32_t)casterCount;
 }
 
