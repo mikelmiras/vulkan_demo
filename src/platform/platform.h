@@ -47,6 +47,7 @@ std::filesystem::path openFileDialog(const char* title, const char* extension);
 std::filesystem::path openFolderDialog(const char* title);   // empty when cancelled / unavailable
 
 std::filesystem::path executableDir();
+std::filesystem::path executablePath();   // empty if unknown
 std::vector<std::filesystem::path> uiFontCandidates();
 
 }  // namespace platform

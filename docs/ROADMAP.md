@@ -67,7 +67,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 13 (done) | Particles: GPU or CPU emitters (sparks, smoke, pickups), a component with an editor | The most visible missing engine feature for games |
 | 14 (done) | Shadows and sky: cascaded sun shadows, point / spot light shadows, a sky and image-based lighting | One 90 m shadow map; hemisphere ambient only |
 | 15 (done) | Transparency: glTF alpha modes (mask, blend), sorted transparent pass | Every material is opaque today |
-| 16 | Single-file shipping: assets packed into one archive, optional static engine, icons / app bundles | Exports are a folder of loose files |
+| 16 (done) | Single-file shipping: assets packed into one archive, optional static engine, icons / app bundles | Exports are a folder of loose files |
 | 17 | Animation tools: clip preview in the editor, animation events, a simple state machine, render interpolation between fixed steps | Animators only run in Play; motion is stepped at 60 Hz |
 | 18 | Behaviour fields: int, enum, entity and asset references with pickers in the inspector | Behaviours refer to entities and prefabs by typed-in names |
 | 19 | Navigation: navmesh baking and pathfinding for AI | Chasers walk straight at the player through walls |
@@ -96,3 +96,8 @@ Working list for turning the renderer demo into a small game engine. Each task i
   opaque pass, see-through objects in a transparent pipeline (premultiplied, no depth writes, sorted by centre).
   Built-in Grate texture; demo Glass and Grate. Not done: alpha-tested / tinted shadows, order-independent
   transparency. Module API 9.
+- Task 16: core/vfs (packs: files + table + footer, mountable standalone or appended to an executable; every loader
+  reads through it: scenes, project, textures, OBJ, glTF via cgltf callbacks, sounds decoded from memory, shaders);
+  export layouts Folder / Pack / SingleFile; VKWORLD_STANDALONE_GAMES builds engine_static and <module>_game
+  (module registered directly). macOS .app bundle, Linux .desktop entry. Not done: window icons, Windows .exe icon
+  resources, compression in packs.

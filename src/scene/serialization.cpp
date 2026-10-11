@@ -6,6 +6,7 @@
 #include <set>
 #include <sstream>
 
+#include "core/vfs.h"
 #include "assets/gltf.h"
 #include "core/json.h"
 #include "core/project.h"
@@ -57,14 +58,7 @@ struct FieldReader : FieldVisitor {
     }
 };
 
-bool readFile(const std::string& path, std::string& text) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return false;
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    text = ss.str();
-    return true;
-}
+bool readFile(const std::string& path, std::string& text) { return vfs::read(std::filesystem::u8path(path), text); }
 
 // ---------------------------------------------------------------------------------------------
 // Legacy text format (v1/v2, plus the camera extension): one object per line, all at the root

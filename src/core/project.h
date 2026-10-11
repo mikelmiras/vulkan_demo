@@ -17,6 +17,7 @@ struct Settings {
     // The command that builds the module, run in the project folder by the editor's Game > Reload game module.
     // "{engineBuild}" stands for the editor's own build folder (for projects built along with the engine).
     std::string moduleBuild;
+    std::string icon;   // the game's icon: a PNG in the project (window icon; exported games' desktop entries)
 };
 
 void setRoot(const std::filesystem::path& root);

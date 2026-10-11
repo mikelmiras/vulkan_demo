@@ -2,6 +2,8 @@
 #include "test.h"
 
 #include "app/export.h"
+#include "core/vfs.h"
+#include "scene/serialization.h"
 #include "game/module.h"
 #include "platform/platform.h"
 
@@ -102,7 +104,7 @@ TEST(export_game_folder) {
     CHECK(fs::is_regular_file(out / "project.json"));
     CHECK(fs::is_regular_file(out / "scenes" / "main.vkw"));
     CHECK(fs::is_regular_file(out / "models" / "tentacle.gltf"));
-    CHECK(fs::is_regular_file(GameModule::libraryPath(out / "bin" / "sample_game")));
+    if (!result.standalone) CHECK(fs::is_regular_file(GameModule::libraryPath(out / "bin" / "sample_game")));
     CHECK(fs::is_regular_file(out / "shaders" / "scene.frag.spv"));
     CHECK(!fs::exists(out / "src"));               // no sources
     CHECK(!fs::exists(out / "CMakeLists.txt"));
@@ -129,3 +131,65 @@ TEST(export_warns_about_outside_assets) {
     REQUIRE(result.warnings.size() == 1);
     CHECK(result.warnings[0].find("rock.obj") != std::string::npos);
 }
+
+// Packs: written, mounted (on their own, or appended to an executable), read; the disk underneath still works
+TEST(vfs_packs) {
+    namespace fs = std::filesystem;
+    fs::path dir = test::tempPath("vfs_src");
+    fs::create_directories(dir / "sub");
+    test::writeFile(dir / "a.txt", "alpha");
+    test::writeFile(dir / "sub" / "b.txt", "bravo");
+    fs::path pak = test::tempPath("test.pak");
+    std::string error, text;
+    REQUIRE(vfs::writePack(pak, {{"a.txt", dir / "a.txt"}, {"sub/b.txt", dir / "sub" / "b.txt"}}, false, error));
+    fs::path root = test::tempPath("vfs_root");   // where the pack's files appear
+    fs::create_directories(root);
+    test::writeFile(root / "disk.txt", "on disk");
+    REQUIRE(vfs::mount(pak, root));
+    CHECK(vfs::mounted());
+    CHECK(vfs::read(root / "sub" / "b.txt", text) && text == "bravo");
+    CHECK(vfs::read(fs::path("a.txt"), text) && text == "alpha");   // relative: from the pack's root
+    CHECK(vfs::exists(root / "a.txt"));
+    CHECK(vfs::read(root / "disk.txt", text) && text == "on disk"); // not in the pack: the disk
+    CHECK(!vfs::exists(root / "nope.txt"));
+    vfs::unmount();
+    CHECK(!vfs::exists(root / "a.txt"));
+
+    // Appended to an "executable": found from the end of the file
+    fs::path exe = test::tempPath("game.exe");
+    test::writeFile(exe, std::string(10000, 'x'));
+    REQUIRE(vfs::writePack(exe, {{"sub/b.txt", dir / "sub" / "b.txt"}}, true, error));
+    REQUIRE(vfs::mount(exe, root));
+    CHECK(vfs::read(root / "sub" / "b.txt", text) && text == "bravo");
+    vfs::unmount();
+    CHECK(!vfs::mount(dir / "a.txt", root));   // not a pack
+}
+
+#ifdef VKWORLD_SAMPLE_GAME
+// The sample game packed: its project and scenes load from the pack alone
+TEST(export_game_pack_loads) {
+    namespace fs = std::filesystem;
+    fs::path sample = fs::u8path(VKWORLD_SAMPLE_GAME), out = test::tempPath("exported_pack");
+    ExportResult result;
+    std::string error;
+    ExportOptions options;
+    options.layout = ExportOptions::Layout::Pack;
+    REQUIRE(exportGame(sample, out, platform::executableDir(), result, error, options));
+    fs::path dir = result.executable.parent_path();
+    REQUIRE(fs::is_regular_file(dir / "game.pak"));
+    CHECK(!fs::exists(dir / "scenes"));   // only in the pack
+    REQUIRE(vfs::mount(dir / "game.pak", dir));
+    project::Settings settings;
+    REQUIRE(project::load(dir, settings, error));
+    fs::path previous = project::root();
+    project::setRoot(dir);
+    MeshLibrary meshes = buildMeshLibrary();
+    Scene scene;
+    bool loaded = loadScene((dir / settings.startScene).u8string(), scene, meshes, textures(), error);
+    project::setRoot(previous);
+    vfs::unmount();
+    REQUIRE(loaded);
+    CHECK(scene.findByName("Coin.001") != nullptr);
+    CHECK(!meshes.animations.empty());   // the tentacle model, from the pack too
+}
+#endif

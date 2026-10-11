@@ -29,15 +29,26 @@ void Editor::drawMenuBar() {
             ImGui::GetIO().ClearInputMouse();
             if (!dir.empty()) openProject(dir);
         }
-        if (ImGui::MenuItem("Export game...", nullptr, false, project::exists(project::root()))) {
-            std::filesystem::path dir = platform::openFolderDialog("Export the game into");
-            ImGui::GetIO().ClearInputKeys();
-            ImGui::GetIO().ClearInputMouse();
-            if (!dir.empty()) exportGameTo(dir);
+        if (ImGui::BeginMenu("Export game", project::exists(project::root()))) {
+            const char* labels[3] = {"As a folder of files...", "With its data packed (game.pak)...",
+                                     "As a single file..."};
+            const char* help[3] = {"The game, the engine, the shaders and the project's files, as they are",
+                                   "The game and the engine, and everything else in one game.pak",
+                                   "Everything in the game's executable (with a standalone build, one file in all: "
+                                   "configure with -DVKWORLD_STANDALONE_GAMES=ON)"};
+            for (int i = 0; i < 3; ++i) {
+                if (ImGui::MenuItem(labels[i])) {
+                    std::filesystem::path dir = platform::openFolderDialog("Export the game into");
+                    ImGui::GetIO().ClearInputKeys();
+                    ImGui::GetIO().ClearInputMouse();
+                    ExportOptions o;
+                    o.layout = (ExportOptions::Layout)i;
+                    if (!dir.empty()) exportGameTo(dir, o);
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s (save the scene first)", help[i]);
+            }
+            ImGui::EndMenu();
         }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
-            ImGui::SetTooltip("A folder with the game, the engine, the shaders and the project's files: zip it and "
-                              "ship it. Save the scene first.");
         if (ImGui::MenuItem("Use this scene at startup")) {
             project_.startScene = scenePath_;
             std::string error;

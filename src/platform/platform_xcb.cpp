@@ -305,10 +305,15 @@ std::filesystem::path openFolderDialog(const char* title) {
     return {};
 }
 
-std::filesystem::path executableDir() {
+std::filesystem::path executablePath() {
     std::error_code ec;
     std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
-    return ec ? std::filesystem::current_path() : exe.parent_path();
+    return ec ? std::filesystem::path() : exe;
+}
+
+std::filesystem::path executableDir() {
+    std::filesystem::path exe = executablePath();
+    return exe.empty() ? std::filesystem::current_path() : exe.parent_path();
 }
 
 std::vector<std::filesystem::path> uiFontCandidates() {

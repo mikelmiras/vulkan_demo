@@ -14,6 +14,7 @@
 #include "app/application.h"
 #include "audio/audio.h"
 #include "core/project.h"
+#include "core/vfs.h"
 #include "assets/meshes.h"
 #include "game/game.h"
 #include "game/module.h"
@@ -22,6 +23,10 @@
 #include "render/scene_draw.h"
 #include "scene/serialization.h"
 #include "scene/stress_scene.h"
+
+#ifdef VKWORLD_STANDALONE_MODULE
+extern "C" void vkworldModuleRegister();   // VKWORLD_GAME_MODULE() in the game's sources
+#endif
 
 namespace {
 
@@ -79,17 +84,27 @@ int main(int argc, char** argv) {
 
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary textures = buildTextureLibrary();
+    // A packed game: its files in a pack appended to this executable, or in game.pak next to it
+    if (vfs::mount(platform::executablePath(), platform::executableDir()) ||
+        vfs::mount(platform::executableDir() / "game.pak", platform::executableDir()))
+        std::printf("Playing from a pack\n");
     GameModule module;   // declared before the scene: outlives the behaviours it made
     Scene scene;
     bool stress = argc > 1 && !std::strcmp(argv[1], "--stress");
     std::string path = stress ? "" : findScene(argc, argv), error;
     // The project's own behaviours: before the scene loads, so it finds them
     project::Settings settings;
-    if (project::exists(project::root()) && project::load(project::root(), settings, error) && !settings.module.empty()) {
+    bool haveProject = project::exists(project::root()) && project::load(project::root(), settings, error);
+#ifdef VKWORLD_STANDALONE_MODULE
+    vkworldModuleRegister();   // the module's code is compiled into this executable
+    (void)haveProject;
+#else
+    if (haveProject && !settings.module.empty()) {
         fs::path lib = GameModule::libraryPath(fs::u8path(project::resolve(settings.module)));
         if (module.load(lib, error)) std::printf("Game module %s: %zu behaviours\n", lib.u8string().c_str(), module.behaviourTypes().size());
         else std::fprintf(stderr, "warning: %s\n", error.c_str());
     }
+#endif
     error.clear();
     if (stress) {
         scene = buildStressScene();

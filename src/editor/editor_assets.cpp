@@ -76,10 +76,10 @@ void Editor::openProject(const fs::path& dir) {
     }
 }
 
-void Editor::exportGameTo(const fs::path& dir) {
+void Editor::exportGameTo(const fs::path& dir, const ExportOptions& options) {
     ExportResult result;
     std::string error;
-    if (!exportGame(project::root(), dir, platform::executableDir(), result, error)) {
+    if (!exportGame(project::root(), dir, platform::executableDir(), result, error, options)) {
         setStatus("Export failed: " + error);
         return;
     }

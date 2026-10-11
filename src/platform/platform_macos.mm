@@ -232,14 +232,19 @@ std::filesystem::path openFolderDialog(const char* title) {
     }
 }
 
-std::filesystem::path executableDir() {
+std::filesystem::path executablePath() {
     uint32_t size = 0;
     _NSGetExecutablePath(nullptr, &size);
     std::string buf(size, '\0');
-    if (_NSGetExecutablePath(buf.data(), &size) != 0) return std::filesystem::current_path();
+    if (_NSGetExecutablePath(buf.data(), &size) != 0) return {};
     std::error_code ec;
     std::filesystem::path p = std::filesystem::canonical(buf.c_str(), ec);
-    return (ec ? std::filesystem::path(buf.c_str()) : p).parent_path();
+    return ec ? std::filesystem::path(buf.c_str()) : p;
+}
+
+std::filesystem::path executableDir() {
+    std::filesystem::path exe = executablePath();
+    return exe.empty() ? std::filesystem::current_path() : exe.parent_path();
 }
 
 std::vector<std::filesystem::path> uiFontCandidates() {

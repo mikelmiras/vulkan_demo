@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 
+#include "core/vfs.h"
 #include "core/json.h"
 
 namespace fs = std::filesystem;
@@ -80,17 +81,14 @@ fs::path saveDir(const std::string& projectName) {
 }
 
 bool exists(const fs::path& dir) {
-    std::error_code ec;
-    return fs::is_regular_file(dir / "project.json", ec);
+    return vfs::exists(dir / "project.json");
 }
 
 bool load(const fs::path& dir, Settings& out, std::string& error) {
-    std::ifstream f(dir / "project.json", std::ios::binary);
-    if (!f) { error = "no project.json in " + dir.u8string(); return false; }
-    std::stringstream ss;
-    ss << f.rdbuf();
+    std::string text;
+    if (!vfs::read(dir / "project.json", text)) { error = "no project.json in " + dir.u8string(); return false; }
     json::Value doc;
-    if (!json::parse(ss.str(), doc, error)) { error = "project.json: " + error; return false; }
+    if (!json::parse(text, doc, error)) { error = "project.json: " + error; return false; }
     if (doc["format"].asString() != "vkworld-project") { error = "project.json: not a vkworld project"; return false; }
     Settings s;
     s.name = doc["name"].asString();
@@ -98,6 +96,7 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     if (!doc["startScene"].asString().empty()) s.startScene = doc["startScene"].asString();
     s.module = doc["module"].asString();
     s.moduleBuild = doc["moduleBuild"].asString();
+    s.icon = doc["icon"].asString();
     out = s;
     return true;
 }
@@ -110,6 +109,7 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     doc.set("startScene", settings.startScene);
     if (!settings.module.empty()) doc.set("module", settings.module);
     if (!settings.moduleBuild.empty()) doc.set("moduleBuild", settings.moduleBuild);
+    if (!settings.icon.empty()) doc.set("icon", settings.icon);
     std::ofstream f(dir / "project.json", std::ios::binary);
     if (!f) { error = "cannot write " + (dir / "project.json").u8string(); return false; }
     f << json::write(doc);

@@ -14,6 +14,7 @@
 
 #include "imgui.h"
 #include "assets/meshes.h"
+#include "app/export.h"
 #include "core/project.h"
 #include "game/game.h"
 #include "game/module.h"
@@ -149,7 +150,7 @@ private:
     void focusSelected();
     void dropSelectedToGround();
     void newScene(bool demo);
-    void exportGameTo(const std::filesystem::path& dir);
+    void exportGameTo(const std::filesystem::path& dir, const ExportOptions& options);
     void saveToFile();
     void loadFromFile();
     void setStatus(const std::string& msg);

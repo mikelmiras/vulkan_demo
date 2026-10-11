@@ -51,7 +51,7 @@ jobs:
           "C:\VulkanSDK\$version\Bin" >> $env:GITHUB_PATH
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVKWORLD_STANDALONE_GAMES=ON
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -81,9 +81,13 @@ jobs:
           XVFB="xvfb-run -a -s '-screen 0 1280x720x24'"
           eval $XVFB ./vkgame --screenshot smoke-game.png --frames 30
           eval $XVFB ./vkworld --stress --play --screenshot smoke-editor.png --frames 20
-          ./vkworld ../examples/sample_game --export exported
-          eval $XVFB "'exported/Sample Game'" --screenshot smoke-export.png --frames 30
-          python3 ../tools/check_screenshot.py smoke-game.png smoke-editor.png smoke-export.png
+          ./vkworld ../examples/sample_game --export single --single-file   # one file: standalone build + its data
+          ./vkworld ../examples/sample_game --export packed --pack
+          mkdir elsewhere && cd elsewhere   # (run from a folder with nothing of the project in it)
+          eval $XVFB "'../single/Sample Game'" --screenshot ../smoke-single.png --frames 30
+          eval $XVFB "'../packed/Sample Game'" --screenshot ../smoke-packed.png --frames 30
+          cd ..
+          python3 ../tools/check_screenshot.py smoke-game.png smoke-editor.png smoke-single.png smoke-packed.png
 
       # (No smoke test on macOS: the runners' paravirtual GPU lacks Metal argument encoders, and MoltenVK aborts
       # in vkCreateInstance. Windows runners have no Vulkan driver at all.)

@@ -2,6 +2,7 @@
 
 #include <tuple>
 
+#include "core/vfs.h"
 #include "assets/gltf.h"
 
 #include <cfloat>
@@ -177,8 +178,9 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
     for (int i = 0; i < lib.count(); ++i)
         if (lib.meshes[(size_t)i].source == source) return i;
 
-    std::ifstream f(path);
-    if (!f) { error = "cannot open " + path; return -1; }
+    std::string text;
+    if (!vfs::read(path, text)) { error = "cannot open " + path; return -1; }
+    std::istringstream f(text);
 
     std::vector<Vec3> positions, normals;
     std::vector<std::pair<float, float>> texcoords;

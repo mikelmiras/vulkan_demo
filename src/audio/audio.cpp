@@ -5,6 +5,7 @@
 #include <map>
 
 #include "core/project.h"
+#include "core/vfs.h"
 #include "miniaudio.h"   // implementation compiled in miniaudio_impl.c
 
 namespace {
@@ -96,7 +97,11 @@ struct AudioEngine::Impl {
         bool loop = false;
     };
     std::map<Sound, std::unique_ptr<Playing>> sounds;   // pointers stay put: miniaudio holds on to them
-    std::map<std::string, std::vector<float>> builtin;
+    struct Clip {
+        std::vector<float> samples;   // interleaved
+        ma_uint32 channels = 1;
+    };
+    std::map<std::string, Clip> clips;   // built-in ones, and files once decoded (by path)
     Sound next = 1;
 
     void release(std::map<Sound, std::unique_ptr<Playing>>::iterator it) {
@@ -129,7 +134,7 @@ bool AudioEngine::init(bool withDevice) {
         return false;
     }
     impl_->ready = true;
-    for (const std::string& name : builtinClips()) impl_->builtin[name] = synth(name);
+    for (const std::string& name : builtinClips()) impl_->clips[name] = {synth(name), 1};
     return true;
 }
 
@@ -146,17 +151,33 @@ AudioEngine::Sound AudioEngine::play(const std::string& clip, const PlayParams& 
     if (!impl_->ready || clip.empty()) return 0;
     auto s = std::make_unique<Impl::Playing>();
     ma_result r;
-    auto b = impl_->builtin.find(clip);
-    if (b != impl_->builtin.end()) {
-        r = ma_audio_buffer_ref_init(ma_format_f32, 1, b->second.data(), b->second.size(), &s->ref);
-        if (r != MA_SUCCESS) return 0;
-        s->usesRef = true;
-        r = ma_sound_init_from_data_source(&impl_->engine, &s->ref, 0, nullptr, &s->sound);
-    } else {
-        // Files (paths relative to the project): decoded once by miniaudio's resource manager, then shared
-        std::string path = project::resolve(clip);
-        r = ma_sound_init_from_file(&impl_->engine, path.c_str(), MA_SOUND_FLAG_DECODE, nullptr, nullptr, &s->sound);
+    auto c = impl_->clips.find(clip);
+    if (c == impl_->clips.end()) {
+        // A file (relative to the project; from the game's pack if it has one): decoded once, then shared
+        std::string path = project::resolve(clip), bytes;
+        if (!vfs::read(std::filesystem::u8path(path), bytes)) {
+            error_ = clip + ": cannot open " + path;
+            return 0;
+        }
+        ma_decoder_config dc = ma_decoder_config_init(ma_format_f32, 0, ma_engine_get_sample_rate(&impl_->engine));
+        ma_uint64 frames = 0;
+        void* pcm = nullptr;
+        r = ma_decode_memory(bytes.data(), bytes.size(), &dc, &frames, &pcm);
+        if (r != MA_SUCCESS) {
+            error_ = clip + ": " + ma_result_description(r);
+            return 0;
+        }
+        Impl::Clip decoded;
+        decoded.channels = dc.channels;
+        decoded.samples.assign((const float*)pcm, (const float*)pcm + frames * dc.channels);
+        ma_free(pcm, nullptr);
+        c = impl_->clips.emplace(clip, std::move(decoded)).first;
     }
+    r = ma_audio_buffer_ref_init(ma_format_f32, c->second.channels, c->second.samples.data(),
+                                 c->second.samples.size() / c->second.channels, &s->ref);
+    if (r != MA_SUCCESS) return 0;
+    s->usesRef = true;
+    r = ma_sound_init_from_data_source(&impl_->engine, &s->ref, 0, nullptr, &s->sound);
     if (r != MA_SUCCESS) {
         if (s->usesRef) ma_audio_buffer_ref_uninit(&s->ref);
         error_ = clip + ": " + ma_result_description(r);

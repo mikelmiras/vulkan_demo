@@ -2,6 +2,7 @@
 
 #include <atomic>
 
+#include "core/vfs.h"
 #include "render/renderer_internal.h"
 
 #include "core/png.h"
@@ -407,19 +408,16 @@ VkShaderModule Renderer::loadShader(const std::string& name) {
     namespace fs = std::filesystem;
     const fs::path exeDir = platform::executableDir();
     fs::path path;
-    for (const fs::path& dir : {exeDir / "shaders", exeDir.parent_path() / "shaders"}) {
-        std::error_code ec;
-        if (fs::exists(dir / name, ec)) { path = dir / name; break; }
-    }
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (path.empty() || !f) {
+    for (const fs::path& dir : {exeDir / "shaders", exeDir.parent_path() / "shaders"})   // (or in a packed game)
+        if (vfs::exists(dir / name)) { path = dir / name; break; }
+    std::string bytes;
+    if (path.empty() || !vfs::read(path, bytes)) {
         std::fprintf(stderr, "cannot find shader %s next to %s\n", name.c_str(), exeDir.u8string().c_str());
         std::exit(1);
     }
-    size_t size = (size_t)f.tellg();
+    size_t size = bytes.size();
     std::vector<uint32_t> code((size + 3) / 4);
-    f.seekg(0);
-    f.read((char*)code.data(), (std::streamsize)size);
+    std::memcpy(code.data(), bytes.data(), size);
 
     VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     ci.codeSize = size;

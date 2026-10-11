@@ -64,10 +64,12 @@ endif()
 
 # Engine: everything a game needs at runtime (platform, rendering, assets, scene, game loop). A shared library, so
 # game modules (project code loaded at run time, see game/module.h) use the same engine as the editor and vkgame.
-add_library(engine SHARED
+# With VKWORLD_STANDALONE_GAMES it's also built as a static library, for games compiled into one executable.
+set(ENGINE_SOURCES
   src/core/json.cpp
   src/core/png.cpp
   src/core/project.cpp
+  src/core/vfs.cpp
   src/assets/meshes.cpp
   src/assets/animation.cpp
   src/assets/textures.cpp
@@ -97,26 +99,62 @@ add_library(engine SHARED
   src/render/scene_draw.cpp
   src/app/application.cpp
   src/app/export.cpp)
-target_include_directories(engine PUBLIC ${CMAKE_SOURCE_DIR}/src)
-# Vendored single-header libraries (implementations compiled in assets/): stb_image v2.30, cgltf v1.14
-target_include_directories(engine PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb ${CMAKE_SOURCE_DIR}/third_party/cgltf
-                                          ${CMAKE_SOURCE_DIR}/third_party/miniaudio)
+if(WIN32)
+  list(APPEND ENGINE_SOURCES src/platform/platform_win32.cpp)
+elseif(APPLE)
+  list(APPEND ENGINE_SOURCES src/platform/platform_macos.mm)
+else()
+  list(APPEND ENGINE_SOURCES src/platform/platform_xcb.cpp src/platform/imgui_impl_xcb.cpp)
+endif()
 # miniaudio v0.11.21 (third-party code: no warnings from it)
 set_source_files_properties(src/audio/miniaudio_impl.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/w,-w>")
 find_package(Threads REQUIRED)
-target_link_libraries(engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
-# The ImGui objects go into the engine (PRIVATE: users get them through it, not a second copy); its headers are public
-target_link_libraries(engine PRIVATE imgui)
-target_link_libraries(engine PRIVATE Jolt)
-target_include_directories(engine PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMGUIZMO_DIR})
-target_link_libraries(engine PUBLIC Vulkan::Vulkan)
+option(VKWORLD_STANDALONE_GAMES "Also build each game module into a standalone executable (static engine)" OFF)
+
+function(vkworld_engine_target name type)
+  add_library(${name} ${type} ${ENGINE_SOURCES})
+  target_include_directories(${name} PUBLIC ${CMAKE_SOURCE_DIR}/src)
+  # Vendored single-header libraries (implementations compiled in assets/): stb_image v2.30, cgltf v1.14
+  target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb ${CMAKE_SOURCE_DIR}/third_party/cgltf
+                                             ${CMAKE_SOURCE_DIR}/third_party/miniaudio)
+  target_link_libraries(${name} PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+  # The ImGui objects go into the engine (PRIVATE: users get them through it, not a second copy); its headers are public
+  target_link_libraries(${name} PRIVATE imgui Jolt)
+  target_include_directories(${name} PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMGUIZMO_DIR})
+  target_link_libraries(${name} PUBLIC Vulkan::Vulkan)
+  if(WIN32)
+    if(NOT MSVC)
+      target_link_libraries(${name} PRIVATE gdi32 dwmapi)   # MSVC gets these via #pragma comment
+    endif()
+    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32)
+    target_compile_definitions(${name} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+  elseif(APPLE)
+    target_link_libraries(${name} PRIVATE "-framework Cocoa" "-framework GameController")
+    target_compile_options(${name} PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_link_libraries(${name} PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework UniformTypeIdentifiers"
+                                         "-framework CoreAudio" "-framework AudioToolbox" "-framework CoreFoundation")
+  else()
+    target_link_libraries(${name} PUBLIC ${XCB_LIBRARY} m)
+  endif()
+  add_dependencies(${name} shaders)
+endfunction()
+
+if(NOT WIN32 AND NOT APPLE)
+  find_library(XCB_LIBRARY xcb REQUIRED)
+endif()
+if(APPLE)
+  enable_language(OBJCXX)
+endif()
+vkworld_engine_target(engine SHARED)
 # Windows: export every function, like a Unix shared library does (data symbols aren't: the engine keeps none in headers)
 set_target_properties(engine PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 if(MSVC)   # load the Vulkan loader on first use: programs that never render (the tests) run without one installed
   target_link_options(engine PRIVATE /DELAYLOAD:vulkan-1.dll)
   target_link_libraries(engine PRIVATE delayimp)
 endif()
-add_dependencies(engine shaders)
+if(VKWORLD_STANDALONE_GAMES)
+  vkworld_engine_target(engine_static STATIC)
+endif()
 
 # Editor: the application built on top of the engine
 add_executable(vkworld
@@ -139,28 +177,12 @@ target_link_libraries(vkgame PRIVATE engine)
 add_executable(engine_bench bench/bench_main.cpp)
 target_link_libraries(engine_bench PRIVATE engine)
 
-# Platform layer (part of the engine)
+# Platform layer: the ImGui backends (the engine's own platform files are in ENGINE_SOURCES)
 if(WIN32)
   target_sources(imgui PRIVATE ${IMGUI_DIR}/backends/imgui_impl_win32.cpp)
-  if(NOT MSVC)
-    target_link_libraries(engine PRIVATE gdi32 dwmapi)   # MSVC gets these via #pragma comment
-  endif()
-  target_sources(engine PRIVATE src/platform/platform_win32.cpp)
-  target_link_libraries(engine PUBLIC comdlg32 shell32 ole32)
-  target_compile_definitions(engine PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 elseif(APPLE)
-  enable_language(OBJCXX)
   target_sources(imgui PRIVATE ${IMGUI_DIR}/backends/imgui_impl_osx.mm)
   target_compile_options(imgui PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
-  target_link_libraries(engine PRIVATE "-framework Cocoa" "-framework GameController")
-  target_sources(engine PRIVATE src/platform/platform_macos.mm)
-  target_compile_options(engine PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
-  target_link_libraries(engine PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework UniformTypeIdentifiers"
-                                      "-framework CoreAudio" "-framework AudioToolbox" "-framework CoreFoundation")
-else()
-  find_library(XCB_LIBRARY xcb REQUIRED)
-  target_sources(engine PRIVATE src/platform/platform_xcb.cpp src/platform/imgui_impl_xcb.cpp)
-  target_link_libraries(engine PUBLIC ${XCB_LIBRARY} m)
 endif()
 
 # Game modules: a project's own behaviours as a shared library that the editor and vkgame load at run time (see
@@ -180,6 +202,18 @@ function(vkworld_add_game_module target)
     target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8 /Zc:preprocessor)
   else()
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+  endif()
+  # The game as one executable: vkgame with the module's code compiled in and the engine linked statically
+  # (<PROJECT_DIR>/bin/<target>_game; File > Export game uses it when it's there)
+  if(VKWORLD_STANDALONE_GAMES)
+    add_executable(${target}_game ${CMAKE_SOURCE_DIR}/src/runtime/main.cpp ${ARG_SOURCES})
+    target_link_libraries(${target}_game PRIVATE engine_static)
+    target_compile_definitions(${target}_game PRIVATE VKWORLD_STANDALONE_MODULE)
+    set_target_properties(${target}_game PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${ARG_PROJECT_DIR}/bin)
+    foreach(config ${CMAKE_CONFIGURATION_TYPES})
+      string(TOUPPER ${config} CONFIG)
+      set_target_properties(${target}_game PROPERTIES RUNTIME_OUTPUT_DIRECTORY_${CONFIG} ${ARG_PROJECT_DIR}/bin)
+    endforeach()
   endif()
 endfunction()
 

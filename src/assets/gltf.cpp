@@ -18,6 +18,7 @@
 #if defined(_MSC_VER)
 #pragma warning(push, 0)
 #endif
+#include "core/vfs.h"
 #include "cgltf.h"
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic pop
@@ -41,8 +42,25 @@ std::string canonical(const std::string& path) {
     return (ec ? fs::path(path) : abs).u8string();
 }
 
+// cgltf reads the .gltf / .glb and its .bin buffers through the file system the game uses (a pack, or the disk)
+cgltf_result readThroughVfs(const cgltf_memory_options*, const cgltf_file_options*, const char* path, cgltf_size* size,
+                            void** data) {
+    std::string bytes;
+    if (!vfs::read(fs::u8path(path), bytes)) return cgltf_result_file_not_found;
+    void* copy = std::malloc(bytes.size() ? bytes.size() : 1);
+    if (!copy) return cgltf_result_out_of_memory;
+    std::memcpy(copy, bytes.data(), bytes.size());
+    *size = bytes.size();
+    *data = copy;
+    return cgltf_result_success;
+}
+
+void releaseVfs(const cgltf_memory_options*, const cgltf_file_options*, void* data) { std::free(data); }
+
 Data load(const std::string& path, std::string& error) {
     cgltf_options options{};
+    options.file.read = readThroughVfs;
+    options.file.release = releaseVfs;
     cgltf_data* raw = nullptr;
     cgltf_result r = cgltf_parse_file(&options, path.c_str(), &raw);
     Data data(raw);
@@ -175,11 +193,8 @@ bool imageBytes(const cgltf_image& img, const std::string& path, std::vector<uin
     decodedUri.push_back('\0');
     cgltf_decode_uri(decodedUri.data());   // %20 etc.
     fs::path file = fs::path(path).parent_path() / fs::u8path(decodedUri.data());
-    std::ifstream f(file, std::ios::binary);
-    if (!f) { error = "cannot open " + file.u8string(); return false; }
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    std::string s = ss.str();
+    std::string s;
+    if (!vfs::read(file, s)) { error = "cannot open " + file.u8string(); return false; }
     out.assign(s.begin(), s.end());
     return true;
 }

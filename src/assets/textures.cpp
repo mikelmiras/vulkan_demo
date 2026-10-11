@@ -3,6 +3,7 @@
 #include <cmath>
 #include <filesystem>
 
+#include "core/vfs.h"
 #include "assets/gltf.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -155,7 +156,10 @@ int loadTexture(TextureLibrary& lib, const std::string& path, std::string& error
     for (int i = 0; i < lib.count(); ++i)
         if (lib.textures[(size_t)i].source == source) return i;
     int w = 0, h = 0, channels = 0;
-    stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &channels, 4);
+    std::string bytes;
+    stbi_uc* pixels = vfs::read(path, bytes) ? stbi_load_from_memory((const stbi_uc*)bytes.data(), (int)bytes.size(), &w,
+                                                                     &h, &channels, 4)
+                                             : nullptr;
     if (!pixels) {
         error = path + ": " + (stbi_failure_reason() ? stbi_failure_reason() : "cannot load image");
         return -1;

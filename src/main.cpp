@@ -2,7 +2,7 @@
 //
 //   vkworld [project folder | scene.vkw] [--play] [--select <entity>] [--stress] [--fullscreen]
 //           [--screenshot out.png [--frames N]]
-//   vkworld <project folder> --export <folder>     (no window: exports the game and quits)
+//   vkworld <project folder> --export <folder> [--pack | --single-file]   (no window: exports the game and quits)
 //
 // The project is the folder given, else the working directory (its start scene opens if it has a project.json).
 // --play starts play mode right away; --select selects an entity by name; --stress opens the stress test scene;
@@ -27,12 +27,15 @@ int main(int argc, char** argv) {
     const char* scenePath = nullptr;
     const char* selectName = nullptr;
     const char* exportDir = nullptr;
+    ExportOptions exportOptions;
     bool play = false, stress = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--play")) play = true;
         else if (!std::strcmp(argv[i], "--stress")) stress = true;
         else if (!std::strcmp(argv[i], "--select") && i + 1 < argc) selectName = argv[++i];
         else if (!std::strcmp(argv[i], "--export") && i + 1 < argc) exportDir = argv[++i];
+        else if (!std::strcmp(argv[i], "--pack")) exportOptions.layout = ExportOptions::Layout::Pack;
+        else if (!std::strcmp(argv[i], "--single-file")) exportOptions.layout = ExportOptions::Layout::SingleFile;
         else scenePath = argv[i];
     }
 
@@ -40,12 +43,13 @@ int main(int argc, char** argv) {
         if (!scenePath) { std::fprintf(stderr, "--export: give the project folder too\n"); return 1; }
         ExportResult result;
         std::string error;
-        if (!exportGame(scenePath, exportDir, platform::executableDir(), result, error)) {
+        if (!exportGame(scenePath, exportDir, platform::executableDir(), result, error, exportOptions)) {
             std::fprintf(stderr, "export failed: %s\n", error.c_str());
             return 1;
         }
         for (const std::string& w : result.warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
-        std::printf("Exported %d files; the game: %s\n", result.files, result.executable.u8string().c_str());
+        std::printf("Exported %d files%s; the game: %s\n", result.files, result.standalone ? " (standalone)" : "",
+                    result.executable.u8string().c_str());
         return 0;
     }
 

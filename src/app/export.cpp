@@ -8,6 +8,7 @@
 
 #include "core/json.h"
 #include "core/project.h"
+#include "core/vfs.h"
 #include "game/module.h"
 
 namespace fs = std::filesystem;
@@ -102,14 +103,14 @@ void checkExternalAssets(const fs::path& file, const fs::path& projectDir, Expor
 
 namespace {
 bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs::path& runtimeDir, ExportResult& result,
-                   std::string& error);
+                   std::string& error, const ExportOptions& options);
 }
 
 bool exportGame(const fs::path& projectDir, const fs::path& outDir, const fs::path& runtimeDir, ExportResult& result,
-                std::string& error) {
+                std::string& error, const ExportOptions& options) {
     fs::path previous = project::root();   // (paths in the project resolve against it while exporting)
     project::setRoot(projectDir);
-    bool ok = exportProject(projectDir, outDir, runtimeDir, result, error);
+    bool ok = exportProject(projectDir, outDir, runtimeDir, result, error, options);
     project::setRoot(previous);
     return ok;
 }
@@ -117,7 +118,7 @@ bool exportGame(const fs::path& projectDir, const fs::path& outDir, const fs::pa
 namespace {
 
 bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs::path& runtimeDir, ExportResult& result,
-                   std::string& error) {
+                   std::string& error, const ExportOptions& options) {
     result = {};
     std::error_code ec;
     project::Settings settings;
@@ -127,59 +128,114 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
         error = "export into another folder, not the project itself";
         return false;
     }
-
-    // The runtime: vkgame, the engine library, the shaders
-    fs::path game = runtimeDir / (std::string("vkgame") + kExeSuffix), engine = runtimeDir / kEngineLib;
-    fs::path shaders = fs::is_directory(runtimeDir / "shaders", ec) ? runtimeDir / "shaders" : runtimeDir.parent_path() / "shaders";
-    for (const fs::path& p : {game, engine})
-        if (!fs::is_regular_file(p, ec)) { error = "can't find " + p.u8string() + " (build vkgame first)"; return false; }
-    if (!fs::is_directory(shaders, ec)) { error = "can't find the compiled shaders next to " + runtimeDir.u8string(); return false; }
-
-    fs::create_directories(out, ec);
-    if (ec) { error = "cannot create " + out.u8string() + ": " + ec.message(); return false; }
     std::string name;
     for (char c : settings.name) name += (std::isalnum((unsigned char)c) || c == '-' || c == '_' || c == ' ') ? c : '_';
     if (name.empty()) name = "game";
-    result.executable = out / (name + kExeSuffix);
-    if (!copyFile(game, result.executable, result, error) || !copyFile(engine, out / kEngineLib, result, error)) return false;
-#if !defined(_WIN32)
-    fs::permissions(result.executable, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
-                    fs::perm_options::add, ec);
-#endif
-    for (const auto& entry : fs::directory_iterator(shaders, ec))
-        if (entry.path().extension() == ".spv" && !copyFile(entry.path(), out / "shaders" / entry.path().filename(), result, error))
-            return false;
 
-    // The project, without its code; the game module's library is the exception
-    fs::path module;
+    // The game module, and its standalone build if there is one
+    fs::path module, standalone;
     if (!settings.module.empty()) {
         module = fs::weakly_canonical(GameModule::libraryPath(fs::u8path(project::resolve(settings.module))), ec);
-        if (!fs::is_regular_file(module, ec)) {
+        fs::path base = fs::u8path(project::resolve(settings.module));
+        fs::path candidate = base.parent_path() / (base.filename().u8string() + "_game" + kExeSuffix);
+        if (fs::is_regular_file(candidate, ec)) standalone = candidate;
+        else if (!fs::is_regular_file(module, ec)) {
             error = "the game module isn't built (" + module.u8string() + ")";
             return false;
         }
     }
+    result.standalone = !standalone.empty();
+
+    // The runtime: the game executable (and the engine library), the shaders
+    fs::path game = result.standalone ? standalone : runtimeDir / (std::string("vkgame") + kExeSuffix);
+    fs::path engine = runtimeDir / kEngineLib;
+    fs::path shaders = fs::is_directory(runtimeDir / "shaders", ec) ? runtimeDir / "shaders" : runtimeDir.parent_path() / "shaders";
+    if (!fs::is_regular_file(game, ec)) { error = "can't find " + game.u8string() + " (build vkgame first)"; return false; }
+    if (!result.standalone && !fs::is_regular_file(engine, ec)) { error = "can't find " + engine.u8string(); return false; }
+    if (!fs::is_directory(shaders, ec)) { error = "can't find the compiled shaders next to " + runtimeDir.u8string(); return false; }
+
+    // macOS: an application bundle, the game and everything it reads inside Contents/MacOS
+    fs::path dir = out;
+#if defined(__APPLE__)
+    dir = out / (name + ".app") / "Contents" / "MacOS";
+#endif
+    fs::create_directories(dir, ec);
+    if (ec) { error = "cannot create " + dir.u8string() + ": " + ec.message(); return false; }
+    result.executable = dir / (name + kExeSuffix);
+    if (!copyFile(game, result.executable, result, error)) return false;
+    if (!result.standalone && !copyFile(engine, dir / kEngineLib, result, error)) return false;
+#if !defined(_WIN32)
+    fs::permissions(result.executable, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                    fs::perm_options::add, ec);
+#endif
+
+    // The data: the shaders and the project's files (not its code; the module's library goes on the disk, where it
+    // can be loaded from, unless the game is standalone)
+    std::vector<std::pair<std::string, fs::path>> data;
+    for (const auto& entry : fs::directory_iterator(shaders, ec))
+        if (entry.path().extension() == ".spv") data.emplace_back("shaders/" + entry.path().filename().u8string(), entry.path());
     for (auto it = fs::recursive_directory_iterator(project, fs::directory_options::skip_permission_denied, ec);
          it != fs::recursive_directory_iterator(); it.increment(ec)) {
         if (ec) break;
         const fs::path& p = it->path();
         fs::path rel = fs::relative(p, project, ec);
-        if (fs::weakly_canonical(p, ec) == out) { it.disable_recursion_pending(); continue; }   // (exporting inside it)
-        bool isModule = !module.empty() && fs::weakly_canonical(p, ec) == module;
+        if (within(p, out)) { it.disable_recursion_pending(); continue; }   // (exporting into a folder inside it)
         if (it->is_directory(ec)) {   // (a skipped folder is still entered if the module is in it)
             if (skipped(rel) && !(!module.empty() && within(module, p))) it.disable_recursion_pending();
             continue;
         }
+        bool isModule = !module.empty() && fs::weakly_canonical(p, ec) == module;
         bool inModuleFolder = !module.empty() && rel.has_parent_path() && (project / rel).parent_path() == module.parent_path();
-        if (!isModule && (skipped(rel) || inModuleFolder)) continue;   // the module folder: only the module itself
-        if (!copyFile(p, out / rel, result, error)) return false;
+        if (isModule) {
+            if (!result.standalone && !copyFile(p, dir / rel, result, error)) return false;
+            continue;
+        }
+        if (skipped(rel) || inModuleFolder) continue;   // the module folder: only the module itself
+        data.emplace_back(rel.generic_u8string(), p);
         std::string ext = lower(p.extension().u8string());
         if (ext == ".vkw" || ext == ".prefab") checkExternalAssets(p, project, result);
     }
-    if (!settings.module.empty() && !fs::is_regular_file(out / fs::relative(module, project, ec), ec)) {
-        error = "the game module couldn't be copied";
-        return false;
+    switch (options.layout) {
+        case ExportOptions::Layout::Folder:
+            for (const auto& [rel, file] : data)
+                if (!copyFile(file, dir / fs::u8path(rel), result, error)) return false;
+            break;
+        case ExportOptions::Layout::Pack:
+            if (!vfs::writePack(dir / "game.pak", data, false, error)) return false;
+            result.files += (int)data.size();
+            break;
+        case ExportOptions::Layout::SingleFile:
+            if (!vfs::writePack(result.executable, data, true, error)) return false;
+            result.files += (int)data.size();
+            break;
     }
+
+#if defined(__APPLE__)
+    {   // the bundle's description
+        std::ofstream plist(out / (name + ".app") / "Contents" / "Info.plist");
+        plist << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                 "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+                 "<plist version=\"1.0\"><dict>\n"
+                 "  <key>CFBundleName</key><string>" << name << "</string>\n"
+                 "  <key>CFBundleExecutable</key><string>" << name << "</string>\n"
+                 "  <key>CFBundleIdentifier</key><string>org.vkworld.game." << lower(name) << "</string>\n"
+                 "  <key>CFBundlePackageType</key><string>APPL</string>\n"
+                 "  <key>NSHighResolutionCapable</key><true/>\n"
+                 "</dict></plist>\n";
+    }
+#elif !defined(_WIN32)
+    if (!settings.icon.empty()) {   // a desktop entry, next to the game (install it with the absolute paths filled in)
+        fs::path icon = fs::u8path(project::resolve(settings.icon));
+        if (copyFile(icon, out / ("icon" + icon.extension().u8string()), result, error)) {
+            std::ofstream desktop(out / (name + ".desktop"));
+            desktop << "[Desktop Entry]\nType=Application\nName=" << settings.name << "\nExec=" << result.executable.filename().u8string()
+                    << "\nIcon=" << ("icon" + icon.extension().u8string()) << "\nTerminal=false\nCategories=Game;\n";
+        } else {
+            result.warnings.push_back("the icon couldn't be copied: " + error);
+            error.clear();
+        }
+    }
+#endif
     return true;
 }
 

@@ -268,17 +268,22 @@ std::filesystem::path openFolderDialog(const char* title) {
     return ok ? std::filesystem::path(path) : std::filesystem::path();
 }
 
-std::filesystem::path executableDir() {
+std::filesystem::path executablePath() {
     std::wstring buf(MAX_PATH, L'\0');
     for (;;) {
         DWORD n = GetModuleFileNameW(nullptr, buf.data(), (DWORD)buf.size());
-        if (n == 0) return std::filesystem::current_path();
+        if (n == 0) return {};
         if (n < buf.size()) {
             buf.resize(n);
-            return std::filesystem::path(buf).parent_path();
+            return std::filesystem::path(buf);
         }
         buf.resize(buf.size() * 2);   // path longer than the buffer: retry
     }
+}
+
+std::filesystem::path executableDir() {
+    std::filesystem::path exe = executablePath();
+    return exe.empty() ? std::filesystem::current_path() : exe.parent_path();
 }
 
 std::vector<std::filesystem::path> uiFontCandidates() {

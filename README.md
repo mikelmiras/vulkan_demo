@@ -63,24 +63,21 @@ fullscreen.
 
 ### Shipping a game
 
-**File > Export game...** (or `vkworld <project folder> --export <folder>`, without a window) makes a folder that
-runs on its own: zip it and ship it.
+**File > Export game** (or `vkworld <project folder> --export <folder> [--pack | --single-file]`, without a window)
+makes something that runs on its own, in one of three layouts:
 
-```
-Sample Game/
-  Sample Game            vkgame, named after the project (.exe on Windows)
-  libengine.so           the engine (engine.dll / libengine.dylib), found next to the executable
-  shaders/               compiled shaders
-  project.json, scenes/, models/, ...   the project's files
-  bin/sample_game.so     its game module
-```
+- **Folder**: the game (`vkgame` named after the project), the engine library, the shaders and the project's files.
+- **Pack** (`--pack`): the game, the engine library, and everything else in one `game.pak`.
+- **Single file** (`--single-file`): the data appended to the game's executable.
+
+Configure with `-DVKWORLD_STANDALONE_GAMES=ON` and each game module is also built into a **standalone executable**
+(`<project>/bin/<module>_game`: the engine linked statically, the module's code compiled in). Exports use it when
+it's there: no engine or module library to ship, so a single-file export is the whole game in one file.
 
 Source code, build files and hidden files stay behind; scenes that use files from outside the project get a
-warning (the game won't have them). Players need a Vulkan driver (and X11 / XWayland on Linux); everything else
-is inside. An export is for the platform it's made on: export on each OS you ship for.
-
-Both programs also take `--screenshot out.png [--frames N]`: render N frames (default 30), save the last one and
-quit, which is handy for automated checks. The editor also takes a scene path and `--play`.
+warning (the game won't have them). With an `"icon"` (a PNG) in `project.json`, Linux exports get a `.desktop`
+entry; on macOS the game is wrapped in an `.app` bundle. Players need a Vulkan driver (and X11 / XWayland on
+Linux); everything else is inside. An export is for the platform it's made on: export on each OS you ship for.
 
 ### Tests
 
