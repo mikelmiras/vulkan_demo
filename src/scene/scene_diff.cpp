@@ -55,8 +55,23 @@ bool eq(const Skin& a, const Skin& b) {
         if (!eq(a.inverseBind[i].m, b.inverseBind[i].m, 16)) return false;
     return true;
 }
+bool eq(const AnimationEvent& a, const AnimationEvent& b) { return a.clip == b.clip && a.time == b.time && a.name == b.name; }
+bool eq(const AnimatorState& a, const AnimatorState& b) {
+    return a.name == b.name && a.clip == b.clip && a.speed == b.speed && a.loop == b.loop;
+}
+bool eq(const AnimatorTransition& a, const AnimatorTransition& b) {
+    return a.from == b.from && a.to == b.to && a.parameter == b.parameter && a.when == b.when && a.value == b.value &&
+           a.fade == b.fade;
+}
+template <class T> bool eqList(const std::vector<T>& a, const std::vector<T>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        if (!eq(a[i], b[i])) return false;
+    return true;
+}
 bool eq(const Animator& a, const Animator& b) {
-    return a.clip == b.clip && a.speed == b.speed && a.loop == b.loop && a.playOnStart == b.playOnStart &&
+    return eqList(a.events, b.events) && eqList(a.states, b.states) && eqList(a.transitions, b.transitions) &&
+           a.startState == b.startState && a.state == b.state && a.parameters == b.parameters && a.clip == b.clip && a.speed == b.speed && a.loop == b.loop && a.playOnStart == b.playOnStart &&
            a.playing == b.playing && a.time == b.time && a.fadeFrom == b.fadeFrom && a.fadeFromTime == b.fadeFromTime &&
            a.fade == b.fade && a.fadeLength == b.fadeLength;
 }

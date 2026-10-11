@@ -173,6 +173,10 @@ public:
     const Physics& physics() const { return physics_; }
     const ParticleSystem& particles() const { return particles_; }
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
+    // Render interpolation (on by default): worldMatrices() and activeCamera() blend the last two fixed updates
+    // by how far the frame is into the next one, so motion is smooth when frames and updates don't line up
+    void setInterpolation(bool on) { interpolate_ = on; }
+    bool interpolation() const { return interpolate_; }
 
 private:
     friend class GameContext;
@@ -188,6 +192,7 @@ private:
     void startAudio();
     void updateAudio();
     void playImpacts(const std::vector<struct Impact>& impacts);
+    void savePreviousWorlds();
 
     Scene* scene_ = nullptr;
     const MeshLibrary* meshes_ = nullptr;
@@ -202,6 +207,9 @@ private:
     float accumulator_ = 0.f, time_ = 0.f, updateMs_ = 0.f;
     unsigned long long tick_ = 0;
     bool paused_ = false;
+    bool interpolate_ = true;
+    std::vector<Mat4> prevWorlds_;   // world matrices before the last fixed update (render interpolation)
+    std::vector<EntityId> prevIds_;
 
     MeshLibrary* meshLib_ = nullptr;
     TextureLibrary* texLib_ = nullptr;

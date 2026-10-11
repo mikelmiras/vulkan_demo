@@ -92,6 +92,7 @@ private:
     void handleViewportDrop();          // assets dragged from the browser onto the viewport
     bool acceptAssetDrop(AssetKind kind, std::filesystem::path& out);   // after an Inspector widget: dropped on it?
     void assignTexture(EntityId id, const std::filesystem::path& file);
+    void drawAnimatorInspector(Entity& e);   // editor_animation.cpp
     void track();   // call after an editing widget: records an undo step when the edit starts
 
     // ---- Viewport (editor_viewport.cpp)
@@ -209,6 +210,12 @@ private:
     std::vector<ParticleDraw> particles_;
     ParticleSystem previewParticles_;   // emitters outside Play (View > Preview particles)
     bool previewParticles_on_ = true;
+    // Clip preview outside Play: the entity's clip drawn at `time` (the scene itself isn't changed)
+    struct AnimationPreview {
+        EntityId entity = kNoEntity;
+        float time = 0.f;
+        bool playing = false;
+    } animPreview_;
     float frameDt_ = 0.f;
 
     std::vector<UndoStep> undo_, redo_;

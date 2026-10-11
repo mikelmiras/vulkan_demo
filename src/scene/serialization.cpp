@@ -14,7 +14,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 15;  // 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 16;  // 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -294,9 +294,47 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("speed", a.speed);
         c.set("loop", a.loop);
         c.set("playOnStart", a.playOnStart);
+        if (!a.events.empty()) {
+            json::Value& list = c.set("events", json::Value::array());
+            for (const AnimationEvent& ev : a.events) {
+                json::Value o = json::Value::object();
+                o.set("clip", ev.clip);
+                o.set("time", ev.time);
+                o.set("name", ev.name);
+                list.push(std::move(o));
+            }
+        }
+        if (!a.states.empty()) {
+            json::Value& list = c.set("states", json::Value::array());
+            for (const AnimatorState& s : a.states) {
+                json::Value o = json::Value::object();
+                o.set("name", s.name);
+                o.set("clip", s.clip);
+                o.set("speed", s.speed);
+                o.set("loop", s.loop);
+                list.push(std::move(o));
+            }
+            json::Value& tl = c.set("transitions", json::Value::array());
+            for (const AnimatorTransition& t : a.transitions) {
+                json::Value o = json::Value::object();
+                o.set("from", t.from);
+                o.set("to", t.to);
+                o.set("parameter", t.parameter);
+                o.set("when", animatorConditionName(t.when));
+                o.set("value", t.value);
+                o.set("fade", t.fade);
+                tl.push(std::move(o));
+            }
+            if (!a.startState.empty()) c.set("startState", a.startState);
+        }
         if (a.playing) {   // runtime state: only save games have it
             c.set("playing", true);
             c.set("time", a.time);
+            if (!a.state.empty()) c.set("state", a.state);
+            if (!a.parameters.empty()) {
+                json::Value& ps = c.set("parameters", json::Value::object());
+                for (const auto& p : a.parameters) ps.set(p.first, p.second);
+            }
             if (!a.fadeFrom.empty()) {
                 c.set("fadeFrom", a.fadeFrom);
                 c.set("fadeFromTime", a.fadeFromTime);
@@ -465,6 +503,30 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         a.fadeFromTime = c["fadeFromTime"].asFloat(0.f);
         a.fade = c["fade"].asFloat(0.f);
         a.fadeLength = c["fadeLength"].asFloat(0.f);
+        for (const json::Value& o : c["events"].elements())
+            a.events.push_back({clipName(o["clip"].asString()), o["time"].asFloat(0.f), o["name"].asString()});
+        for (const json::Value& o : c["states"].elements()) {
+            AnimatorState s;
+            s.name = o["name"].asString();
+            s.clip = clipName(o["clip"].asString());
+            s.speed = o["speed"].asFloat(s.speed);
+            s.loop = o["loop"].asBool(s.loop);
+            a.states.push_back(std::move(s));
+        }
+        for (const json::Value& o : c["transitions"].elements()) {
+            AnimatorTransition t;
+            if (!o["from"].asString().empty()) t.from = o["from"].asString();
+            t.to = o["to"].asString();
+            t.parameter = o["parameter"].asString();
+            t.when = animatorConditionFromName(o["when"].asString());
+            t.value = o["value"].asFloat(t.value);
+            t.fade = o["fade"].asFloat(t.fade);
+            a.transitions.push_back(std::move(t));
+        }
+        a.startState = c["startState"].asString();
+        a.state = c["state"].asString();
+        if (const json::Value& ps = c["parameters"]; ps.isObject())
+            for (const auto& p : ps.members()) a.parameters.emplace_back(p.first, p.second.asFloat(0.f));
         e.animator = a;
     }
     if (const json::Value& c = v["particles"]; c.isObject()) {
@@ -555,6 +617,8 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
             if (e.animator) {
                 if (!e.animator->clip.empty()) usedClips.insert(e.animator->clip);
                 if (!e.animator->fadeFrom.empty()) usedClips.insert(e.animator->fadeFrom);
+                for (const AnimatorState& s : e.animator->states)
+                    if (!s.clip.empty()) usedClips.insert(s.clip);
             }
             if (!e.meshRenderer) continue;
             if (e.meshRenderer->mesh >= (int)MeshKind::Count) usedMeshes.insert(e.meshRenderer->mesh);

@@ -106,18 +106,63 @@ struct Skin {
     std::vector<Mat4> inverseBind;   // per joint: from the mesh's space to the joint's, in the bind pose
 };
 
+// A named moment in a clip: when playback passes it, the behaviours on the Animator's entity get
+// onAnimationEvent(name) (footsteps, the frame a sword hits)
+struct AnimationEvent {
+    std::string clip;
+    float time = 0.f;   // seconds into the clip
+    std::string name;
+};
+
+// A state machine for an Animator: states play clips; a transition moves to another state when a parameter (set
+// by game code with setParameter) meets its condition, or when a clip that doesn't loop has finished.
+struct AnimatorState {
+    std::string name, clip;
+    float speed = 1.f;
+    bool loop = true;
+};
+struct AnimatorTransition {
+    enum class When { Greater, Less, IsTrue, IsFalse, ClipEnded };
+    std::string from = "*";   // a state, or "*" for any
+    std::string to;
+    std::string parameter;
+    When when = When::Greater;
+    float value = 0.f;
+    float fade = 0.2f;        // seconds of cross-fade
+};
+
+const char* animatorConditionName(AnimatorTransition::When when);   // "greater", "clip ended", ...
+AnimatorTransition::When animatorConditionFromName(const std::string& name);
+
 // Plays animation clips (MeshLibrary::animations) on the entities under it, matched by name: a model's skeleton
-// or any named children. Clips cross-fade when play() switches them.
+// or any named children. Clips cross-fade when play() switches them. With states, a state machine picks the clip.
 struct Animator {
     std::string clip;            // what plays (by name)
     float speed = 1.f;
     bool loop = true;
     bool playOnStart = true;     // starts with Play; otherwise it waits for play()
+    std::vector<AnimationEvent> events;
+    std::vector<AnimatorState> states;          // empty: no state machine, just `clip`
+    std::vector<AnimatorTransition> transitions;
+    std::string startState;                     // empty: the first state
     // Runtime (saved in save games, not scene files)
     bool playing = false;
     float time = 0.f;
     std::string fadeFrom;        // the clip being faded out, if any
     float fadeFromTime = 0.f, fade = 0.f, fadeLength = 0.f;
+    std::string state;           // the state machine's current state
+    std::vector<std::pair<std::string, float>> parameters;   // set by game code (bools are 0 / 1)
+
+    void setParameter(const std::string& name, float value) {
+        for (auto& p : parameters)
+            if (p.first == name) { p.second = value; return; }
+        parameters.emplace_back(name, value);
+    }
+    float parameter(const std::string& name) const {
+        for (const auto& p : parameters)
+            if (p.first == name) return p.second;
+        return 0.f;
+    }
 
     void play(const std::string& name, float fadeSeconds = 0.2f, bool looping = true) {
         if (playing && name == clip) return;

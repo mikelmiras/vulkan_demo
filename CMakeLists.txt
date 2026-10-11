@@ -162,6 +162,7 @@ add_executable(vkworld
   src/editor/editor.cpp
   src/editor/editor_panels.cpp
   src/editor/editor_outliner.cpp
+  src/editor/editor_animation.cpp
   src/editor/editor_inspector.cpp
   src/editor/editor_viewport.cpp
   src/editor/editor_assets.cpp)

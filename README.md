@@ -251,6 +251,25 @@ Game code switches clips with a cross-fade:
 if (self.animator) self.animator->play(running ? "Fox/Run" : "Fox/Survey", 0.3f);   // no-op if already playing
 ```
 
+Or give the Animator a **state machine** in the inspector: states play clips (with their own speed and looping),
+and transitions move between them, from one state or from any, when a parameter is greater or less than a value,
+is true or false, or when a clip that doesn't loop has ended, cross-fading for a set time. Game code only sets the
+parameters:
+
+```cpp
+self.animator->setParameter("speed", length(velocity));
+self.animator->setParameter("jump", jumpPressed);
+```
+
+**Animation events** are named times in a clip (a footstep, the frame a sword hits): when playback passes one,
+the entity's behaviours get `onAnimationEvent(ctx, self, "Footstep")`.
+
+Outside Play, the Animator inspector previews its clip: play / pause, and a slider to scrub to any time (only
+what's drawn changes, not the scene). New events are added at the preview time.
+
+Rendering is **interpolated** between the last two fixed updates (60 Hz), so motion stays smooth at any frame
+rate: `Game::worldMatrices()` and the game camera blend by how far the frame is into the next update.
+
 The sample game's tentacles (`examples/sample_game/models/tentacle.gltf`) curl, and stretch towards the player
 when it comes close (its `Lurker` behaviour).
 

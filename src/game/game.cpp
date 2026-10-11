@@ -10,8 +10,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 
 namespace fs = std::filesystem;
 
@@ -184,16 +186,26 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
 void Game::begin(bool fresh) {
     physics_.clear();
     particles_.clear();
+    prevWorlds_.clear();
+    prevIds_.clear();
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();
     input_ = InputMap(scene_->inputActions);
     if (fresh)   // (a loaded save game has its animators' state already)
         for (Entity& e : scene_->entities)
-            if (e.animator && e.animator->playOnStart && !e.animator->clip.empty()) {
-                e.animator->playing = true;
-                e.animator->time = 0.f;
-                e.animator->fadeFrom.clear();
+            if (e.animator && e.animator->playOnStart) {
+                Animator& a = *e.animator;
+                a.playing = false;
+                a.state.clear();
+                a.parameters.clear();
+                if (!a.states.empty()) {   // a state machine starts in its start state
+                    enterAnimatorState(a, a.startState.empty() ? a.states[0].name : a.startState, 0.f);
+                } else if (!a.clip.empty()) {
+                    a.playing = true;
+                    a.time = 0.f;
+                    a.fadeFrom.clear();
+                }
             }
     updateAnimators(*scene_, *meshes_, 0.f);   // the first frame shows the first pose
     physics_.step(*scene_, *meshes_, 0.f);   // make the bodies now, not during the first update
@@ -276,8 +288,17 @@ void Game::fixedUpdate(float dt) {
     auto started = std::chrono::steady_clock::now();
     time_ += dt;
     ++tick_;
-    updateAnimators(*scene_, *meshes_, dt);   // before physics: colliders on animated parts follow them
+    if (interpolate_) savePreviousWorlds();
+    std::vector<FiredAnimationEvent> events;
+    updateAnimators(*scene_, *meshes_, dt, &events);   // before physics: colliders on animated parts follow them
     prepareContext(dt);
+    for (const FiredAnimationEvent& ev : events)
+        if (Entity* e = scene_->find(ev.entity))
+            for (size_t b = 0; b < e->behaviours.size(); ++b) {
+                e->behaviours[b]->onAnimationEvent(ctx_, *e, ev.name);
+                e = scene_->find(ev.entity);   // (a behaviour may have spawned: the vector may have moved)
+                if (!e) break;
+            }
     for (size_t i = 0; i < scene_->entities.size(); ++i) {
         Entity& e = scene_->entities[i];
         if (ctx_.isDestroyed(e.id)) continue;
@@ -397,15 +418,65 @@ void Game::flushDestroyed() {
     ctx_.destroyQueue_.clear();
 }
 
+void Game::savePreviousWorlds() {
+    prevWorlds_ = scene_->worldMatrices();
+    prevIds_.resize(scene_->entities.size());
+    for (size_t i = 0; i < prevIds_.size(); ++i) prevIds_[i] = scene_->entities[i].id;
+}
+
+namespace {
+
+// Between two world matrices: positions and scales lerped, rotations slerped
+Mat4 interpolateWorld(const Mat4& a, const Mat4& b, float t) {
+    if (std::memcmp(a.m, b.m, sizeof(a.m)) == 0) return b;
+    auto scaleOf = [](const Mat4& m) {
+        return Vec3{length(Vec3{m.m[0], m.m[1], m.m[2]}), length(Vec3{m.m[4], m.m[5], m.m[6]}),
+                    length(Vec3{m.m[8], m.m[9], m.m[10]})};
+    };
+    auto det3 = [](const Mat4& m) {
+        return dot(Vec3{m.m[0], m.m[1], m.m[2]}, cross(Vec3{m.m[4], m.m[5], m.m[6]}, Vec3{m.m[8], m.m[9], m.m[10]}));
+    };
+    if (det3(a) <= 0.f || det3(b) <= 0.f) return b;   // mirrored (or flat): not a rotation and scale; don't blend
+    Vec3 ta{a.m[12], a.m[13], a.m[14]}, tb{b.m[12], b.m[13], b.m[14]}, sa = scaleOf(a), sb = scaleOf(b);
+    return composeTRS(ta + (tb - ta) * t, slerp(rotationOf(a), rotationOf(b), t), sa + (sb - sa) * t);
+}
+
+}  // namespace
+
 std::vector<Mat4> Game::worldMatrices() const {
-    return scene_ ? scene_->worldMatrices() : std::vector<Mat4>{};
+    if (!scene_) return {};
+    std::vector<Mat4> worlds = scene_->worldMatrices();
+    if (!interpolate_ || paused_ || prevWorlds_.empty()) return worlds;
+    // Drawn between the last two fixed updates, by how far the frame is into the next one: smooth motion at any
+    // frame rate. Entities that didn't exist in the previous update are drawn where they are.
+    float t = std::fmin(std::fmax(accumulator_ / kFixedDt, 0.f), 1.f);
+    std::unordered_map<EntityId, size_t> prevIndex;
+    bool sameOrder = prevIds_.size() == worlds.size();
+    for (size_t i = 0; sameOrder && i < worlds.size(); ++i) sameOrder = prevIds_[i] == scene_->entities[i].id;
+    if (!sameOrder)
+        for (size_t i = 0; i < prevIds_.size(); ++i) prevIndex[prevIds_[i]] = i;
+    for (size_t i = 0; i < worlds.size(); ++i) {
+        size_t p = i;
+        if (!sameOrder) {
+            auto it = prevIndex.find(scene_->entities[i].id);
+            if (it == prevIndex.end()) continue;
+            p = it->second;
+        }
+        worlds[i] = interpolateWorld(prevWorlds_[p], worlds[i], t);
+    }
+    return worlds;
 }
 
 bool Game::activeCamera(CameraView& out) const {
     if (!scene_) return false;
-    for (const Entity& e : scene_->entities) {
+    for (size_t i = 0; i < scene_->entities.size(); ++i) {
+        const Entity& e = scene_->entities[i];
         if (!e.camera) continue;
         Mat4 world = scene_->worldMatrix(e.id);
+        if (interpolate_ && !paused_ && !prevWorlds_.empty()) {   // the camera moves as smoothly as what it follows
+            std::vector<Mat4> worlds = worldMatrices();
+            world = worlds[i];
+        }
         // Strip scale so it doesn't distort the view; the camera looks down its local -Z
         Vec3 x = normalize(transformDir(world, {1, 0, 0})), y = normalize(transformDir(world, {0, 1, 0}));
         Vec3 z = normalize(cross(x, y));

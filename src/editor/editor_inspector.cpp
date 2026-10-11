@@ -275,26 +275,7 @@ void Editor::drawComponents(Entity& e) {
     if (e.animator) {
         if (!componentHeader("Animator", open)) { pushUndo(); e.animator.reset(); }
         else if (open) {
-            Animator& a = *e.animator;
-            if (ImGui::BeginCombo("Clip", a.clip.empty() ? "(none)" : a.clip.c_str())) {
-                if (ImGui::Selectable("(none)", a.clip.empty())) { pushUndo(); a.clip.clear(); }
-                for (const AnimationClip& c : meshes_.animations)
-                    if (ImGui::Selectable(c.name.c_str(), a.clip == c.name)) { pushUndo(); a.clip = c.name; }
-                ImGui::EndCombo();
-            }
-            if (const AnimationClip* c = meshes_.findAnimation(a.clip))
-                ImGui::TextDisabled("%.2f s, %zu animated nodes", c->duration, c->tracks.size());
-            else if (!a.clip.empty())
-                ImGui::TextColored(ImVec4(1.f, 0.6f, 0.3f, 1.f), "No clip with that name is loaded");
-            ImGui::DragFloat("Speed", &a.speed, 0.01f, -10.f, 10.f, "%.2f");
-            track();
-            ImGui::Checkbox("Loop", &a.loop);
-            track();
-            ImGui::SameLine();
-            ImGui::Checkbox("Play on start", &a.playOnStart);
-            track();
-            tooltip("Plays the clip on the entities under this one, matched by name; game code switches clips with "
-                    "animator->play(\"Clip\", fadeSeconds)");
+            drawAnimatorInspector(e);
         }
     }
     if (e.particleEmitter) {

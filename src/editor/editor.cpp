@@ -3,11 +3,14 @@
 
 #include <cctype>
 #include <cfloat>
+#include <cmath>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 
 #include "ImGuizmo.h"
+#include "game/animation.h"
 #include "render/scene_draw.h"
 #include "scene/prefab_sync.h"
 #include "platform/platform.h"
@@ -145,7 +148,23 @@ const Mat4& Editor::worldOf(EntityId id) const {
 }
 
 void Editor::buildDrawItems() {
-    drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_, &joints_, &meshes_);
+    const Entity* previewed = playing() ? nullptr : scene_.find(animPreview_.entity);
+    const AnimationClip* clip = previewed && previewed->animator ? meshes_.findAnimation(previewed->animator->clip) : nullptr;
+    if (clip) {   // pose the clip just for drawing, then put the transforms back
+        if (animPreview_.playing && clip->duration > 0.f)
+            animPreview_.time = std::fmod(animPreview_.time + std::min(frameDt_, 0.1f) * previewed->animator->speed +
+                                              clip->duration, clip->duration);
+        std::vector<Transform> saved;
+        saved.reserve(scene_.entities.size());
+        for (const Entity& o : scene_.entities) saved.push_back(o.transform);
+        poseClip(scene_, meshes_, animPreview_.entity, clip->name, animPreview_.time);
+        drawItems_ = collectDrawItems(scene_, scene_.worldMatrices(), viewingGameCamera() ? kNoEntity : selected_,
+                                      &joints_, &meshes_);
+        for (size_t i = 0; i < saved.size(); ++i) scene_.entities[i].transform = saved[i];
+    } else {
+        if (playing()) animPreview_ = {};
+        drawItems_ = collectDrawItems(scene_, worlds_, viewingGameCamera() ? kNoEntity : selected_, &joints_, &meshes_);
+    }
     lights_ = collectLights(scene_, worlds_);
     particles_.clear();
     if (playing()) {

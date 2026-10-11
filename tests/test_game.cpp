@@ -284,3 +284,42 @@ TEST(input_analog_sticks_and_captured_mouse) {
     cam = s.worldMatrix(s.findByName("Player Camera")->id);
     CHECK_VEC(normalize(transformDir(cam, {0, 0, -1})), test::v3(0, 0, 1), 0.03f);
 }
+
+namespace {
+
+struct Mover : BehaviourBase<Mover> {
+    static constexpr const char* kTypeName = "TestMover";
+    void update(GameContext&, Entity& self) override { self.transform.position[0] += 1.f; }
+};
+
+}  // namespace
+
+// Drawn between the last two fixed updates, by how far the frame is into the next one
+TEST(game_render_interpolation) {
+    test::ImGuiContextGuard imgui;
+    Scene s;
+    Entity e;
+    e.name = "Mover";
+    e.behaviours.emplace_back(std::make_unique<Mover>());
+    Entity child;   // follows its parent, interpolated as well
+    child.name = "Child";
+    child.transform.position[1] = 2.f;
+    EntityId parent = s.add(std::move(e)).id;
+    child.parent = parent;
+    s.add(std::move(child));
+    Game g;
+    g.start(s, meshes());
+    std::vector<Mat4> w = g.worldMatrices();
+    CHECK_NEAR(w[0].m[12], 0.0, 1e-6);   // nothing to blend from yet
+    run(g, 1, Game::kFixedDt * 1.5f);    // one update (x 0 -> 1), half way to the next
+    w = g.worldMatrices();
+    CHECK_NEAR(w[0].m[12], 0.5, 1e-4);
+    CHECK_NEAR(w[1].m[12], 0.5, 1e-4);
+    CHECK_NEAR(w[1].m[13], 2.0, 1e-4);
+    CHECK_NEAR(worldPos(s, "Mover").x, 1.0, 1e-6);   // the scene itself is where the update left it
+    g.setInterpolation(false);
+    CHECK_NEAR(g.worldMatrices()[0].m[12], 1.0, 1e-6);
+    g.setInterpolation(true);
+    g.setPaused(true);   // paused: the latest state, not a blend
+    CHECK_NEAR(g.worldMatrices()[0].m[12], 1.0, 1e-6);
+}

@@ -36,6 +36,23 @@ void Transform::setMatrix(const Mat4& m) {
     ImGuizmo::DecomposeMatrixToComponents(m.m, position, rotation, scale);
 }
 
+const char* animatorConditionName(AnimatorTransition::When when) {
+    switch (when) {
+    case AnimatorTransition::When::Greater: return "greater";
+    case AnimatorTransition::When::Less: return "less";
+    case AnimatorTransition::When::IsTrue: return "true";
+    case AnimatorTransition::When::IsFalse: return "false";
+    case AnimatorTransition::When::ClipEnded: return "clip ended";
+    }
+    return "greater";
+}
+
+AnimatorTransition::When animatorConditionFromName(const std::string& name) {
+    for (int i = 0; i <= (int)AnimatorTransition::When::ClipEnded; ++i)
+        if (name == animatorConditionName((AnimatorTransition::When)i)) return (AnimatorTransition::When)i;
+    return AnimatorTransition::When::Greater;
+}
+
 const char* alphaModeName(MeshRenderer::AlphaMode mode) {
     return mode == MeshRenderer::AlphaMode::Mask ? "mask" : mode == MeshRenderer::AlphaMode::Blend ? "blend" : "opaque";
 }

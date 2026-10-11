@@ -68,7 +68,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 14 (done) | Shadows and sky: cascaded sun shadows, point / spot light shadows, a sky and image-based lighting | One 90 m shadow map; hemisphere ambient only |
 | 15 (done) | Transparency: glTF alpha modes (mask, blend), sorted transparent pass | Every material is opaque today |
 | 16 (done) | Single-file shipping: assets packed into one archive, optional static engine, icons / app bundles | Exports are a folder of loose files |
-| 17 | Animation tools: clip preview in the editor, animation events, a simple state machine, render interpolation between fixed steps | Animators only run in Play; motion is stepped at 60 Hz |
+| 17 (done) | Animation tools: clip preview in the editor, animation events, a simple state machine, render interpolation between fixed steps | Animators only run in Play; motion is stepped at 60 Hz |
 | 18 | Behaviour fields: int, enum, entity and asset references with pickers in the inspector | Behaviours refer to entities and prefabs by typed-in names |
 | 19 | Navigation: navmesh baking and pathfinding for AI | Chasers walk straight at the player through walls |
 | 20 | Async loading and loading screens; scene streaming | Changing scenes stalls the frame (the stress scene takes ~60 ms to start) |
@@ -101,3 +101,10 @@ Working list for turning the renderer demo into a small game engine. Each task i
   export layouts Folder / Pack / SingleFile; VKWORLD_STANDALONE_GAMES builds engine_static and <module>_game
   (module registered directly). macOS .app bundle, Linux .desktop entry. Not done: window icons, Windows .exe icon
   resources, compression in packs.
+- Task 17: AnimationEvents (clip, time, name) fire Behaviour::onAnimationEvent once per pass (loop wraps
+  included); Animator state machines (states with clip / speed / loop, transitions from a state or any on a
+  parameter > / < / true / false or on the clip ending, with cross-fades; parameters set by game code). Scene
+  format 16, module API 10. Editor: Animator inspector in editor_animation.cpp with clip preview / scrubbing outside
+  Play (posed only while building draw items, then restored), event and state machine editing. Game::worldMatrices
+  and activeCamera interpolate the last two fixed updates (off while paused; setInterpolation). Not done: blend
+  trees / layers / masks, a graph view of the state machine.

@@ -62,6 +62,8 @@ public:
     // Once per rendered frame while playing (also when paused), after the updates: draw the game's interface
     // (see game/ui.h). Skipped for hidden entities, so hiding a HUD entity hides its UI.
     virtual void drawUI(GameContext&, Entity& /*self*/, GameUI&) {}
+    // The entity's Animator passed one of its events (see AnimationEvent)
+    virtual void onAnimationEvent(GameContext&, Entity& /*self*/, const std::string& /*event*/) {}
 };
 
 // CRTP helper: implements typeName() and clone() from T::kTypeName and T's copy constructor
