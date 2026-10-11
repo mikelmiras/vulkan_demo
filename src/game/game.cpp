@@ -298,6 +298,8 @@ void Game::begin(bool fresh, bool keepPhysics) {
                 a.playing = false;
                 a.state.clear();
                 a.parameters.clear();
+                a.layerRest.clear();
+                a.rootDelta = {};
                 if (!a.states.empty()) {   // a state machine starts in its start state
                     enterAnimatorState(a, a.startState.empty() ? a.states[0].name : a.startState, 0.f);
                 } else if (!a.clip.empty()) {
@@ -489,6 +491,21 @@ void Game::fixedUpdate(float dt) {
     if (interpolate_) savePreviousWorlds();
     std::vector<FiredAnimationEvent> events;
     updateAnimators(*scene_, *meshes_, dt, &events);   // before physics: colliders on animated parts follow them
+    for (size_t i = 0; i < scene_->entities.size(); ++i) {   // root motion moves the animated entity
+        Entity& e = scene_->entities[i];
+        if (!e.animator || !e.animator->rootMotion || length(e.animator->rootDelta) < 1e-9f) continue;
+        Vec3 world = transformDir(scene_->worldMatrix(e.id), e.animator->rootDelta);
+        bool character = e.collider && !e.collider->trigger &&
+                         (e.collider->shape == Collider::Shape::Capsule || e.collider->shape == Collider::Shape::Sphere);
+        if (character) {
+            physics_.moveCharacter(*scene_, *meshes_, e, world, dt);
+        } else {
+            Vec3 local = e.parent != kNoEntity ? transformDir(inverseAffine(scene_->worldMatrix(e.parent)), world) : world;
+            e.transform.position[0] += local.x;
+            e.transform.position[1] += local.y;
+            e.transform.position[2] += local.z;
+        }
+    }
     prepareContext(dt);
     for (const FiredAnimationEvent& ev : events)
         if (Entity* e = scene_->find(ev.entity))

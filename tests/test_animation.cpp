@@ -1,6 +1,8 @@
 // Skeletal animation: glTF skins and clips, sampling, the Animator in play mode, skinning matrices, saving
 #include "test.h"
 
+#include <fstream>
+
 #include "assets/gltf.h"
 #include "core/project.h"
 #include "game/animation.h"
@@ -331,3 +333,142 @@ TEST(gltf_material_values) {
     CHECK_NEAR(body->meshRenderer->roughness, 0.6, 1e-6);
 }
 #endif
+
+namespace {
+
+// A clip moving `target` linearly from `from` to `to` over `seconds`
+AnimationClip line(const char* name, const char* target, Vec3 from, Vec3 to, float seconds) {
+    AnimationClip c;
+    c.name = name;
+    c.duration = seconds;
+    AnimationTrack t;
+    t.target = target;
+    t.translation = {{0.f, seconds}, {from.x, from.y, from.z, to.x, to.y, to.z}, 3, AnimationKeys::Interpolation::Linear};
+    c.tracks.push_back(t);
+    return c;
+}
+
+// Model > Hip > Arm, with an Animator on Model
+Scene rig() {
+    Scene s;
+    Entity& model = s.create("Model");
+    model.animator = Animator{};
+    EntityId m = model.id;
+    Entity& hip = s.create("Hip");
+    hip.parent = m;
+    EntityId h = hip.id;
+    Entity& arm = s.create("Arm");
+    arm.parent = h;
+    arm.transform.position[1] = 1.f;
+    return s;
+}
+
+void run(Game& g, int n) {
+    for (int i = 0; i < n; ++i) {
+        ImGui::NewFrame();
+        g.step();
+        ImGui::EndFrame();
+    }
+}
+
+}  // namespace
+
+// A 1D blend tree: two clips mixed by a parameter, kept in step
+TEST(animation_blend_tree) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary meshes = buildMeshLibrary();
+    meshes.animations.push_back(line("Slow", "Hip", {0, 0, 0}, {1, 0, 0}, 2.f));
+    meshes.animations.push_back(line("Fast", "Hip", {0, 0, 0}, {4, 0, 0}, 1.f));
+    for (float speed : {0.f, 0.5f, 1.f}) {
+        Scene s = rig();
+        Animator& a = *s.findByName("Model")->animator;
+        AnimatorState move;
+        move.name = "Move";
+        move.blendParameter = "speed";
+        move.blend = {{"Fast", 1.f}, {"Slow", 0.f}};   // (any order)
+        a.states = {move};
+        Game g;
+        g.start(s, meshes);
+        s.findByName("Model")->animator->setParameter("speed", speed);
+        // The blend lasts between 2 s (slow) and 1 s (fast); after 3/8 of it, each clip is 3/8 through
+        float duration = 2.f + (1.f - 2.f) * speed;
+        int n = (int)std::lround(duration * 0.375f * 60.f);
+        run(g, n);
+        float phase = (float)n / 60.f / duration;
+        float expected = (1.f - speed) * phase * 1.f + speed * phase * 4.f;
+        CHECK_NEAR(s.findByName("Hip")->transform.position[0], expected, 0.01);
+    }
+}
+
+// A layer plays over the main clip on part of the skeleton, by its weight
+TEST(animation_layers_and_masks) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary meshes = buildMeshLibrary();
+    meshes.animations.push_back(line("Walk", "Hip", {0, 0, 0}, {2, 0, 0}, 1.f));
+    AnimationClip wave = line("Wave", "Arm", {0, 1, 0}, {0, 3, 0}, 1.f);
+    wave.tracks.push_back(line("", "Hip", {0, 0, 5}, {0, 0, 5}, 1.f).tracks[0]);   // also tries to move the hip
+    meshes.animations.push_back(wave);
+    Scene s = rig();
+    Animator& a = *s.findByName("Model")->animator;
+    a.clip = "Walk";
+    a.layers.push_back({});
+    a.layers[0].name = "Upper";
+    a.layers[0].mask = "Arm";
+    Game g;
+    g.start(s, meshes);
+    s.findByName("Model")->animator->playLayer("Upper", "Wave", 0.5f);
+    run(g, 30);   // 0.5 s
+    const Entity& hip = *s.findByName("Hip");
+    CHECK_NEAR(hip.transform.position[0], 1.0, 0.02);   // walking
+    CHECK_NEAR(hip.transform.position[2], 0.0, 1e-4);   // the layer's hip track is masked out
+    CHECK_NEAR(s.findByName("Arm")->transform.position[1], 1.0 + 0.5 * 1.0, 0.03);   // halfway (2) at half weight
+    s.findByName("Model")->animator->stopLayer("Upper");
+    run(g, 1);
+    CHECK_NEAR(s.findByName("Arm")->transform.position[1], 1.5, 0.03);   // stays where the layer left it
+}
+
+// Root motion: the clip's travel moves the entity; the root bone stays put
+TEST(animation_root_motion) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary meshes = buildMeshLibrary();
+    meshes.animations.push_back(line("Walk", "Hip", {0, 0, 0}, {2, 0.3f, 0}, 1.f));
+    Scene s = rig();
+    Animator& a = *s.findByName("Model")->animator;
+    a.clip = "Walk";
+    a.rootMotion = true;
+    a.rootBone = "Hip";
+    s.findByName("Model")->transform.rotation[1] = 90.f;   // facing -X... its +X is world -Z
+    Game g;
+    g.start(s, meshes);
+    run(g, 150);   // 2.5 s: 5 m, across two loops
+    const Entity& m = *s.findByName("Model");
+    Mat4 w = s.worldMatrix(m.id);
+    Vec3 moved{w.m[12], w.m[13], w.m[14]};
+    CHECK_NEAR(length(moved), 5.0, 0.05);
+    CHECK_NEAR(moved.z, -5.0, 0.05);
+    CHECK_NEAR(s.findByName("Hip")->transform.position[0], 0.0, 1e-4);   // pinned across the ground ...
+    CHECK_NEAR(s.findByName("Hip")->transform.position[1], 0.15, 0.01);  // ... but its height still animates
+
+    // Saved: blend trees, layers and root motion
+    Animator& an = *s.findByName("Model")->animator;
+    AnimatorState st;
+    st.name = "Move";
+    st.blendParameter = "speed";
+    st.blend = {{"Walk", 0.f}, {"Walk", 2.f}};
+    an.states = {st};
+    an.layers.push_back({});
+    an.layers[0].name = "Upper";
+    an.layers[0].clip = "Walk";
+    an.layers[0].mask = "Arm";
+    an.layers[0].weight = 0.25f;
+    std::string error, path = test::tempPath("blend.vkw").string();
+    REQUIRE(saveScene(path, s, meshes, textures(), error));
+    std::string text;
+    {
+        std::ifstream in(path);
+        text.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    CHECK(text.find("\"rootMotion\"") != std::string::npos);
+    CHECK(text.find("\"blendParameter\"") != std::string::npos);
+    CHECK(text.find("\"mask\": \"Arm\"") != std::string::npos);
+}

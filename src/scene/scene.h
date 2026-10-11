@@ -137,10 +137,33 @@ struct AnimationEvent {
 
 // A state machine for an Animator: states play clips; a transition moves to another state when a parameter (set
 // by game code with setParameter) meets its condition, or when a clip that doesn't loop has finished.
+// A point of a 1D blend: this clip when the blend parameter is at `at`
+struct BlendClip {
+    std::string clip;
+    float at = 0.f;
+};
 struct AnimatorState {
     std::string name, clip;
     float speed = 1.f;
     bool loop = true;
+    // A blend tree instead of one clip (when `blend` has points): the two clips either side of the parameter's
+    // value, mixed by where it falls between them and kept in step (walk / run by speed)
+    std::string blendParameter;
+    std::vector<BlendClip> blend;
+};
+
+// A clip played over the Animator's main one, on part of the skeleton (the `mask` bone and everything under it;
+// "" = all), mixed in by `weight`: waving while walking, aiming while running
+struct AnimatorLayer {
+    std::string name;
+    std::string clip;
+    std::string mask;
+    float weight = 1.f;
+    float speed = 1.f;
+    bool loop = true;
+    // runtime
+    bool playing = false;
+    float time = 0.f;
 };
 struct AnimatorTransition {
     enum class When { Greater, Less, IsTrue, IsFalse, ClipEnded };
@@ -166,12 +189,21 @@ struct Animator {
     std::vector<AnimatorState> states;          // empty: no state machine, just `clip`
     std::vector<AnimatorTransition> transitions;
     std::string startState;                     // empty: the first state
+    std::vector<AnimatorLayer> layers;
+    // Root motion: the root bone's travel in the clip (across the ground: x and z) moves the Animator's entity
+    // instead of the bone (as a character, with a capsule or sphere collider), so feet don't slide
+    bool rootMotion = false;
+    std::string rootBone;
     // Runtime (saved in save games, not scene files)
     bool playing = false;
     float time = 0.f;
     std::string fadeFrom;        // the clip being faded out, if any
     float fadeFromTime = 0.f, fade = 0.f, fadeLength = 0.f;
     std::string state;           // the state machine's current state
+    std::string fadeFromState;   // the state being faded out (a blend tree is faded out as one)
+    Vec3 rootDelta;              // root motion of the last update, in the entity's own space
+    // Where nodes only layers move were before any layer did (what a layer's weight mixes with)
+    std::vector<std::pair<std::string, Transform>> layerRest;
     std::vector<std::pair<std::string, float>> parameters;   // set by game code (bools are 0 / 1)
 
     void setParameter(const std::string& name, float value) {
@@ -186,21 +218,47 @@ struct Animator {
     }
 
     void play(const std::string& name, float fadeSeconds = 0.2f, bool looping = true) {
-        if (playing && name == clip) return;
+        if (playing && name == clip && state.empty()) return;
         if (playing && fadeSeconds > 0.f && !clip.empty()) {
             fadeFrom = clip;
+            fadeFromState = state;
             fadeFromTime = time;
             fade = 0.f;
             fadeLength = fadeSeconds;
         } else {
             fadeFrom.clear();
+            fadeFromState.clear();
         }
+        state.clear();   // (a clip played by code: the state machine's states are left)
         clip = name;
         time = 0.f;
         loop = looping;
         playing = true;
     }
     void stop() { playing = false; fadeFrom.clear(); }
+
+    // Layers by name (made when first played)
+    void playLayer(const std::string& layer, const std::string& clipName, float layerWeight = 1.f, bool looping = true) {
+        AnimatorLayer* l = findLayer(layer);
+        if (!l) {
+            layers.push_back({});
+            l = &layers.back();
+            l->name = layer;
+        }
+        if (!(l->playing && l->clip == clipName)) l->time = 0.f;
+        l->clip = clipName;
+        l->weight = layerWeight;
+        l->loop = looping;
+        l->playing = true;
+    }
+    void stopLayer(const std::string& layer) {
+        if (AnimatorLayer* l = findLayer(layer)) l->playing = false;
+    }
+    AnimatorLayer* findLayer(const std::string& layer) {
+        for (AnimatorLayer& l : layers)
+            if (l.name == layer) return &l;
+        return nullptr;
+    }
 };
 
 // Emits particles (sparks, smoke, embers, sparkles): camera-facing glowing or see-through dots that rise, fall and

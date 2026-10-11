@@ -139,7 +139,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 21 (done) | Loading without hitches: physics bodies made off the main thread, incremental GPU uploads (only new meshes / textures, through a staging ring), load progress, the first scene behind the loading screen too | Async loading (task 20) still stalls on Game::start (~55 ms on the stress scene) and on uploading a new scene's assets in one frame |
 | 22 (done) | Gameplay framework: timers and coroutine-style waits (`ctx.after(seconds, ...)`), messages between entities, tags and layers (queries and collisions filtered by them) | Behaviours hand-roll timers, find each other by name, and every query hits everything |
 | 23 (done) | Physics joints and constraints (hinge, fixed, distance, slider) as a component, ragdolls from a skeleton, collision layers | Bodies can't be connected; skeletons can't go limp; nothing filters collisions |
-| 24 | Animation layers and blend trees: 1D blends (walk / run by speed), upper-body masks, root motion, a graph view of the state machine | The state machine (task 17) plays one clip at a time |
+| 24 (done) | Animation layers and blend trees: 1D blends (walk / run by speed), upper-body masks, root motion, a graph view of the state machine | The state machine (task 17) plays one clip at a time |
 | 25 | Smarter navigation: dynamic obstacles (moving things carve the grid), avoidance between agents, off-mesh links (jumps, ladders, drops), baking in the background and saving the result | Agents walk through each other and through crates; a big level re-bakes (1.3 s) each run |
 | 26 | Rendering: point-light (cube) shadows, SSAO, a prefiltered environment map, cut-out shadows, GPU culling for large scenes | Point lights don't shadow; grates and glass cast solid shadows; IBL is approximate |
 | 27 | Audio: streamed music (decoded as it plays), mixer buses with volumes (music / effects / UI) and ducking, reverb zones, Doppler | Every sound is decoded whole up front; there is one volume |
@@ -177,4 +177,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
   cone joints 40 deg) and setRagdollLimp / ctx.setRagdoll. Editor: Joint inspector, Kinematic, Skin > Make ragdoll.
   Module API 15. Not done: joint gizmos in the viewport, carrying the animation's velocity into a limp ragdoll,
   six-DOF / gear / pulley constraints.
+- Task 24: updateAnimators rebuilt on "sources" (a clip, or two clips of a 1D blend tree mixed by weight and
+  sampled at a shared phase over the mixed duration) and per-target pose maps: current source, cross-fade from the
+  previous source (fadeFromState: blend trees fade as one), then AnimatorLayers (clip, mask bone subtree, weight,
+  speed, loop; nodes the base doesn't move blend from a captured rest pose), then root motion (rootBone x/z travel
+  between the old and new phase, wraps included, pinned to its start; Game moves the entity: moveCharacter for
+  capsules / spheres). Animator::play() clears the state; playLayer / stopLayer. Scene format 20. Editor: blend
+  tree points, layers with mask pickers, root motion bone, and a state machine graph window (circle layout, any-state
+  arrows, conditions on hover, live state). Module API 16. Not done: 2D blends, additive layers, events on blend
+  trees, editing in the graph.
 

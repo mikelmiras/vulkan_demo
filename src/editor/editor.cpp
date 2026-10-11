@@ -102,6 +102,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawAddPopup();
     drawImportPopup();
     if (showInputBindings_) drawInputBindings();
+    if (animGraphEntity_ != kNoEntity) drawAnimatorGraph();
 
     handleNavigation(dt);
     handleGizmo();

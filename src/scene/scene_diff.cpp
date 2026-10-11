@@ -62,8 +62,15 @@ bool eq(const Skin& a, const Skin& b) {
     return true;
 }
 bool eq(const AnimationEvent& a, const AnimationEvent& b) { return a.clip == b.clip && a.time == b.time && a.name == b.name; }
+bool eq(const BlendClip& a, const BlendClip& b) { return a.clip == b.clip && a.at == b.at; }
+bool eq(const AnimatorLayer& a, const AnimatorLayer& b) {
+    return a.name == b.name && a.clip == b.clip && a.mask == b.mask && a.weight == b.weight && a.speed == b.speed &&
+           a.loop == b.loop && a.playing == b.playing && a.time == b.time;
+}
+template <class T> bool eqList(const std::vector<T>& a, const std::vector<T>& b);
 bool eq(const AnimatorState& a, const AnimatorState& b) {
-    return a.name == b.name && a.clip == b.clip && a.speed == b.speed && a.loop == b.loop;
+    return a.name == b.name && a.clip == b.clip && a.speed == b.speed && a.loop == b.loop &&
+           a.blendParameter == b.blendParameter && eqList(a.blend, b.blend);
 }
 bool eq(const AnimatorTransition& a, const AnimatorTransition& b) {
     return a.from == b.from && a.to == b.to && a.parameter == b.parameter && a.when == b.when && a.value == b.value &&
@@ -76,7 +83,8 @@ template <class T> bool eqList(const std::vector<T>& a, const std::vector<T>& b)
     return true;
 }
 bool eq(const Animator& a, const Animator& b) {
-    return eqList(a.events, b.events) && eqList(a.states, b.states) && eqList(a.transitions, b.transitions) &&
+    return eqList(a.layers, b.layers) && a.rootMotion == b.rootMotion && a.rootBone == b.rootBone &&
+           a.fadeFromState == b.fadeFromState && eqList(a.events, b.events) && eqList(a.states, b.states) && eqList(a.transitions, b.transitions) &&
            a.startState == b.startState && a.state == b.state && a.parameters == b.parameters && a.clip == b.clip && a.speed == b.speed && a.loop == b.loop && a.playOnStart == b.playOnStart &&
            a.playing == b.playing && a.time == b.time && a.fadeFrom == b.fadeFrom && a.fadeFromTime == b.fadeFromTime &&
            a.fade == b.fade && a.fadeLength == b.fadeLength;

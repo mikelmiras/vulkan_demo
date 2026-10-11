@@ -261,6 +261,13 @@ self.animator->setParameter("speed", length(velocity));
 self.animator->setParameter("jump", jumpPressed);
 ```
 
+A state can be a **blend tree** instead of one clip: points along a parameter (walk at 0, run at 3), mixing the
+two either side of its value and keeping them in step. **Layers** play other clips over the main one on part
+of the skeleton (a mask bone and everything under it), by weight: `animator->playLayer("Upper", "Wave", 0.8f)`.
+With **root motion** on, the root bone's travel across the ground moves the entity (as a character when it has a
+capsule) and the bone stays put, so feet don't slide. *Open graph* shows the state machine as a diagram, the
+playing state lit while the game runs.
+
 **Animation events** are named times in a clip (a footstep, the frame a sword hits): when playback passes one,
 the entity's behaviours get `onAnimationEvent(ctx, self, "Footstep")`.
 

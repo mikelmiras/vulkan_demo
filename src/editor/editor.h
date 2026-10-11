@@ -93,6 +93,7 @@ private:
     bool acceptAssetDrop(AssetKind kind, std::filesystem::path& out);   // after an Inspector widget: dropped on it?
     void assignTexture(EntityId id, const std::filesystem::path& file);
     void drawAnimatorInspector(Entity& e);   // editor_animation.cpp
+    void drawAnimatorGraph();
     void drawTagsAndLayer(Entity& e);
     void drawLayerSettings();
     void pickReference(const char* label, std::string& value, FieldRef kind);   // a behaviour's FieldRef field
@@ -216,6 +217,7 @@ private:
     ParticleSystem previewParticles_;   // emitters outside Play (View > Preview particles)
     bool previewParticles_on_ = true;
     NavGrid navPreview_;
+    EntityId animGraphEntity_ = kNoEntity;   // whose state machine the graph window shows
     std::string newTag_;
     std::vector<Vec3> navLinks_;   // navPreview_.links(), made when first drawn
     bool showNavigation_ = false;

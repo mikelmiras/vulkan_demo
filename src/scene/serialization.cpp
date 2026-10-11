@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 19;  // 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 20;  // 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -338,6 +338,17 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
                 o.set("clip", s.clip);
                 o.set("speed", s.speed);
                 o.set("loop", s.loop);
+                if (!s.blend.empty()) {
+                    o.set("blendParameter", s.blendParameter);
+                    json::Value points = json::Value::array();
+                    for (const BlendClip& b : s.blend) {
+                        json::Value bp = json::Value::object();
+                        bp.set("clip", b.clip);
+                        bp.set("at", b.at);
+                        points.push(std::move(bp));
+                    }
+                    o.set("blend", std::move(points));
+                }
                 list.push(std::move(o));
             }
             json::Value& tl = c.set("transitions", json::Value::array());
@@ -353,8 +364,31 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             }
             if (!a.startState.empty()) c.set("startState", a.startState);
         }
+        if (!a.layers.empty()) {
+            json::Value list = json::Value::array();
+            for (const AnimatorLayer& l : a.layers) {
+                json::Value o = json::Value::object();
+                o.set("name", l.name);
+                o.set("clip", l.clip);
+                if (!l.mask.empty()) o.set("mask", l.mask);
+                o.set("weight", l.weight);
+                o.set("speed", l.speed);
+                o.set("loop", l.loop);
+                if (a.playing && l.playing) {
+                    o.set("playing", true);
+                    o.set("time", l.time);
+                }
+                list.push(std::move(o));
+            }
+            c.set("layers", std::move(list));
+        }
+        if (a.rootMotion) {
+            c.set("rootMotion", true);
+            c.set("rootBone", a.rootBone);
+        }
         if (a.playing) {   // runtime state: only save games have it
             c.set("playing", true);
+            if (!a.fadeFromState.empty()) c.set("fadeFromState", a.fadeFromState);
             c.set("time", a.time);
             if (!a.state.empty()) c.set("state", a.state);
             if (!a.parameters.empty()) {
@@ -559,6 +593,9 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             s.clip = clipName(o["clip"].asString());
             s.speed = o["speed"].asFloat(s.speed);
             s.loop = o["loop"].asBool(s.loop);
+            s.blendParameter = o["blendParameter"].asString();
+            for (const json::Value& bp : o["blend"].elements())
+                s.blend.push_back({clipName(bp["clip"].asString()), bp["at"].asFloat(0.f)});
             a.states.push_back(std::move(s));
         }
         for (const json::Value& o : c["transitions"].elements()) {
@@ -572,6 +609,21 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             a.transitions.push_back(std::move(t));
         }
         a.startState = c["startState"].asString();
+        for (const json::Value& o : c["layers"].elements()) {
+            AnimatorLayer l;
+            l.name = o["name"].asString();
+            l.clip = clipName(o["clip"].asString());
+            l.mask = o["mask"].asString();
+            l.weight = o["weight"].asFloat(l.weight);
+            l.speed = o["speed"].asFloat(l.speed);
+            l.loop = o["loop"].asBool(l.loop);
+            l.playing = o["playing"].asBool(false);
+            l.time = o["time"].asFloat(0.f);
+            a.layers.push_back(std::move(l));
+        }
+        a.rootMotion = c["rootMotion"].asBool(false);
+        a.rootBone = c["rootBone"].asString();
+        a.fadeFromState = c["fadeFromState"].asString();
         a.state = c["state"].asString();
         if (const json::Value& ps = c["parameters"]; ps.isObject())
             for (const auto& p : ps.members()) a.parameters.emplace_back(p.first, p.second.asFloat(0.f));
@@ -682,8 +734,13 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
             if (e.animator) {
                 if (!e.animator->clip.empty()) usedClips.insert(e.animator->clip);
                 if (!e.animator->fadeFrom.empty()) usedClips.insert(e.animator->fadeFrom);
-                for (const AnimatorState& s : e.animator->states)
+                for (const AnimatorState& s : e.animator->states) {
                     if (!s.clip.empty()) usedClips.insert(s.clip);
+                    for (const BlendClip& b : s.blend)
+                        if (!b.clip.empty()) usedClips.insert(b.clip);
+                }
+                for (const AnimatorLayer& l : e.animator->layers)
+                    if (!l.clip.empty()) usedClips.insert(l.clip);
             }
             if (!e.meshRenderer) continue;
             if (e.meshRenderer->mesh >= (int)MeshKind::Count) usedMeshes.insert(e.meshRenderer->mesh);
