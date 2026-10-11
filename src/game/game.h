@@ -12,6 +12,7 @@
 #include "core/vecmath.h"
 #include "game/input.h"
 #include "game/ui.h"
+#include "physics/dynamics.h"
 #include "physics/physics_world.h"
 #include "scene/scene.h"
 
@@ -186,6 +187,7 @@ private:
     const MeshLibrary* meshes_ = nullptr;
     InputMap input_;
     PhysicsWorld physics_;
+    RigidBodies rigidBodies_;   // (Jolt) bodies persist between updates: made again on a new scene
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity

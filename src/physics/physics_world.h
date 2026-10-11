@@ -1,7 +1,7 @@
 // Collision queries over a scene: a snapshot of every collider in world space, rebuilt each fixed update.
 // Colliders go where their entities are, characters move with moveCapsule() and slide along what they hit.
-// Broad-phase: a bounding volume hierarchy over the bodies that don't move during an update (everything without
-// a RigidBody), and a plain list of the rigid bodies, which stepDynamics() moves around.
+// Broad-phase: a bounding volume hierarchy over the bodies without a RigidBody, and a plain list of the rigid bodies
+// (Jolt moves those, see dynamics.h; the snapshot is rebuilt after it has).
 #pragma once
 
 #include <utility>
@@ -45,9 +45,6 @@ public:
     };
 
     void build(const Scene& scene, const MeshLibrary& meshes);
-    // After stepDynamics() has moved the rigid bodies inside this world, is it still an exact snapshot of the scene?
-    // Not if a collider rides on a rigid body (a child of one), or a rolling sphere's collider is off-centre.
-    bool staleAfterDynamics() const { return staleAfterDynamics_; }
     const std::vector<Body>& bodies() const { return bodies_; }
     std::vector<Body>& bodies() { return bodies_; }
     const Body* find(EntityId id) const;
@@ -99,7 +96,6 @@ private:
     std::vector<Prim> prims_;       // by bodies_ index (static bodies only)
     std::vector<int> staticIdx_;    // bodies_ indices, ordered by the tree
     std::vector<int> dynamicIdx_;   // bodies_ indices of rigid bodies
-    bool staleAfterDynamics_ = false;
     std::vector<int> byEntity_;     // entity id -> bodies_ index, -1 if none (ids are small and dense)
 };
 

@@ -241,10 +241,13 @@ colliders draws them all (blue = solid, green = trigger).
 
 - **Solid** colliders block characters and rays. **Triggers** block nothing and instead tell the behaviours on
   both entities when something enters or leaves them (`onTriggerEnter` / `onTriggerExit`).
-- Entities with a **Rigid Body** (and a solid collider) are simulated: gravity, bounciness, friction, damping,
-  mass. They collide with everything, exchange momentum with each other, come to rest, get pushed by the player
-  and knocked by projectiles. Motion is linear only: bodies don't tip over (spheres do roll visually).
-  Everything else is kinematic: its collider goes wherever the entity is (spinning, bobbing, moved by behaviours).
+- Entities with a **Rigid Body** (and a solid collider) are simulated by [Jolt Physics](https://github.com/jrouwe/JoltPhysics)
+  (v5.6, vendored in `third_party/JoltPhysics`, MIT): gravity, bounciness, friction, damping, mass, and rotation:
+  they tumble, roll, stack and come to rest, get pushed by the player and knocked by projectiles. "Lock rotation"
+  keeps one upright. Moving meshes collide as their convex hull. Every other solid collider is static, or
+  kinematic once something moves it (spinning, bobbing, moved by behaviours), so it pushes the bodies it moves
+  into. Game code changes a body's `velocity` / `angularVelocity` or moves its entity, and the simulation picks
+  that up.
 - Game code can `raycast`, `overlapSphere` and `moveCharacter` (move a capsule, sliding along walls, landing on
   floors, sub-stepped so fast moves can't skip through thin walls) through `GameContext`.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
@@ -437,7 +440,7 @@ Includes are relative to `src/`.
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
-| `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world with a bounding volume hierarchy: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid-body motion (`dynamics.*`) |
+| `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world with a bounding volume hierarchy: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid bodies on Jolt Physics (`dynamics.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project and asset browser |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |

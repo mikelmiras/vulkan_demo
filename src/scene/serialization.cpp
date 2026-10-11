@@ -315,6 +315,8 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("friction", rb.friction);
         c.set("damping", rb.damping);
         if (length(rb.velocity) > 0.f) c.set("velocity", vec3(rb.velocity));
+        if (length(rb.angularVelocity) > 0.f) c.set("angularVelocity", vec3(rb.angularVelocity));
+        if (rb.lockRotation) c.set("lockRotation", true);
     }
     if (e.light) {
         const Light& l = *e.light;
@@ -440,6 +442,8 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         rb.friction = c["friction"].asFloat(rb.friction);
         rb.damping = c["damping"].asFloat(rb.damping);
         rb.velocity = readVec3(c["velocity"], {});
+        rb.angularVelocity = readVec3(c["angularVelocity"], {});
+        rb.lockRotation = c["lockRotation"].asBool(false);
         e.rigidBody = rb;
     }
     if (const json::Value& c = v["light"]; c.isObject()) {

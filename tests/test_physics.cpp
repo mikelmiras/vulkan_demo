@@ -234,8 +234,8 @@ EntityId addBody(Scene& s, const char* name, Vec3 pos, Collider::Shape shape, fl
     return id;
 }
 
-void simulate(Scene& s, float seconds) {
-    for (int i = 0; i < (int)(seconds * 60.f); ++i) stepDynamics(s, meshes(), 1.f / 60.f);
+void simulate(RigidBodies& bodies, Scene& s, float seconds) {
+    for (int i = 0; i < (int)(seconds * 60.f); ++i) bodies.step(s, meshes(), 1.f / 60.f);
 }
 
 Vec3 pos(const Scene& s, EntityId id) { return s.find(id)->transform.pos(); }
@@ -244,21 +244,24 @@ Vec3 pos(const Scene& s, EntityId id) { return s.find(id)->transform.pos(); }
 
 TEST(rigid_body_falls_and_rests) {
     Scene s = floorScene();
+    RigidBodies bodies;
     EntityId b = addBody(s, "Box", {0, 5, 0}, Collider::Shape::Box);
-    simulate(s, 0.25f);
+    simulate(bodies, s, 0.25f);
     CHECK(pos(s, b).y < 5.f - 0.4f);   // ~ g t^2 / 2 = 0.56
-    simulate(s, 3.f);
-    CHECK_NEAR(pos(s, b).y, 0.5f, 0.01);   // resting on the floor
-    CHECK(length(s.find(b)->rigidBody->velocity) < 1e-3f);
+    simulate(bodies, s, 3.f);
+    CHECK_NEAR(pos(s, b).y, 0.5f, 0.025);   // resting on the floor (within the contact slop)
+    CHECK(length(s.find(b)->rigidBody->velocity) < 1e-2f);
+    CHECK(bodies.bodyCount() == 2);
 }
 
 TEST(rigid_body_bounces_and_settles) {
     Scene s = floorScene();
+    RigidBodies bodies;
     EntityId ball = addBody(s, "Ball", {0, 4, 0}, Collider::Shape::Sphere, 0.8f);
     float lowest = 10.f, peakAfterBounce = 0.f;
     bool bounced = false;
     for (int i = 0; i < 240; ++i) {
-        stepDynamics(s, meshes(), 1.f / 60.f);
+        bodies.step(s, meshes(), 1.f / 60.f);
         float y = pos(s, ball).y;
         if (!bounced) {
             lowest = std::min(lowest, y);
@@ -269,8 +272,8 @@ TEST(rigid_body_bounces_and_settles) {
     }
     CHECK(lowest > 0.45f);             // never sank into the floor
     CHECK(peakAfterBounce > 2.f);      // came back up (0.8 restitution from 3.5 m)
-    simulate(s, 10.f);
-    CHECK_NEAR(pos(s, ball).y, 0.5f, 0.02);   // eventually at rest
+    simulate(bodies, s, 10.f);
+    CHECK_NEAR(pos(s, ball).y, 0.5f, 0.03);   // eventually at rest
 }
 
 TEST(rigid_body_stack_is_stable) {
@@ -278,7 +281,8 @@ TEST(rigid_body_stack_is_stable) {
     EntityId a = addBody(s, "A", {0, 0.5f, 0}, Collider::Shape::Box);
     EntityId b = addBody(s, "B", {0, 1.5f, 0}, Collider::Shape::Box);
     EntityId c = addBody(s, "C", {0, 2.5f, 0}, Collider::Shape::Box);
-    simulate(s, 5.f);
+    RigidBodies bodies;
+    simulate(bodies, s, 5.f);
     CHECK_NEAR(pos(s, a).y, 0.5f, 0.03);
     CHECK_NEAR(pos(s, b).y, 1.5f, 0.05);
     CHECK_NEAR(pos(s, c).y, 2.5f, 0.07);
@@ -294,7 +298,8 @@ TEST(rigid_body_momentum_exchange) {
         s.find(id)->rigidBody->damping = 0.f;
     }
     s.find(moving)->rigidBody->velocity = {5, 0, 0};
-    simulate(s, 1.f);
+    RigidBodies bodies;
+    simulate(bodies, s, 1.f);
     CHECK_NEAR(s.find(moving)->rigidBody->velocity.x, 0.f, 0.3);   // elastic, equal masses: velocities swap
     CHECK_NEAR(s.find(resting)->rigidBody->velocity.x, 5.f, 0.3);
 }
@@ -312,6 +317,7 @@ TEST(rigid_body_pushed_by_player_and_shot) {
         c.meshRenderer = MeshRenderer{};
         c.collider = Collider{};
         c.rigidBody = RigidBody{};
+        c.rigidBody->lockRotation = true;   // pushed and shot, not tipped over (a free one would topple onto its side)
     }
     Game g;
     g.start(s, meshes());
@@ -338,6 +344,41 @@ TEST(rigid_body_pushed_by_player_and_shot) {
     io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
     frame(30);
     CHECK(pos(s, crate).z < z2 - 0.3f);   // knocked further
+}
+
+// Bodies turn: a box dropped onto an edge tumbles flat; one with lockRotation never turns
+TEST(rigid_body_tumbles_and_lock_rotation) {
+    for (bool locked : {false, true}) {
+        Scene s = floorScene();
+        EntityId b = addBody(s, "Tilted", {0, 2, 0}, Collider::Shape::Box);
+        Entity& e = *s.find(b);
+        e.transform.rotation[2] = 40.f;   // lands on an edge
+        e.rigidBody->lockRotation = locked;
+        RigidBodies bodies;
+        simulate(bodies, s, 4.f);
+        Mat4 m = s.worldMatrix(b);
+        Vec3 up = normalize(transformDir(m, {0, 1, 0}));
+        if (locked) {
+            CHECK_NEAR(s.find(b)->transform.rotation[2], 40.0, 0.5);   // still tilted (resting on its edge)
+        } else {
+            // Settled on a face: one of its axes points straight up
+            Vec3 x = normalize(transformDir(m, {1, 0, 0}));
+            CHECK(std::fabs(up.y) > 0.99f || std::fabs(x.y) > 0.99f);
+            CHECK_NEAR(pos(s, b).y, 0.5f, 0.03);
+        }
+    }
+}
+
+// A body removed from the scene (or losing its collider) leaves the simulation
+TEST(rigid_body_removed) {
+    Scene s = floorScene();
+    EntityId b = addBody(s, "Box", {0, 3, 0}, Collider::Shape::Box);
+    RigidBodies bodies;
+    simulate(bodies, s, 0.1f);
+    CHECK(bodies.bodyCount() == 2);
+    s.remove(b);
+    simulate(bodies, s, 0.1f);
+    CHECK(bodies.bodyCount() == 1);
 }
 
 // The broad-phase (a tree over static bodies plus a list of rigid bodies) must find exactly what testing every body

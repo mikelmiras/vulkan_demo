@@ -764,6 +764,10 @@ void Editor::drawComponents(Entity& e) {
             track();
             ImGui::Checkbox("Gravity", &rb.useGravity);
             track();
+            ImGui::SameLine();
+            ImGui::Checkbox("Lock rotation", &rb.lockRotation);
+            track();
+            tooltip("Moves but never turns: tall things that shouldn't topple, upright characters");
             ImGui::SliderFloat("Bounciness", &rb.bounciness, 0.f, 1.f, "%.2f");
             track();
             ImGui::SliderFloat("Friction", &rb.friction, 0.f, 2.f, "%.2f");
@@ -772,6 +776,9 @@ void Editor::drawComponents(Entity& e) {
             track();
             ImGui::DragFloat3(playing() ? "Velocity" : "Start velocity", &rb.velocity.x, 0.05f, 0.f, 0.f, "%.2f");
             track();
+            ImGui::DragFloat3(playing() ? "Spin" : "Start spin", &rb.angularVelocity.x, 0.05f, 0.f, 0.f, "%.2f");
+            track();
+            tooltip("Angular velocity, radians per second around each axis");
             if (!e.collider || e.collider->trigger)
                 ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a solid collider to be simulated");
         }

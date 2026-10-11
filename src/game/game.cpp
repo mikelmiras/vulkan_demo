@@ -202,6 +202,7 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
 }
 
 void Game::begin(bool fresh) {
+    rigidBodies_.clear();
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();
@@ -214,6 +215,7 @@ void Game::begin(bool fresh) {
                 e.animator->fadeFrom.clear();
             }
     updateAnimators(*scene_, *meshes_, 0.f);   // the first frame shows the first pose
+    rigidBodies_.step(*scene_, *meshes_, 0.f);   // make the bodies now, not during the first update
     physics_.build(*scene_, *meshes_);
     prepareContext(0.f);
     startAudio();
@@ -233,6 +235,7 @@ void Game::begin(bool fresh) {
 
 void Game::stop() {
     stopSounds();
+    rigidBodies_.clear();
     scene_ = nullptr;
 }
 
@@ -300,7 +303,7 @@ void Game::fixedUpdate(float dt) {
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
     }
     flushQueues();
-    playImpacts(stepDynamics(*scene_, physics_, *meshes_, dt));
+    playImpacts(rigidBodies_.step(*scene_, *meshes_, dt));
     updateTriggers();
     flushQueues();
     input_.endFixedStep();
@@ -367,8 +370,7 @@ void Game::playImpacts(const std::vector<Impact>& impacts) {
 
 // Compares this step's trigger overlaps with the previous step's and sends enter / exit to both entities
 void Game::updateTriggers() {
-    // stepDynamics() left physics_ with every body where it now is, unless something rode along on a rigid body
-    if (physics_.staleAfterDynamics()) physics_.build(*scene_, *meshes_);
+    physics_.build(*scene_, *meshes_);   // the rigid bodies have moved
     std::vector<std::pair<EntityId, EntityId>> now = physics_.triggerOverlaps();
     auto contains = [](const std::vector<std::pair<EntityId, EntityId>>& v, const std::pair<EntityId, EntityId>& p) {
         return std::find(v.begin(), v.end(), p) != v.end();

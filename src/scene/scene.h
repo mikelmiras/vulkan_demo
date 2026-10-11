@@ -75,15 +75,17 @@ struct Collider {
 };
 const char* colliderShapeName(Collider::Shape shape);
 
-// Simulated motion for an entity with a (solid) collider: gravity, bouncing, sliding, being pushed and knocked.
-// Bodies don't rotate (spheres roll visually).
+// Simulated motion for an entity with a (solid) collider (Jolt Physics, see physics/dynamics.h): gravity,
+// bouncing, sliding, tumbling, stacking, being pushed and knocked.
 struct RigidBody {
     float mass = 1.f;
+    bool lockRotation = false;   // moves but never turns (upright characters, say)
     bool useGravity = true;
     float bounciness = 0.3f;   // 0 = dead stop, 1 = keeps all its speed
     float friction = 0.4f;
     float damping = 0.05f;     // air drag: fraction of the speed lost per second
     Vec3 velocity;             // the starting velocity; changes while playing
+    Vec3 angularVelocity;      // radians per second around each axis (world space)
 };
 // Box for cubes and planes (a slab under the plane, so things can't fall through it), sphere for spheres,
 // mesh for everything else

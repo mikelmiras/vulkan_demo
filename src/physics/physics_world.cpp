@@ -46,7 +46,6 @@ constexpr float kSkin = 0.001f;   // keep resolved shapes this far apart, so res
 void PhysicsWorld::build(const Scene& scene, const MeshLibrary& meshes) {
     meshes_ = &meshes;
     bodies_.clear();
-    staleAfterDynamics_ = false;
     std::vector<Mat4> worlds = scene.worldMatrices();
     for (size_t i = 0; i < scene.entities.size(); ++i) {
         const Entity& e = scene.entities[i];
@@ -96,14 +95,6 @@ void PhysicsWorld::build(const Scene& scene, const MeshLibrary& meshes) {
             }
         }
         b.dynamic = e.rigidBody.has_value() && !c.trigger;
-        if (b.dynamic && c.shape == Collider::Shape::Sphere && length(c.center) > 1e-6f) staleAfterDynamics_ = true;
-        int depth = 0;   // guards against parent cycles in broken files
-        if (!staleAfterDynamics_)
-            for (const Entity* p = scene.find(e.parent); p && depth < 256; p = scene.find(p->parent), ++depth)
-                if (p->rigidBody) {
-                    staleAfterDynamics_ = true;
-                    break;
-                }
         bodies_.push_back(b);
     }
     buildTree();

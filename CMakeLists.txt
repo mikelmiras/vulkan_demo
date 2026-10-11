@@ -50,6 +50,17 @@ target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMG
 target_link_libraries(imgui PUBLIC Vulkan::Vulkan)
 set_target_properties(imgui PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# Jolt Physics v5.6.0 (vendored, MIT): rigid bodies. Its own CMake file, with every optional feature off (no debug
+# renderer, profiler or GPU compute; baseline SIMD). Linked into the engine only: game code never sees it.
+set(PHYSICS_REPO_ROOT ${CMAKE_SOURCE_DIR}/third_party/JoltPhysics)
+include(${PHYSICS_REPO_ROOT}/Jolt/Jolt.cmake)
+set_target_properties(Jolt PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  target_compile_options(Jolt PRIVATE /w)
+else()
+  target_compile_options(Jolt PRIVATE -w)
+endif()
+
 # Engine: everything a game needs at runtime (platform, rendering, assets, scene, game loop). A shared library, so
 # game modules (project code loaded at run time, see game/module.h) use the same engine as the editor and vkgame.
 add_library(engine SHARED
@@ -90,6 +101,7 @@ find_package(Threads REQUIRED)
 target_link_libraries(engine PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
 # The ImGui objects go into the engine (PRIVATE: users get them through it, not a second copy); its headers are public
 target_link_libraries(engine PRIVATE imgui)
+target_link_libraries(engine PRIVATE Jolt)
 target_include_directories(engine PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMGUIZMO_DIR})
 target_link_libraries(engine PUBLIC Vulkan::Vulkan)
 # Windows: export every function, like a Unix shared library does (data symbols aren't: the engine keeps none in headers)
