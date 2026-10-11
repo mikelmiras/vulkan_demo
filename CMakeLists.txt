@@ -90,7 +90,8 @@ add_library(engine SHARED
   src/game/animation.cpp
   src/render/renderer.cpp
   src/render/scene_draw.cpp
-  src/app/application.cpp)
+  src/app/application.cpp
+  src/app/export.cpp)
 target_include_directories(engine PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # Vendored single-header libraries (implementations compiled in assets/): stb_image v2.30, cgltf v1.14
 target_include_directories(engine PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb ${CMAKE_SOURCE_DIR}/third_party/cgltf
@@ -205,7 +206,7 @@ if(VKWORLD_BUILD_TESTS)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module
-    add_dependencies(engine_tests sample_game)
+    add_dependencies(engine_tests sample_game vkgame)   # (the export test packs vkgame)
     target_compile_definitions(engine_tests PRIVATE VKWORLD_SAMPLE_GAME="${CMAKE_SOURCE_DIR}/examples/sample_game")
   endif()
   add_test(NAME engine_tests COMMAND engine_tests)

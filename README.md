@@ -59,8 +59,25 @@ The editor renders at one pixel per point (no Retina scaling). Shortcuts listed 
 ```
 
 The mouse is captured for the game (hidden, raw movement): Esc releases it, a click takes it back, F11 toggles
-fullscreen. Ship a game by copying `vkgame`, the engine library next to it (`libengine.so` / `engine.dll` /
-`libengine.dylib`), the `shaders/` folder and your project (scenes, assets and its game module).
+fullscreen.
+
+### Shipping a game
+
+**File > Export game...** (or `vkworld <project folder> --export <folder>`, without a window) makes a folder that
+runs on its own: zip it and ship it.
+
+```
+Sample Game/
+  Sample Game            vkgame, named after the project (.exe on Windows)
+  libengine.so           the engine (engine.dll / libengine.dylib), found next to the executable
+  shaders/               compiled shaders
+  project.json, scenes/, models/, ...   the project's files
+  bin/sample_game.so     its game module
+```
+
+Source code, build files and hidden files stay behind; scenes that use files from outside the project get a
+warning (the game won't have them). Players need a Vulkan driver (and X11 / XWayland on Linux); everything else
+is inside. An export is for the platform it's made on: export on each OS you ship for.
 
 Both programs also take `--screenshot out.png [--frames N]`: render N frames (default 30), save the last one and
 quit, which is handy for automated checks. The editor also takes a scene path and `--play`.

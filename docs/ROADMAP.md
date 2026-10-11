@@ -11,7 +11,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 5 | Skeletal animation: skinning, glTF animation import, Animator component | done |
 | 6 | Rendering: PBR materials, normal maps, emissive, HDR + tonemapping, bloom | done |
 | 7 | Physics: rotational dynamics (or Jolt behind PhysicsWorld) | done |
-| 8 | Export game: distributable folder (vkgame + shaders + assets + module) | todo |
+| 8 | Export game: distributable folder (vkgame + shaders + assets + module) | done |
 | 9 | Hygiene: lavapipe smoke test in CI, split large files, scene-format migration tests | todo |
 
 ## Notes
@@ -46,3 +46,6 @@ Working list for turning the renderer demo into a small game engine. Each task i
   noise used to re-create bodies every step). Penetration slop 2 mm, linear cast threshold 0.1. Shapes shared by
   key. Stress fixed update 7.1 ms (Jolt + two PhysicsWorld builds). Characters still use our own capsule mover;
   Jolt's CharacterVirtual would be the next step. Joints aren't exposed.
+- Task 8: app/export (exportGame), File > Export game..., `vkworld <project> --export <dir>`. Verified on Linux:
+  the exported folder, moved elsewhere, runs the sample with its module (RUNPATH $ORIGIN). Not done: a single-file
+  build (static engine + packed assets), stripping debug info, icons / app bundles.

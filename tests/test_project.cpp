@@ -1,6 +1,10 @@
 // core/project: project-relative paths, project.json, moving a project
 #include "test.h"
 
+#include "app/export.h"
+#include "game/module.h"
+#include "platform/platform.h"
+
 #include "core/png.h"
 #include "core/project.h"
 #include "scene/serialization.h"
@@ -83,4 +87,42 @@ TEST(project_can_be_moved) {
     const MeshRenderer& r = *loaded.entities[0].meshRenderer;
     CHECK(meshes2.get(r.mesh).source.find("ProjectB") != std::string::npos);
     CHECK(texs2.get(r.texture).source.find("ProjectB") != std::string::npos);
+}
+
+#ifdef VKWORLD_SAMPLE_GAME
+// Exporting the sample game: the runtime, the shaders, the project's files and its module, but not its sources
+TEST(export_game_folder) {
+    namespace fs = std::filesystem;
+    fs::path sample = fs::u8path(VKWORLD_SAMPLE_GAME), out = test::tempPath("exported");
+    ExportResult result;
+    std::string error;
+    REQUIRE(exportGame(sample, out, platform::executableDir(), result, error));
+    CHECK(fs::is_regular_file(result.executable));
+    CHECK(result.executable.filename().u8string().rfind("Sample Game", 0) == 0);
+    CHECK(fs::is_regular_file(out / "project.json"));
+    CHECK(fs::is_regular_file(out / "scenes" / "main.vkw"));
+    CHECK(fs::is_regular_file(out / "models" / "tentacle.gltf"));
+    CHECK(fs::is_regular_file(GameModule::libraryPath(out / "bin" / "sample_game")));
+    CHECK(fs::is_regular_file(out / "shaders" / "scene.frag.spv"));
+    CHECK(!fs::exists(out / "src"));               // no sources
+    CHECK(!fs::exists(out / "CMakeLists.txt"));
+    CHECK(result.warnings.empty());
+    CHECK(project::root() != sample);              // (the current project is left as it was)
+    // Not over the project itself
+    CHECK(!exportGame(sample, sample, platform::executableDir(), result, error));
+}
+#endif
+
+// A scene using a file outside the project gets a warning: the exported game won't have it
+TEST(export_warns_about_outside_assets) {
+    namespace fs = std::filesystem;
+    fs::path proj = test::tempPath("export_proj"), out = test::tempPath("export_out");
+    fs::create_directories(proj / "scenes");
+    test::writeFile(proj / "project.json", R"({"format":"vkworld-project","version":1,"name":"Tiny","startScene":"scenes/a.vkw"})");
+    test::writeFile(proj / "scenes" / "a.vkw", R"({"format":"vkworld-scene","version":12,"meshes":[{"name":"Rock","source":"/nowhere/rock.obj"}],"entities":[]})");
+    ExportResult result;
+    std::string error;
+    REQUIRE(exportGame(proj, out, platform::executableDir(), result, error));
+    REQUIRE(result.warnings.size() == 1);
+    CHECK(result.warnings[0].find("/nowhere/rock.obj") != std::string::npos);
 }

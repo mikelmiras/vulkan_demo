@@ -144,6 +144,7 @@ private:
     void focusSelected();
     void dropSelectedToGround();
     void newScene(bool demo);
+    void exportGameTo(const std::filesystem::path& dir);
     void saveToFile();
     void loadFromFile();
     void setStatus(const std::string& msg);

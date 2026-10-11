@@ -91,6 +91,15 @@ void Editor::drawMenuBar() {
             ImGui::GetIO().ClearInputMouse();
             if (!dir.empty()) openProject(dir);
         }
+        if (ImGui::MenuItem("Export game...", nullptr, false, project::exists(project::root()))) {
+            std::filesystem::path dir = platform::openFolderDialog("Export the game into");
+            ImGui::GetIO().ClearInputKeys();
+            ImGui::GetIO().ClearInputMouse();
+            if (!dir.empty()) exportGameTo(dir);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+            ImGui::SetTooltip("A folder with the game, the engine, the shaders and the project's files: zip it and "
+                              "ship it. Save the scene first.");
         if (ImGui::MenuItem("Use this scene at startup")) {
             project_.startScene = scenePath_;
             std::string error;

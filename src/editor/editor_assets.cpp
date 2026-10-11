@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "app/export.h"
 #include "platform/platform.h"
 #include "scene/serialization.h"
 
@@ -73,6 +74,18 @@ void Editor::openProject(const fs::path& dir) {
         std::snprintf(scenePath_, sizeof(scenePath_), "%s", project_.startScene.c_str());
         setStatus("Opened project " + project_.name + " (" + project::root().u8string() + ")");
     }
+}
+
+void Editor::exportGameTo(const fs::path& dir) {
+    ExportResult result;
+    std::string error;
+    if (!exportGame(project::root(), dir, platform::executableDir(), result, error)) {
+        setStatus("Export failed: " + error);
+        return;
+    }
+    for (const std::string& w : result.warnings) std::fprintf(stderr, "export: %s\n", w.c_str());
+    setStatus("Exported " + std::to_string(result.files) + " files: run " + result.executable.u8string() +
+              (result.warnings.empty() ? "" : " (" + std::to_string(result.warnings.size()) + " warnings: see the console)"));
 }
 
 // ---------------------------------------------------------------------------------------------
