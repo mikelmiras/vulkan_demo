@@ -60,6 +60,7 @@ void Editor::drawMenuBar() {
         ImGui::SetNextItemWidth(px(220.f));
         ImGui::InputText("Scene file", scenePath_, sizeof(scenePath_));
         if (ImGui::MenuItem("Save", "Ctrl+S")) saveToFile();
+        if (ImGui::MenuItem("Recover autosave", nullptr, false, recoverable_)) recoverAutosave();
         if (ImGui::MenuItem("Load", "Ctrl+O")) loadFromFile();
         if (ImGui::MenuItem("Import model...")) openImport_ = true;
         ImGui::Separator();
@@ -118,6 +119,7 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
         ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
+        ImGui::MenuItem("Profiler", "F3", &showProfiler_);
         if (ImGui::MenuItem("Show navigation", nullptr, &showNavigation_) && showNavigation_) bakeNavigationPreview();
         ImGui::MenuItem("Preview particles", nullptr, &previewParticles_on_);
         ImGui::Separator();
@@ -237,8 +239,8 @@ void Editor::drawStatusBar(const RenderStats& stats) {
     }
     char right[160], update[32] = "";
     if (playing()) std::snprintf(update, sizeof(update), "update %.2f ms | ", game_.updateMs());
-    std::snprintf(right, sizeof(right), "%zu entities | %u draws | %u tris | %s%.0f FPS", scene_.entities.size(),
-                  stats.drawCalls, stats.triangles, update, fps_);
+    std::snprintf(right, sizeof(right), "%s%zu entities | %u draws | %u tris | %s%.0f FPS", unsaved() ? "unsaved | " : "",
+                  scene_.entities.size(), stats.drawCalls, stats.triangles, update, fps_);
     float w = ImGui::CalcTextSize(right).x;
     ImGui::SameLine(std::max(ImGui::GetWindowWidth() - w - ImGui::GetStyle().WindowPadding.x, 0.f));
     ImGui::TextUnformatted(right);

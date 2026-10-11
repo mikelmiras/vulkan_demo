@@ -144,6 +144,14 @@ private:
     void selectRange(EntityId id);                        // the primary to `id`, in the outliner's order
     void selectAllRoots();
     void makePrefabVariant(int prefabIndex);
+    // Autosave: unsaved edits are written to the user's data folder every minute, offered back when the scene opens
+    uint64_t editVersion_ = 0, savedVersion_ = 0, autosavedVersion_ = 0;   // bumped by every edit (undo step)
+    float autosaveTimer_ = 0.f;
+    bool recoverable_ = false;   // an autosave newer than the open scene's file exists
+    std::filesystem::path autosavePath() const;
+    void autosave();
+    void recoverAutosave();
+    bool unsaved() const { return editVersion_ != savedVersion_; }
     void drawSplitter(const char* id, ImVec2 pos, ImVec2 size, bool horizontal, float& value, float sign);
     float outlinerW_ = 0.f, inspectorW_ = 0.f, assetsPanelH_ = 0.f;   // panel sizes (unscaled; 0: defaults)
     void select(EntityId id);
@@ -259,7 +267,7 @@ private:
     bool gizmoWasUsing_ = false;
     bool gizmoDrawn_ = false;
 
-    bool showOutliner_ = true, showInspector_ = true, showHelp_ = false, showColliders_ = false;
+    bool showOutliner_ = true, showInspector_ = true, showHelp_ = false, showColliders_ = false, showProfiler_ = false;
     bool openAddMenu_ = false, scrollToSelected_ = false;
     EntityId pendingDelete_ = kNoEntity, pendingDuplicate_ = kNoEntity, pendingFocus_ = kNoEntity;
     EntityId pendingReparent_ = kNoEntity, pendingParent_ = kNoEntity;   // drag & drop in the outliner

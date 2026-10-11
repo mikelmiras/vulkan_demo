@@ -220,6 +220,7 @@ void Editor::handleShortcuts() {
         return;
     }
     if (keyPressed(ImGuiKey_F1)) showHelp_ = !showHelp_;
+    if (keyPressed(ImGuiKey_F3)) showProfiler_ = !showProfiler_;
     if (playing()) return;   // everything else belongs to the game while it runs
 
     if (ctrl) {

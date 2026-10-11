@@ -10,6 +10,8 @@
 
 #include <cstdio>
 #include <cstring>
+
+#include "core/log.h"
 #include <filesystem>
 
 #include "app/application.h"
@@ -63,6 +65,7 @@ int main(int argc, char** argv) {
     std::error_code ec;
     bool projectArg = scenePath && std::filesystem::is_directory(scenePath, ec);
     if (projectArg) project::setRoot(scenePath);
+    logfile::open(project::saveDir("Editor").parent_path() / "editor.log");
     Editor editor(meshes, textures, &audio, app.uiScale());
     editor.setUiTextures(app.uiTextures(textures));
     if (projectArg) editor.openProject(scenePath);

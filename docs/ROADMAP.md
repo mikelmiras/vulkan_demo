@@ -144,7 +144,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 26 (done) | Rendering: point-light (cube) shadows, SSAO, a prefiltered environment map, cut-out shadows, GPU culling for large scenes | Point lights don't shadow; grates and glass cast solid shadows; IBL is approximate |
 | 27 (done) | Audio: streamed music (decoded as it plays), mixer buses with volumes (music / effects / UI) and ducking, reverb zones, Doppler | Every sound is decoded whole up front; there is one volume |
 | 28 (done) | Editor: multi-selection with group transforms, nested prefabs / prefab variants, asset thumbnails, dockable panels | One entity at a time; prefabs can't contain prefabs; fixed panel layout |
-| 29 | Profiling and diagnostics: a frame profiler (CPU scopes per system, GPU timestamps) in the editor and as an overlay, log to file, crash-safe editor autosave | Performance work relies on engine_bench; a crash loses unsaved edits |
+| 29 (done) | Profiling and diagnostics: a frame profiler (CPU scopes per system, GPU timestamps) in the editor and as an overlay, log to file, crash-safe editor autosave | Performance work relies on engine_bench; a crash loses unsaved edits |
 | 30 | Text and localisation: UTF-8 text with font assets at several sizes, string tables per language, the game's UI and HudText using them | GameUI has one built-in font, ASCII only |
 | 31 | Shipping polish: window / executable icons (Windows resources, macOS icns), compressed packs, a Windows / macOS export smoke test in CI | Left over from task 16; exports are only run-tested on Linux |
 
@@ -227,4 +227,15 @@ Working list for turning the renderer demo into a small game engine. Each task i
   first use (validation caught the old combined-sampler sets once thumbnails drew images). Module API 20. Not done:
   real docking (needs Dear ImGui's docking branch), 3D previews for models / prefabs / scenes, saving the panel
   layout, more than one level of nested links inside a single instance, exporting nested prefabs.
+- Task 29: core/profiler (PROFILE_SCOPE; frames between Application::beginFrame calls, main thread only; 120-frame
+  history; summarize() as a tree keyed by parent paths) with scopes in the game (fixed update parts, audio), the
+  renderer (fence wait, instances, recording, acquire, submit, present) and the editor; GPU pass times from a
+  timestamp query pool per frame in flight (read after that frame's fence). app/profiler_view: the editor's window
+  (frame graph, last-frame bars, averages, GPU passes) and vkgame's F3 overlay. core/log: logfile::open (rotates to
+  .1) / write (timestamped, flushed, thread-safe) and logLine (stderr too) for game messages, validation,
+  VK_CHECK and fatal errors; game.log / editor.log next to the saves. Editor autosave every 60 s of unsaved edits
+  (an edit counter from the undo steps) into the user data folder; Recover autosave when it's newer than the scene
+  file; "unsaved" in the status bar. Also: shadow pipelines take an attribute mask (no unused normal input: the
+  last validation warning). Not done: GPU scopes inside passes, a capture-to-file / chrome://tracing export,
+  crash dumps / stack traces.
 

@@ -16,6 +16,8 @@
 
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
+#include "core/log.h"
+#include "core/profiler.h"
 #include "platform/platform.h"
 
 
@@ -33,8 +35,7 @@ std::atomic<int> g_validationErrors{0};   // reported by the validation layer (s
 VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                                              VkDebugUtilsMessageTypeFlagsEXT,
                                              const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
-    if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-        std::fprintf(stderr, "[validation] %s\n", data->pMessage);
+    if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) logLine("[validation] %s", data->pMessage);
     if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) ++g_validationErrors;
     return VK_FALSE;
 }
@@ -176,6 +177,15 @@ void Renderer::pickDevice() {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(gpu_, &props);
     gpuName_ = props.deviceName;
+    logfile::write(std::string("GPU: ") + props.deviceName);
+    {   // GPU pass timings: timestamps on the graphics queue
+        uint32_t n = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(gpu_, &n, nullptr);
+        std::vector<VkQueueFamilyProperties> qp(n);
+        vkGetPhysicalDeviceQueueFamilyProperties(gpu_, &n, qp.data());
+        timestampBits_ = queueFamily_ < n ? qp[queueFamily_].timestampValidBits : 0;
+        timestampPeriod_ = props.limits.timestampPeriod;
+    }
     std::printf("Using GPU: %s\n", props.deviceName);
 
     VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts &
@@ -449,7 +459,9 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
         {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)},
         {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, u)},
     };
-    std::vector<VkVertexInputAttributeDescription> attrs(all, all + d.vertexAttributes);
+    std::vector<VkVertexInputAttributeDescription> attrs;
+    for (uint32_t i = 0; i < 3; ++i)
+        if (d.attributeMask ? (d.attributeMask >> i) & 1u : i < d.vertexAttributes) attrs.push_back(all[i]);
     attrs.push_back({3, 1, VK_FORMAT_R16G16B16A16_UINT, offsetof(SkinVertex, joints)});
     attrs.push_back({4, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(SkinVertex, weights)});
     VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -590,10 +602,10 @@ void Renderer::createPipelines() {
                                        true, VK_COMPARE_OP_NOT_EQUAL, VK_STENCIL_OP_KEEP, 0, 2});
     // Depth from the sun's point of view (no fragment shader)
     shadowPipeline_ = createPipeline({"shadow.vert.spv", nullptr, true, true, false, VK_CULL_MODE_NONE, false,
-                                      VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3});
+                                      VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, false, true, 0b101});   // (no normals)
     // ... and for casters with holes: a fragment shader drops what the texture's alpha says is open
     shadowCutoutPipeline_ = createPipeline({"shadow.vert.spv", "shadow_cutout.frag.spv", true, true, false, VK_CULL_MODE_NONE,
-                                            false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, false, true});
+                                            false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, false, true, 0b101});
 
     // Post-processing: one or two images to read, parameters in push constants
     VkDescriptorSetLayoutBinding postBindings[3] = {
@@ -919,6 +931,12 @@ void Renderer::createResources(const MeshLibrary&) {
 
         VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &imageAvailable_[i]));
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
+        if (timestampBits_) {
+            VkQueryPoolCreateInfo qci{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+            qci.queryType = VK_QUERY_TYPE_TIMESTAMP;
+            qci.queryCount = kMaxTimestamps;
+            VK_CHECK(vkCreateQueryPool(device_, &qci, nullptr, &timestamps_[i]));
+        }
     }
 
     for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) {
@@ -937,6 +955,29 @@ void Renderer::createResources(const MeshLibrary&) {
 }
 
 int Renderer::validationErrors() { return g_validationErrors.load(); }
+
+// A timestamp once everything recorded so far has finished on the GPU; the time since the previous one is `name`'s
+void Renderer::timestamp(VkCommandBuffer cb, const char* name) {
+    if (!timestamps_[frame_] || stampNames_[frame_].size() >= kMaxTimestamps) return;
+    vkCmdWriteTimestamp(cb, stampNames_[frame_].empty() ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                        timestamps_[frame_], (uint32_t)stampNames_[frame_].size());
+    stampNames_[frame_].push_back(name);
+}
+
+// This frame slot's last timestamps (its fence has passed: they're done), as pass times for the profiler
+void Renderer::readGpuTimes() {
+    const std::vector<const char*>& names = stampNames_[frame_];
+    if (!timestamps_[frame_] || names.size() < 2) return;
+    uint64_t t[kMaxTimestamps] = {};
+    if (vkGetQueryPoolResults(device_, timestamps_[frame_], 0, (uint32_t)names.size(), sizeof(t), t, sizeof(uint64_t),
+                              VK_QUERY_RESULT_64_BIT) != VK_SUCCESS)
+        return;
+    uint64_t mask = timestampBits_ >= 64 ? ~0ull : (1ull << timestampBits_) - 1;
+    std::vector<std::pair<std::string, float>> times;
+    for (size_t i = 1; i < names.size(); ++i)
+        times.emplace_back(names[i], (float)((double)((t[i] - t[i - 1]) & mask) * timestampPeriod_ / 1e6));
+    profiler::setGpuTimes(std::move(times));
+}
 
 void Renderer::initImGui() {
     ImGui_ImplVulkan_InitInfo info{};
@@ -968,6 +1009,9 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
     uploadTextures(cb);   // new ones, a few megabytes a frame (until then they're drawn plain)
+    stampNames_[frame_].clear();
+    if (timestamps_[frame_]) vkCmdResetQueryPool(cb, timestamps_[frame_], 0, kMaxTimestamps);
+    timestamp(cb, "start");
 
     const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkPipelineStageFlags depthStages =
@@ -982,6 +1026,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
 
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
+    timestamp(cb, "Shadows");
 
     // The previous frame's post passes may still be reading the HDR image: wait for them, discard its contents
     imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1094,8 +1139,10 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                      VK_ACCESS_SHADER_READ_BIT);
 
+    timestamp(cb, "Scene");
     // ---- Bloom and the composite onto the swapchain image
     recordPost(cb, imageIndex, info);
+    timestamp(cb, "AO, bloom, composite");
 
     // ---- Pass 3: ImGui directly on the swapchain image
     imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1116,6 +1163,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         ImGui_ImplVulkan_RenderDrawData(ui, cb);
         vkCmdEndRendering(cb);
     }
+    timestamp(cb, "UI");
 
     if (!screenshotPath_.empty() && canReadSwapchain_) {
         // Copy the finished image into a host-visible buffer (saved after the frame completes)
@@ -1169,16 +1217,24 @@ void Renderer::saveScreenshot() {
 
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (width_ == 0 || height_ == 0) return;
+    PROFILE_SCOPE("Render (CPU)");
     if (resized_) recreateSwapchain();
     if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
 
-    VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
+    {
+        PROFILE_SCOPE("Wait for the GPU");
+        VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
+    }
+    readGpuTimes();   // that frame's pass times
     for (Buffer& b : retired_[frame_]) destroyBuffer(b);   // staging for uploads that frame made: done now
     retired_[frame_].clear();
 
     uint32_t imageIndex = 0;
-    VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, imageAvailable_[frame_], VK_NULL_HANDLE,
-                                       &imageIndex);
+    VkResult r;
+    {
+        PROFILE_SCOPE("Acquire image");
+        r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, imageAvailable_[frame_], VK_NULL_HANDLE, &imageIndex);
+    }
     if (r == VK_ERROR_OUT_OF_DATE_KHR) { recreateSwapchain(); return; }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) VK_CHECK(r);
     VK_CHECK(vkResetFences(device_, 1, &inFlight_[frame_]));
@@ -1240,12 +1296,18 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         }
     }
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
-    prepareInstances(info);
-    uploadJoints(info);
-    uploadParticles(info);
+    {
+        PROFILE_SCOPE("Instances");
+        prepareInstances(info);
+        uploadJoints(info);
+        uploadParticles(info);
+    }
 
     VK_CHECK(vkResetCommandBuffer(cmd_[frame_], 0));
-    recordCommands(cmd_[frame_], imageIndex, info, ui);
+    {
+        PROFILE_SCOPE("Record commands");
+        recordCommands(cmd_[frame_], imageIndex, info, ui);
+    }
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo si{VK_STRUCTURE_TYPE_SUBMIT_INFO};
@@ -1256,7 +1318,10 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     si.pCommandBuffers = &cmd_[frame_];
     si.signalSemaphoreCount = 1;
     si.pSignalSemaphores = &renderDone_[imageIndex];
-    VK_CHECK(vkQueueSubmit(queue_, 1, &si, inFlight_[frame_]));
+    {
+        PROFILE_SCOPE("Submit");
+        VK_CHECK(vkQueueSubmit(queue_, 1, &si, inFlight_[frame_]));
+    }
 
     VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     pi.waitSemaphoreCount = 1;
@@ -1265,7 +1330,10 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     pi.pSwapchains = &swapchain_;
     pi.pImageIndices = &imageIndex;
     if (!screenshotPath_.empty()) saveScreenshot();
-    r = vkQueuePresentKHR(queue_, &pi);
+    {
+        PROFILE_SCOPE("Present");
+        r = vkQueuePresentKHR(queue_, &pi);
+    }
     if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR || resized_) recreateSwapchain();
     else VK_CHECK(r);
 
@@ -1312,6 +1380,7 @@ void Renderer::shutdown() {
         destroyBuffer(particles_[i]);
         vkDestroySemaphore(device_, imageAvailable_[i], nullptr);
         vkDestroyFence(device_, inFlight_[i], nullptr);
+        if (timestamps_[i]) vkDestroyQueryPool(device_, timestamps_[i], nullptr);
     }
     vkDestroyCommandPool(device_, cmdPool_, nullptr);
     vkDestroyDevice(device_, nullptr);

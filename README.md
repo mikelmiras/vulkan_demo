@@ -383,6 +383,19 @@ colliders draws them all (blue = solid, green = trigger).
 - Everything (queries, triggers, characters, bodies) is one Jolt world, kept up to date with the scene each update.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
 
+## Profiling, logs and autosave
+
+- **Profiler** (editor: View > Profiler or F3; vkgame: F3 for an overlay): frame times over the last two seconds,
+  the last frame's CPU scopes as nested bars, each scope's average and worst time, and the GPU's time per pass
+  (shadows, scene, AO / bloom / composite, UI) from timestamp queries. Game code can time its own parts:
+  `PROFILE_SCOPE("Pathfinding");` (core/profiler.h).
+- **Log files**: vkgame writes `game.log`, the editor `editor.log`, in the user's data folder next to the save games
+  (`~/.local/share/vkworld/<project>/`), with the game's messages, validation messages and fatal errors; the
+  previous run's log stays as `*.1`.
+- **Autosave**: the editor writes unsaved changes to the user's data folder once a minute (never into the project,
+  so they don't ship). Opening a scene that has newer unsaved work offers File > Recover autosave. The status bar
+  shows "unsaved" until you save.
+
 ## Prefabs
 
 A **prefab** is a saved entity tree used as a template: build something in the scene (say a gem with its

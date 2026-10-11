@@ -3,6 +3,8 @@
 #include "physics/physics.h"
 #include "game/animation.h"
 #include "game/ragdoll.h"
+#include "core/log.h"
+#include "core/profiler.h"
 #include "core/project.h"
 #include "core/vfs.h"
 #include "scene/serialization.h"
@@ -322,6 +324,9 @@ bool GameContext::hasSaveGame(const std::string& slot) const {
 void GameContext::log(const std::string& message) {
     std::printf("[game %7.2fs] %s\n", time_, message.c_str());
     std::fflush(stdout);
+    char stamp[32];
+    std::snprintf(stamp, sizeof(stamp), "[game %7.2fs] ", time_);
+    logfile::write(stamp + message);
     log_->emplace_back(time_, message);
     if (log_->size() > 100) log_->erase(log_->begin());
 }
@@ -550,12 +555,16 @@ void Game::prepareContext(float dt) {
 }
 
 void Game::fixedUpdate(float dt) {
+    PROFILE_SCOPE("Fixed update");
     auto started = std::chrono::steady_clock::now();
     time_ += dt;
     ++tick_;
     if (interpolate_) savePreviousWorlds();
     std::vector<FiredAnimationEvent> events;
-    updateAnimators(*scene_, *meshes_, dt, &events);   // before physics: colliders on animated parts follow them
+    {
+        PROFILE_SCOPE("Animation");
+        updateAnimators(*scene_, *meshes_, dt, &events);
+    }   // before physics: colliders on animated parts follow them
     for (size_t i = 0; i < scene_->entities.size(); ++i) {   // root motion moves the animated entity
         Entity& e = scene_->entities[i];
         if (!e.animator || !e.animator->rootMotion || length(e.animator->rootDelta) < 1e-9f) continue;
@@ -579,17 +588,29 @@ void Game::fixedUpdate(float dt) {
                 e = scene_->find(ev.entity);   // (a behaviour may have spawned: the vector may have moved)
                 if (!e) break;
             }
-    for (size_t i = 0; i < scene_->entities.size(); ++i) {
-        Entity& e = scene_->entities[i];
-        if (ctx_.isDestroyed(e.id)) continue;
-        for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
+    {
+        PROFILE_SCOPE("Behaviours");
+        for (size_t i = 0; i < scene_->entities.size(); ++i) {
+            Entity& e = scene_->entities[i];
+            if (ctx_.isDestroyed(e.id)) continue;
+            for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
+        }
+        flushQueues();
+        runTimers();
     }
-    flushQueues();
-    runTimers();
-    playImpacts(physics_.step(*scene_, *meshes_, dt));
+    {
+        PROFILE_SCOPE("Physics");
+        playImpacts(physics_.step(*scene_, *meshes_, dt));
+    }
     if (tick_ % 15 == 0) updateNavObstacles();
-    particles_.update(*scene_, scene_->worldMatrices(), dt);
-    updateTriggers();
+    {
+        PROFILE_SCOPE("Particles");
+        particles_.update(*scene_, scene_->worldMatrices(), dt);
+    }
+    {
+        PROFILE_SCOPE("Triggers");
+        updateTriggers();
+    }
     flushQueues();
     input_.endFixedStep();
     applyRequests();
@@ -631,6 +652,7 @@ void Game::startAudio() {
 // Doppler shift), the reverb is the listener's zone's, finished sounds are freed
 void Game::updateAudio(float dt) {
     if (!audio_ || !audio_->ready()) return;
+    PROFILE_SCOPE("Audio");
     bool moving = dt > 1e-5f && !paused_ && !loader_.busy();
     CameraView cam;
     Vec3 listener = listener_;

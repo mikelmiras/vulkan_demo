@@ -1,6 +1,12 @@
 // core/: JSON and vector maths
 #include "test.h"
 
+#include <fstream>
+#include <thread>
+
+#include "core/log.h"
+#include "core/profiler.h"
+
 #include "core/json.h"
 
 TEST(json_roundtrip_escapes_and_unicode) {
@@ -59,4 +65,56 @@ TEST(vecmath_inverse_affine) {
     m.m[0] *= 2.f; m.m[1] *= 2.f; m.m[2] *= 2.f;   // scale X
     Mat4 id = inverseAffine(m) * m;
     for (int i = 0; i < 16; ++i) CHECK_NEAR(id.m[i], (i % 5 == 0) ? 1.f : 0.f, 1e-5);
+}
+
+// The frame profiler: nested scopes per frame, summarised as a tree; nothing outside frames or off the frame thread
+TEST(profiler_scopes) {
+    { PROFILE_SCOPE("Ignored"); }   // no frame yet
+    for (int f = 0; f < 3; ++f) {
+        profiler::beginFrame();
+        {
+            PROFILE_SCOPE("Update");
+            { PROFILE_SCOPE("Physics"); }
+            if (f == 2) { PROFILE_SCOPE("Rare"); }
+            std::thread other([] { PROFILE_SCOPE("Other thread"); });
+            other.join();
+        }
+        { PROFILE_SCOPE("Render"); { PROFILE_SCOPE("Physics"); } }   // same name, another place
+        profiler::endFrame();
+    }
+    const profiler::Frame& last = profiler::history().back();
+    REQUIRE(last.scopes.size() == 5);
+    CHECK(std::string(last.scopes[0].name) == "Update" && last.scopes[0].depth == 0);
+    CHECK(std::string(last.scopes[1].name) == "Physics" && last.scopes[1].depth == 1);
+    CHECK(last.scopes[0].ms >= last.scopes[1].ms);
+    std::vector<profiler::Summary> s = profiler::summarize();
+    std::vector<std::string> order;
+    for (const profiler::Summary& x : s) order.push_back(std::to_string(x.depth) + x.name);
+    // Children right after their parents, even ones first seen in a later frame
+    std::vector<std::string> expected = {"0Update", "1Physics", "1Rare", "0Render", "1Physics"};
+    CHECK(order == expected);
+    for (const profiler::Summary& x : s) CHECK(x.name != "Ignored" && x.name != "Other thread");
+}
+
+// The log file: lines with the time, flushed as written; a new run keeps the previous log as .1
+TEST(log_file) {
+    auto path = test::tempPath("logs/run.log");
+    REQUIRE(logfile::open(path));
+    logfile::write("first run");
+    logLine("an error: %d", 42);   // (to stderr as well)
+    auto read = [](const std::filesystem::path& p) {
+        std::ifstream in(p);
+        return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    };
+    CHECK(read(path).find("first run") != std::string::npos);   // there already: no need to close first
+    CHECK(read(path).find("an error: 42") != std::string::npos);
+    REQUIRE(logfile::open(path));
+    logfile::write("second run");
+    std::filesystem::path old = path;
+    old += ".1";
+    CHECK(read(path).find("first run") == std::string::npos);
+    CHECK(read(old).find("first run") != std::string::npos);
+    logfile::close();
+    logfile::write("not written");
+    CHECK(read(path).find("not written") == std::string::npos);
 }

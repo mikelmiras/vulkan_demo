@@ -8,13 +8,14 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "core/log.h"
 #include "core/vecmath.h"
 
 #define VK_CHECK(expr)                                                                         \
     do {                                                                                       \
         VkResult r_ = (expr);                                                                  \
         if (r_ != VK_SUCCESS) {                                                                \
-            std::fprintf(stderr, "Vulkan error %d at %s:%d\n  %s\n", r_, __FILE__, __LINE__, #expr); \
+            logLine("fatal: Vulkan error %d at %s:%d: %s", r_, __FILE__, __LINE__, #expr);    \
             std::exit(1);                                                                      \
         }                                                                                      \
     } while (0)

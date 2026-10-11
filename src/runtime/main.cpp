@@ -12,6 +12,9 @@
 #include <filesystem>
 
 #include "app/application.h"
+#include "app/profiler_view.h"
+#include "core/log.h"
+#include "core/profiler.h"
 #include "audio/audio.h"
 #include "core/project.h"
 #include "core/vfs.h"
@@ -118,10 +121,13 @@ int main(int argc, char** argv) {
     } else if (path.empty()) {
         scene = buildDefaultScene();
     } else if (!vfs::exists(fs::u8path(path))) {   // (it loads once the window is up, behind the loading screen)
-        std::fprintf(stderr, "fatal: cannot open %s\n", path.c_str());
+        logLine("fatal: cannot open %s", path.c_str());
         return 1;
     }
+    // The log: in the user's data folder, next to the save games
+    logfile::open(project::saveDir(settings.name.empty() ? "Untitled" : settings.name).parent_path() / "game.log");
     std::printf("Playing %s\n", stress ? "the stress test scene" : path.empty() ? "the built-in demo scene" : path.c_str());
+    logfile::write("Playing " + (stress ? std::string("the stress test scene") : path.empty() ? std::string("the built-in demo scene") : path));
 
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
@@ -146,11 +152,12 @@ int main(int argc, char** argv) {
 
     float dt = 0.f;
     bool firstLoad = !path.empty();
+    bool showProfiler = false;   // F3
     while (!game.quitRequested() && app.beginFrame(dt)) {
         if (firstLoad && !game.loading()) {   // the start scene is in, or didn't load: that's fatal
             firstLoad = false;
             if (!game.loadError().empty()) {
-                std::fprintf(stderr, "fatal: %s\n", game.loadError().c_str());
+                logLine("fatal: %s", game.loadError().c_str());
                 app.shutdown();
                 return 1;
             }
@@ -161,12 +168,16 @@ int main(int argc, char** argv) {
         else if (!platform::cursorCaptured() && !uiWantsCursor && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             platform::setCursorCaptured(true);
         if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) platform::setFullscreen(!platform::isFullscreen());
+        if (ImGui::IsKeyPressed(ImGuiKey_F3, false)) showProfiler = !showProfiler;
 
         bool captured = platform::cursorCaptured();
         float mdx = 0.f, mdy = 0.f;
         platform::takeMouseDelta(mdx, mdy);
         game.input().setMouseCaptured(captured);
-        game.frame(dt, !io.WantTextInput, true, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
+        {
+            PROFILE_SCOPE("Game");
+            game.frame(dt, !io.WantTextInput, true, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
+        }
 
         uint32_t w = 0, h = 0;
         app.windowSize(w, h);
@@ -175,9 +186,11 @@ int main(int argc, char** argv) {
         ui.end();
         uiWantsCursor = ui.wantsCursor();
         drawHud(game, captured || uiWantsCursor, app.uiScale());
+        if (showProfiler) drawProfilerOverlay(app.uiScale());
         float aspect = h > 0 ? (float)w / (float)h : 1.f;
         CameraView cam;
         if (!game.activeCamera(cam)) cam.view = lookAt({0, 10, 40}, {0, 0, 0}, {0, 1, 0});   // no camera: a fixed view
+        PROFILE_SCOPE("Draw and render");   // (to the end of the frame)
         std::vector<Mat4> worlds = game.worldMatrices();
         std::vector<Mat4> joints;
         std::vector<DrawItem> items = collectDrawItems(scene, worlds, kNoEntity, &joints, &meshes);

@@ -1,4 +1,5 @@
 #include "app/application.h"
+#include "core/profiler.h"
 
 #include <algorithm>
 #include <chrono>
@@ -107,6 +108,8 @@ bool Application::beginFrame(float& dt) {
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
             continue;
         }
+        profiler::endFrame();   // (the previous one)
+        profiler::beginFrame();
         ImGui_ImplVulkan_NewFrame();
         platform::imguiNewFrame(dt);
         ImGui::NewFrame();
@@ -115,7 +118,10 @@ bool Application::beginFrame(float& dt) {
 }
 
 void Application::endFrame(const SceneRenderInfo& scene) {
-    ImGui::Render();
+    {
+        PROFILE_SCOPE("UI layout");
+        ImGui::Render();
+    }
     if (!options_.screenshotPath.empty() && ++frameCount_ == options_.screenshotFrame)
         renderer_.requestScreenshot(options_.screenshotPath);
     renderer_.render(scene, ImGui::GetDrawData());

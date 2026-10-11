@@ -10,6 +10,9 @@
 #include <filesystem>
 
 #include "ImGuizmo.h"
+#include "app/profiler_view.h"
+#include "core/log.h"
+#include "core/profiler.h"
 #include "game/animation.h"
 #include "render/scene_draw.h"
 #include "scene/prefab_sync.h"
@@ -34,7 +37,13 @@ Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio
 // Frame
 // ---------------------------------------------------------------------------------------------
 void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stats) {
+    PROFILE_SCOPE("Editor");
     ImGuiIO& io = ImGui::GetIO();
+    autosaveTimer_ += dt;
+    if (autosaveTimer_ >= 60.f) {   // unsaved edits, not yet autosaved: write them where a crash won't lose them
+        autosaveTimer_ = 0.f;
+        if (!playing() && unsaved() && editVersion_ != autosavedVersion_) autosave();
+    }
     // Mouse capture in play mode: a click on the game view takes the mouse, Esc gives it back
     if (platform::cursorCaptured() &&
         (!viewingGameCamera() || uiWantsCursor_ || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
@@ -116,6 +125,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawImportPopup();
     if (showInputBindings_) drawInputBindings();
     if (animGraphEntity_ != kNoEntity) drawAnimatorGraph();
+    if (showProfiler_) drawProfilerWindow(&showProfiler_);
     // Splitters on the panels' inner edges: drag to resize
     if (leftW > 0.f) drawSplitter("##split-left", ImVec2(vx_ - px(3.f), vy_), ImVec2(px(6.f), io.DisplaySize.y - vy_ - statusH_), false, outlinerW_, 1.f);
     if (rightW > 0.f) drawSplitter("##split-right", ImVec2(vx_ + vw_ - px(3.f), vy_), ImVec2(px(6.f), io.DisplaySize.y - vy_ - statusH_), false, inspectorW_, -1.f);
@@ -177,6 +187,7 @@ const Mat4& Editor::worldOf(EntityId id) const {
 }
 
 void Editor::buildDrawItems() {
+    PROFILE_SCOPE("Draw lists");
     const Entity* previewed = playing() ? nullptr : scene_.find(animPreview_.entity);
     const AnimationClip* clip = previewed && previewed->animator ? meshes_.findAnimation(previewed->animator->clip) : nullptr;
     if (clip) {   // pose the clip just for drawing, then put the transforms back
@@ -704,6 +715,10 @@ void Editor::saveToFile() {
     if (saveScene(project::resolve(scenePath_), scene_, meshes_, textures_, error)) {
         setStatus(std::string("Saved ") + scenePath_);
         assetsScannedAt_ = -1.0;
+        savedVersion_ = autosavedVersion_ = editVersion_;
+        std::error_code ec;
+        std::filesystem::remove(autosavePath(), ec);   // (saved for real: nothing to recover)
+        recoverable_ = false;
     }
     else setStatus("Save failed: " + error);
 }
@@ -741,6 +756,48 @@ void Editor::loadFromFile() {
     scene_ = std::move(loaded);
     selected_ = kNoEntity;
     setStatus(std::string("Loaded ") + scenePath_);
+    commitUndo();   // (the load itself is a step: undoable)
+    savedVersion_ = autosavedVersion_ = editVersion_;
+    // Unsaved work from a session that ended without saving (a crash, say)?
+    std::error_code ec;
+    std::filesystem::path auto_ = autosavePath(), file = std::filesystem::u8path(project::resolve(scenePath_));
+    recoverable_ = std::filesystem::exists(auto_, ec) &&
+                   std::filesystem::last_write_time(auto_, ec) > std::filesystem::last_write_time(file, ec);
+    if (recoverable_) setStatus("There are unsaved changes from an earlier session: File > Recover autosave");
+}
+
+std::filesystem::path Editor::autosavePath() const {
+    std::string file;
+    for (char c : std::string(scenePath_)) file += (std::isalnum((unsigned char)c) || c == '-' || c == '.') ? c : '_';
+    return project::saveDir(project_.name.empty() ? "Untitled" : project_.name).parent_path() / "autosave" / file;
+}
+
+void Editor::autosave() {
+    std::filesystem::path path = autosavePath();
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::string error;
+    if (saveScene(path.u8string(), scene_, meshes_, textures_, error)) {
+        autosavedVersion_ = editVersion_;
+        logfile::write("Autosaved " + path.u8string());
+    } else {
+        logLine("Autosave failed: %s", error.c_str());
+    }
+}
+
+void Editor::recoverAutosave() {
+    Scene loaded;
+    std::string error;
+    if (!loadScene(autosavePath().u8string(), loaded, meshes_, textures_, error)) {
+        setStatus("Can't recover: " + error);
+        return;
+    }
+    pushUndo();
+    scene_ = std::move(loaded);
+    selected_ = kNoEntity;
+    recoverable_ = false;
+    commitUndo();   // (unsaved now: Save writes it to the scene file)
+    setStatus("Recovered the autosave: Save to keep it");
 }
 
 void Editor::setStatus(const std::string& msg) {
@@ -784,6 +841,7 @@ void Editor::commitUndo() {
     undo_.push_back(std::move(step));
     if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
     redo_.clear();
+    ++editVersion_;
 }
 
 void Editor::undo() {
@@ -794,6 +852,7 @@ void Editor::undo() {
     redo_.push_back({diffScenes(now, scene_), selected_});
     selected_ = undo_.back().selected;
     extraSelected_.clear();
+    ++editVersion_;
     undo_.pop_back();
     setStatus("Undo");
 }
@@ -806,5 +865,6 @@ void Editor::redo() {
     selected_ = redo_.back().selected;
     extraSelected_.clear();
     redo_.pop_back();
+    ++editVersion_;
     setStatus("Redo");
 }

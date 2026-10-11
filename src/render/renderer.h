@@ -127,6 +127,7 @@ private:
         uint32_t vertexAttributes = 3;   // position, normal, uv: only as many as the vertex shader reads
         bool blend = false;              // premultiplied see-through (colour only: alpha is the outline marker)
         bool shadow = false;             // into a shadow map (depth only), even with a fragment shader
+        uint32_t attributeMask = 0;      // which of position / normal / uv (bits 0-2) instead (0: vertexAttributes)
     };
 
     void createInstance();
@@ -179,6 +180,14 @@ private:
                             const std::vector<const LightInfo*>& lights, render_detail::FrameUBO& u,
                             std::vector<int>& shadowLayer) const;
     void recordShadows(VkCommandBuffer cb);
+    // GPU pass times (core/profiler.h): timestamps between the passes, read back a couple of frames later
+    static constexpr uint32_t kMaxTimestamps = 8;
+    VkQueryPool timestamps_[MAX_FRAMES] = {};
+    std::vector<const char*> stampNames_[MAX_FRAMES];
+    uint32_t timestampBits_ = 0;
+    float timestampPeriod_ = 1.f;   // ns per tick
+    void timestamp(VkCommandBuffer cb, const char* name);
+    void readGpuTimes();
     void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui);
 
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props);

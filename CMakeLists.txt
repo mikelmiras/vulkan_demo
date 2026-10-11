@@ -70,6 +70,9 @@ set(ENGINE_SOURCES
   src/core/png.cpp
   src/core/project.cpp
   src/core/vfs.cpp
+  src/core/profiler.cpp
+  src/core/log.cpp
+  src/app/profiler_view.cpp
   src/assets/meshes.cpp
   src/assets/animation.cpp
   src/assets/textures.cpp
