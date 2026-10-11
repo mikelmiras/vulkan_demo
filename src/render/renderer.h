@@ -43,8 +43,11 @@ struct SceneRenderInfo {
 };
 
 struct RenderStats {
-    uint32_t drawCalls = 0;
+    uint32_t drawCalls = 0;    // instanced draws in the main pass
     uint32_t triangles = 0;
+    uint32_t objects = 0;      // drawn in the main pass (after culling)
+    uint32_t culled = 0;       // outside the view
+    uint32_t shadowCasters = 0;
 };
 
 class Renderer {
@@ -108,6 +111,9 @@ private:
     VkCommandBuffer beginOneTimeCommands();
     void endOneTimeCommands(VkCommandBuffer cb);
     void createShadowResources();
+    // Culls and batches the draw items into this frame's instance buffer (after its fence has been waited on)
+    void prepareInstances(const SceneRenderInfo& info, const Mat4& lightViewProj);
+    void ensureInstanceCapacity(size_t count);
     Mat4 shadowMatrix(const SceneRenderInfo& info, Vec3 sunDir) const;
     void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui);
 
@@ -171,6 +177,14 @@ private:
     VkDescriptorSet descSets_[MAX_FRAMES] = {};
 
     Buffer vertexBuffer_, indexBuffer_, ubo_[MAX_FRAMES];
+    Buffer instances_[MAX_FRAMES];   // InstanceData for every object drawn in the frame (storage buffer)
+    // Consecutive instances drawn with one call: same mesh and texture
+    struct Batch {
+        int mesh = 0;
+        VkDescriptorSet texture = VK_NULL_HANDLE;
+        uint32_t first = 0, count = 0;
+    };
+    std::vector<Batch> sceneBatches_, shadowBatches_, outlineBatches_;
     VkCommandPool cmdPool_ = VK_NULL_HANDLE;
     VkCommandBuffer cmd_[MAX_FRAMES] = {};
     VkSemaphore imageAvailable_[MAX_FRAMES] = {};

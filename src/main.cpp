@@ -1,10 +1,11 @@
 // Vulkan World Editor: a small Vulkan 3D scene with a Blender-style editing UI.
 //
-//   vkworld [project folder | scene.vkw] [--play] [--select <entity>] [--fullscreen] [--screenshot out.png [--frames N]]
+//   vkworld [project folder | scene.vkw] [--play] [--select <entity>] [--stress] [--fullscreen]
+//           [--screenshot out.png [--frames N]]
 //
 // The project is the folder given, else the working directory (its start scene opens if it has a project.json).
-// --play starts play mode right away; --select selects an entity by name; --screenshot saves frame N (default
-// 30) and quits.
+// --play starts play mode right away; --select selects an entity by name; --stress opens the stress test scene;
+// --screenshot saves frame N (default 30) and quits.
 
 #include <cstdio>
 #include <cstring>
@@ -22,9 +23,10 @@ int main(int argc, char** argv) {
     Application::Options options = Application::parseArgs(argc, argv, defaults);
     const char* scenePath = nullptr;
     const char* selectName = nullptr;
-    bool play = false;
+    bool play = false, stress = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--play")) play = true;
+        else if (!std::strcmp(argv[i], "--stress")) stress = true;
         else if (!std::strcmp(argv[i], "--select") && i + 1 < argc) selectName = argv[++i];
         else scenePath = argv[i];
     }
@@ -43,6 +45,7 @@ int main(int argc, char** argv) {
     if (projectArg) editor.openProject(scenePath);
     else if (scenePath) editor.openScene(scenePath);
     else if (project::exists(project::root())) editor.openProject(project::root());
+    if (stress) editor.newStressScene();
     if (selectName && !editor.selectByName(selectName)) std::fprintf(stderr, "no entity named %s\n", selectName);
     if (play) editor.play();
 

@@ -1,6 +1,8 @@
 #include "physics/physics_world.h"
 
+#include <algorithm>
 #include <cfloat>
+#include <cmath>
 
 using namespace collision;
 
@@ -44,6 +46,7 @@ constexpr float kSkin = 0.001f;   // keep resolved shapes this far apart, so res
 void PhysicsWorld::build(const Scene& scene, const MeshLibrary& meshes) {
     meshes_ = &meshes;
     bodies_.clear();
+    staleAfterDynamics_ = false;
     std::vector<Mat4> worlds = scene.worldMatrices();
     for (size_t i = 0; i < scene.entities.size(); ++i) {
         const Entity& e = scene.entities[i];
@@ -93,7 +96,135 @@ void PhysicsWorld::build(const Scene& scene, const MeshLibrary& meshes) {
             }
         }
         b.dynamic = e.rigidBody.has_value() && !c.trigger;
+        if (b.dynamic && c.shape == Collider::Shape::Sphere && length(c.center) > 1e-6f) staleAfterDynamics_ = true;
+        int depth = 0;   // guards against parent cycles in broken files
+        if (!staleAfterDynamics_)
+            for (const Entity* p = scene.find(e.parent); p && depth < 256; p = scene.find(p->parent), ++depth)
+                if (p->rigidBody) {
+                    staleAfterDynamics_ = true;
+                    break;
+                }
         bodies_.push_back(b);
+    }
+    buildTree();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Broad-phase
+// ---------------------------------------------------------------------------------------------
+void PhysicsWorld::buildTree() {
+    nodes_.clear();
+    staticIdx_.clear();
+    dynamicIdx_.clear();
+    EntityId maxId = 0;
+    for (const Body& b : bodies_) maxId = std::max(maxId, b.entity);
+    byEntity_.assign(bodies_.empty() ? 0 : (size_t)maxId + 1, -1);
+    for (size_t i = 0; i < bodies_.size(); ++i) {
+        (bodies_[i].dynamic ? dynamicIdx_ : staticIdx_).push_back((int)i);
+        int& slot = byEntity_[bodies_[i].entity];
+        if (slot < 0) slot = (int)i;   // the first body wins, as find() always did
+    }
+    if (!staticIdx_.empty()) {
+        prims_.resize(bodies_.size());
+        for (int i : staticIdx_) {
+            const Body& b = bodies_[(size_t)i];
+            prims_[(size_t)i] = {b.aabbMin, b.aabbMax, b.aabbMin + b.aabbMax};
+        }
+        nodes_.reserve(staticIdx_.size() / 2 + 1);
+        buildNode(0, (int)staticIdx_.size(), 0);
+    }
+}
+
+// Median split along the longest axis of the centres: O(n log n) and good enough for scenes that are rebuilt
+// every update. Reads the compact prims_, not the (large) bodies, to stay in cache.
+int PhysicsWorld::buildNode(int first, int count, int depth) {
+    int index = (int)nodes_.size();
+    nodes_.emplace_back();
+    Vec3 lo{FLT_MAX, FLT_MAX, FLT_MAX}, hi{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    Vec3 clo = lo, chi = hi;
+    for (int i = first; i < first + count; ++i) {
+        const Prim& p = prims_[(size_t)staticIdx_[(size_t)i]];
+        growBounds(lo, hi, p.lo);
+        growBounds(lo, hi, p.hi);
+        growBounds(clo, chi, p.center2);
+    }
+    nodes_[(size_t)index].lo = lo;
+    nodes_[(size_t)index].hi = hi;
+    if (count <= 4 || depth > 48) {
+        nodes_[(size_t)index].first = first;
+        nodes_[(size_t)index].count = count;
+        return index;
+    }
+    Vec3 ext = chi - clo;
+    int axis = ext.x >= ext.y && ext.x >= ext.z ? 0 : ext.y >= ext.z ? 1 : 2;
+    auto key = [&](int bi) {
+        const Vec3& c = prims_[(size_t)bi].center2;
+        return axis == 0 ? c.x : axis == 1 ? c.y : c.z;
+    };
+    int half = count / 2;
+    std::nth_element(staticIdx_.begin() + first, staticIdx_.begin() + first + half, staticIdx_.begin() + first + count,
+                     [&](int a, int b) { return key(a) < key(b); });
+    int left = buildNode(first, half, depth + 1);
+    int right = buildNode(first + half, count - half, depth + 1);
+    nodes_[(size_t)index].left = left;
+    nodes_[(size_t)index].right = right;
+    return index;
+}
+
+void PhysicsWorld::queryBox(Vec3 lo, Vec3 hi, std::vector<int>& out) const {
+    if (nodes_.empty()) return;
+    int stack[128];
+    int top = 0;
+    stack[top++] = 0;
+    while (top > 0) {
+        const Node& n = nodes_[(size_t)stack[--top]];
+        if (!boundsOverlap(n.lo, n.hi, lo, hi)) continue;
+        if (n.count > 0) {
+            for (int i = n.first; i < n.first + n.count; ++i) {
+                const Prim& p = prims_[(size_t)staticIdx_[(size_t)i]];
+                if (boundsOverlap(p.lo, p.hi, lo, hi)) out.push_back(staticIdx_[(size_t)i]);
+            }
+        } else if (top + 2 <= 128) {
+            stack[top++] = n.left;
+            stack[top++] = n.right;
+        }
+    }
+}
+
+namespace {
+// Does the ray (origin, 1/dir) cross the box before maxT?
+bool rayHitsBounds(Vec3 o, Vec3 inv, float maxT, Vec3 lo, Vec3 hi) {
+    float t0 = 0.f, t1 = maxT;
+    const float os[3] = {o.x, o.y, o.z}, is[3] = {inv.x, inv.y, inv.z}, ls[3] = {lo.x, lo.y, lo.z}, hs[3] = {hi.x, hi.y, hi.z};
+    for (int k = 0; k < 3; ++k) {
+        float a = (ls[k] - os[k]) * is[k], b = (hs[k] - os[k]) * is[k];
+        if (a > b) std::swap(a, b);
+        if (!(a <= t1 && b >= t0)) {
+            // NaN from 0 * inf (origin on the slab plane, ray parallel to it): inside the slab, keep going
+            if (std::isnan(a) || std::isnan(b)) continue;
+            return false;
+        }
+        t0 = std::max(t0, a);
+        t1 = std::min(t1, b);
+    }
+    return true;
+}
+}  // namespace
+
+void PhysicsWorld::queryRay(Vec3 origin, Vec3 invDir, float maxT, std::vector<int>& out) const {
+    if (nodes_.empty()) return;
+    int stack[128];
+    int top = 0;
+    stack[top++] = 0;
+    while (top > 0) {
+        const Node& n = nodes_[(size_t)stack[--top]];
+        if (!rayHitsBounds(origin, invDir, maxT, n.lo, n.hi)) continue;
+        if (n.count > 0) {
+            for (int i = n.first; i < n.first + n.count; ++i) out.push_back(staticIdx_[(size_t)i]);
+        } else if (top + 2 <= 128) {
+            stack[top++] = n.left;
+            stack[top++] = n.right;
+        }
     }
 }
 
@@ -139,9 +270,8 @@ bool PhysicsWorld::contact(const Body& a, const Body& b, Contact& out) const {
 }
 
 const PhysicsWorld::Body* PhysicsWorld::find(EntityId id) const {
-    for (const Body& b : bodies_)
-        if (b.entity == id) return &b;
-    return nullptr;
+    int i = id < byEntity_.size() ? byEntity_[id] : -1;
+    return i >= 0 ? &bodies_[(size_t)i] : nullptr;
 }
 
 bool PhysicsWorld::capsuleOf(const Body& b, Capsule& out) {
@@ -206,7 +336,15 @@ bool PhysicsWorld::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit&
     dir = dir * (1.f / len);
     float best = maxDistance;
     bool found = false;
-    for (const Body& b : bodies_) {
+    Vec3 inv{1.f / dir.x, 1.f / dir.y, 1.f / dir.z};
+    std::vector<int> candidates;
+    queryRay(origin, inv, maxDistance, candidates);
+    for (int i : dynamicIdx_)
+        if (rayHitsBounds(origin, inv, maxDistance, bodies_[(size_t)i].aabbMin, bodies_[(size_t)i].aabbMax))
+            candidates.push_back(i);
+    std::sort(candidates.begin(), candidates.end());   // body order: equally distant hits resolve as they always did
+    for (int ci : candidates) {
+        const Body& b = bodies_[(size_t)ci];
         if (b.trigger || b.entity == ignore) continue;
         Vec3 n;
         float t = -1.f;
@@ -244,11 +382,12 @@ bool PhysicsWorld::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit&
 
 std::vector<EntityId> PhysicsWorld::overlapSphere(Vec3 center, float radius, bool includeTriggers, EntityId ignore) const {
     std::vector<EntityId> out;
-    for (const Body& b : bodies_) {
-        if (b.entity == ignore || (b.trigger && !includeTriggers)) continue;
+    Vec3 r{radius, radius, radius};
+    forEachNear(center - r, center + r, [&](const Body& b) {
+        if (b.entity == ignore || (b.trigger && !includeTriggers)) return;
         Contact c;
         if (contact(Sphere{center, radius}, b, c)) out.push_back(b.entity);
-    }
+    });
     return out;
 }
 
@@ -265,8 +404,11 @@ CharacterMove PhysicsWorld::moveCapsule(const Capsule& capsule, Vec3 delta, Enti
         for (int iter = 0; iter < 4; ++iter) {   // resolve the deepest contact, a few times
             Contact deepest;
             const Body* deepestBody = nullptr;
-            for (const Body& b : bodies_) {
-                if (b.trigger || b.entity == ignore) continue;
+            Vec3 rr{c.radius, c.radius, c.radius};
+            Vec3 lo = Vec3{std::min(c.a.x, c.b.x), std::min(c.a.y, c.b.y), std::min(c.a.z, c.b.z)} - rr;
+            Vec3 hi = Vec3{std::max(c.a.x, c.b.x), std::max(c.a.y, c.b.y), std::max(c.a.z, c.b.z)} + rr;
+            forEachNear(lo, hi, [&](const Body& b) {
+                if (b.trigger || b.entity == ignore) return;
                 forEachCapsuleSphere(c, [&](const Sphere& sp) {
                     Contact ct;
                     if (contact(sp, b, ct) && ct.depth > deepest.depth) {
@@ -275,7 +417,7 @@ CharacterMove PhysicsWorld::moveCapsule(const Capsule& capsule, Vec3 delta, Enti
                     }
                     return true;
                 });
-            }
+            });
             if (deepestBody && deepestBody->dynamic) {
                 bool known = false;
                 for (const auto& t : result.touched) known |= t.first == deepestBody->entity;
@@ -293,13 +435,12 @@ CharacterMove PhysicsWorld::moveCapsule(const Capsule& capsule, Vec3 delta, Enti
     // Resting on the ground leaves a skin-width gap: probe just below so standing still still counts as grounded
     if (!result.grounded) {
         Sphere foot{(c.a.y < c.b.y ? c.a : c.b) - Vec3{0, kSkin * 4.f, 0}, c.radius};
-        for (const Body& b : bodies_) {
+        Vec3 rr{foot.radius, foot.radius, foot.radius};
+        forEachNear(foot.center - rr, foot.center + rr, [&](const Body& b) {
             Contact ct;
-            if (!b.trigger && b.entity != ignore && contact(foot, b, ct) && ct.normal.y > 0.7f) {
+            if (!result.grounded && !b.trigger && b.entity != ignore && contact(foot, b, ct) && ct.normal.y > 0.7f)
                 result.grounded = true;
-                break;
-            }
-        }
+        });
     }
     result.displacement = c.a - capsule.a;
     return result;
@@ -309,8 +450,15 @@ std::vector<std::pair<EntityId, EntityId>> PhysicsWorld::triggerOverlaps() const
     std::vector<std::pair<EntityId, EntityId>> out;
     for (const Body& t : bodies_) {
         if (!t.trigger) continue;
-        for (const Body& o : bodies_)
+        forEachNear(t.aabbMin, t.aabbMax, [&](const Body& o) {
             if (!o.trigger && o.entity != t.entity && overlaps(t, o)) out.emplace_back(t.entity, o.entity);
+        });
     }
+    // In body order, as before the broad-phase (callbacks run in this order)
+    std::sort(out.begin(), out.end(), [&](const auto& a, const auto& b) {
+        if (a.first != b.first) return byEntity_[a.first] < byEntity_[b.first];
+        return byEntity_[a.second] < byEntity_[b.second];
+    });
+    out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;
 }

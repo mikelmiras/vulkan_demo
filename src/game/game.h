@@ -92,6 +92,7 @@ public:
     void step();   // run exactly one fixed update (frame stepping while paused)
 
     float time() const { return time_; }               // simulated seconds since start()
+    float updateMs() const { return updateMs_; }       // CPU time of a fixed update (smoothed), milliseconds
     unsigned long long tick() const { return tick_; }  // fixed updates since start()
     InputMap& input() { return input_; }
     // Messages from GameContext::log(), with the game time they were logged at (latest last)
@@ -121,7 +122,7 @@ private:
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity
     GameContext ctx_;
     std::vector<std::pair<float, std::string>> log_;
-    float accumulator_ = 0.f, time_ = 0.f;
+    float accumulator_ = 0.f, time_ = 0.f, updateMs_ = 0.f;
     unsigned long long tick_ = 0;
     bool paused_ = false;
 };

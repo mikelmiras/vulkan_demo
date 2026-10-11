@@ -337,3 +337,57 @@ TEST(rigid_body_pushed_by_player_and_shot) {
     frame(30);
     CHECK(pos(s, crate).z < z2 - 0.3f);   // knocked further
 }
+
+// The broad-phase (a tree over static bodies plus a list of rigid bodies) must find exactly what testing every body
+// would: rays and sphere overlaps against a random field, compared with worlds holding one body each
+TEST(physics_broadphase_matches_brute_force) {
+    Scene s;
+    uint32_t seed = 12345;
+    auto rnd = [&](float a, float b) {
+        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+        return a + (b - a) * ((seed & 0xFFFFFF) / float(0x1000000));
+    };
+    for (int i = 0; i < 160; ++i) {
+        Entity& e = box(s, "b", test::v3(rnd(-40, 40), rnd(0, 6), rnd(-40, 40)), test::v3(rnd(0.3f, 3), rnd(0.3f, 3), rnd(0.3f, 3)));
+        e.transform.rotation[1] = rnd(0, 90);
+        if (i % 3 == 1) { e.collider->shape = Collider::Shape::Sphere; e.collider->radius = 0.5f; }
+        if (i % 3 == 2) { e.collider->shape = Collider::Shape::Capsule; e.collider->radius = 0.3f; e.collider->height = 1.5f; }
+        if (i % 5 == 0) e.rigidBody = RigidBody{};
+        if (i % 7 == 0) e.collider->trigger = true;
+    }
+    PhysicsWorld all;
+    all.build(s, meshes());
+    std::vector<PhysicsWorld> single(s.entities.size());
+    for (size_t i = 0; i < s.entities.size(); ++i) {
+        Scene one;
+        one.add(s.entities[i]);
+        single[i].build(one, meshes());
+    }
+    int hits = 0, overlaps = 0;
+    for (int r = 0; r < 300; ++r) {
+        Vec3 o = test::v3(rnd(-45, 45), rnd(0.5f, 8), rnd(-45, 45));
+        Vec3 d = normalize(test::v3(rnd(-1, 1), rnd(-0.3f, 0.3f), rnd(-1, 1)));
+        RaycastHit got, want, h;
+        bool found = all.raycast(o, d, 60.f, got);
+        bool expected = false;
+        for (PhysicsWorld& w : single)
+            if (w.raycast(o, d, 60.f, h) && (!expected || h.distance < want.distance)) { want = h; expected = true; }
+        CHECK(found == expected);
+        if (found && expected) {
+            CHECK_NEAR(got.distance, want.distance, 1e-4);
+            ++hits;
+        }
+        float radius = rnd(0.2f, 4.f);
+        std::vector<EntityId> near = all.overlapSphere(o, radius), wantNear;
+        for (PhysicsWorld& w : single)
+            for (EntityId id : w.overlapSphere(o, radius)) wantNear.push_back(id);
+        std::sort(near.begin(), near.end());
+        std::sort(wantNear.begin(), wantNear.end());
+        CHECK(near == wantNear);
+        overlaps += (int)near.size();
+    }
+    CHECK(hits > 20);       // the test exercised both paths
+    CHECK(overlaps > 20);
+    // Every body can still be found by its entity
+    for (const Entity& e : s.entities) CHECK(all.find(e.id) && all.find(e.id)->entity == e.id);
+}

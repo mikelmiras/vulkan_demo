@@ -8,6 +8,7 @@
 #include <functional>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "imgui.h"
 #include "ImGuizmo.h"
@@ -117,10 +118,21 @@ Entity& Scene::add(Entity e) {
     return entities.back();
 }
 
+void Scene::rebuildIndex() const {
+    index_.clear();
+    index_.reserve(entities.size());
+    for (size_t i = 0; i < entities.size(); ++i) index_[entities[i].id] = (uint32_t)i;
+}
+
 int Scene::indexOf(EntityId id) const {
     if (id == kNoEntity) return -1;
+    auto it = index_.find(id);
+    if (it != index_.end() && it->second < entities.size() && entities[it->second].id == id) return (int)it->second;
     for (size_t i = 0; i < entities.size(); ++i)
-        if (entities[i].id == id) return (int)i;
+        if (entities[i].id == id) {
+            rebuildIndex();
+            return (int)i;
+        }
     return -1;
 }
 
@@ -206,10 +218,14 @@ std::vector<EntityId> Scene::childrenOf(EntityId parent) const {
 std::vector<EntityId> Scene::subtree(EntityId root) const {
     std::vector<EntityId> out;
     if (!find(root)) return out;
+    std::unordered_map<EntityId, std::vector<EntityId>> children;   // in scene order
+    for (const Entity& e : entities)
+        if (e.parent != kNoEntity) children[e.parent].push_back(e.id);
     out.push_back(root);
-    for (size_t i = 0; i < out.size(); ++i)   // breadth-first is enough: order only matters for "root first"
-        for (const Entity& e : entities)
-            if (e.parent == out[i]) out.push_back(e.id);
+    for (size_t i = 0; i < out.size() && out.size() <= entities.size(); ++i) {   // breadth-first: "root first" is all that matters
+        auto it = children.find(out[i]);
+        if (it != children.end()) out.insert(out.end(), it->second.begin(), it->second.end());
+    }
     return out;
 }
 
@@ -227,9 +243,20 @@ bool Scene::setParent(EntityId id, EntityId newParent, bool keepWorld) {
 }
 
 void Scene::remove(EntityId id) {
-    std::vector<EntityId> doomed = subtree(id);
-    std::set<EntityId> set(doomed.begin(), doomed.end());
-    entities.erase(std::remove_if(entities.begin(), entities.end(), [&](const Entity& e) { return set.count(e.id) > 0; }),
+    remove(std::vector<EntityId>{id});
+}
+
+void Scene::remove(const std::vector<EntityId>& ids) {
+    if (ids.empty()) return;
+    // Doomed: the listed entities and everything below them. One pass in scene order works when parents come before
+    // their children; otherwise repeat until nothing changes (rare: reparented entities).
+    std::unordered_set<EntityId> doomed(ids.begin(), ids.end());
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (const Entity& e : entities)
+            if (e.parent != kNoEntity && doomed.count(e.parent) && doomed.insert(e.id).second) changed = true;
+    }
+    entities.erase(std::remove_if(entities.begin(), entities.end(), [&](const Entity& e) { return doomed.count(e.id) > 0; }),
                    entities.end());
 }
 

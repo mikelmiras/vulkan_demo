@@ -24,8 +24,13 @@ Vec3 respond(Vec3 v, Vec3 n, Vec3 other, const RigidBody& rb) {
 }  // namespace
 
 std::vector<Impact> stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings) {
-    std::vector<Impact> impacts;
     PhysicsWorld world;
+    return stepDynamics(scene, world, meshes, dt, settings);
+}
+
+std::vector<Impact> stepDynamics(Scene& scene, PhysicsWorld& world, const MeshLibrary& meshes, float dt,
+                                 const DynamicsSettings& settings) {
+    std::vector<Impact> impacts;
     world.build(scene, meshes);
     std::vector<PhysicsWorld::Body>& bodies = world.bodies();
 
@@ -53,18 +58,18 @@ std::vector<Impact> stepDynamics(Scene& scene, const MeshLibrary& meshes, float 
             self.translate(rb.velocity * h);
             for (int iter = 0; iter < 4; ++iter) {
                 Contact deepest;
-                size_t hit = bodies.size();
-                for (size_t oi = 0; oi < bodies.size(); ++oi) {
-                    const PhysicsWorld::Body& o = bodies[oi];
-                    if (oi == bi || o.trigger || o.entity == self.entity) continue;
+                PhysicsWorld::Body* hit = nullptr;
+                world.forEachNear(self.aabbMin, self.aabbMax, [&](PhysicsWorld::Body& o) {
+                    if (&o == &self || o.trigger || o.entity == self.entity) return;
                     Contact c;
-                    if (world.contact(self, o, c) && c.depth > deepest.depth) {
+                    // Ties go to the earlier body, as they did before the broad-phase
+                    if (world.contact(self, o, c) && (c.depth > deepest.depth || (c.depth == deepest.depth && hit && &o < hit))) {
                         deepest = c;
-                        hit = oi;
+                        hit = &o;
                     }
-                }
-                if (hit == bodies.size()) break;
-                PhysicsWorld::Body& other = bodies[hit];
+                });
+                if (!hit) break;
+                PhysicsWorld::Body& other = *hit;
                 Vec3 n = deepest.normal;
                 if (n.y > 0.7f) { grounded = true; groundNormal = n; }
                 hardest = std::max(hardest, -dot(rb.velocity, n));

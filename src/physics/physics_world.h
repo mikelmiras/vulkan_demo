@@ -1,6 +1,7 @@
 // Collision queries over a scene: a snapshot of every collider in world space, rebuilt each fixed update.
-// Everything is kinematic (no rigid-body dynamics yet): colliders go where their entities are, characters
-// move with moveCapsule() and slide along what they hit.
+// Colliders go where their entities are, characters move with moveCapsule() and slide along what they hit.
+// Broad-phase: a bounding volume hierarchy over the bodies that don't move during an update (everything without
+// a RigidBody), and a plain list of the rigid bodies, which stepDynamics() moves around.
 #pragma once
 
 #include <utility>
@@ -44,6 +45,9 @@ public:
     };
 
     void build(const Scene& scene, const MeshLibrary& meshes);
+    // After stepDynamics() has moved the rigid bodies inside this world, is it still an exact snapshot of the scene?
+    // Not if a collider rides on a rigid body (a child of one), or a rolling sphere's collider is off-centre.
+    bool staleAfterDynamics() const { return staleAfterDynamics_; }
     const std::vector<Body>& bodies() const { return bodies_; }
     std::vector<Body>& bodies() { return bodies_; }
     const Body* find(EntityId id) const;
@@ -59,6 +63,10 @@ public:
     // (trigger, other) pairs that overlap right now; triggers don't trigger each other
     std::vector<std::pair<EntityId, EntityId>> triggerOverlaps() const;
 
+    // Calls f(body) for every body whose bounds overlap [lo, hi] (bounds test only; f does the exact test)
+    template <class F> void forEachNear(Vec3 lo, Vec3 hi, F&& f) const;
+    template <class F> void forEachNear(Vec3 lo, Vec3 hi, F&& f);
+
     // World-space capsule of an entity's capsule collider (or a sphere's as a zero-length capsule)
     static bool capsuleOf(const Body& b, collision::Capsule& out);
 
@@ -70,7 +78,45 @@ public:
 
 private:
     bool overlaps(const Body& a, const Body& b) const;
+    void buildTree();
+    int buildNode(int first, int count, int depth);
+    // Indices of static bodies whose bounds overlap [lo, hi] (or the ray's path, for queryRay), into `out`
+    void queryBox(Vec3 lo, Vec3 hi, std::vector<int>& out) const;
+    void queryRay(Vec3 origin, Vec3 invDir, float maxT, std::vector<int>& out) const;
+
+    struct Node {
+        Vec3 lo, hi;
+        int left = -1, right = -1;   // children (inner nodes)
+        int first = 0, count = 0;    // range in staticIdx_ (leaves: count > 0)
+    };
 
     const MeshLibrary* meshes_ = nullptr;
     std::vector<Body> bodies_;
+    struct Prim {
+        Vec3 lo, hi, center2;        // a static body's bounds, and twice its centre
+    };
+    std::vector<Node> nodes_;       // nodes_[0] is the root (if any)
+    std::vector<Prim> prims_;       // by bodies_ index (static bodies only)
+    std::vector<int> staticIdx_;    // bodies_ indices, ordered by the tree
+    std::vector<int> dynamicIdx_;   // bodies_ indices of rigid bodies
+    bool staleAfterDynamics_ = false;
+    std::vector<int> byEntity_;     // entity id -> bodies_ index, -1 if none (ids are small and dense)
 };
+
+template <class F>
+void PhysicsWorld::forEachNear(Vec3 lo, Vec3 hi, F&& f) const {
+    std::vector<int> near;
+    queryBox(lo, hi, near);
+    for (int i : near) f(bodies_[(size_t)i]);
+    for (int i : dynamicIdx_) {
+        const Body& b = bodies_[(size_t)i];
+        if (b.aabbMin.x <= hi.x && b.aabbMax.x >= lo.x && b.aabbMin.y <= hi.y && b.aabbMax.y >= lo.y &&
+            b.aabbMin.z <= hi.z && b.aabbMax.z >= lo.z)
+            f(b);
+    }
+}
+
+template <class F>
+void PhysicsWorld::forEachNear(Vec3 lo, Vec3 hi, F&& f) {
+    static_cast<const PhysicsWorld&>(*this).forEachNear(lo, hi, [&](const Body& b) { f(const_cast<Body&>(b)); });
+}

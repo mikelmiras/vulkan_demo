@@ -57,6 +57,7 @@ add_library(engine STATIC
   src/scene/scene.cpp
   src/scene/serialization.cpp
   src/scene/prefab_sync.cpp
+  src/scene/stress_scene.cpp
   src/physics/collision.cpp
   src/physics/physics_world.cpp
   src/physics/dynamics.cpp
@@ -91,6 +92,10 @@ target_link_libraries(vkworld PRIVATE engine)
 # Standalone game: the engine without the editor, playing a scene
 add_executable(vkgame src/runtime/main.cpp)
 target_link_libraries(vkgame PRIVATE engine)
+
+# Benchmark: times the CPU side of a frame on a large generated scene (engine_bench [statics] [bodies] [triggers] [ticks])
+add_executable(engine_bench bench/bench_main.cpp)
+target_link_libraries(engine_bench PRIVATE engine)
 
 # Platform layer (part of the engine)
 if(WIN32)
@@ -136,7 +141,7 @@ if(VKWORLD_BUILD_TESTS)
 endif()
 
 # Warnings
-set(OWN_TARGETS engine vkworld vkgame)
+set(OWN_TARGETS engine vkworld vkgame engine_bench)
 if(VKWORLD_BUILD_TESTS)
   list(APPEND OWN_TARGETS engine_tests)
 endif()

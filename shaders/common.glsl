@@ -1,5 +1,5 @@
-// Shared by the scene shaders: per-frame data (set 0, binding 0) and per-draw push constants.
-// Must match FrameUBO / PushConstants in src/render/renderer.cpp.
+// Shared by the scene shaders: per-frame data (set 0, binding 0) and per-object instance data (set 0, binding 2).
+// Must match FrameUBO / InstanceData in src/render/renderer.cpp.
 
 layout(set = 0, binding = 0) uniform Frame {
     mat4 viewProj;
@@ -14,8 +14,12 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 pointColor[8];   // rgb = colour * intensity (linear)
 } frame;
 
-layout(push_constant) uniform Push {
+// One per drawn object; draws are instanced, gl_InstanceIndex picks the object
+struct Instance {
     mat4 model;
     vec4 color;    // rgb = albedo (linear; sRGB for the outline), a unused
     vec4 params;   // x = 1 for the procedural checker ground, y = texture tiling, z = 1 if textured
-} pc;
+};
+layout(std430, set = 0, binding = 2) readonly buffer Instances {
+    Instance instances[];
+};

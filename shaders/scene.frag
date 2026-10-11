@@ -8,6 +8,8 @@ layout(set = 1, binding = 0) uniform sampler2D albedo;      // the material's te
 layout(location = 0) in vec3 vWorldPos;
 layout(location = 1) in vec3 vNormal;
 layout(location = 2) in vec2 vUV;
+layout(location = 3) flat in vec4 vColor;
+layout(location = 4) flat in vec4 vParams;
 
 layout(location = 0) out vec4 outColor;
 
@@ -28,9 +30,9 @@ float sunVisibility(vec3 N, vec3 L) {
 }
 
 void main() {
-    vec3 base = pc.color.rgb;
-    if (pc.params.z > 0.5) base *= texture(albedo, vUV).rgb;
-    bool ground = pc.params.x > 0.5;
+    vec3 base = vColor.rgb;
+    if (vParams.z > 0.5) base *= texture(albedo, vUV).rgb;
+    bool ground = vParams.x > 0.5;
 
     if (ground) {
         // 2m checkerboard plus anti-aliased 10m grid lines

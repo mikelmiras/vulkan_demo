@@ -200,3 +200,39 @@ TEST(serialization_rejects_bad_files) {
     CHECK(!loadScene(future.string(), s, lib, textures(), err));
     CHECK(!loadScene(test::tempPath("missing.vkw").string(), s, lib, textures(), err));
 }
+
+// Scene::find keeps an id index; `entities` is public, so it must survive edits made behind its back
+TEST(scene_find_survives_direct_edits) {
+    Scene s;
+    EntityId a = s.create("A").id, b = s.create("B").id, c = s.create("C", a).id;
+    REQUIRE(s.find(c) && s.find(c)->name == "C");
+    s.entities.erase(s.entities.begin());   // A gone without remove(): indices shift
+    CHECK(!s.find(a));
+    REQUIRE(s.find(b) && s.find(b)->name == "B");
+    REQUIRE(s.find(c) && s.find(c)->name == "C");
+    std::swap(s.entities[0], s.entities[1]);
+    CHECK(s.find(b)->name == "B");
+    CHECK(s.find(c)->name == "C");
+    Entity d;
+    d.id = 77;
+    d.name = "D";
+    s.entities.push_back(d);   // added directly, not through add()
+    REQUIRE(s.find(77) && s.find(77)->name == "D");
+    s.entities.clear();
+    CHECK(!s.find(b));
+}
+
+TEST(scene_remove_many_with_descendants) {
+    Scene s;
+    EntityId root = s.create("Root").id;
+    EntityId child = s.create("Child", root).id;
+    EntityId other = s.create("Other").id;
+    EntityId grandchild = s.create("Grandchild", child).id;
+    EntityId late = s.create("Late").id;
+    s.setParent(other, grandchild);   // a child listed before its parent: needs more than one pass
+    EntityId keep = s.create("Keep").id;
+    s.remove(std::vector<EntityId>{late, root});
+    CHECK(s.entities.size() == 1);
+    CHECK(s.find(keep));
+    for (EntityId gone : {root, child, other, grandchild, late}) CHECK(!s.find(gone));
+}

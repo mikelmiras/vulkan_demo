@@ -20,3 +20,7 @@ struct Impact {
 // One fixed update for every entity with a RigidBody and a solid collider; returns the impacts (one per body at
 // most, faster than 1.5 m/s)
 std::vector<Impact> stepDynamics(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings = {});
+// The same, rebuilding `world` (so its allocations are reused); afterwards it holds the bodies where they ended up
+class PhysicsWorld;
+std::vector<Impact> stepDynamics(Scene& scene, PhysicsWorld& world, const MeshLibrary& meshes, float dt,
+                                 const DynamicsSettings& settings = {});

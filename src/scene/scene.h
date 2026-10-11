@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "assets/meshes.h"
@@ -155,6 +156,7 @@ public:
     // Reparents; keepWorld keeps the entity where it is on screen. Refuses cycles. Returns false if refused.
     bool setParent(EntityId id, EntityId newParent, bool keepWorld = true);
     void remove(EntityId id);           // with all descendants
+    void remove(const std::vector<EntityId>& ids);   // several at once (with descendants), in one pass
     EntityId duplicate(EntityId id);    // deep copy of the subtree with fresh ids, same parent; returns the copy
 
     std::string uniqueName(const std::string& wanted) const;   // "Cube.001" -> "Cube.002" if taken, Blender style
@@ -175,6 +177,11 @@ public:
     std::string uniquePrefabName(const std::string& wanted) const;
 
 private:
+    // id -> position in `entities`. `entities` is public and may be changed directly, so this is only a hint:
+    // every hit is checked, and a stale entry (or a miss that a scan finds) rebuilds it.
+    mutable std::unordered_map<EntityId, uint32_t> index_;
+    void rebuildIndex() const;
+
     EntityId nextId_ = 1;
     uint32_t nextPrefabId_ = 1;
 };

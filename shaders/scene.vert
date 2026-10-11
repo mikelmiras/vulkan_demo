@@ -9,11 +9,16 @@ layout(location = 2) in vec2 inUV;
 layout(location = 0) out vec3 vWorldPos;
 layout(location = 1) out vec3 vNormal;
 layout(location = 2) out vec2 vUV;
+layout(location = 3) flat out vec4 vColor;
+layout(location = 4) flat out vec4 vParams;
 
 void main() {
-    vec4 world = pc.model * vec4(inPos, 1.0);
+    Instance inst = instances[gl_InstanceIndex];
+    vec4 world = inst.model * vec4(inPos, 1.0);
     vWorldPos = world.xyz;
-    vNormal = transpose(inverse(mat3(pc.model))) * inNormal;
-    vUV = inUV * pc.params.y;
+    vNormal = transpose(inverse(mat3(inst.model))) * inNormal;
+    vUV = inUV * inst.params.y;
+    vColor = inst.color;
+    vParams = inst.params;
     gl_Position = frame.viewProj * world;
 }

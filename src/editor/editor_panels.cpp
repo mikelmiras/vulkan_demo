@@ -107,6 +107,7 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("New (ground + player)")) newScene(false);
         if (ImGui::MenuItem("Reset to demo scene")) newScene(true);
+        if (ImGui::MenuItem("New stress test scene")) newStressScene();
         ImGui::EndDisabled();
         ImGui::Separator();
         if (ImGui::MenuItem("Quit", "Ctrl+Q")) quit_ = true;
@@ -547,6 +548,8 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
     ImGui::Text("GPU: %s", gpuName.c_str());
     ImGui::Text("%.0f FPS (%.2f ms)", fps_, fps_ > 0.f ? 1000.f / fps_ : 0.f);
     ImGui::Text("Draw calls: %u   Triangles: %u", stats.drawCalls, stats.triangles);
+    ImGui::Text("Objects: %u drawn, %u culled, %u cast shadows", stats.objects, stats.culled, stats.shadowCasters);
+    if (playing()) ImGui::Text("Game update: %.2f ms (fixed %.0f Hz)", game_.updateMs(), 1.f / Game::kFixedDt);
     ImGui::PopItemWidth();
     ImGui::End();
 }
@@ -805,9 +808,10 @@ void Editor::drawStatusBar(const RenderStats& stats) {
                                                   "Wheel zoom | G/R/S tools | F focus | Shift+A add | Ctrl+P play";
         ImGui::TextDisabled("%s", hint);
     }
-    char right[128];
-    std::snprintf(right, sizeof(right), "%zu entities | %u draws | %u tris | %.0f FPS", scene_.entities.size(),
-                  stats.drawCalls, stats.triangles, fps_);
+    char right[160], update[32] = "";
+    if (playing()) std::snprintf(update, sizeof(update), "update %.2f ms | ", game_.updateMs());
+    std::snprintf(right, sizeof(right), "%zu entities | %u draws | %u tris | %s%.0f FPS", scene_.entities.size(),
+                  stats.drawCalls, stats.triangles, update, fps_);
     float w = ImGui::CalcTextSize(right).x;
     ImGui::SameLine(std::max(ImGui::GetWindowWidth() - w - ImGui::GetStyle().WindowPadding.x, 0.f));
     ImGui::TextUnformatted(right);

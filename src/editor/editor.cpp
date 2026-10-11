@@ -1,4 +1,5 @@
 #include "editor/editor.h"
+#include "scene/stress_scene.h"
 
 #include <cctype>
 #include <cfloat>
@@ -474,6 +475,13 @@ void Editor::newScene(bool demo) {
         scene_ = std::move(keep);
     }
     selected_ = kNoEntity;
+}
+
+void Editor::newStressScene() {
+    pushUndo();
+    scene_ = buildStressScene();
+    selected_ = kNoEntity;
+    setStatus("Stress test scene: " + std::to_string(scene_.entities.size()) + " entities");
 }
 
 void Editor::saveToFile() {

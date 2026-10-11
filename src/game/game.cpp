@@ -3,6 +3,7 @@
 #include "physics/dynamics.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 
 // ---------------------------------------------------------------------------------------------
@@ -113,7 +114,7 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();
-    accumulator_ = time_ = 0.f;
+    accumulator_ = time_ = updateMs_ = 0.f;
     tick_ = 0;
     paused_ = false;
     input_ = InputMap(scene.inputActions);
@@ -166,6 +167,7 @@ void Game::prepareContext(float dt) {
 }
 
 void Game::fixedUpdate(float dt) {
+    auto started = std::chrono::steady_clock::now();
     time_ += dt;
     ++tick_;
     physics_.build(*scene_, *meshes_);
@@ -176,10 +178,12 @@ void Game::fixedUpdate(float dt) {
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
     }
     flushQueues();
-    playImpacts(stepDynamics(*scene_, *meshes_, dt));
+    playImpacts(stepDynamics(*scene_, physics_, *meshes_, dt));
     updateTriggers();
     flushQueues();
     input_.endFixedStep();
+    float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count();
+    updateMs_ = updateMs_ > 0.f ? updateMs_ * 0.9f + ms * 0.1f : ms;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -240,7 +244,8 @@ void Game::playImpacts(const std::vector<Impact>& impacts) {
 
 // Compares this step's trigger overlaps with the previous step's and sends enter / exit to both entities
 void Game::updateTriggers() {
-    physics_.build(*scene_, *meshes_);   // everything has moved during the update
+    // stepDynamics() left physics_ with every body where it now is, unless something rode along on a rigid body
+    if (physics_.staleAfterDynamics()) physics_.build(*scene_, *meshes_);
     std::vector<std::pair<EntityId, EntityId>> now = physics_.triggerOverlaps();
     auto contains = [](const std::vector<std::pair<EntityId, EntityId>>& v, const std::pair<EntityId, EntityId>& p) {
         return std::find(v.begin(), v.end(), p) != v.end();
@@ -282,7 +287,7 @@ void Game::flushSpawned() {
 }
 
 void Game::flushDestroyed() {
-    for (EntityId id : ctx_.destroyQueue_) scene_->remove(id);
+    scene_->remove(ctx_.destroyQueue_);
     ctx_.destroyQueue_.clear();
 }
 

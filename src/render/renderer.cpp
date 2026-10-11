@@ -44,10 +44,43 @@ struct FrameUBO {
     float pointColor[kMaxPointLights][4];   // rgb linear * intensity
 };
 
-struct PushConstants {
+struct InstanceData {
     Mat4 model;
     float color[4];    // rgb (linear albedo; sRGB for the outline)
     float params[4];   // x = checker ground, y = texture tiling, z = textured
+};
+
+// The six planes of a view-projection's frustum (Vulkan clip space: 0 <= z <= w), as (normal, distance)
+struct Frustum {
+    float p[6][4];
+    explicit Frustum(const Mat4& vp) {
+        auto row = [&](int r, float out[4]) { for (int c = 0; c < 4; ++c) out[c] = vp.m[c * 4 + r]; };
+        float r0[4], r1[4], r2[4], r3[4];
+        row(0, r0); row(1, r1); row(2, r2); row(3, r3);
+        for (int k = 0; k < 4; ++k) {
+            p[0][k] = r3[k] + r0[k];
+            p[1][k] = r3[k] - r0[k];
+            p[2][k] = r3[k] + r1[k];
+            p[3][k] = r3[k] - r1[k];
+            p[4][k] = r2[k];
+            p[5][k] = r3[k] - r2[k];
+        }
+    }
+    // Is the mesh's bounding box, placed by `model`, at least partly inside?
+    bool visible(const Mat4& model, Vec3 lo, Vec3 hi) const {
+        Vec3 c = (lo + hi) * 0.5f, e = (hi - lo) * 0.5f;
+        Vec3 wc = transformPoint(model, c);
+        // World-space half extents of the transformed box
+        Vec3 we{std::fabs(model.m[0]) * e.x + std::fabs(model.m[4]) * e.y + std::fabs(model.m[8]) * e.z,
+                std::fabs(model.m[1]) * e.x + std::fabs(model.m[5]) * e.y + std::fabs(model.m[9]) * e.z,
+                std::fabs(model.m[2]) * e.x + std::fabs(model.m[6]) * e.y + std::fabs(model.m[10]) * e.z};
+        for (const auto& pl : p) {
+            float d = pl[0] * wc.x + pl[1] * wc.y + pl[2] * wc.z + pl[3];
+            float r = std::fabs(pl[0]) * we.x + std::fabs(pl[1]) * we.y + std::fabs(pl[2]) * we.z;
+            if (d + r < 0.f) return false;
+        }
+        return true;
+    }
 };
 
 void set4(float out[4], Vec3 v, float w) {
@@ -565,13 +598,14 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 }
 
 void Renderer::createPipelines() {
-    // Set 0, per frame: the frame data and the shadow map
-    VkDescriptorSetLayoutBinding frameBindings[2] = {
+    // Set 0, per frame: the frame data, the shadow map and the instances
+    VkDescriptorSetLayoutBinding frameBindings[3] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 2;
+    dslci.bindingCount = 3;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's texture
@@ -581,13 +615,10 @@ void Renderer::createPipelines() {
     dslci.pBindings = &texBinding;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &textureSetLayout_));
 
-    VkPushConstantRange pcr{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants)};
     VkDescriptorSetLayout layouts[2] = {setLayout_, textureSetLayout_};
     VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     plci.setLayoutCount = 2;
     plci.pSetLayouts = layouts;
-    plci.pushConstantRangeCount = 1;
-    plci.pPushConstantRanges = &pcr;
     VK_CHECK(vkCreatePipelineLayout(device_, &plci, nullptr, &pipelineLayout_));
 
     // Lit scene objects: depth tested, no stencil
@@ -778,11 +809,12 @@ void Renderer::uploadMeshes() {
 void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
-    VkDescriptorPoolSize poolSizes[2] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES}};
+    VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
-    dpci.poolSizeCount = 2;
+    dpci.poolSizeCount = 3;
     dpci.pPoolSizes = poolSizes;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &descPool_));
     // One set per texture
@@ -833,6 +865,9 @@ void Renderer::createResources(const MeshLibrary&) {
         VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &imageAvailable_[i]));
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
     }
+
+    for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) ensureInstanceCapacity(1024);
+    frame_ = 0;
 
     const uint8_t white[4] = {255, 255, 255, 255};
     whiteTexture_ = createTexture(white, 1, 1);
@@ -900,12 +935,9 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         vkCmdSetViewport(cb, 0, 1, &sv);
         vkCmdSetScissor(cb, 0, 1, &ss);
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
-        for (const DrawItem& o : *info.items) {
-            PushConstants pc{o.model, {}, {}};
-            vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                               sizeof(pc), &pc);
-            const Mesh& mesh = meshes_->get(o.mesh);
-            vkCmdDrawIndexed(cb, mesh.indexCount, 1, mesh.firstIndex, mesh.vertexOffset, 0);
+        for (const Batch& b : shadowBatches_) {
+            const Mesh& mesh = meshes_->get(b.mesh);
+            vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
         }
         vkCmdEndRendering(cb);
         imageBarrier(cb, shadowMap_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -956,7 +988,6 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     ri.pStencilAttachment = &depthAtt;
     vkCmdBeginRendering(cb, &ri);
 
-    stats_ = {};
     // Clamp the editor's viewport rectangle to the framebuffer
     float vx = std::clamp(info.viewportX, 0.f, (float)extent_.width);
     float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
@@ -968,33 +999,28 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         vkCmdSetViewport(cb, 0, 1, &viewport);
         vkCmdSetScissor(cb, 0, 1, &scissor);
 
-        const auto& items = *info.items;
         VkDescriptorSet boundTexture = VK_NULL_HANDLE;
-        auto draw = [&](const DrawItem& o, Vec3 rgb) {
-            bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
-            VkDescriptorSet set = textured ? gpuTextures_[(size_t)o.texture].set : whiteTexture_.set;
-            if (set != boundTexture) {
-                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &set, 0, nullptr);
-                boundTexture = set;
+        auto draw = [&](const Batch& b) {
+            if (b.texture != boundTexture) {
+                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
+                boundTexture = b.texture;
             }
-            PushConstants pc{o.model, {rgb.x, rgb.y, rgb.z, 1.f}, {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, 0.f}};
-            vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                               sizeof(pc), &pc);
-            const Mesh& mesh = meshes_->get(o.mesh);
-            vkCmdDrawIndexed(cb, mesh.indexCount, 1, mesh.firstIndex, mesh.vertexOffset, 0);
-            stats_.drawCalls++;
-            stats_.triangles += mesh.indexCount / 3;
+            const Mesh& mesh = meshes_->get(b.mesh);
+            vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
         };
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-        for (const DrawItem& o : items) draw(o, srgbToLinear(o.color));
+        for (const Batch& b : sceneBatches_) {
+            draw(b);
+            stats_.drawCalls++;
+            stats_.triangles += meshes_->get(b.mesh).indexCount / 3 * b.count;
+        }
 
-        for (const DrawItem& o : items) {
-            if (!o.outlined) continue;
+        for (const Batch& b : outlineBatches_) {
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, stencilPipeline_);
-            draw(o, kOutlineSrgb);
+            draw(b);
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, outlinePipeline_);
-            draw(o, kOutlineSrgb);
+            draw(b);
         }
     }
     vkCmdEndRendering(cb);
@@ -1068,6 +1094,85 @@ void Renderer::saveScreenshot() {
     screenshotResult_ = ok ? 1 : -1;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Instances: culling and batching
+// ---------------------------------------------------------------------------------------------
+void Renderer::ensureInstanceCapacity(size_t count) {
+    Buffer& buf = instances_[frame_];
+    if (buf.buffer && buf.size >= count * sizeof(InstanceData)) return;
+    // This frame's fence has been waited on: its old buffer is no longer in use, nor is its descriptor set
+    if (buf.buffer) destroyBuffer(buf);
+    size_t capacity = 1024;
+    while (capacity < count) capacity *= 2;
+    buf = createBuffer(capacity * sizeof(InstanceData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    buf.size = capacity * sizeof(InstanceData);
+    VkDescriptorBufferInfo bi{buf.buffer, 0, VK_WHOLE_SIZE};
+    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    w.dstSet = descSets_[frame_];
+    w.dstBinding = 2;
+    w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w.pBufferInfo = &bi;
+    vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+}
+
+void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightViewProj) {
+    sceneBatches_.clear();
+    shadowBatches_.clear();
+    outlineBatches_.clear();
+    stats_ = {};
+    if (!info.items) return;
+    const std::vector<DrawItem>& items = *info.items;
+    Frustum view(info.viewProj), light(lightViewProj);
+
+    auto textureSet = [&](const DrawItem& o) {
+        bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
+        return textured ? gpuTextures_[(size_t)o.texture].set : whiteTexture_.set;
+    };
+    // Visible items, sorted so that equal (texture, mesh) pairs sit together and can be drawn as one batch
+    std::vector<uint32_t> visible, casters;
+    visible.reserve(items.size());
+    for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
+        const DrawItem& o = items[i];
+        const Mesh& mesh = meshes_->get(o.mesh);
+        if (view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) visible.push_back(i);
+        else stats_.culled++;
+        if (frameShadows_ && light.visible(o.model, mesh.boundsMin, mesh.boundsMax)) casters.push_back(i);
+    }
+    std::stable_sort(visible.begin(), visible.end(), [&](uint32_t a, uint32_t b) {
+        VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
+        if (ta != tb) return ta < tb;
+        return items[a].mesh < items[b].mesh;
+    });
+    std::stable_sort(casters.begin(), casters.end(), [&](uint32_t a, uint32_t b) { return items[a].mesh < items[b].mesh; });
+    size_t outlined = 0;
+    for (const DrawItem& o : items) outlined += o.outlined;
+
+    ensureInstanceCapacity(visible.size() + casters.size() + outlined);
+    InstanceData* out = static_cast<InstanceData*>(instances_[frame_].mapped);
+    uint32_t n = 0;
+    auto append = [&](std::vector<Batch>& batches, const DrawItem& o, Vec3 rgb, VkDescriptorSet set) {
+        bool textured = set != whiteTexture_.set;
+        out[n] = {o.model, {rgb.x, rgb.y, rgb.z, 1.f}, {o.checker ? 1.f : 0.f, o.tiling, textured ? 1.f : 0.f, 0.f}};
+        if (!batches.empty() && batches.back().mesh == o.mesh && batches.back().texture == set &&
+            batches.back().first + batches.back().count == n)
+            batches.back().count++;
+        else
+            batches.push_back({o.mesh, set, n, 1});
+        ++n;
+    };
+    for (uint32_t i : visible) append(sceneBatches_, items[i], srgbToLinear(items[i].color), textureSet(items[i]));
+    for (uint32_t i : casters) append(shadowBatches_, items[i], {}, whiteTexture_.set);
+    for (const DrawItem& o : items)   // each outline is drawn on its own (stencil, then hull): no merging
+        if (o.outlined) {
+            std::vector<Batch> single;
+            append(single, o, kOutlineSrgb, textureSet(o));
+            outlineBatches_.push_back(single[0]);
+        }
+    stats_.objects = (uint32_t)visible.size();
+    stats_.shadowCasters = (uint32_t)casters.size();
+}
+
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (width_ == 0 || height_ == 0) return;
     if (resized_) recreateSwapchain();
@@ -1119,6 +1224,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         set4(u.pointColor[i], srgbToLinear(points[i]->color) * points[i]->intensity, 0.f);
     }
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
+    prepareInstances(info, u.lightViewProj);
 
     VK_CHECK(vkResetCommandBuffer(cmd_[frame_], 0));
     recordCommands(cmd_[frame_], imageIndex, info, ui);
@@ -1170,6 +1276,7 @@ void Renderer::shutdown() {
     if (readback_.buffer) destroyBuffer(readback_);
     for (int i = 0; i < MAX_FRAMES; ++i) {
         destroyBuffer(ubo_[i]);
+        destroyBuffer(instances_[i]);
         vkDestroySemaphore(device_, imageAvailable_[i], nullptr);
         vkDestroyFence(device_, inFlight_[i], nullptr);
     }

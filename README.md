@@ -75,6 +75,14 @@ make engine_tests && make test     # or: ctest, or ./engine_tests <name filter> 
 
 Turn them off with `-DVKWORLD_BUILD_TESTS=OFF`.
 
+### Performance
+
+`engine_bench [statics] [bodies] [triggers] [ticks]` builds a stress scene (the demo plus, by default, 4000 static
+objects, 300 rigid bodies and 200 triggers) and times the CPU side of a frame: world matrices, draw lists, the
+physics world, raycasts and the fixed update. It also prints a checksum of where everything ended up, to check
+that an optimisation didn't change the simulation. `vkworld --stress` / `vkgame --stress` (or File > New stress
+test scene) open the same scene; the editor's Inspector shows drawn / culled objects and the game update time.
+
 ### Validation layer
 
 Set `VKWORLD_VALIDATION=1` to enable the Khronos validation layer (on by default in Debug builds,
@@ -180,6 +188,8 @@ dropping on the right.
 - **Shadows**: one 2048x2048 shadow map for the sun, covering about 90 m around the camera, filtered 3x3, snapped
   to texels so edges don't shimmer.
 - 4x MSAA, distance fog, the selection outline, and a little dithering against banding.
+- **Batching**: objects outside the camera's (or, for the shadow pass, the sun's) frustum are culled; the rest are
+  drawn instanced, one draw call per mesh + texture, with per-object data in a storage buffer.
 
 ## Audio
 
@@ -313,11 +323,12 @@ application (`vkworld`) built on top of it. Includes are relative to `src/`.
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
-| `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid-body motion (`dynamics.*`) |
+| `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world with a bounding volume hierarchy: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid-body motion (`dynamics.*`) |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` UI panels, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project and asset browser |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
-| `shaders/common.glsl`      | Frame data (camera, sun, point lights, shadow camera) shared by the shaders |
+| `bench/`                   | `engine_bench`: CPU timings on the stress scene (`scene/stress_scene.*`) |
+| `shaders/common.glsl`      | Frame data (camera, sun, point lights, shadow camera) and per-object instance data shared by the shaders |
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |
 | `shaders/shadow.vert`      | Shadow map (depth only)                                         |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

@@ -6,5 +6,5 @@
 layout(location = 0) in vec3 inPos;
 
 void main() {
-    gl_Position = frame.lightViewProj * pc.model * vec4(inPos, 1.0);
+    gl_Position = frame.lightViewProj * instances[gl_InstanceIndex].model * vec4(inPos, 1.0);
 }

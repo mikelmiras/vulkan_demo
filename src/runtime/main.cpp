@@ -1,6 +1,6 @@
 // The standalone game: plays a scene without the editor.
 //
-//   vkgame [scene.vkw | project folder] [--fullscreen] [--screenshot out.png [--frames N]]
+//   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--screenshot out.png [--frames N]]
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
 // directory or the executable's folder), then scene.vkw in those folders, and falls back to the built-in demo. The mouse is captured for the game: Esc releases it, a click takes it back.
@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 
 #include "app/application.h"
@@ -19,6 +20,7 @@
 #include "platform/platform.h"
 #include "render/scene_draw.h"
 #include "scene/serialization.h"
+#include "scene/stress_scene.h"
 
 namespace {
 
@@ -60,8 +62,9 @@ void drawHud(const Game& game, bool captured, float scale) {
         dl->AddText(ImVec2(13.f * scale, y + 1), IM_COL32(0, 0, 0, alpha / 2), it->second.c_str());
         dl->AddText(ImVec2(12.f * scale, y), IM_COL32(255, 235, 140, alpha), it->second.c_str());
     }
-    char top[96];
-    std::snprintf(top, sizeof(top), "%.0f FPS%s", io.Framerate, captured ? "" : "   |   click to play, Esc releases the mouse");
+    char top[128];
+    std::snprintf(top, sizeof(top), "%.0f FPS  |  update %.2f ms%s", io.Framerate, game.updateMs(),
+                  captured ? "" : "   |   click to play, Esc releases the mouse");
     dl->AddText(ImVec2(13.f * scale, 11.f * scale), IM_COL32(0, 0, 0, 140), top);
     dl->AddText(ImVec2(12.f * scale, 10.f * scale), IM_COL32(255, 255, 255, 200), top);
 }
@@ -76,14 +79,17 @@ int main(int argc, char** argv) {
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary textures = buildTextureLibrary();
     Scene scene;
-    std::string path = findScene(argc, argv), error;
-    if (path.empty()) {
+    bool stress = argc > 1 && !std::strcmp(argv[1], "--stress");
+    std::string path = stress ? "" : findScene(argc, argv), error;
+    if (stress) {
+        scene = buildStressScene();
+    } else if (path.empty()) {
         scene = buildDefaultScene();
     } else if (!loadScene(path, scene, meshes, textures, error)) {
         std::fprintf(stderr, "fatal: %s\n", error.c_str());
         return 1;
     }
-    std::printf("Playing %s\n", path.empty() ? "the built-in demo scene" : path.c_str());
+    std::printf("Playing %s\n", stress ? "the stress test scene" : path.empty() ? "the built-in demo scene" : path.c_str());
 
     Application app;
     if (!app.init(options, meshes, textures)) return 1;

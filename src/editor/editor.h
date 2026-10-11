@@ -42,6 +42,7 @@ public:
     // Makes `dir` the current project (creating its project.json if it has none) and opens its start scene
     void openProject(const std::filesystem::path& dir);
     void play() { startPlay(); }
+    void newStressScene();   // the demo plus thousands of objects: for measuring performance
     bool selectByName(const std::string& name);
 
 private:
