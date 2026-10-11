@@ -255,9 +255,10 @@ TEST(prefab_instances_are_linked) {
     CHECK(t.s.find(t.a)->prefab->prefab == t.prefab);
     CHECK(instanceRoot(t.s, bulb->id) == t.a);
     CHECK(instanceRoot(t.s, t.a) == t.a);
-    EntityId plain = t.s.create("Plain").id;
+    EntityId bulbId = bulb->id;
+    EntityId plain = t.s.create("Plain").id;   // (may move the entities: `bulb` is stale from here)
     CHECK(instanceRoot(t.s, plain) == kNoEntity);
-    CHECK(instanceOverrides(t.s, bulb->id, t.meshes, textures()).empty());
+    CHECK(instanceOverrides(t.s, bulbId, t.meshes, textures()).empty());
     std::vector<std::string> rootOverrides = instanceOverrides(t.s, t.a, t.meshes, textures());
     CHECK(rootOverrides.empty());   // x = 0: placed where the prefab has it
     CHECK(instanceOverrides(t.s, t.b, t.meshes, textures()) == std::vector<std::string>{"transform.position"});

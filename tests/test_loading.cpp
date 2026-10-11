@@ -153,13 +153,14 @@ TEST(loading_merges_assets) {
     CHECK(root->animator->clip != "bending_bar/Bend");
 
     // Loading it again reuses everything
+    int bodyMesh = body->meshRenderer->mesh;   // (`body` goes with the scene `loaded` held)
     int meshCount = other.count();
     size_t clipCount = other.animations.size();
     loader.start(path);
     REQUIRE(loader.finish(loaded, other, textures(), error));
     CHECK(other.count() == meshCount);
     CHECK(other.animations.size() == clipCount);
-    CHECK(loaded.findByName("Body")->meshRenderer->mesh == body->meshRenderer->mesh);
+    CHECK(loaded.findByName("Body")->meshRenderer->mesh == bodyMesh);
 }
 #endif
 
