@@ -672,25 +672,37 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
     }
 }
 
+thread_local std::atomic<float>* t_progress = nullptr;
+void reportProgress(float f) {
+    if (t_progress) t_progress->store(f);
+}
+
 // Imports the listed meshes and textures; fills the file's names -> library ids
 bool assetListsFromJson(const json::Value& doc, MeshLibrary& meshes, TextureLibrary& textures, AssetIds& ids,
                         std::string& error) {
     ids = builtinAssetIds(meshes, textures);
+    // (assets are most of the work: they take progress up to 80 %)
+    size_t total = doc["meshes"].elements().size() + doc["textures"].elements().size() + doc["animations"].elements().size(), done = 0;
+    auto step = [&] { reportProgress(total ? 0.8f * (float)++done / (float)total : 0.8f); };
     for (const json::Value& m : doc["meshes"].elements()) {
         int id = importMesh(meshes, project::resolve(m["source"].asString()), error);
         if (id < 0) return false;
         ids.meshes[m["name"].asString()] = id;
+        step();
     }
     for (const json::Value& t : doc["textures"].elements()) {
         int id = importTexture(textures, project::resolve(t["source"].asString()), error);
         if (id < 0) return false;
         ids.textures[t["name"].asString()] = id;
+        step();
     }
     for (const json::Value& a : doc["animations"].elements()) {
         int id = importAnimationClip(meshes, project::resolve(a["source"].asString()), error);
         if (id < 0) return false;
         ids.animations[a["name"].asString()] = meshes.animations[(size_t)id].name;
+        step();
     }
+    reportProgress(0.8f);
     return true;
 }
 
@@ -797,6 +809,8 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
     }
     return doc;
 }
+
+void setLoadProgress(std::atomic<float>* progress) { t_progress = progress; }
 
 bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, TextureLibrary& textures, std::string& error) {
     std::string text;

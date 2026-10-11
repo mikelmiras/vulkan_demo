@@ -35,7 +35,14 @@ namespace fs = std::filesystem;
 // Picks the project (setting project::root) and returns the scene to play, or "" for the demo
 std::string findScene(int argc, char** argv) {
     std::error_code ec;
-    if (argc > 1 && !fs::is_directory(argv[1], ec)) return argv[1];   // a scene file
+    if (argc > 1 && !fs::is_directory(argv[1], ec)) {   // a scene file: its project is the folder above it with one
+        fs::path file = fs::absolute(fs::u8path(argv[1]), ec);
+        for (fs::path dir = file.parent_path(); !dir.empty(); dir = dir.parent_path()) {
+            if (project::exists(dir)) { project::setRoot(dir); break; }
+            if (dir == dir.parent_path()) break;
+        }
+        return file.u8string();
+    }
     std::vector<fs::path> folders;
     if (argc > 1) folders.push_back(argv[1]);
     else folders = {fs::current_path(ec), platform::executableDir()};
@@ -110,8 +117,8 @@ int main(int argc, char** argv) {
         scene = buildStressScene();
     } else if (path.empty()) {
         scene = buildDefaultScene();
-    } else if (!loadScene(path, scene, meshes, textures, error)) {
-        std::fprintf(stderr, "fatal: %s\n", error.c_str());
+    } else if (!vfs::exists(fs::u8path(path))) {   // (it loads once the window is up, behind the loading screen)
+        std::fprintf(stderr, "fatal: cannot open %s\n", path.c_str());
         return 1;
     }
     std::printf("Playing %s\n", stress ? "the stress test scene" : path.empty() ? "the built-in demo scene" : path.c_str());
@@ -126,7 +133,11 @@ int main(int argc, char** argv) {
     game.setAsyncLoading(true);   // scene changes load in the background, behind a loading screen
     game.setScenePath(path.empty() ? "" : project::toStored(path));
     game.setSaveDirectory(project::saveDir(settings.name.empty() ? "Untitled" : settings.name));
-    game.start(scene, meshes);
+    game.start(scene, meshes);   // (empty until the scene file has loaded)
+    if (!path.empty()) {
+        game.loadScene(project::toStored(path));
+        if (!options.screenshotPath.empty()) game.finishLoading();   // screenshots show the scene, not the loading
+    }
     if (options.screenshotPath.empty()) platform::setCursorCaptured(true);
 
     GameUI ui;
@@ -134,7 +145,16 @@ int main(int argc, char** argv) {
     bool uiWantsCursor = false;   // the game's UI had a menu up last frame: keep the pointer free
 
     float dt = 0.f;
+    bool firstLoad = !path.empty();
     while (!game.quitRequested() && app.beginFrame(dt)) {
+        if (firstLoad && !game.loading()) {   // the start scene is in, or didn't load: that's fatal
+            firstLoad = false;
+            if (!game.loadError().empty()) {
+                std::fprintf(stderr, "fatal: %s\n", game.loadError().c_str());
+                app.shutdown();
+                return 1;
+            }
+        }
         ImGuiIO& io = ImGui::GetIO();
         if (platform::cursorCaptured() && (uiWantsCursor || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
             platform::setCursorCaptured(false);

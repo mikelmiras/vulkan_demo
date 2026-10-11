@@ -8,6 +8,7 @@ struct SceneLoader::Loaded {
     Scene scene;
     MeshLibrary meshes;
     TextureLibrary textures;
+    std::unique_ptr<Physics> physics;
     bool ok = false;
     std::string error;
 };
@@ -53,7 +54,7 @@ void remapEntity(Entity& e, const std::vector<int>& meshMap, const std::vector<i
 }  // namespace
 
 void mergeSceneAssets(Scene& scene, const MeshLibrary& fromMeshes, const TextureLibrary& fromTextures,
-                      MeshLibrary& meshes, TextureLibrary& textures) {
+                      MeshLibrary& meshes, TextureLibrary& textures, std::vector<int>* meshMapOut) {
     // Meshes: built-ins keep their ids; imported ones are found by source or copied over
     std::vector<int> meshMap((size_t)fromMeshes.count());
     for (int i = 0; i < fromMeshes.count(); ++i) {
@@ -105,6 +106,7 @@ void mergeSceneAssets(Scene& scene, const MeshLibrary& fromMeshes, const Texture
         texMap[(size_t)i] = found;
     }
     for (Entity& e : scene.entities) remapEntity(e, meshMap, texMap, clipMap);
+    if (meshMapOut) *meshMapOut = meshMap;
     for (Prefab& p : scene.prefabs)
         for (Entity& e : p.entities) remapEntity(e, meshMap, texMap, clipMap);
 }
@@ -113,17 +115,27 @@ SceneLoader::~SceneLoader() {
     if (result_.valid()) result_.wait();
 }
 
-void SceneLoader::start(const std::string& path) {
+void SceneLoader::start(const std::string& path, bool physics) {
     if (result_.valid()) result_.wait();   // (abandoned: its libraries are its own, so just let it finish)
     path_ = path;
     started_ = std::chrono::steady_clock::now();
+    progress_ = std::make_shared<std::atomic<float>>(0.f);
     const MeshLibrary& baseMeshes = builtinMeshes();   // made here, on the main thread, the first time
     const TextureLibrary& baseTextures = builtinTextures();
-    result_ = std::async(std::launch::async, [path, &baseMeshes, &baseTextures]() {
+    std::shared_ptr<std::atomic<float>> progress = progress_;
+    result_ = std::async(std::launch::async, [path, physics, progress, &baseMeshes, &baseTextures]() {
         auto loaded = std::make_shared<Loaded>();
         loaded->meshes = baseMeshes;
         loaded->textures = baseTextures;
+        setLoadProgress(progress.get());
         loaded->ok = loadScene(path, loaded->scene, loaded->meshes, loaded->textures, loaded->error);
+        setLoadProgress(nullptr);
+        progress->store(physics ? 0.85f : 1.f);
+        if (loaded->ok && physics) {   // every body made here, not in the frame the scene starts
+            loaded->physics = std::make_unique<Physics>();
+            loaded->physics->step(loaded->scene, loaded->meshes, 0.f);
+            progress->store(1.f);
+        }
         return loaded;
     });
 }
@@ -132,11 +144,16 @@ bool SceneLoader::ready() const {
     return result_.valid() && result_.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
-bool SceneLoader::finish(Scene& out, MeshLibrary& meshes, TextureLibrary& textures, std::string& error) {
+bool SceneLoader::finish(Scene& out, MeshLibrary& meshes, TextureLibrary& textures, std::string& error, Physics* physics) {
     if (!result_.valid()) { error = "nothing is loading"; return false; }
     std::shared_ptr<Loaded> loaded = result_.get();
     if (!loaded->ok) { error = loaded->error; return false; }
-    mergeSceneAssets(loaded->scene, loaded->meshes, loaded->textures, meshes, textures);
+    std::vector<int> meshMap;
+    mergeSceneAssets(loaded->scene, loaded->meshes, loaded->textures, meshes, textures, &meshMap);
+    if (physics && loaded->physics) {
+        loaded->physics->remapMeshes(meshMap);
+        physics->swap(*loaded->physics);
+    }
     out = std::move(loaded->scene);
     return true;
 }

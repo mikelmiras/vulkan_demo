@@ -452,9 +452,15 @@ builds up while playing goes in an optional `state(FieldVisitor&)` next to `fiel
 
 In vkgame and the editor's play mode, `loadScene()` reads the next scene on a **worker thread**: the file is
 parsed and its models and images decoded there, into asset libraries of its own, then merged into the game's
-(reusing what's already loaded). Meanwhile the current scene stays on screen, frozen, under a loading screen
-(a spinner; `ctx.showLoadingScreen(false)` and `ctx.loading()` let the game draw its own). `Game::setAsyncLoading`
-switches this on; without it (tests, tools) loads happen within the update.
+(reusing what's already loaded), and its physics world is made there too. Meanwhile the current scene stays on
+screen, frozen, under a loading screen (a spinner and a progress bar; `ctx.showLoadingScreen(false)` and
+`ctx.loading()` let the game draw its own). vkgame's first scene loads the same way, once the window is up.
+`Game::setAsyncLoading` switches this on; without it (tests, tools) loads happen within the update. On the stress
+scene a change costs the main thread 2.6 ms instead of 118 ms.
+
+New meshes reach the GPU by copying just the new vertices into room the buffers keep spare, and new textures are
+uploaded as part of the frame's own commands, a few megabytes per frame (drawn plain until theirs arrives), so
+neither waits for the GPU to go idle.
 
 Big worlds can come in pieces: **streaming** adds another scene file's entities to the running scene, under a
 new root placed anywhere, and takes them out again:

@@ -273,3 +273,52 @@ TEST(loading_streaming_zone) {
     run(g, 2);
     CHECK(chunkCount() == 0);
 }
+
+// The loader makes the physics world too; the game takes it as it is (bodies there from the first update)
+TEST(loading_physics_made_by_the_loader) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary meshes = buildMeshLibrary();
+    Scene level;
+    Entity& floor = level.create("Floor");
+    floor.transform.scale[0] = floor.transform.scale[2] = 20.f;
+    floor.collider = Collider{};
+    Entity& ball = level.create("Ball");
+    ball.transform.position[1] = 5.f;
+    ball.meshRenderer = MeshRenderer{};
+    ball.meshRenderer->mesh = (int)MeshKind::Sphere;
+    Collider sphere;
+    sphere.shape = Collider::Shape::Sphere;
+    ball.collider = sphere;
+    ball.rigidBody = RigidBody{};
+    std::string path = test::tempPath("loader_physics.vkw").string(), error;
+    REQUIRE(saveScene(path, level, meshes, textures(), error));
+
+    SceneLoader loader;
+    loader.start(path, true);
+    Physics physics;
+    Scene s;
+    REQUIRE(loader.finish(s, meshes, textures(), error, &physics));
+    CHECK(physics.bodyCount() == 2);
+    CHECK_NEAR(loader.progress(), 1.0, 1e-6);
+
+    Scene empty;
+    Game g;
+    g.setAssetLibraries(meshes, textures());
+    g.setAsyncLoading(true);
+    g.start(empty, meshes);
+    g.loadScene(path);
+    CHECK(g.loading());
+    g.finishLoading();
+    REQUIRE(!g.loading());
+    CHECK(g.loadError().empty());
+    CHECK(g.physics().bodyCount() == 2);
+    for (int i = 0; i < 60; ++i) {
+        ImGui::NewFrame();
+        g.step();
+        ImGui::EndFrame();
+    }
+    CHECK(empty.findByName("Ball")->transform.position[1] < 4.f);   // it falls
+    g.loadScene(test::tempPath("loader_missing.vkw").string());
+    g.finishLoading();
+    CHECK(!g.loadError().empty());
+}

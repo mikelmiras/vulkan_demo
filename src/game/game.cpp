@@ -217,8 +217,8 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     applyRequests();   // a scene may move on right away (a splash screen, say)
 }
 
-void Game::begin(bool fresh) {
-    physics_.clear();
+void Game::begin(bool fresh, bool keepPhysics) {
+    if (!keepPhysics) physics_.clear();
     particles_.clear();
     prevWorlds_.clear();
     prevIds_.clear();
@@ -244,7 +244,7 @@ void Game::begin(bool fresh) {
                 }
             }
     updateAnimators(*scene_, *meshes_, 0.f);   // the first frame shows the first pose
-    physics_.step(*scene_, *meshes_, 0.f);   // make the bodies now, not during the first update
+    physics_.step(*scene_, *meshes_, 0.f);   // make the bodies now (or catch up: kept ones are made already)
     prepareContext(0.f);
     startAudio();
     std::vector<std::string> missing;   // behaviours whose game module isn't loaded: they do nothing
@@ -373,15 +373,22 @@ void Game::completeSceneChange() {
     std::string path = std::move(loadingScene_), error;
     loadingScene_.clear();
     Scene next;
-    if (!meshLib_ || !texLib_ || !loader_.finish(next, *meshLib_, *texLib_, error)) {
-        ctx_.log("loadScene: " + (error.empty() ? std::string("no asset libraries") : error));
+    if (!meshLib_ || !texLib_ || !loader_.finish(next, *meshLib_, *texLib_, error, &physics_)) {
+        loadError_ = error.empty() ? std::string("no asset libraries") : error;
+        ctx_.log("loadScene: " + loadError_);
         return;
     }
+    loadError_.clear();
     for (Chunk& c : chunks_) c.cancelled = true;   // they were for the old scene
     stopSounds();
     *scene_ = std::move(next);
     scenePath_ = path;
-    begin();
+    begin(true, true);   // (the loader made the physics world)
+}
+
+void Game::loadScene(const std::string& path) {
+    pendingScene_ = path;
+    applyRequests();
 }
 
 void Game::drawLoadingScreen(GameUI& ui) {
@@ -389,6 +396,7 @@ void Game::drawLoadingScreen(GameUI& ui) {
     float w = ui.width(), h = ui.height(), cx = w * 0.5f, cy = h * 0.5f + 40.f;
     ui.rect(0.f, 0.f, w, h, {0.02f, 0.03f, 0.05f, 0.88f * show});
     ui.text(cx, cy - 120.f, "Loading", 56.f, {1.f, 1.f, 1.f, show}, GameUI::Align::Center);
+    ui.bar(cx - 200.f, cy + 80.f, 400.f, 8.f, loader_.progress(), {1.f, 1.f, 1.f, 0.8f * show}, {1.f, 1.f, 1.f, 0.12f * show});
     for (int k = 0; k < 10; ++k) {   // a spinner
         float a = (float)k / 10.f * 2.f * PI, phase = std::fmod((float)k / 10.f - t * 1.2f + 10.f, 1.f);
         float r = 34.f, s = 12.f;
@@ -648,10 +656,13 @@ void Game::applyRequests() {
         std::string path = std::move(pendingScene_);
         pendingScene_.clear();
         if (async_ && meshLib_ && texLib_) {
-            loader_.start(project::resolve(path));
+            loader_.start(project::resolve(path), true);
             loadingScene_ = path;
         } else if (!changeScene(path, error)) {
+            loadError_ = error;
             ctx_.log("loadScene: " + error);
+        } else {
+            loadError_.clear();
         }
     }
     if (!async_ && running()) pollLoads(true);   // streaming: done within the update that asked
@@ -661,7 +672,7 @@ bool Game::changeScene(const std::string& path, std::string& error) {
     if (!running()) { error = "the game isn't running"; return false; }
     if (!meshLib_ || !texLib_) { error = "no asset libraries to load scenes into"; return false; }
     Scene next;
-    if (!loadScene(project::resolve(path), next, *meshLib_, *texLib_, error)) return false;
+    if (!::loadScene(project::resolve(path), next, *meshLib_, *texLib_, error)) return false;
     stopSounds();
     *scene_ = std::move(next);
     scenePath_ = path;

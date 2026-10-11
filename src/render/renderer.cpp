@@ -785,21 +785,39 @@ void Renderer::createShadowResources() {
     VK_CHECK(vkCreateSampler(device_, &post, nullptr, &postSampler_));
 }
 
+// Meshes are only ever appended to the library, so only the new vertices and indices are copied, into room the
+// buffers keep spare (they're host-visible: no transfer, and frames in flight only read the older ranges). Only
+// growing past that room makes new buffers, which waits for the GPU.
 void Renderer::uploadMeshes() {
-    if (vertexBuffer_.buffer) {   // replacing: the old buffers may still be in use by frames in flight
+    const size_t nv = meshes_->vertices.size(), ni = meshes_->indices.size();
+    if (nv < uploadedVertices_ || ni < uploadedIndices_) {   // a different library: everything again
         vkDeviceWaitIdle(device_);
-        destroyBuffer(vertexBuffer_);
-        destroyBuffer(skinBuffer_);
-        destroyBuffer(indexBuffer_);
+        uploadedVertices_ = uploadedIndices_ = 0;
     }
-    vertexBuffer_ = createBuffer(meshes_->vertices.size() * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                 meshes_->vertices.data());
-    std::vector<SkinVertex> skin = meshes_->skin;   // (kept aligned with the vertices; pad in case it isn't)
-    skin.resize(meshes_->vertices.size());
-    skinBuffer_ = createBuffer(std::max<size_t>(skin.size(), 1) * sizeof(SkinVertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                               skin.empty() ? nullptr : skin.data());
-    indexBuffer_ = createBuffer(meshes_->indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                meshes_->indices.data());
+    if (!vertexBuffer_.buffer || nv > vertexCapacity_ || ni > indexCapacity_) {
+        if (vertexBuffer_.buffer) {   // replacing: the old buffers may still be in use by frames in flight
+            vkDeviceWaitIdle(device_);
+            destroyBuffer(vertexBuffer_);
+            destroyBuffer(skinBuffer_);
+            destroyBuffer(indexBuffer_);
+        }
+        vertexCapacity_ = std::max<size_t>(nv + nv / 2, 4096);
+        indexCapacity_ = std::max<size_t>(ni + ni / 2, 4096);
+        vertexBuffer_ = createBuffer(vertexCapacity_ * sizeof(Vertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, nullptr);
+        skinBuffer_ = createBuffer(vertexCapacity_ * sizeof(SkinVertex), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, nullptr);
+        indexBuffer_ = createBuffer(indexCapacity_ * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT, nullptr);
+        uploadedVertices_ = uploadedIndices_ = 0;
+    }
+    auto* verts = static_cast<Vertex*>(vertexBuffer_.mapped);
+    auto* skin = static_cast<SkinVertex*>(skinBuffer_.mapped);
+    std::memcpy(verts + uploadedVertices_, meshes_->vertices.data() + uploadedVertices_,
+                (nv - uploadedVertices_) * sizeof(Vertex));
+    for (size_t i = uploadedVertices_; i < nv; ++i)   // (kept aligned with the vertices; zero in case it isn't)
+        skin[i] = i < meshes_->skin.size() ? meshes_->skin[i] : SkinVertex{};
+    std::memcpy(static_cast<uint32_t*>(indexBuffer_.mapped) + uploadedIndices_, meshes_->indices.data() + uploadedIndices_,
+                (ni - uploadedIndices_) * sizeof(uint32_t));
+    uploadedVertices_ = nv;
+    uploadedIndices_ = ni;
     uploadedMeshVersion_ = meshes_->version;
 }
 
@@ -938,6 +956,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
+    uploadTextures(cb);   // new ones, a few megabytes a frame (until then they're drawn plain)
 
     const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkPipelineStageFlags depthStages =
@@ -1135,9 +1154,10 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (width_ == 0 || height_ == 0) return;
     if (resized_) recreateSwapchain();
     if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
-    if ((int)gpuTextures_.size() < textures_->count()) uploadTextures();
 
     VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
+    for (Buffer& b : retired_[frame_]) destroyBuffer(b);   // staging for uploads that frame made: done now
+    retired_[frame_].clear();
 
     uint32_t imageIndex = 0;
     VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, imageAvailable_[frame_], VK_NULL_HANDLE,
@@ -1271,6 +1291,8 @@ void Renderer::shutdown() {
     destroyBuffer(skinBuffer_);
     destroyBuffer(indexBuffer_);
     if (readback_.buffer) destroyBuffer(readback_);
+    for (std::vector<Buffer>& list : retired_)
+        for (Buffer& b : list) destroyBuffer(b);
     for (int i = 0; i < MAX_FRAMES; ++i) {
         destroyBuffer(ubo_[i]);
         destroyBuffer(instances_[i]);

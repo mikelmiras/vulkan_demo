@@ -52,6 +52,9 @@ public:
     // dt = 0 it only brings the bodies up to date with the scene (making them all, the first time).
     std::vector<Impact> step(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings = {});
     void clear();                 // forget everything (the scene was replaced)
+    void swap(Physics& other);    // trade worlds (one made on a loading thread, say)
+    // The scene's mesh ids changed (old id -> map[old id]): mesh colliders keep their bodies
+    void remapMeshes(const std::vector<int>& map);
     size_t bodyCount() const;     // bodies in the simulation (characters not included)
 
     // Closest solid collider along the ray (dir need not be normalised); triggers are ignored

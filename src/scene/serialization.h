@@ -1,6 +1,8 @@
 // Scene files: JSON (current), plus the line-based text format of earlier versions (load only).
 #pragma once
 
+#include <atomic>
+
 #include <map>
 #include <memory>
 #include <string>
@@ -14,6 +16,8 @@ namespace json { class Value; }
 // Imported meshes and textures are stored as their source files and re-imported into the libraries on load.
 bool saveScene(const std::string& path, const Scene& scene, const MeshLibrary& meshes, const TextureLibrary& textures,
                std::string& error);
+// Progress of loadScene on the calling thread, 0..1 (set while loading; nullptr: none). For loading screens.
+void setLoadProgress(std::atomic<float>* progress);
 bool loadScene(const std::string& path, Scene& scene, MeshLibrary& meshes, TextureLibrary& textures, std::string& error);
 
 // The same as JSON documents (what a scene file holds); save games embed one

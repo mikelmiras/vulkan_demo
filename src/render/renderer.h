@@ -136,7 +136,9 @@ private:
     VkPipeline createPipeline(const PipelineDesc& desc);
     void createResources(const MeshLibrary& meshes);
     void uploadMeshes();   // (re)creates the vertex/index buffers from meshes_
-    void uploadTextures(); // uploads textures added to textures_ since last time
+    // Uploads textures added to textures_ since last time: all of them now, or (recorded into a frame's commands)
+    // as many as fit this frame's budget
+    void uploadTextures(VkCommandBuffer frame = VK_NULL_HANDLE);
     struct GpuTexture {
         Image image;                             // image.view reads it as sRGB colour (albedo, emissive)
         VkImageView linear = VK_NULL_HANDLE;     // the same bytes as plain numbers (normal and metal/rough maps, UI)
@@ -144,7 +146,8 @@ private:
     };
     // Set 1 for a draw: albedo, normal, metal/rough and emissive maps (defaults where it has none), made on first use
     VkDescriptorSet materialSet(const DrawItem& item);
-    GpuTexture createTexture(const uint8_t* rgba, uint32_t width, uint32_t height);
+    // Records the upload into `frame` when given (its staging buffer retired with that frame), else uploads now
+    GpuTexture createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame = VK_NULL_HANDLE);
     void destroyTexture(GpuTexture& t);
     VkCommandBuffer beginOneTimeCommands();
     void endOneTimeCommands(VkCommandBuffer cb);
@@ -243,7 +246,9 @@ private:
     Buffer joints_[MAX_FRAMES];      // skinning matrices (storage buffer)
     Buffer particles_[MAX_FRAMES];   // particles to draw (storage buffer)
     VkPipeline particleAlphaPipeline_ = VK_NULL_HANDLE, particleAdditivePipeline_ = VK_NULL_HANDLE;
-    Buffer skinBuffer_;              // SkinVertex per vertex (vertex buffer, binding 1)
+    Buffer skinBuffer_;
+    size_t vertexCapacity_ = 0, indexCapacity_ = 0, uploadedVertices_ = 0, uploadedIndices_ = 0;
+    std::vector<Buffer> retired_[MAX_FRAMES];   // staging buffers to free once that frame's fence has passed              // SkinVertex per vertex (vertex buffer, binding 1)
     // Consecutive instances drawn with one call: same mesh and texture
     struct Batch {
         int mesh = 0;

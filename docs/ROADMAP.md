@@ -136,7 +136,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 
 | # | Task | Why |
 |---|------|-----|
-| 21 | Loading without hitches: physics bodies made off the main thread, incremental GPU uploads (only new meshes / textures, through a staging ring), load progress, the first scene behind the loading screen too | Async loading (task 20) still stalls on Game::start (~55 ms on the stress scene) and on uploading a new scene's assets in one frame |
+| 21 (done) | Loading without hitches: physics bodies made off the main thread, incremental GPU uploads (only new meshes / textures, through a staging ring), load progress, the first scene behind the loading screen too | Async loading (task 20) still stalls on Game::start (~55 ms on the stress scene) and on uploading a new scene's assets in one frame |
 | 22 | Gameplay framework: timers and coroutine-style waits (`ctx.after(seconds, ...)`), messages between entities, tags and layers (queries and collisions filtered by them) | Behaviours hand-roll timers, find each other by name, and every query hits everything |
 | 23 | Physics joints and constraints (hinge, fixed, distance, slider) as a component, ragdolls from a skeleton, collision layers | Bodies can't be connected; skeletons can't go limp; nothing filters collisions |
 | 24 | Animation layers and blend trees: 1D blends (walk / run by speed), upper-body masks, root motion, a graph view of the state machine | The state machine (task 17) plays one clip at a time |
@@ -148,3 +148,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 30 | Text and localisation: UTF-8 text with font assets at several sizes, string tables per language, the game's UI and HudText using them | GameUI has one built-in font, ASCII only |
 | 31 | Shipping polish: window / executable icons (Windows resources, macOS icns), compressed packs, a Windows / macOS export smoke test in CI | Left over from task 16; exports are only run-tested on Linux |
 
+### Round 3 notes
+- Task 21: SceneLoader::start(path, physics) also makes the Physics world on the worker (Jolt init is call_once);
+  finish() remaps its mesh ShapeKeys (Physics::remapMeshes) and swaps it in (Physics::swap); Game::begin(fresh,
+  keepPhysics) keeps it. Load progress through a thread-local hook in serialization (assets 0..0.8, physics to 1)
+  shown as a bar on the loading screen. vkgame opens the window first and loads its start scene through
+  Game::loadScene (screenshot runs wait for it; a failed first load is still fatal, Game::loadError); a scene file
+  argument now finds its project (folder above with project.json). Renderer: mesh buffers keep 50 % spare and only
+  new ranges are copied (host-visible); textures upload inside the frame's command buffer, 24 MB per frame, staging
+  freed after that frame's fence. Stress scene change: 118 ms -> 2.6 ms on the main thread. Not done: the old
+  world is still destroyed on the main thread; a real staging ring / transfer queue; mesh buffers device-local.

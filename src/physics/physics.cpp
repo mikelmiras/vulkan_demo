@@ -85,13 +85,14 @@ public:
 };
 
 void initJolt() {
-    static bool done = false;
-    if (done) return;
-    done = true;
-    JPH::RegisterDefaultAllocator();
-    JPH::Factory::sInstance = new JPH::Factory();   // (kept for the life of the program)
-    JPH::RegisterTypes();
+    static std::once_flag once;   // (worlds are also made on loading threads)
+    std::call_once(once, [] {
+        JPH::RegisterDefaultAllocator();
+        JPH::Factory::sInstance = new JPH::Factory();   // (kept for the life of the program)
+        JPH::RegisterTypes();
+    });
 }
+
 
 JPH::Vec3 toJ(Vec3 v) { return {v.x, v.y, v.z}; }
 Vec3 fromJ(JPH::Vec3 v) { return {v.GetX(), v.GetY(), v.GetZ()}; }
@@ -112,6 +113,12 @@ struct ShapeKey {
         return true;
     }
 };
+
+uint64_t shapeHash(const ShapeKey& key) {
+    uint64_t h = (uint64_t)key.shape * 31u + (uint64_t)(key.mesh + 1) * 131u + (key.dynamic ? 7u : 0u);
+    for (float v : key.values) h = h * 1000003u + (uint64_t)(int64_t)std::lround(v * 1000.f);
+    return h;
+}
 
 // A world matrix as position, rotation and (per axis) scale
 struct Placement {
@@ -250,8 +257,7 @@ struct Physics::Impl {
     }
 
     JPH::RefConst<JPH::Shape> sharedShape(const Entity& e, const MeshLibrary& meshes, const Placement& p, const ShapeKey& key) {
-        uint64_t h = (uint64_t)key.shape * 31u + (uint64_t)(key.mesh + 1) * 131u + (key.dynamic ? 7u : 0u);
-        for (float v : key.values) h = h * 1000003u + (uint64_t)(int64_t)std::lround(v * 1000.f);
+        uint64_t h = shapeHash(key);
         auto it = shapeIndex.find(h);
         if (it != shapeIndex.end())
             for (size_t i : it->second)
@@ -312,7 +318,23 @@ Physics::Physics() {
     impl_ = std::make_unique<Impl>();
 }
 
-Physics::~Physics() { clear(); }
+Physics::~Physics() {
+    if (impl_) clear();
+}
+
+void Physics::swap(Physics& other) { impl_.swap(other.impl_); }
+
+void Physics::remapMeshes(const std::vector<int>& map) {
+    auto remap = [&](ShapeKey& k) {
+        if (k.mesh >= 0 && k.mesh < (int)map.size()) k.mesh = map[(size_t)k.mesh];
+    };
+    for (auto& [id, t] : impl_->bodies) remap(t.key);
+    impl_->shapeIndex.clear();
+    for (size_t i = 0; i < impl_->shapeCache.size(); ++i) {
+        remap(impl_->shapeCache[i].first);
+        impl_->shapeIndex[shapeHash(impl_->shapeCache[i].first)].push_back(i);
+    }
+}
 
 size_t Physics::bodyCount() const { return impl_->bodies.size(); }
 

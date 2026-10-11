@@ -3,7 +3,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
+#include <thread>
 
 #include "imgui.h"
 #include "physics/physics.h"
@@ -11,6 +13,7 @@
 #include "game/navigation.h"
 #include "render/scene_draw.h"
 #include "scene/scene_diff.h"
+#include "scene/serialization.h"
 #include "scene/stress_scene.h"
 
 namespace {
@@ -105,6 +108,34 @@ int main(int argc, char** argv) {
     std::printf("  find(parent) x all   %8.3f ms\n", find);
     std::printf("  1000 raycasts        %8.3f ms\n", rays);
     std::printf("  Game::start          %8.3f ms\n", start);
+    // Changing to the stress scene from a file: all on the main thread, or loaded in the background (then the cost
+    // left on the main thread is the frame that takes the loaded scene)
+    double syncChange = 0, asyncFrame = 0, asyncTotal = 0;
+    {
+        TextureLibrary textures = buildTextureLibrary();
+        std::string file = (std::filesystem::temp_directory_path() / "vkworld_bench_stress.vkw").string(), err;
+        saveScene(file, edit, meshes, textures, err);
+        for (bool async : {false, true}) {
+            Scene s;
+            Game g;
+            g.setAssetLibraries(meshes, textures);
+            g.setAsyncLoading(async);
+            g.start(s, meshes);
+            auto t = Clock::now();
+            g.loadScene(file);
+            if (!async) { syncChange = msSince(t); continue; }
+            while (g.loading() && g.loadingProgress() < 1.f) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));   // (done: progress hits 1 just before)
+            auto f = Clock::now();
+            ImGui::NewFrame();
+            g.frame(0.f, false, false);
+            ImGui::EndFrame();
+            asyncFrame = msSince(f);
+            asyncTotal = msSince(t);
+        }
+    }
+    std::printf("  scene change, sync   %8.3f ms\n", syncChange);
+    std::printf("  scene change, async  %8.3f ms in the frame that takes it (%.0f ms in all)\n", asyncFrame, asyncTotal);
     std::printf("  navigation bake      %8.3f ms (%zu cells)\n", navBake, nav.cellCount());
     std::printf("  100 paths            %8.3f ms (%d found)\n", paths, found);
     std::printf("  fixed update         %8.3f ms avg, %.3f ms worst (budget at 60 Hz: 16.7 ms)\n", total / ticks, worst);

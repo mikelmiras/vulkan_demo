@@ -174,6 +174,11 @@ public:
     void setAsyncLoading(bool on) { async_ = on; }
     bool loading() const { return loader_.busy(); }
     void finishLoading();   // waits for loads in progress and applies them
+    float loadingProgress() const { return loader_.progress(); }
+    const std::string& loadError() const { return loadError_; }   // why the last scene change failed ("" if it didn't)
+    // Changes scene as ctx.loadScene() does, from outside the game (vkgame starts its first scene this way, so it
+    // loads behind the loading screen too)
+    void loadScene(const std::string& path);
     void setScenePath(const std::string& path) { scenePath_ = path; }   // the scene's file, recorded in save games
     const std::string& scenePath() const { return scenePath_; }
     void setSaveDirectory(const std::filesystem::path& dir) { saveDir_ = dir; }
@@ -210,7 +215,7 @@ public:
 
 private:
     friend class GameContext;
-    void begin(bool fresh = true);   // starts the current scene: physics, sounds, animators (if fresh), start()
+    void begin(bool fresh = true, bool keepPhysics = false);   // starts the current scene: physics, sounds, animators (if fresh), start()
     void stopSounds();
     void applyRequests();   // scene changes, saves and quitting asked for during the update
     void fixedUpdate(float dt);
@@ -237,7 +242,7 @@ private:
     bool navBaked_ = false;
     bool async_ = false, loadingScreen_ = true;
     SceneLoader loader_;   // the next scene, when changing scenes asynchronously
-    std::string loadingScene_;
+    std::string loadingScene_, loadError_;
     struct Chunk {   // a scene being streamed in
         EntityId root = kNoEntity;
         std::string path;
