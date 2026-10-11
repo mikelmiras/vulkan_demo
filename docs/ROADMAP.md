@@ -143,7 +143,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 25 (done) | Smarter navigation: dynamic obstacles (moving things carve the grid), avoidance between agents, off-mesh links (jumps, ladders, drops), baking in the background and saving the result | Agents walk through each other and through crates; a big level re-bakes (1.3 s) each run |
 | 26 (done) | Rendering: point-light (cube) shadows, SSAO, a prefiltered environment map, cut-out shadows, GPU culling for large scenes | Point lights don't shadow; grates and glass cast solid shadows; IBL is approximate |
 | 27 (done) | Audio: streamed music (decoded as it plays), mixer buses with volumes (music / effects / UI) and ducking, reverb zones, Doppler | Every sound is decoded whole up front; there is one volume |
-| 28 | Editor: multi-selection with group transforms, nested prefabs / prefab variants, asset thumbnails, dockable panels | One entity at a time; prefabs can't contain prefabs; fixed panel layout |
+| 28 (done) | Editor: multi-selection with group transforms, nested prefabs / prefab variants, asset thumbnails, dockable panels | One entity at a time; prefabs can't contain prefabs; fixed panel layout |
 | 29 | Profiling and diagnostics: a frame profiler (CPU scopes per system, GPU timestamps) in the editor and as an overlay, log to file, crash-safe editor autosave | Performance work relies on engine_bench; a crash loses unsaved edits |
 | 30 | Text and localisation: UTF-8 text with font assets at several sizes, string tables per language, the game's UI and HudText using them | GameUI has one built-in font, ASCII only |
 | 31 | Shipping polish: window / executable icons (Windows resources, macOS icns), compressed packs, a Windows / macOS export smoke test in CI | Left over from task 16; exports are only run-tested on Linux |
@@ -214,4 +214,17 @@ Working list for turning the renderer demo into a small game engine. Each task i
   doppler, ReverbZone component (scene format 23), GameContext playMusic / stopMusic / setBusVolume / duck, built-in
   MusicPlayer; editor inspectors. Module API 19. Not done: a settings menu for volumes, saving bus volumes, HRTF,
   occlusion of sounds behind walls.
+- Task 28: multi-selection (Editor::selected_ stays the primary; extraSelected_; Ctrl+click toggles in the viewport
+  and outliner, Shift+click ranges in scene order, Ctrl+A roots; outlines for all; the gizmo applies the pivot's
+  world delta to the top-level selected; delete / duplicate act on them; undo records the group through
+  frameGroup_). Nested prefabs: a prefab's entities may link to other prefabs, Entity::nestedPrefab remembers that
+  link in instances (scene files: "nestedPrefab"), makePrefab keeps links, prefabFromTree maps them back, and
+  propagatePrefabChange runs syncPrefabInstances on each containing prefab (as a scene of its own) and recurses;
+  variants are prefabs whose root is an instance of another (Make variant). Asset thumbnails: addThumbnail
+  (box-filtered, <= 96 px, two decodes per frame) shown with their aspect, icons for the other kinds. Panels resize
+  by splitters (ImGui windows over the edges). Fixed on the way: Dear ImGui 1.92's Vulkan backend wants
+  sampled-image sets (its own layout), so UI images now come from ImGui_ImplVulkan_AddTexture, made per texture on
+  first use (validation caught the old combined-sampler sets once thumbnails drew images). Module API 20. Not done:
+  real docking (needs Dear ImGui's docking branch), 3D previews for models / prefabs / scenes, saving the panel
+  layout, more than one level of nested links inside a single instance, exporting nested prefabs.
 

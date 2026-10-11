@@ -158,6 +158,11 @@ The **Assets** panel (under the viewport; View > Assets) shows the project's fol
   under the mouse; a sound becomes that object's Audio Source.
 - **Drag onto the Inspector**: textures onto Mesh Renderer > Texture, sounds onto Audio Source > Clip file.
 
+Images in the browser show as thumbnails; other kinds of file get an icon. Panels resize by dragging their inner
+edges. Selecting several objects: Ctrl+click in the viewport or the outliner (Shift+click in the outliner selects a
+range, Ctrl+A every top-level object); the gizmo then moves, turns or scales them together around the first one,
+and Delete / Duplicate apply to all of them.
+
 ## Scenes: entities and components
 
 A scene is a flat list of **entities**. Each has a name, an id, an optional **parent** (transforms are relative to
@@ -391,7 +396,11 @@ Prefabs are saved in the scene file.
   instance follows, **keeping its own overrides**. Entities added to or removed from the prefab are added to or
   removed from all instances. **Revert** drops an instance's overrides (it stays where it was placed);
   **Unlink** turns it into ordinary entities.
-- **Export** writes `<name>.prefab` to the working directory and **Import...** loads one, to share between scenes.
+- Prefabs **nest**: a prefab can contain instances of other prefabs, and a change to the inner prefab reaches the
+  outer one and every instance of it (each keeping its overrides). **Make variant** creates a prefab based on
+  another: it follows every change to its base except what it changes itself.
+- **Export** writes `<name>.prefab` to the working directory and **Import...** loads one, to share between scenes
+  (prefabs nested in it aren't exported with it).
 - Game code creates copies while playing with `ctx.spawn("Bullet", position, forward)`. The copy joins the scene
   after the current update (so nothing moves under other behaviours' feet) and its behaviours start then; the
   returned id works with `ctx.find()` straight away.
