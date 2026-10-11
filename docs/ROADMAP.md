@@ -61,8 +61,8 @@ Working list for turning the renderer demo into a small game engine. Each task i
 
 | # | Task | Why |
 |---|------|-----|
-| 10 | Check the Windows and macOS builds in CI and fix what breaks | Round 1 was only built and run on Linux: the shared engine (exported symbols on Windows), module loading, Jolt on Apple silicon and the new shaders are untested there |
-| 11 | Editor performance on big scenes: no whole-scene copy every frame, undo as diffs or commands | The editor copies the scene each frame (for undo); the stress scene runs the editor far slower than the game |
+| 10 (done) | Check the Windows and macOS builds in CI and fix what breaks | Round 1 was only built and run on Linux: the shared engine (exported symbols on Windows), module loading, Jolt on Apple silicon and the new shaders are untested there |
+| 11 (done) | Editor performance on big scenes: no whole-scene copy every frame, undo as diffs or commands | The editor copies the scene each frame (for undo); the stress scene runs the editor far slower than the game |
 | 12 | One physics world: queries, triggers and the character on Jolt (CharacterVirtual: slopes, stairs, moving platforms), retire the duplicate PhysicsWorld snapshot | Two worlds are rebuilt per update (most of the 7 ms stress update); characters don't ride platforms |
 | 13 | Particles: GPU or CPU emitters (sparks, smoke, pickups), a component with an editor | The most visible missing engine feature for games |
 | 14 | Shadows and sky: cascaded sun shadows, point / spot light shadows, a sky and image-based lighting | One 90 m shadow map; hemisphere ambient only |
@@ -72,3 +72,11 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 18 | Behaviour fields: int, enum, entity and asset references with pickers in the inspector | Behaviours refer to entities and prefabs by typed-in names |
 | 19 | Navigation: navmesh baking and pathfinding for AI | Chasers walk straight at the player through walls |
 | 20 | Async loading and loading screens; scene streaming | Changing scenes stalls the frame (the stress scene takes ~60 ms to start) |
+
+### Round 2 notes
+- Task 10: Windows needed vulkan-1.dll delay-loaded (the runner has no Vulkan runtime; the engine DLL imported it)
+  and a test path fix; four MSVC/Clang warnings fixed. macOS can't run a smoke test: MoltenVK aborts in
+  vkCreateInstance on the runners' paravirtual GPU (no argument encoders). All three platforms green.
+- Task 11: undo steps are SceneDeltas (scene/scene_diff); operations copy the scene once (diffed at the end of the
+  frame), widget edits compare against the frame-start selection / look / bindings. Transform::matrix skips the
+  trigonometry for unrotated entities (bit-identical): worldMatrices 1.27 -> 0.15 ms on the stress scene.

@@ -8,6 +8,7 @@
 
 #include <filesystem>
 #include <future>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "game/module.h"
 #include "render/renderer.h"
 #include "scene/scene.h"
+#include "scene/scene_diff.h"
 
 struct EditorCamera {
     Vec3 pos{0, 10, 42};
@@ -54,8 +56,9 @@ public:
 private:
     enum class Tool { Select, Move, Rotate, Scale };
     enum class Nav { None, Fly, Orbit, Pan };
-    struct Snapshot {
-        Scene scene;
+    // An undo (or redo) step: how to get the scene back to how it was, and what was selected then
+    struct UndoStep {
+        SceneDelta delta;
         EntityId selected = kNoEntity;
     };
 
@@ -158,8 +161,11 @@ private:
     void pollGameModule();      // once per frame: a finished build, or a library rebuilt outside the editor
     template <class F> void forEachHeldScene(F&& f);   // the scene, the play copy, undo/redo snapshots
 
-    // ---- Undo (whole-scene snapshots; the scene is small)
+    // ---- Undo: steps are diffs (scene/scene_diff.h), so they stay small in big scenes. Operations call pushUndo()
+    // before changing anything (a copy of the scene, diffed at the end of the frame); widget edits are caught by
+    // track() against what the selection, the scene's look and its input bindings were at the start of the frame.
     void pushUndo();
+    void commitUndo();   // end of frame: this frame's edits become an undo step
     void undo();
     void redo();
 
@@ -199,8 +205,14 @@ private:
     std::vector<DrawItem> drawItems_;
     std::vector<Mat4> joints_;   // skinned meshes' joint matrices (see DrawItem::jointOffset)
 
-    std::vector<Snapshot> undo_, redo_;
-    Snapshot frameStart_;
+    std::vector<UndoStep> undo_, redo_;
+    std::optional<Scene> undoBefore_;     // pushUndo()'s copy, until the end of the frame
+    EntityId undoBeforeSelected_ = kNoEntity;
+    // The start of this frame, for widget edits: the selected entity (and its index), the look, the bindings
+    std::optional<std::pair<size_t, Entity>> frameEntity_;
+    RenderSettings frameRender_;
+    std::vector<InputAction> frameInput_;
+    EntityId frameSelected_ = kNoEntity;
     bool editBegan_ = false;
     bool gizmoWasUsing_ = false;
     bool gizmoDrawn_ = false;

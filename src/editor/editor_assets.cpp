@@ -95,9 +95,23 @@ template <class F>
 void Editor::forEachHeldScene(F&& f) {
     f(scene_);
     f(editScene_);
-    f(frameStart_.scene);
-    for (Snapshot& s : undo_) f(s.scene);
-    for (Snapshot& s : redo_) f(s.scene);
+    if (undoBefore_) f(*undoBefore_);
+    // Undo steps and the frame's copy of the selection hold entities (and prefabs) too: lend them to a scene
+    auto lend = [&](std::vector<std::pair<size_t, Entity>>& entities, std::optional<std::vector<Prefab>>* prefabs) {
+        Scene s;
+        for (auto& item : entities) s.entities.push_back(std::move(item.second));
+        if (prefabs && *prefabs) s.prefabs = std::move(**prefabs);
+        f(s);
+        for (size_t i = 0; i < entities.size(); ++i) entities[i].second = std::move(s.entities[i]);
+        if (prefabs && *prefabs) **prefabs = std::move(s.prefabs);
+    };
+    for (std::vector<UndoStep>* steps : {&undo_, &redo_})
+        for (UndoStep& step : *steps) lend(step.delta.entities, &step.delta.prefabs);
+    if (frameEntity_) {
+        std::vector<std::pair<size_t, Entity>> one{std::move(*frameEntity_)};
+        lend(one, nullptr);
+        frameEntity_ = std::move(one[0]);
+    }
 }
 
 void Editor::loadGameModule() {

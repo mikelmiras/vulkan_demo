@@ -3,6 +3,8 @@
 #include "assets/gltf.h"
 
 #include <algorithm>
+#include <cfloat>
+#include <cmath>
 #include <filesystem>
 #include <cstdio>
 #include <functional>
@@ -18,6 +20,14 @@
 // ---------------------------------------------------------------------------------------------
 Mat4 Transform::matrix() const {
     Mat4 m;
+    if (rotation[0] == 0.f && rotation[1] == 0.f && rotation[2] == 0.f) {
+        // Most entities aren't rotated: the same result as below (bit for bit), without the trigonometry
+        for (int i = 0; i < 3; ++i) m.m[i * 5] = std::fabs(scale[i]) < FLT_EPSILON ? 0.001f : scale[i];
+        m.m[12] = position[0];
+        m.m[13] = position[1];
+        m.m[14] = position[2];
+        return m;
+    }
     ImGuizmo::RecomposeMatrixFromComponents(position, rotation, scale, m.m);
     return m;
 }
@@ -177,23 +187,30 @@ const Entity* Scene::findByName(const std::string& name) const {
 }
 
 std::vector<Mat4> Scene::worldMatrices() const {
-    std::unordered_map<EntityId, size_t> index;
-    index.reserve(entities.size());
-    for (size_t i = 0; i < entities.size(); ++i) index[entities[i].id] = i;
-
-    std::vector<Mat4> world(entities.size());
-    std::vector<char> done(entities.size(), 0);
-    std::function<const Mat4&(size_t, int)> compute = [&](size_t i, int depth) -> const Mat4& {
-        if (done[i]) return world[i];
-        const Entity& e = entities[i];
-        Mat4 local = e.transform.matrix();
-        auto p = index.find(e.parent);
-        // depth guard: a corrupted file with a parent cycle degrades to "root" instead of recursing forever
-        world[i] = p != index.end() && depth < 256 ? compute(p->second, depth + 1) * local : local;
-        done[i] = 1;
-        return world[i];
-    };
-    for (size_t i = 0; i < entities.size(); ++i) compute(i, 0);
+    const size_t n = entities.size();
+    std::vector<Mat4> world(n);
+    std::vector<int> parent(n);
+    for (size_t i = 0; i < n; ++i) parent[i] = entities[i].parent == kNoEntity ? -1 : indexOf(entities[i].parent);
+    std::vector<char> done(n, 0);
+    std::vector<int> chain;
+    for (size_t i = 0; i < n; ++i) {
+        if (done[i]) continue;
+        // Up to the first ancestor already known (or the root), then back down. A parent cycle in a corrupted file
+        // stops at the depth guard, and the entity at the top of it counts as a root.
+        chain.clear();
+        int j = (int)i;
+        while (j >= 0 && !done[(size_t)j] && chain.size() < 256) {
+            chain.push_back(j);
+            j = parent[(size_t)j];
+        }
+        for (size_t c = chain.size(); c-- > 0;) {
+            size_t k = (size_t)chain[c];
+            int p = parent[k];
+            Mat4 local = entities[k].transform.matrix();
+            world[k] = p >= 0 && done[(size_t)p] ? world[(size_t)p] * local : local;
+            done[k] = 1;
+        }
+    }
     return world;
 }
 

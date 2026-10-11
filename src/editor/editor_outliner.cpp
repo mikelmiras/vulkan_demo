@@ -141,8 +141,11 @@ void Editor::drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityI
     const std::vector<EntityId>& kids = children[(size_t)index];
 
     ImGui::PushID((int)e.id);
-    ImGui::Checkbox("##visible", &e.visible);
-    track();
+    bool visible = e.visible;   // any entity, not just the selection: an operation for undo
+    if (ImGui::Checkbox("##visible", &visible)) {
+        pushUndo();
+        e.visible = visible;
+    }
     tooltip("Visible (hides the children too)");
     ImGui::SameLine();
 

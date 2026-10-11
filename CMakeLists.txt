@@ -76,6 +76,7 @@ add_library(engine SHARED
   src/scene/scene.cpp
   src/scene/serialization.cpp
   src/scene/prefab_sync.cpp
+  src/scene/scene_diff.cpp
   src/scene/stress_scene.cpp
   src/physics/collision.cpp
   src/physics/physics_world.cpp
@@ -212,7 +213,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_scene_flow.cpp
     tests/test_ui.cpp
     tests/test_animation.cpp
-    tests/test_formats.cpp)
+    tests/test_formats.cpp
+    tests/test_scene_diff.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

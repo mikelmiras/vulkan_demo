@@ -10,6 +10,7 @@
 #include "physics/physics_world.h"
 #include "game/game.h"
 #include "render/scene_draw.h"
+#include "scene/scene_diff.h"
 #include "scene/stress_scene.h"
 
 namespace {
@@ -46,6 +47,10 @@ int main(int argc, char** argv) {
     double world = timeMs(20, [&] { volatile size_t n = edit.worldMatrices().size(); (void)n; });
     std::vector<Mat4> worlds = edit.worldMatrices();
     double draw = timeMs(20, [&] { volatile size_t n = collectDrawItems(edit, worlds).size(); (void)n; });
+    double copy = timeMs(20, [&] { Scene c = edit; volatile size_t n = c.entities.size(); (void)n; });
+    Scene moved = edit;
+    moved.entities[moved.entities.size() / 2].transform.position[0] += 1.f;
+    double diff = timeMs(5, [&] { volatile size_t n = diffScenes(edit, moved).entities.size(); (void)n; });
     PhysicsWorld pw;
     double build = timeMs(20, [&] { pw.build(edit, meshes); });
     double find = timeMs(5, [&] {
@@ -77,6 +82,8 @@ int main(int argc, char** argv) {
     for (const Entity& e : play.entities)
         checksum += (e.transform.position[0] * 1.3 + e.transform.position[1] * 2.7 + e.transform.position[2] * 0.7) * (e.id % 97 + 1);
     std::printf("  state checksum       %.6f (%zu entities)\n", checksum, play.entities.size());
+    std::printf("  Scene copy           %8.3f ms\n", copy);
+    std::printf("  diffScenes (1 edit)  %8.3f ms\n", diff);
     std::printf("  worldMatrices        %8.3f ms\n", world);
     std::printf("  collectDrawItems     %8.3f ms\n", draw);
     std::printf("  PhysicsWorld::build  %8.3f ms\n", build);

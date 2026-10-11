@@ -58,7 +58,11 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (audio_ && !playing()) audio_->update();   // (while playing, the game does it)
     pollGameModule();
     if (playing() && game_.quitRequested()) stopPlay();   // the game asked to quit: back to editing
-    frameStart_ = {scene_, selected_};
+    frameSelected_ = selected_;
+    frameEntity_.reset();
+    if (int i = scene_.indexOf(selected_); i >= 0) frameEntity_.emplace((size_t)i, scene_.entities[(size_t)i]);
+    frameRender_ = scene_.render;
+    frameInput_ = scene_.inputActions;
     editBegan_ = false;
     if (statusTimer_ > 0.f) statusTimer_ -= dt;
     fps_ = fps_ * 0.95f + (dt > 0.f ? 1.f / dt : 0.f) * 0.05f;
@@ -110,11 +114,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (pendingPrefab_) { select(pendingPrefab_); createPrefabFromSelection(); }
     pendingFocus_ = pendingDuplicate_ = pendingDelete_ = pendingReparent_ = pendingParent_ = pendingPrefab_ = kNoEntity;
 
-    if (editBegan_ && !playing()) {   // play-mode edits are thrown away on Stop: no undo
-        undo_.push_back(std::move(frameStart_));
-        if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
-        redo_.clear();
-    }
+    commitUndo();
     if (!scene_.find(selected_)) selected_ = kNoEntity;
     updateView();   // the scene or the camera may have changed during this frame
     buildDrawItems();
@@ -549,27 +549,50 @@ void Editor::setStatus(const std::string& msg) {
 // ---------------------------------------------------------------------------------------------
 void Editor::pushUndo() {
     if (playing()) return;   // play-mode edits are discarded on Stop
-    undo_.push_back({scene_, selected_});
+    if (!undoBefore_) {      // (several operations in one frame make one step)
+        undoBefore_ = scene_;
+        undoBeforeSelected_ = selected_;
+    }
+}
+
+void Editor::commitUndo() {
+    UndoStep step;
+    if (undoBefore_) {
+        step = {diffScenes(*undoBefore_, scene_), undoBeforeSelected_};
+        undoBefore_.reset();
+    } else if (editBegan_ && !playing()) {   // a widget edit: only what widgets can change, as it was this frame
+        if (frameEntity_) {
+            const Entity* now = scene_.find(frameEntity_->second.id);
+            if (now && !sameEntity(*now, frameEntity_->second)) step.delta.entities.push_back(*frameEntity_);
+        }
+        if (!sameRenderSettings(frameRender_, scene_.render)) step.delta.render = frameRender_;
+        if (!sameInputActions(frameInput_, scene_.inputActions)) step.delta.inputActions = frameInput_;
+        step.selected = frameSelected_;
+    }
+    editBegan_ = false;
+    if (step.delta.empty() || playing()) return;
+    undo_.push_back(std::move(step));
     if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
     redo_.clear();
 }
 
 void Editor::undo() {
+    commitUndo();   // (an operation earlier this frame)
     if (undo_.empty() || playing()) return;
-    redo_.push_back({scene_, selected_});
-    scene_ = std::move(undo_.back().scene);
+    Scene now = scene_;
+    applyDelta(scene_, undo_.back().delta);
+    redo_.push_back({diffScenes(now, scene_), selected_});
     selected_ = undo_.back().selected;
     undo_.pop_back();
-    editBegan_ = false;
     setStatus("Undo");
 }
 
 void Editor::redo() {
     if (redo_.empty() || playing()) return;
-    undo_.push_back({scene_, selected_});
-    scene_ = std::move(redo_.back().scene);
+    Scene now = scene_;
+    applyDelta(scene_, redo_.back().delta);
+    undo_.push_back({diffScenes(now, scene_), selected_});
     selected_ = redo_.back().selected;
     redo_.pop_back();
-    editBegan_ = false;
     setStatus("Redo");
 }
