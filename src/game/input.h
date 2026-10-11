@@ -22,6 +22,9 @@ public:
     bool down(const std::string& action) const;
     bool pressed(const std::string& action) const;    // went down since the previous fixed update
     bool released(const std::string& action) const;
+    // Went down during this rendered frame: for UI code (Behaviour::drawUI), which runs once per frame, also
+    // while the game is paused
+    bool pressedThisFrame(const std::string& action) const;
     float value(const std::string& action) const;     // 0..1: analog for sticks and triggers, else 0 or 1
     float axis(const std::string& negative, const std::string& positive) const;   // -1..1
     ImVec2 mouseDelta() const { return mouseDelta_; }  // pixels since the previous fixed update
@@ -37,7 +40,7 @@ private:
 
     std::vector<InputAction> actions_;
     std::vector<float> value_;
-    std::vector<bool> down_, pressed_, released_;
+    std::vector<bool> down_, pressed_, released_, framePressed_;
     ImVec2 mouseDelta_{0, 0};
     bool mouseCaptured_ = false;
 };

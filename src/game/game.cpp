@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -29,6 +30,31 @@ std::string GameState::text(const std::string& key, const std::string& fallback)
 bool GameState::flag(const std::string& key, bool fallback) const {
     auto it = values_.find(key);
     return it != values_.end() ? it->second.asBool(fallback) : fallback;
+}
+
+std::string GameState::format(const std::string& text) const {
+    std::string out;
+    for (size_t i = 0; i < text.size();) {
+        size_t close = text[i] == '{' ? text.find('}', i) : std::string::npos;
+        if (close == std::string::npos) {
+            out += text[i++];
+            continue;
+        }
+        auto it = values_.find(text.substr(i + 1, close - i - 1));
+        if (it != values_.end()) {
+            const json::Value& v = it->second;
+            if (v.type() == json::Value::Type::String) out += v.asString();
+            else if (v.type() == json::Value::Type::Bool) out += v.asBool(false) ? "yes" : "no";
+            else {
+                double n = v.asNumber(0);
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), std::fabs(n - std::round(n)) < 1e-4 ? "%.0f" : "%.1f", n);
+                out += buf;
+            }
+        }
+        i = close + 1;
+    }
+    return out;
 }
 
 json::Value GameState::toJson() const {
@@ -135,6 +161,8 @@ bool GameContext::isDestroyed(EntityId id) const {
 }
 
 void GameContext::loadScene(const std::string& path) { game_->pendingScene_ = path; }
+void GameContext::setPaused(bool paused) { game_->paused_ = paused; }
+bool GameContext::paused() const { return game_->paused_; }
 void GameContext::quit() { game_->quit_ = true; }
 GameState& GameContext::state() { return game_->state_; }
 void GameContext::saveGame(const std::string& slot) { game_->pendingSave_ = slot; }
@@ -207,8 +235,11 @@ void Game::stopSounds() {
 
 void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     if (!running()) return;
-    input_.beginFrame(keyboard && !paused_, mouse && !paused_, mouseDelta);
-    if (paused_) return;
+    input_.beginFrame(keyboard, mouse, mouseDelta);
+    if (paused_) {   // nothing consumes the latched presses: drop them, so they don't all fire on resume
+        input_.endFixedStep();
+        return;
+    }
     accumulator_ += dt;
     int steps = 0;
     while (accumulator_ >= kFixedDt && steps < kMaxStepsPerFrame) {
@@ -218,6 +249,18 @@ void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     }
     if (steps == kMaxStepsPerFrame) accumulator_ = 0.f;
     updateAudio();
+}
+
+void Game::drawUI(GameUI& ui) {
+    if (!running()) return;
+    for (size_t i = 0; i < scene_->entities.size(); ++i) {   // by index: a UI may request changes, not make them
+        Entity& e = scene_->entities[i];
+        if (e.behaviours.empty() || !scene_->visibleInHierarchy(e.id)) continue;
+        for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->drawUI(ctx_, e, ui);
+    }
+    // Requests made from the UI (a menu's Load, Quit) happen now, not at the next update (which may not come while
+    // paused)
+    applyRequests();
 }
 
 void Game::step() {

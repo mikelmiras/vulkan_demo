@@ -113,11 +113,17 @@ int main(int argc, char** argv) {
     game.start(scene, meshes);
     if (options.screenshotPath.empty()) platform::setCursorCaptured(true);
 
+    GameUI ui;
+    ui.setTextureLookup(app.uiTextures(textures));
+    bool uiWantsCursor = false;   // the game's UI had a menu up last frame: keep the pointer free
+
     float dt = 0.f;
     while (!game.quitRequested() && app.beginFrame(dt)) {
         ImGuiIO& io = ImGui::GetIO();
-        if (platform::cursorCaptured() && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) platform::setCursorCaptured(false);
-        else if (!platform::cursorCaptured() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) platform::setCursorCaptured(true);
+        if (platform::cursorCaptured() && (uiWantsCursor || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
+            platform::setCursorCaptured(false);
+        else if (!platform::cursorCaptured() && !uiWantsCursor && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            platform::setCursorCaptured(true);
         if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) platform::setFullscreen(!platform::isFullscreen());
 
         bool captured = platform::cursorCaptured();
@@ -125,10 +131,14 @@ int main(int argc, char** argv) {
         platform::takeMouseDelta(mdx, mdy);
         game.input().setMouseCaptured(captured);
         game.frame(dt, !io.WantTextInput, true, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
-        drawHud(game, captured, app.uiScale());
 
         uint32_t w = 0, h = 0;
         app.windowSize(w, h);
+        ui.begin(ImGui::GetBackgroundDrawList(), 0.f, 0.f, (float)w, (float)h, !captured);
+        game.drawUI(ui);
+        ui.end();
+        uiWantsCursor = ui.wantsCursor();
+        drawHud(game, captured || uiWantsCursor, app.uiScale());
         float aspect = h > 0 ? (float)w / (float)h : 1.f;
         CameraView cam;
         if (!game.activeCamera(cam)) cam.view = lookAt({0, 10, 40}, {0, 0, 0}, {0, 1, 0});   // no camera: a fixed view

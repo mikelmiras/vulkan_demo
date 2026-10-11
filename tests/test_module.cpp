@@ -63,7 +63,7 @@ TEST(module_behaviours_play) {
         CHECK(countMissingBehaviours(s) == 0);
         Game g;
         g.start(s, meshes());
-        CHECK(logged(g, "reach 8 points"));
+        CHECK_NEAR(g.state().number("target"), 8.0, 0.0);
         const Entity* coin = s.findByName("Coin.001");
         REQUIRE(coin);
         EntityId coinId = coin->id;
@@ -78,7 +78,7 @@ TEST(module_behaviours_play) {
             g.step();
             ImGui::EndFrame();
         }
-        CHECK(logged(g, "Score: 1 / 8"));
+        CHECK_NEAR(g.state().number("score"), 1.0, 0.0);
         CHECK(!s.find(coinId));   // collected
         g.stop();
     }   // the scene (and its behaviours) go before the module
@@ -122,7 +122,8 @@ TEST(module_sample_levels_and_score_carry_over) {
         step(150);   // 2 s later: the next level
         project::setRoot(fs::current_path());
         CHECK(g.scenePath() == "scenes/level2.vkw");
-        CHECK(logged(g, "Level 2"));
+        CHECK_NEAR(g.state().number("level"), 2.0, 0.0);
+        CHECK_NEAR(g.state().number("target"), 20.0, 0.0);
         CHECK_NEAR(g.state().number("score"), 8.0, 1.0);   // carried over (a drone may have taken one)
         CHECK(s.findByName("Drone.3") != nullptr);           // level 2 has three
         g.stop();

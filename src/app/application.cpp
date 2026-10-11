@@ -5,9 +5,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <set>
 #include <system_error>
 #include <thread>
 
+#include "core/project.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 #include "platform/platform.h"
@@ -117,4 +120,21 @@ void Application::endFrame(const SceneRenderInfo& scene) {
         renderer_.requestScreenshot(options_.screenshotPath);
     renderer_.render(scene, ImGui::GetDrawData());
     if (renderer_.screenshotDone() != 0) quit_ = true;   // screenshot mode: done
+}
+
+GameUI::TextureLookup Application::uiTextures(TextureLibrary& textures) {
+    auto failed = std::make_shared<std::set<std::string>>();   // files that didn't load: don't retry every frame
+    Renderer* renderer = &renderer_;
+    return [&textures, renderer, failed](const std::string& name) -> ImTextureID {
+        int id = textures.find(name);
+        if (id < 0 && !failed->count(name)) {
+            std::string error;
+            id = loadTexture(textures, project::resolve(name), error);
+            if (id < 0) {
+                failed->insert(name);
+                std::fprintf(stderr, "UI image '%s': %s\n", name.c_str(), error.c_str());
+            }
+        }
+        return id >= 0 ? renderer->uiTexture(id) : (ImTextureID)0;
+    };
 }

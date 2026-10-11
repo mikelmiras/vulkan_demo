@@ -12,7 +12,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 9;   // 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 10;  // 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -573,13 +573,13 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
             if (!a.name.empty()) result.inputActions.push_back(std::move(a));
         }
         // Actions the engine added since the file was saved get their default bindings
-        std::vector<std::string> added;
-        if (doc["version"].asInt(0) < 9) added = {"quicksave", "quickload"};
+        static const std::pair<int, const char*> added[] = {{9, "quicksave"}, {9, "quickload"}, {10, "pause"}};
         for (const InputAction& d : defaultInputActions())
-            if (std::find(added.begin(), added.end(), d.name) != added.end() &&
-                std::none_of(result.inputActions.begin(), result.inputActions.end(),
-                             [&](const InputAction& a) { return a.name == d.name; }))
-                result.inputActions.push_back(d);
+            for (const auto& [version, name] : added)
+                if (d.name == name && doc["version"].asInt(0) < version &&
+                    std::none_of(result.inputActions.begin(), result.inputActions.end(),
+                                 [&](const InputAction& a) { return a.name == d.name; }))
+                    result.inputActions.push_back(d);
     }
     scene = std::move(result);
     return true;

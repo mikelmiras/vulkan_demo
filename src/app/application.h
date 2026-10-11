@@ -6,6 +6,7 @@
 
 #include "assets/meshes.h"
 #include "assets/textures.h"
+#include "game/ui.h"
 #include "render/renderer.h"
 
 class Application {
@@ -34,6 +35,9 @@ public:
     void requestQuit() { quit_ = true; }
 
     Renderer& renderer() { return renderer_; }
+    // Texture names for GameUI::image(): library textures, or image files (relative to the project) loaded into
+    // `textures` on first use
+    GameUI::TextureLookup uiTextures(TextureLibrary& textures);
     float uiScale() const { return uiScale_; }
     void windowSize(uint32_t& width, uint32_t& height) const { width = width_; height = height_; }
 

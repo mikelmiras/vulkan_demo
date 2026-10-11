@@ -9,6 +9,7 @@
 
 #include "game/game.h"
 #include "game/module.h"
+#include "game/ui.h"
 
 namespace {
 
@@ -25,8 +26,19 @@ struct ScoreKeeper : BehaviourBase<ScoreKeeper> {
     void state(FieldVisitor& v) override { v.field("wonAt", wonAt); }
     // The score lives in the game state, so it carries over to the next level (and into save games)
     void start(GameContext& ctx, Entity&) override {
-        ctx.log("Level " + std::to_string((int)ctx.state().add("level", 1.f)) + ": reach " +
-                std::to_string((int)target) + " points! (F5 saves, F9 loads)");
+        ctx.state().add("level", 1.f);
+        ctx.state().setNumber("target", target);   // for the HUD: "Score {score} / {target}"
+        if (!ctx.state().has("score")) ctx.state().setNumber("score", 0.f);
+    }
+    // The game's own UI (see game/ui.h): a banner when the level is done. The score line, the bar and the pause
+    // menu are built-in HUD behaviours on the same entity.
+    void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
+        float shown = ctx.time() - wonAt;
+        if (wonAt < 0.f || shown > 3.f) return;
+        float alpha = std::min(1.f, 3.f - shown);
+        ui.rect(0.f, 380.f, ui.width(), 200.f, {0.05f, 0.05f, 0.1f, 0.6f * alpha});
+        ui.text(ui.width() * 0.5f, 420.f, nextScene.empty() ? "You win!" : "Level complete!", 110.f,
+                {1.f, 0.85f, 0.3f, alpha}, GameUI::Align::Center);
     }
     void update(GameContext& ctx, Entity&) override {
         if (wonAt >= 0.f && ctx.time() - wonAt > 2.f && !nextScene.empty()) {
@@ -37,7 +49,6 @@ struct ScoreKeeper : BehaviourBase<ScoreKeeper> {
     void add(GameContext& ctx, float points) {
         float score = std::max(0.f, ctx.state().number("score") + points);
         ctx.state().setNumber("score", score);
-        ctx.log("Score: " + std::to_string((int)score) + " / " + std::to_string((int)target));
         if (wonAt < 0.f && score >= target) {
             wonAt = ctx.time();
             ctx.log(nextScene.empty() ? "You win!" : "Level complete!");

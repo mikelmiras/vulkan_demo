@@ -46,6 +46,7 @@ public:
     void openProject(const std::filesystem::path& dir);
     void play() { startPlay(); }
     void newStressScene();   // the demo plus thousands of objects: for measuring performance
+    void setUiTextures(GameUI::TextureLookup lookup) { gameUi_.setTextureLookup(std::move(lookup)); }
     bool selectByName(const std::string& name);
 
 private:
@@ -176,6 +177,8 @@ private:
     float snapMove_ = 0.5f, snapRotate_ = 15.f, snapScale_ = 0.1f;
 
     Game game_;
+    GameUI gameUi_;                 // the game's own interface, drawn over the viewport while playing
+    bool uiWantsCursor_ = false;    // last frame's game UI had a menu up: keep the mouse pointer free
     Scene editScene_;   // the scene as it was when Play was pressed
     EntityId editSelected_ = kNoEntity;
     bool maximizeOnPlay_ = false;

@@ -11,6 +11,7 @@
 #include "core/json.h"
 #include "core/vecmath.h"
 #include "game/input.h"
+#include "game/ui.h"
 #include "physics/physics_world.h"
 #include "scene/scene.h"
 
@@ -39,6 +40,8 @@ public:
         return number(key);
     }
     bool has(const std::string& key) const { return values_.count(key) > 0; }
+    // "Score: {score}" -> "Score: 12": {key} becomes the value (whole numbers without decimals; unknown keys: "")
+    std::string format(const std::string& text) const;
     void erase(const std::string& key) { values_.erase(key); }
     void clear() { values_.clear(); }
     json::Value toJson() const;
@@ -97,6 +100,9 @@ public:
     void loadGame(const std::string& slot = "quicksave");
     bool hasSaveGame(const std::string& slot = "quicksave") const;
     const std::string& scenePath() const;              // the current scene's file ("" for a scene built in code)
+    // Pausing stops update() (and physics); drawUI() still runs, so a pause menu can resume
+    void setPaused(bool paused);
+    bool paused() const;
 
 private:
     friend class Game;
@@ -147,6 +153,8 @@ public:
     std::filesystem::path saveGamePath(const std::string& slot) const;
     bool paused() const { return paused_; }
     void step();   // run exactly one fixed update (frame stepping while paused)
+    // Once per rendered frame, after frame(): the behaviours' drawUI(), between ui.begin() and ui.end()
+    void drawUI(GameUI& ui);
 
     float time() const { return time_; }               // simulated seconds since start()
     float updateMs() const { return updateMs_; }       // CPU time of a fixed update (smoothed), milliseconds

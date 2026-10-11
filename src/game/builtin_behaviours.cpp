@@ -1,9 +1,11 @@
 // The engine's built-in behaviours. A game adds its own the same way (see scene/behaviour.h).
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <sstream>
 
 #include "game/game.h"
+#include "game/ui.h"
 #include "scene/behaviour.h"
 #include "scene/scene.h"
 
@@ -454,6 +456,96 @@ struct SaveLoadKeys : BehaviourBase<SaveLoadKeys> {
     }
 };
 
+// ---------------------------------------------------------------------------------------------
+// Game UI
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+GameUI::Align alignFrom(const std::string& a) {
+    return a == "center" ? GameUI::Align::Center : a == "right" ? GameUI::Align::Right : GameUI::Align::Left;
+}
+
+}  // namespace
+
+struct HudText : BehaviourBase<HudText> {
+    static constexpr const char* kTypeName = "HudText";
+    std::string text = "Score: {score}";   // {key} shows the game state's value
+    float x = 0.03f, y = 0.03f;            // position as a fraction of the game view (0..1)
+    float size = 40.f;                     // canvas units: 1080 = the view's height
+    std::string align = "left";            // left, center, right
+    Vec3 color{1.f, 1.f, 1.f};
+    void fields(FieldVisitor& v) override {
+        v.field("text", text);
+        v.field("x", x, 0.005f, 0.f, 1.f);
+        v.field("y", y, 0.005f, 0.f, 1.f);
+        v.field("size", size, 0.5f, 4.f, 400.f);
+        v.field("align", align);
+        v.field("color", color, 0.01f);
+    }
+    void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
+        ui.text(x * ui.width(), y * ui.height(), ctx.state().format(text), size, {color.x, color.y, color.z, 1.f}, alignFrom(align));
+    }
+};
+
+struct HudBar : BehaviourBase<HudBar> {
+    static constexpr const char* kTypeName = "HudBar";
+    std::string value = "health";   // game state number shown
+    float max = 100.f;              // ... out of this
+    std::string label;              // drawn on the bar ({key} works here too)
+    float x = 0.03f, y = 0.9f, w = 0.25f, h = 0.035f;   // fractions of the game view
+    Vec3 color{0.3f, 0.85f, 0.4f};
+    void fields(FieldVisitor& v) override {
+        v.field("value", value);
+        v.field("max", max, 1.f, 0.f, 1e6f);
+        v.field("label", label);
+        v.field("x", x, 0.005f, 0.f, 1.f);
+        v.field("y", y, 0.005f, 0.f, 1.f);
+        v.field("w", w, 0.005f, 0.f, 1.f);
+        v.field("h", h, 0.001f, 0.f, 1.f);
+        v.field("color", color, 0.01f);
+    }
+    void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
+        float bx = x * ui.width(), by = y * ui.height(), bw = w * ui.width(), bh = h * ui.height();
+        ui.bar(bx, by, bw, bh, max > 0.f ? ctx.state().number(value) / max : 0.f, {color.x, color.y, color.z, 0.95f});
+        if (!label.empty()) ui.text(bx + bw * 0.5f, by + bh * 0.12f, ctx.state().format(label), bh * 0.75f, {}, GameUI::Align::Center);
+    }
+};
+
+struct PauseMenu : BehaviourBase<PauseMenu> {
+    static constexpr const char* kTypeName = "PauseMenu";
+    std::string action = "pause";   // opens and closes it (P / gamepad Start by default)
+    std::string title = "Paused";
+    std::string slot = "quicksave"; // what Save and Load use
+    bool open = false;              // runtime: this menu paused the game
+    void fields(FieldVisitor& v) override {
+        v.field("action", action);
+        v.field("title", title);
+        v.field("slot", slot);
+    }
+    void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
+        if (ctx.input().pressedThisFrame(action)) {
+            if (!open && !ctx.paused()) { open = true; ctx.setPaused(true); }
+            else if (open) { open = false; ctx.setPaused(false); return; }
+        }
+        if (!open) return;
+        if (!ctx.paused()) { open = false; return; }   // resumed from elsewhere (the editor's toolbar)
+        ui.showCursor();
+        float cx = ui.width() * 0.5f, w = 420.f, h = 72.f, gap = 22.f, top = 330.f;
+        ui.rect(0.f, 0.f, ui.width(), ui.height(), {0.f, 0.f, 0.f, 0.55f});
+        ui.text(cx, top - 130.f, title, 84.f, {}, GameUI::Align::Center);
+        auto item = [&](int row, const char* label) { return ui.button(cx - w * 0.5f, top + row * (h + gap), w, h, label, 38.f); };
+        if (item(0, "Resume")) { open = false; ctx.setPaused(false); }
+        if (item(1, "Save")) ctx.saveGame(slot);
+        bool canLoad = ctx.hasSaveGame(slot);
+        if (item(2, canLoad ? "Load" : "Load (no save yet)") && canLoad) {
+            open = false;
+            ctx.setPaused(false);
+            ctx.loadGame(slot);
+        }
+        if (item(3, "Quit")) ctx.quit();
+    }
+};
+
 void registerBuiltinBehaviours() {
     registerBehaviour<Spin>("Rotates around the parent's Y axis (degrees per second)");
     registerBehaviour<Bob>("Floats up and down around its starting height");
@@ -469,4 +561,7 @@ void registerBuiltinBehaviours() {
     registerBehaviour<Spawner>("Spawns a prefab every few seconds, up to a maximum alive at once");
     registerBehaviour<SceneExit>("Goes to another scene when the collector touches its trigger collider");
     registerBehaviour<SaveLoadKeys>("Saves the game on the save action (F5) and loads it on the load action (F9)");
+    registerBehaviour<HudText>("Text over the game view; {key} shows a game state value (\"Score: {score}\")");
+    registerBehaviour<HudBar>("A bar over the game view showing a game state number out of a maximum");
+    registerBehaviour<PauseMenu>("Pauses on the pause action (P) and shows Resume / Save / Load / Quit");
 }

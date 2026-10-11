@@ -33,10 +33,11 @@ Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio
 void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stats) {
     ImGuiIO& io = ImGui::GetIO();
     // Mouse capture in play mode: a click on the game view takes the mouse, Esc gives it back
-    if (platform::cursorCaptured() && (!viewingGameCamera() || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
+    if (platform::cursorCaptured() &&
+        (!viewingGameCamera() || uiWantsCursor_ || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
         platform::setCursorCaptured(false);
-    else if (captureOnClick_ && viewingGameCamera() && !platform::cursorCaptured() && viewportHovered() &&
-             ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    else if (captureOnClick_ && viewingGameCamera() && !uiWantsCursor_ && !platform::cursorCaptured() &&
+             viewportHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         platform::setCursorCaptured(true);
     if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) platform::setFullscreen(!platform::isFullscreen());
 
@@ -46,6 +47,13 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     platform::takeMouseDelta(mdx, mdy);
     game_.input().setMouseCaptured(captured);
     game_.frame(dt, !io.WantTextInput, captured || viewportHovered(), captured ? ImVec2(mdx, mdy) : io.MouseDelta);
+    uiWantsCursor_ = false;
+    if (playing()) {   // the game's HUD and menus, over the viewport (last frame's layout)
+        gameUi_.begin(ImGui::GetBackgroundDrawList(), vx_, vy_, vw_, vh_, !captured && viewportHovered());
+        game_.drawUI(gameUi_);
+        gameUi_.end();
+        uiWantsCursor_ = gameUi_.wantsCursor();
+    }
     keyTakenByBindings_ = false;
     if (audio_ && !playing()) audio_->update();   // (while playing, the game does it)
     pollGameModule();

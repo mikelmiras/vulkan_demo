@@ -262,6 +262,9 @@ Behaviours are C++ classes attached to entities as components (Inspector > Add c
 | Spawner          | Spawns a prefab every few seconds (with a little random spread), up to a maximum alive at once |
 | SceneExit        | Goes to another scene when the collector touches its trigger collider        |
 | SaveLoadKeys     | Quicksave / quickload on the `quicksave` (F5) / `quickload` (F9) actions      |
+| HudText          | Text over the game view; `{key}` shows a game state value ("Score: {score}")  |
+| HudBar           | A bar showing a game state number out of a maximum                           |
+| PauseMenu        | Pauses on the `pause` action (P / gamepad Start): Resume, Save, Load, Quit    |
 
 Writing one (see `src/game/builtin_behaviours.cpp` for complete examples):
 
@@ -302,6 +305,27 @@ Save games go to the user's data folder (`~/.local/share/vkworld/<project>/saves
 (entities, behaviours' fields, rigid-body velocities) and each behaviour's **runtime state**: what a behaviour
 builds up while playing goes in an optional `state(FieldVisitor&)` next to `fields()`, and is restored after
 `start()` when a save is loaded. In the editor, Stop still restores the scene you were editing.
+
+### Game UI
+
+Behaviours draw the game's interface in `drawUI(GameContext&, Entity& self, GameUI& ui)`, called once per rendered
+frame (also while paused, so a pause menu can resume). The canvas is 1080 units high and `ui.width()` wide, so a
+layout looks the same at any resolution; it's drawn over the game view, under the editor's panels:
+
+```cpp
+void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
+    ui.text(40, 30, ctx.state().format("Score {score}"), 48);
+    ui.bar(40, 90, 400, 24, ctx.state().number("health") / 100.f, {0.3f, 0.9f, 0.4f, 1});
+    ui.image("icons/key.png", ui.width() - 120, 30, 80, 80);   // a texture by name or file
+    if (paused) {
+        ui.showCursor();                                       // frees the mouse pointer for menus
+        if (ui.button(ui.width() / 2 - 200, 500, 400, 72, "Resume")) ctx.setPaused(false);
+    }
+}
+```
+
+`ctx.input().pressedThisFrame("action")` reads actions per rendered frame for UI code. Hiding an entity hides
+its UI. For HUDs without code there are the HudText, HudBar and PauseMenu behaviours.
 
 ### Game modules: a project's own code
 

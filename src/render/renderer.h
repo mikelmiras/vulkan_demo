@@ -3,6 +3,8 @@
 
 #include <vulkan/vulkan.h>
 
+#include "imgui.h"
+
 #include <string>
 #include <vector>
 
@@ -67,6 +69,8 @@ public:
 
     const std::string& gpuName() const { return gpuName_; }
     const RenderStats& stats() const { return stats_; }
+    // A TextureLibrary texture for Dear ImGui (AddImage); 0 until it has been uploaded (the next render() does it)
+    ImTextureID uiTexture(int id) const;
 
 private:
     static constexpr int MAX_FRAMES = 2;

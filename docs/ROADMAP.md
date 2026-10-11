@@ -7,7 +7,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 4 | Stress scene + frame stats; id index, physics broad-phase, frustum culling, instancing | done |
 | 1 | Game modules: project code as a shared library loaded by editor and runtime | done |
 | 2 | Runtime scene flow: loadScene, quit, persistent game state, save/load | done |
-| 3 | Game UI API for behaviours (HUD text, bars, images, menus) | todo |
+| 3 | Game UI API for behaviours (HUD text, bars, images, menus) | done |
 | 5 | Skeletal animation: skinning, glTF animation import, Animator component | todo |
 | 6 | Rendering: PBR materials, normal maps, emissive, HDR + tonemapping, bloom | todo |
 | 7 | Physics: rotational dynamics (or Jolt behind PhysicsWorld) | todo |
@@ -28,3 +28,6 @@ Working list for turning the renderer demo into a small game engine. Each task i
 - Task 2: ctx.loadScene / quit / state() / saveGame / loadGame; Behaviour::state() for runtime state in saves;
   built-ins SceneExit and SaveLoadKeys; scene format 9 (quicksave / quickload actions added to older files).
   The sample game has two levels with the score carried over.
+- Task 3: Behaviour::drawUI + GameUI (canvas 1080 high; text, rect, border, bar, image, button; own hit-testing);
+  ctx.setPaused / paused; InputMap::pressedThisFrame; HudText / HudBar / PauseMenu built-ins; GameState::format;
+  scene format 10 (pause action); module API 3. Images use the texture's descriptor set as the ImTextureID.

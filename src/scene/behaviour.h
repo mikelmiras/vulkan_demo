@@ -23,6 +23,7 @@
 
 struct Entity;
 class GameContext;   // game/game.h
+class GameUI;        // game/ui.h
 
 // Visits a behaviour's parameters by name: the same fields() function drives the inspector UI, saving and loading.
 // Names are camelCase keys ("moveSpeed"); the inspector shows them as "Move speed".
@@ -58,6 +59,9 @@ public:
     // (`self` is the entity the behaviour is on), after every update() of the step.
     virtual void onTriggerEnter(GameContext&, Entity& /*self*/, Entity& /*other*/) {}
     virtual void onTriggerExit(GameContext&, Entity& /*self*/, Entity& /*other*/) {}
+    // Once per rendered frame while playing (also when paused), after the updates: draw the game's interface
+    // (see game/ui.h). Skipped for hidden entities, so hiding a HUD entity hides its UI.
+    virtual void drawUI(GameContext&, Entity& /*self*/, GameUI&) {}
 };
 
 // CRTP helper: implements typeName() and clone() from T::kTypeName and T's copy constructor

@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
     bool projectArg = scenePath && std::filesystem::is_directory(scenePath, ec);
     if (projectArg) project::setRoot(scenePath);
     Editor editor(meshes, textures, &audio, app.uiScale());
+    editor.setUiTextures(app.uiTextures(textures));
     if (projectArg) editor.openProject(scenePath);
     else if (scenePath) editor.openScene(scenePath);
     else if (project::exists(project::root())) editor.openProject(project::root());

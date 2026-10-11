@@ -18,6 +18,7 @@ std::vector<InputAction> defaultInputActions() {
         {"fire", {ImGuiKey_GamepadR2}, ImGuiMouseButton_Left},
         {"quicksave", {ImGuiKey_F5}},
         {"quickload", {ImGuiKey_F9}},
+        {"pause", {ImGuiKey_P, ImGuiKey_GamepadStart}},
     };
 }
 

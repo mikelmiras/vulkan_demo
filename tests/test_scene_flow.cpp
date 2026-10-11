@@ -189,7 +189,7 @@ TEST(scene_flow_builtin_exit_and_quicksave) {
     CHECK(s.findByName("LevelExitTarget") != nullptr);   // the player was in the exit's trigger
 }
 
-// Scenes saved before the quicksave actions existed get them; newer ones keep exactly their own list
+// Scenes saved before an action existed get it; newer ones keep exactly their own list
 TEST(scene_flow_old_scenes_get_new_actions) {
     MeshLibrary meshes = buildMeshLibrary();
     auto path = test::tempPath("old_actions.vkw");
@@ -198,6 +198,6 @@ TEST(scene_flow_old_scenes_get_new_actions) {
     Scene s;
     std::string error;
     REQUIRE(loadScene(path.string(), s, meshes, textures(), error));
-    CHECK(s.inputActions.size() == 3);
+    CHECK(s.inputActions.size() == 4);   // + quicksave, quickload (format 9), pause (10)
     CHECK(s.inputActions[1].name == "quicksave");
 }

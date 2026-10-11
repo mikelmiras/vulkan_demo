@@ -73,6 +73,7 @@ add_library(engine SHARED
   src/game/game.cpp
   src/game/builtin_behaviours.cpp
   src/game/module.cpp
+  src/game/ui.cpp
   src/render/renderer.cpp
   src/render/scene_draw.cpp
   src/app/application.cpp)
@@ -183,7 +184,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_audio.cpp
     tests/test_project.cpp
     tests/test_module.cpp
-    tests/test_scene_flow.cpp)
+    tests/test_scene_flow.cpp
+    tests/test_ui.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module
     add_dependencies(engine_tests sample_game)

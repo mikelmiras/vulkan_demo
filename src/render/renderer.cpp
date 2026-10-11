@@ -874,6 +874,13 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadTextures();
 }
 
+ImTextureID Renderer::uiTexture(int id) const {
+    // A texture's descriptor set layout (one combined image sampler for the fragment stage) is the same as the
+    // ImGui backend's, so its set can be handed to ImGui as is
+    if (id < 0 || id >= (int)gpuTextures_.size()) return (ImTextureID)0;
+    return (ImTextureID)gpuTextures_[(size_t)id].set;
+}
+
 void Renderer::initImGui() {
     ImGui_ImplVulkan_InitInfo info{};
     info.ApiVersion = VK_API_VERSION_1_3;
