@@ -59,6 +59,15 @@ jobs:
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
 
+      - name: Show DLL dependencies (Windows, after a failure)
+        if: runner.os == 'Windows' && failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem build/Release
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe | Where-Object { $_.FullName -match "Hostx64\\x64" } | Select-Object -First 1
+          & $dumpbin.FullName /dependents build/Release/engine_tests.exe build/Release/engine.dll
+
       # Linux: run the programs for real on a software Vulkan driver (lavapipe) under a virtual X server, with the
       # validation layer (synchronisation checks too): any validation error or a blank frame fails the build
       - name: Smoke test (Linux, software Vulkan)

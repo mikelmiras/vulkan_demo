@@ -110,6 +110,10 @@ target_include_directories(engine PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IM
 target_link_libraries(engine PUBLIC Vulkan::Vulkan)
 # Windows: export every function, like a Unix shared library does (data symbols aren't: the engine keeps none in headers)
 set_target_properties(engine PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+if(MSVC)   # load the Vulkan loader on first use: programs that never render (the tests) run without one installed
+  target_link_options(engine PRIVATE /DELAYLOAD:vulkan-1.dll)
+  target_link_libraries(engine PRIVATE delayimp)
+endif()
 add_dependencies(engine shaders)
 
 # Editor: the application built on top of the engine
