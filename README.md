@@ -279,8 +279,11 @@ colliders draws them all (blue = solid, green = trigger).
   kinematic once something moves it (spinning, bobbing, moved by behaviours), so it pushes the bodies it moves
   into. Game code changes a body's `velocity` / `angularVelocity` or moves its entity, and the simulation picks
   that up.
-- Game code can `raycast`, `overlapSphere` and `moveCharacter` (move a capsule, sliding along walls, landing on
-  floors, sub-stepped so fast moves can't skip through thin walls) through `GameContext`.
+- Game code can `raycast`, `overlapSphere` and `moveCharacter` through `GameContext`. Characters (a capsule or
+  sphere collider moved with `moveCharacter`) are Jolt `CharacterVirtual`s: they slide along walls, climb slopes
+  up to 50 degrees and steps up to 40 cm, stick to the floor going down, ride moving platforms and push rigid
+  bodies. Triggers are sensors: they block nothing.
+- Everything (queries, triggers, characters, bodies) is one Jolt world, kept up to date with the scene each update.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
 
 ## Prefabs
@@ -471,7 +474,7 @@ Includes are relative to `src/`.
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
-| `src/physics/`             | Collision shapes and contact tests (`collision.*`), the per-update physics world with a bounding volume hierarchy: raycasts, overlaps, character movement, triggers (`physics_world.*`), rigid bodies on Jolt Physics (`dynamics.*`) |
+| `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |

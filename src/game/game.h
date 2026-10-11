@@ -12,8 +12,7 @@
 #include "core/vecmath.h"
 #include "game/input.h"
 #include "game/ui.h"
-#include "physics/dynamics.h"
-#include "physics/physics_world.h"
+#include "physics/physics.h"
 #include "scene/scene.h"
 
 // What the game is looking through: the first entity with a Camera component.
@@ -65,15 +64,15 @@ public:
     Entity* find(const std::string& name);
     Vec3 worldPosition(EntityId id) const;
 
-    // Collision (see physics/physics_world.h). The world is a snapshot taken at the start of the update, so it
-    // doesn't see moves other behaviours make during it.
-    const PhysicsWorld& physics() const { return *physics_; }
+    // Collision (see physics/physics.h). Queries see the world as of the last physics step (plus characters moved
+    // since), not moves other behaviours make during this update.
+    const Physics& physics() const { return *physics_; }
     bool raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore = kNoEntity) const {
         return physics_->raycast(origin, dir, maxDistance, hit, ignore);
     }
     std::vector<EntityId> overlapSphere(Vec3 center, float radius) const { return physics_->overlapSphere(center, radius); }
-    // Moves `self` by `delta` (world space) as a character: its capsule/sphere collider slides along solid colliders.
-    // Without such a collider it just moves.
+    // Moves `self` by `delta` (world space) as a character: with a capsule or sphere collider it slides along walls,
+    // climbs slopes and steps, rides moving platforms and pushes rigid bodies. Without one it just moves.
     CharacterMove moveCharacter(Entity& self, Vec3 delta);
 
     // Creates a copy of the scene's prefab at `position` (world space), turned so its -Z faces `forward` (on top of
@@ -110,7 +109,8 @@ private:
     Game* game_ = nullptr;
     Scene* scene_ = nullptr;
     const InputMap* input_ = nullptr;
-    const PhysicsWorld* physics_ = nullptr;
+    Physics* physics_ = nullptr;
+    const MeshLibrary* meshes_ = nullptr;
     AudioEngine* audio_ = nullptr;
     float time_ = 0.f, dt_ = 0.f;
     std::vector<EntityId> destroyQueue_;
@@ -165,7 +165,7 @@ public:
     const std::vector<std::pair<float, std::string>>& log() const { return log_; }
 
     std::vector<Mat4> worldMatrices() const;      // aligned with scene.entities
-    const PhysicsWorld& physics() const { return physics_; }
+    const Physics& physics() const { return physics_; }
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
 
 private:
@@ -186,8 +186,7 @@ private:
     Scene* scene_ = nullptr;
     const MeshLibrary* meshes_ = nullptr;
     InputMap input_;
-    PhysicsWorld physics_;
-    RigidBodies rigidBodies_;   // (Jolt) bodies persist between updates: made again on a new scene
+    Physics physics_;   // (Jolt) bodies persist between updates: made again on a new scene
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity

@@ -7,7 +7,7 @@
 
 #include "ImGuizmo.h"
 #include "platform/platform.h"
-#include "physics/physics_world.h"
+#include "physics/physics.h"
 
 namespace {
 bool keyPressed(ImGuiKey key) { return ImGui::IsKeyPressed(key, false); }
@@ -365,8 +365,6 @@ void Editor::drawColliders() {
         if (const Entity* e = scene_.find(selected_)) any = e->collider.has_value();
     if (!any) return;
 
-    PhysicsWorld world;   // the same world-space shapes the game collides with
-    world.build(scene_, meshes_);
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
     auto line = [&](Vec3 a, Vec3 b, ImU32 col) {
@@ -380,43 +378,60 @@ void Editor::drawColliders() {
             line(c + (u * std::cos(a0) + v * std::sin(a0)) * r, c + (u * std::cos(a1) + v * std::sin(a1)) * r, col);
         }
     };
-    for (const PhysicsWorld::Body& b : world.bodies()) {
-        bool selected = b.entity == selected_;
+    for (const Entity& e : scene_.entities) {
+        if (!e.collider) continue;
+        bool selected = e.id == selected_;
         if (!showColliders_ && !selected) continue;
-        ImU32 col = b.trigger ? IM_COL32(90, 230, 120, selected ? 255 : 170) : IM_COL32(90, 190, 255, selected ? 255 : 150);
-        switch (b.shape) {
+        if (e.collider->shape == Collider::Shape::Mesh && !e.meshRenderer) continue;
+        const Collider& c = *e.collider;
+        const Mat4& m = worldOf(e.id);
+        Vec3 cx = transformDir(m, {1, 0, 0}), cy = transformDir(m, {0, 1, 0}), cz = transformDir(m, {0, 0, 1});
+        float sx = length(cx), sy = length(cy), sz = length(cz);
+        ImU32 col = c.trigger ? IM_COL32(90, 230, 120, selected ? 255 : 170) : IM_COL32(90, 190, 255, selected ? 255 : 150);
+        switch (c.shape) {
             case Collider::Shape::Box:
             case Collider::Shape::Mesh: {   // meshes: their bounds
-                Vec3 ax[3] = {b.box.axis[0] * b.box.half.x, b.box.axis[1] * b.box.half.y, b.box.axis[2] * b.box.half.z};
+                Vec3 center = c.center, size = c.size;
+                if (c.shape == Collider::Shape::Mesh) {
+                    const Mesh& mesh = meshes_.get(e.meshRenderer->mesh);
+                    center = (mesh.boundsMin + mesh.boundsMax) * 0.5f;
+                    size = mesh.boundsMax - mesh.boundsMin;
+                }
+                Vec3 mid = transformPoint(m, center);
+                Vec3 ax[3] = {cx * (size.x * 0.5f), cy * (size.y * 0.5f), cz * (size.z * 0.5f)};
                 for (int i = 0; i < 3; ++i) {   // 4 edges parallel to each axis
                     Vec3 u = ax[(i + 1) % 3], v = ax[(i + 2) % 3];
                     for (float su : {-1.f, 1.f})
                         for (float sv : {-1.f, 1.f}) {
-                            Vec3 c = b.box.center + u * su + v * sv;
-                            line(c - ax[i], c + ax[i], col);
+                            Vec3 corner = mid + u * su + v * sv;
+                            line(corner - ax[i], corner + ax[i], col);
                         }
                 }
                 break;
             }
-            case Collider::Shape::Sphere:
-                circle(b.sphere.center, {1, 0, 0}, {0, 1, 0}, b.sphere.radius, col);
-                circle(b.sphere.center, {0, 1, 0}, {0, 0, 1}, b.sphere.radius, col);
-                circle(b.sphere.center, {1, 0, 0}, {0, 0, 1}, b.sphere.radius, col);
+            case Collider::Shape::Sphere: {
+                Vec3 mid = transformPoint(m, c.center);
+                float r = c.radius * std::max({sx, sy, sz});
+                circle(mid, {1, 0, 0}, {0, 1, 0}, r, col);
+                circle(mid, {0, 1, 0}, {0, 0, 1}, r, col);
+                circle(mid, {1, 0, 0}, {0, 0, 1}, r, col);
                 break;
+            }
             case Collider::Shape::Capsule: {
-                const collision::Capsule& c = b.capsule;
-                Vec3 up = length(c.b - c.a) > 1e-5f ? normalize(c.b - c.a) : b.box.axis[1];
-                Vec3 u = b.box.axis[0], v = b.box.axis[2];
-                float r = c.radius;
-                circle(c.a, u, v, r, col);
-                circle(c.b, u, v, r, col);
-                for (Vec3 side : {u, u * -1.f, v, v * -1.f}) line(c.a + side * r, c.b + side * r, col);
+                Vec3 mid = transformPoint(m, c.center);
+                Vec3 up = normalize(cy), u = normalize(cx), v = normalize(cz);
+                float r = c.radius * std::max(sx, sz);
+                float halfSeg = std::max(c.height * 0.5f * sy - r, 0.f);
+                Vec3 a = mid - up * halfSeg, b = mid + up * halfSeg;
+                circle(a, u, v, r, col);
+                circle(b, u, v, r, col);
+                for (Vec3 side : {u, u * -1.f, v, v * -1.f}) line(a + side * r, b + side * r, col);
                 for (Vec3 side : {u, v}) {   // end caps: half circles
                     const int n = 12;
                     for (int i = 0; i < n; ++i) {
                         float a0 = PI * i / n, a1 = PI * (i + 1) / n;
-                        line(c.b + (side * std::cos(a0) + up * std::sin(a0)) * r, c.b + (side * std::cos(a1) + up * std::sin(a1)) * r, col);
-                        line(c.a + (side * std::cos(a0) - up * std::sin(a0)) * r, c.a + (side * std::cos(a1) - up * std::sin(a1)) * r, col);
+                        line(b + (side * std::cos(a0) + up * std::sin(a0)) * r, b + (side * std::cos(a1) + up * std::sin(a1)) * r, col);
+                        line(a + (side * std::cos(a0) - up * std::sin(a0)) * r, a + (side * std::cos(a1) - up * std::sin(a1)) * r, col);
                     }
                 }
                 break;

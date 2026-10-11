@@ -1,5 +1,6 @@
-#include "physics/dynamics.h"
+#include "physics/physics.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <mutex>
@@ -11,6 +12,12 @@
 #include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
@@ -126,9 +133,22 @@ bool near(Quat a, Quat b, float eps) {
     return std::fabs(std::fabs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w) - 1.f) <= eps;
 }
 
+// Which bodies a query sees: not sensors (unless asked), not the entity asking
+class QueryFilter final : public JPH::BodyFilter {
+public:
+    QueryFilter(bool sensors, EntityId ignore) : sensors_(sensors), ignore_(ignore) {}
+    bool ShouldCollideLocked(const JPH::Body& body) const override {
+        if (!sensors_ && body.IsSensor()) return false;
+        return ignore_ == kNoEntity || (EntityId)body.GetUserData() != ignore_;
+    }
+private:
+    bool sensors_;
+    EntityId ignore_;
+};
+
 }  // namespace
 
-struct RigidBodies::Impl {
+struct Physics::Impl {
     struct Tracked {
         JPH::BodyID id;
         ShapeKey key;
@@ -146,6 +166,13 @@ struct RigidBodies::Impl {
     JPH::PhysicsSystem system;
     ContactRecorder contacts;
     std::unordered_map<EntityId, Tracked> bodies;
+    struct Character {
+        JPH::Ref<JPH::CharacterVirtual> character;
+        ShapeKey key;
+        Vec3 position;   // as last written to the entity (its world origin)
+        bool seen = true;
+    };
+    std::unordered_map<EntityId, Character> characters;
     std::vector<std::pair<ShapeKey, JPH::RefConst<JPH::Shape>>> shapeCache;   // identical colliders share a shape
     std::unordered_map<uint64_t, std::vector<size_t>> shapeIndex;              // rough hash -> cache entries
     int added = 0;                                                             // since the broad-phase was optimised
@@ -245,6 +272,7 @@ struct RigidBodies::Impl {
                                     dynamic ? Layers::kMoving : Layers::kStatic);
         s.mUserData = e.id;
         s.mAllowDynamicOrKinematic = !dynamic;   // a static one becomes kinematic once game code moves it
+        s.mIsSensor = e.collider->trigger;      // (overlaps are found by triggerOverlaps(), not contacts)
         s.mFriction = 0.6f;
         if (dynamic) {
             const RigidBody& rb = *e.rigidBody;
@@ -279,23 +307,24 @@ struct RigidBodies::Impl {
     }
 };
 
-RigidBodies::RigidBodies() {
+Physics::Physics() {
     initJolt();
     impl_ = std::make_unique<Impl>();
 }
 
-RigidBodies::~RigidBodies() { clear(); }
+Physics::~Physics() { clear(); }
 
-size_t RigidBodies::bodyCount() const { return impl_->bodies.size(); }
+size_t Physics::bodyCount() const { return impl_->bodies.size(); }
 
-void RigidBodies::clear() {
+void Physics::clear() {
+    impl_->characters.clear();   // (their inner bodies go with them)
     for (auto& [id, t] : impl_->bodies) impl_->remove(t);
     impl_->bodies.clear();
     impl_->shapeCache.clear();
     impl_->shapeIndex.clear();
 }
 
-std::vector<Impact> RigidBodies::step(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings) {
+std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings) {
     Impl& im = *impl_;
     im.system.SetGravity(toJ(settings.gravity));
     std::vector<Mat4> worlds = scene.worldMatrices();
@@ -304,13 +333,17 @@ std::vector<Impact> RigidBodies::step(Scene& scene, const MeshLibrary& meshes, f
     // ---- What the scene looks like now: new, changed and moved bodies
     for (size_t i = 0; i < scene.entities.size(); ++i) {
         const Entity& e = scene.entities[i];
-        if (!e.collider || e.collider->trigger) continue;
+        if (!e.collider) continue;
         if (e.collider->shape == Collider::Shape::Mesh && !e.meshRenderer) continue;
+        if (auto c = im.characters.find(e.id); c != im.characters.end()) {   // characters move themselves
+            c->second.seen = true;
+            continue;
+        }
         Placement p = place(worlds[i]);
         ShapeKey key;
         key.shape = (int)e.collider->shape;
-        key.mesh = e.collider->shape == Collider::Shape::Mesh ? e.meshRenderer->mesh : -1;
-        key.dynamic = e.rigidBody.has_value();
+        key.mesh = e.collider->shape == Collider::Shape::Mesh ? e.meshRenderer->mesh : e.collider->trigger ? -2 : -1;
+        key.dynamic = e.rigidBody.has_value() && !e.collider->trigger;
         const Collider& c = e.collider.value();
         const float values[9] = {p.scale.x, p.scale.y, p.scale.z, c.center.x, c.center.y, c.center.z,
                                  c.size.x + c.size.y * 3.1f + c.size.z * 7.3f, c.radius, c.height};
@@ -350,11 +383,17 @@ std::vector<Impact> RigidBodies::step(Scene& scene, const MeshLibrary& meshes, f
                 im.bi().SetMotionType(t.id, JPH::EMotionType::Kinematic, JPH::EActivation::Activate);
                 t.kinematic = true;
             }
-            im.bi().MoveKinematic(t.id, JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation), dt);
+            if (dt > 0.f) im.bi().MoveKinematic(t.id, JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation), dt);
+            else im.bi().SetPositionAndRotation(t.id, JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation),
+                                                JPH::EActivation::Activate);
             t.position = p.position;
             t.rotation = p.rotation;
             t.moving = moved;
         }
+    }
+    for (auto it = im.characters.begin(); it != im.characters.end();) {   // characters whose entity is gone
+        if (it->second.seen) { it->second.seen = false; ++it; }
+        else it = im.characters.erase(it);
     }
     for (auto it = im.bodies.begin(); it != im.bodies.end();) {   // entities (or colliders) that are gone
         if (it->second.seen) { ++it; continue; }
@@ -404,4 +443,176 @@ std::vector<Impact> RigidBodies::step(Scene& scene, const MeshLibrary& meshes, f
     std::vector<Impact> impacts;
     for (auto& [id, i] : im.contacts.impacts) impacts.push_back(i);
     return impacts;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------------------------
+bool Physics::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore) const {
+    float len = length(dir);
+    if (len < 1e-9f || maxDistance <= 0.f) return false;
+    dir = dir * (1.f / len);
+    JPH::RRayCast ray{JPH::RVec3(origin.x, origin.y, origin.z), toJ(dir * maxDistance)};
+    JPH::RayCastSettings settings;
+    settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;   // meshes are double-sided
+    JPH::ClosestHitCollisionCollector<JPH::CastRayCollector> collector;
+    QueryFilter filter(false, ignore);
+    impl_->system.GetNarrowPhaseQueryNoLock().CastRay(ray, settings, collector, {}, {}, filter);
+    if (!collector.HadHit()) return false;
+    const JPH::RayCastResult& r = collector.mHit;
+    JPH::RVec3 p = ray.GetPointOnRay(r.mFraction);
+    JPH::BodyLockRead lock(impl_->system.GetBodyLockInterfaceNoLock(), r.mBodyID);
+    if (!lock.Succeeded()) return false;
+    const JPH::Body& body = lock.GetBody();
+    Vec3 n = fromJ(body.GetWorldSpaceSurfaceNormal(r.mSubShapeID2, p));
+    if (dot(n, dir) > 0.f) n = n * -1.f;   // (a back face)
+    hit = {(EntityId)body.GetUserData(), {(float)p.GetX(), (float)p.GetY(), (float)p.GetZ()}, n, r.mFraction * maxDistance};
+    return true;
+}
+
+std::vector<EntityId> Physics::overlapSphere(Vec3 center, float radius, bool includeTriggers, EntityId ignore) const {
+    std::vector<EntityId> out;
+    if (radius <= 0.f) return out;
+    JPH::SphereShape sphere(radius);
+    sphere.SetEmbedded();
+    JPH::CollideShapeSettings settings;
+    JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+    QueryFilter filter(includeTriggers, ignore);
+    impl_->system.GetNarrowPhaseQueryNoLock().CollideShape(&sphere, JPH::Vec3::sReplicate(1.f),
+                                                          JPH::RMat44::sTranslation(JPH::RVec3(center.x, center.y, center.z)),
+                                                          settings, JPH::RVec3::sZero(), collector, {}, {}, filter);
+    for (const JPH::CollideShapeResult& r : collector.mHits) {
+        JPH::BodyLockRead lock(impl_->system.GetBodyLockInterfaceNoLock(), r.mBodyID2);
+        if (!lock.Succeeded()) continue;
+        EntityId id = (EntityId)lock.GetBody().GetUserData();
+        if (std::find(out.begin(), out.end(), id) == out.end()) out.push_back(id);
+    }
+    return out;
+}
+
+std::vector<std::pair<EntityId, EntityId>> Physics::triggerOverlaps(const Scene& scene) const {
+    std::vector<std::pair<EntityId, EntityId>> out;
+    for (const Entity& e : scene.entities) {
+        if (!e.collider || !e.collider->trigger) continue;
+        auto it = impl_->bodies.find(e.id);
+        if (it == impl_->bodies.end()) continue;
+        JPH::RefConst<JPH::Shape> shape;
+        JPH::RMat44 transform;
+        {
+            JPH::BodyLockRead lock(impl_->system.GetBodyLockInterfaceNoLock(), it->second.id);
+            if (!lock.Succeeded()) continue;
+            shape = lock.GetBody().GetShape();
+            transform = lock.GetBody().GetCenterOfMassTransform();
+        }
+        JPH::CollideShapeSettings settings;
+        JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        QueryFilter filter(false, e.id);
+        impl_->system.GetNarrowPhaseQueryNoLock().CollideShape(shape, JPH::Vec3::sReplicate(1.f), transform, settings,
+                                                              JPH::RVec3::sZero(), collector, {}, {}, filter);
+        std::vector<EntityId> others;
+        for (const JPH::CollideShapeResult& r : collector.mHits) {
+            JPH::BodyLockRead lock(impl_->system.GetBodyLockInterfaceNoLock(), r.mBodyID2);
+            if (!lock.Succeeded()) continue;
+            EntityId id = (EntityId)lock.GetBody().GetUserData();
+            if (std::find(others.begin(), others.end(), id) == others.end()) others.push_back(id);
+        }
+        std::sort(others.begin(), others.end(), [&](EntityId a, EntityId b) { return scene.indexOf(a) < scene.indexOf(b); });
+        for (EntityId o : others) out.emplace_back(e.id, o);
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Characters
+// ---------------------------------------------------------------------------------------------
+bool Physics::isCharacter(EntityId id) const { return impl_->characters.count(id) > 0; }
+
+CharacterMove Physics::moveCharacter(Scene& scene, const MeshLibrary& meshes, Entity& self, Vec3 delta, float dt) {
+    Impl& im = *impl_;
+    CharacterMove result;
+    result.displacement = delta;
+    Mat4 world = scene.worldMatrix(self.id);
+    Placement p = place(world);
+    bool shaped = self.collider && !self.collider->trigger &&
+                  (self.collider->shape == Collider::Shape::Capsule || self.collider->shape == Collider::Shape::Sphere);
+    if (shaped) {
+        ShapeKey key;
+        key.shape = (int)self.collider->shape;
+        const Collider& c = *self.collider;
+        const float values[9] = {p.scale.x, p.scale.y, p.scale.z, c.center.x, c.center.y, c.center.z, 0.f, c.radius, c.height};
+        std::memcpy(key.values, values, sizeof(values));
+        auto it = im.characters.find(self.id);
+        if (it == im.characters.end() || !(it->second.key == key)) {
+            if (auto b = im.bodies.find(self.id); b != im.bodies.end()) {   // it was an ordinary body until now
+                im.remove(b->second);
+                im.bodies.erase(b);
+            }
+            JPH::RefConst<JPH::Shape> shape = im.makeShape(self, meshes, p.scale, false);
+            if (shape) {
+                JPH::CharacterVirtualSettings cs;
+                cs.mShape = shape;
+                cs.mInnerBodyShape = shape;            // a body too, so rays, overlaps and triggers find it
+                cs.mInnerBodyLayer = Layers::kMoving;
+                cs.mMaxSlopeAngle = 50.f * DEG2RAD;
+                cs.mMass = 70.f;
+                cs.mMaxStrength = 100.f;               // how hard it pushes bodies
+                cs.mCharacterPadding = 0.02f;
+                cs.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+                // Contacts below the centre of its bottom (hemi)sphere hold it up; higher ones only push
+                float r = c.radius * std::fmax(p.scale.x, p.scale.z);
+                float halfSeg = c.shape == Collider::Shape::Capsule ? std::fmax(c.height * 0.5f * p.scale.y - r, 0.f) : 0.f;
+                cs.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -(c.center.y * p.scale.y - halfSeg));
+                Impl::Character ch;
+                ch.character = new JPH::CharacterVirtual(&cs, JPH::RVec3(p.position.x, p.position.y, p.position.z),
+                                                         JPH::Quat::sIdentity(), (JPH::uint64)self.id, &im.system);
+                ch.key = key;
+                ch.position = p.position;
+                it = im.characters.insert_or_assign(self.id, ch).first;
+            }
+        }
+        if (it != im.characters.end()) {
+            Impl::Character& ch = it->second;
+            ch.seen = true;
+            JPH::CharacterVirtual& cv = *ch.character;
+            if (!near(p.position, ch.position, 1e-4f))   // game code put it somewhere else (a respawn)
+                cv.SetPosition(JPH::RVec3(p.position.x, p.position.y, p.position.z));
+            JPH::RVec3 before = cv.GetPosition();
+            if (dt > 0.f) {
+                cv.UpdateGroundVelocity();
+                JPH::Vec3 v = toJ(delta * (1.f / dt));
+                if (cv.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround) v += cv.GetGroundVelocity();
+                cv.SetLinearVelocity(v);
+                JPH::CharacterVirtual::ExtendedUpdateSettings settings;
+                settings.mStickToFloorStepDown = JPH::Vec3(0, -0.4f, 0);
+                settings.mWalkStairsStepUp = JPH::Vec3(0, 0.4f, 0);
+                QueryFilter filter(false, kNoEntity);
+                cv.ExtendedUpdate(dt, JPH::Vec3(0, -18.f, 0), settings, im.system.GetDefaultBroadPhaseLayerFilter(Layers::kMoving),
+                                  im.system.GetDefaultLayerFilter(Layers::kMoving), filter, {}, im.temp);
+            } else {
+                cv.SetPosition(before + JPH::RVec3(delta.x, delta.y, delta.z));
+            }
+            JPH::RVec3 after = cv.GetPosition();
+            result.displacement = {(float)(after.GetX() - before.GetX()), (float)(after.GetY() - before.GetY()),
+                                   (float)(after.GetZ() - before.GetZ())};
+            result.grounded = cv.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+            for (const JPH::CharacterContact& c : cv.GetActiveContacts()) {
+                if (!c.mHadCollision) continue;
+                float ny = c.mSurfaceNormal.GetY();
+                if (ny < -0.7f) result.hitCeiling = true;
+                else if (ny <= 0.7f) result.hitWall = true;
+            }
+            ch.position = {(float)after.GetX(), (float)after.GetY(), (float)after.GetZ()};
+        }
+    }
+    // World-space displacement -> the entity's parent space
+    Vec3 local = transformDir(inverseAffine(scene.parentWorldMatrix(self.id)), result.displacement);
+    self.transform.position[0] += local.x;
+    self.transform.position[1] += local.y;
+    self.transform.position[2] += local.z;
+    if (shaped)
+        if (auto it = im.characters.find(self.id); it != im.characters.end()) {   // what the entity now says it is
+            Mat4 now = scene.worldMatrix(self.id);
+            it->second.position = {now.m[12], now.m[13], now.m[14]};
+        }
+    return result;
 }

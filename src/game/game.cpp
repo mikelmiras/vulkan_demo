@@ -1,6 +1,6 @@
 #include "game/game.h"
 
-#include "physics/dynamics.h"
+#include "physics/physics.h"
 #include "game/animation.h"
 #include "core/project.h"
 #include "scene/serialization.h"
@@ -108,33 +108,7 @@ EntityId GameContext::spawn(const std::string& prefab, Vec3 position, Vec3 forwa
 }
 
 CharacterMove GameContext::moveCharacter(Entity& self, Vec3 delta) {
-    CharacterMove result;
-    result.displacement = delta;
-    collision::Capsule capsule;
-    const PhysicsWorld::Body* body = physics_->find(self.id);
-    if (body && PhysicsWorld::capsuleOf(*body, capsule)) {
-        // The snapshot is from the start of the update: bring the capsule to where the entity is now
-        Mat4 now = scene_->worldMatrix(self.id);
-        Vec3 shift = Vec3{now.m[12], now.m[13], now.m[14]} - Vec3{body->world.m[12], body->world.m[13], body->world.m[14]};
-        capsule.a += shift;
-        capsule.b += shift;
-        result = physics_->moveCapsule(capsule, delta, self.id);
-        // Push the rigid bodies it walked into, up to its own speed (lighter ones more easily)
-        Vec3 velocity = delta * (dt_ > 0.f ? 1.f / dt_ : 0.f);
-        for (const auto& [id, into] : result.touched) {
-            Entity* pushed = scene_->find(id);
-            if (!pushed || !pushed->rigidBody) continue;
-            Vec3 dir = normalize(Vec3{into.x, 0.f, into.z});
-            float want = dot(velocity, dir), have = dot(pushed->rigidBody->velocity, dir);
-            if (want > have) pushed->rigidBody->velocity += dir * ((want - have) * std::min(1.f, 2.f / pushed->rigidBody->mass));
-        }
-    }
-    // World-space displacement -> the entity's parent space
-    Vec3 local = transformDir(inverseAffine(scene_->parentWorldMatrix(self.id)), result.displacement);
-    self.transform.position[0] += local.x;
-    self.transform.position[1] += local.y;
-    self.transform.position[2] += local.z;
-    return result;
+    return physics_->moveCharacter(*scene_, *meshes_, self, delta, dt_);
 }
 
 void GameContext::playSound(const std::string& clip, Vec3 position, float volume) {
@@ -202,7 +176,7 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
 }
 
 void Game::begin(bool fresh) {
-    rigidBodies_.clear();
+    physics_.clear();
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();
@@ -215,8 +189,7 @@ void Game::begin(bool fresh) {
                 e.animator->fadeFrom.clear();
             }
     updateAnimators(*scene_, *meshes_, 0.f);   // the first frame shows the first pose
-    rigidBodies_.step(*scene_, *meshes_, 0.f);   // make the bodies now, not during the first update
-    physics_.build(*scene_, *meshes_);
+    physics_.step(*scene_, *meshes_, 0.f);   // make the bodies now, not during the first update
     prepareContext(0.f);
     startAudio();
     std::vector<std::string> missing;   // behaviours whose game module isn't loaded: they do nothing
@@ -235,7 +208,7 @@ void Game::begin(bool fresh) {
 
 void Game::stop() {
     stopSounds();
-    rigidBodies_.clear();
+    physics_.clear();
     scene_ = nullptr;
 }
 
@@ -283,6 +256,7 @@ void Game::prepareContext(float dt) {
     ctx_.scene_ = scene_;
     ctx_.input_ = &input_;
     ctx_.physics_ = &physics_;
+    ctx_.meshes_ = meshes_;
     ctx_.audio_ = audio_ && audio_->ready() ? audio_ : nullptr;
     ctx_.time_ = time_;
     ctx_.dt_ = dt;
@@ -295,7 +269,6 @@ void Game::fixedUpdate(float dt) {
     time_ += dt;
     ++tick_;
     updateAnimators(*scene_, *meshes_, dt);   // before physics: colliders on animated parts follow them
-    physics_.build(*scene_, *meshes_);
     prepareContext(dt);
     for (size_t i = 0; i < scene_->entities.size(); ++i) {
         Entity& e = scene_->entities[i];
@@ -303,7 +276,7 @@ void Game::fixedUpdate(float dt) {
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
     }
     flushQueues();
-    playImpacts(rigidBodies_.step(*scene_, *meshes_, dt));
+    playImpacts(physics_.step(*scene_, *meshes_, dt));
     updateTriggers();
     flushQueues();
     input_.endFixedStep();
@@ -370,8 +343,7 @@ void Game::playImpacts(const std::vector<Impact>& impacts) {
 
 // Compares this step's trigger overlaps with the previous step's and sends enter / exit to both entities
 void Game::updateTriggers() {
-    physics_.build(*scene_, *meshes_);   // the rigid bodies have moved
-    std::vector<std::pair<EntityId, EntityId>> now = physics_.triggerOverlaps();
+    std::vector<std::pair<EntityId, EntityId>> now = physics_.triggerOverlaps(*scene_);
     auto contains = [](const std::vector<std::pair<EntityId, EntityId>>& v, const std::pair<EntityId, EntityId>& p) {
         return std::find(v.begin(), v.end(), p) != v.end();
     };

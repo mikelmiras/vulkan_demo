@@ -63,7 +63,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 |---|------|-----|
 | 10 (done) | Check the Windows and macOS builds in CI and fix what breaks | Round 1 was only built and run on Linux: the shared engine (exported symbols on Windows), module loading, Jolt on Apple silicon and the new shaders are untested there |
 | 11 (done) | Editor performance on big scenes: no whole-scene copy every frame, undo as diffs or commands | The editor copies the scene each frame (for undo); the stress scene runs the editor far slower than the game |
-| 12 | One physics world: queries, triggers and the character on Jolt (CharacterVirtual: slopes, stairs, moving platforms), retire the duplicate PhysicsWorld snapshot | Two worlds are rebuilt per update (most of the 7 ms stress update); characters don't ride platforms |
+| 12 (done) | One physics world: queries, triggers and the character on Jolt (CharacterVirtual: slopes, stairs, moving platforms), retire the duplicate PhysicsWorld snapshot | Two worlds are rebuilt per update (most of the 7 ms stress update); characters don't ride platforms |
 | 13 | Particles: GPU or CPU emitters (sparks, smoke, pickups), a component with an editor | The most visible missing engine feature for games |
 | 14 | Shadows and sky: cascaded sun shadows, point / spot light shadows, a sky and image-based lighting | One 90 m shadow map; hemisphere ambient only |
 | 15 | Transparency: glTF alpha modes (mask, blend), sorted transparent pass | Every material is opaque today |
@@ -80,3 +80,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 - Task 11: undo steps are SceneDeltas (scene/scene_diff); operations copy the scene once (diffed at the end of the
   frame), widget edits compare against the frame-start selection / look / bindings. Transform::matrix skips the
   trigonometry for unrotated entities (bit-identical): worldMatrices 1.27 -> 0.15 ms on the stress scene.
+- Task 12: physics/physics (Physics) replaces PhysicsWorld + collision.* + RigidBodies: Jolt narrow-phase queries,
+  triggers as sensor bodies with enter/exit computed by CollideShape after each step (same-step semantics as
+  before), characters as CharacterVirtual (inner body for queries; stairs, stick to floor, ground velocity).
+  Stress fixed update 5.9 -> 2.9 ms. The editor draws collider wireframes from the components.

@@ -6,8 +6,7 @@
 #include <string>
 
 #include "imgui.h"
-#include "physics/dynamics.h"
-#include "physics/physics_world.h"
+#include "physics/physics.h"
 #include "game/game.h"
 #include "render/scene_draw.h"
 #include "scene/scene_diff.h"
@@ -51,8 +50,11 @@ int main(int argc, char** argv) {
     Scene moved = edit;
     moved.entities[moved.entities.size() / 2].transform.position[0] += 1.f;
     double diff = timeMs(5, [&] { volatile size_t n = diffScenes(edit, moved).entities.size(); (void)n; });
-    PhysicsWorld pw;
-    double build = timeMs(20, [&] { pw.build(edit, meshes); });
+    Physics pw;
+    auto made = Clock::now();
+    pw.step(edit, meshes, 0.f);   // every body made (what Game::start does)
+    double build = msSince(made);
+    double sync = timeMs(20, [&] { pw.step(edit, meshes, 0.f); });
     double find = timeMs(5, [&] {
         for (const Entity& e : edit.entities) { volatile const Entity* f = edit.find(e.parent); (void)f; }
     });
@@ -86,7 +88,8 @@ int main(int argc, char** argv) {
     std::printf("  diffScenes (1 edit)  %8.3f ms\n", diff);
     std::printf("  worldMatrices        %8.3f ms\n", world);
     std::printf("  collectDrawItems     %8.3f ms\n", draw);
-    std::printf("  PhysicsWorld::build  %8.3f ms\n", build);
+    std::printf("  physics: make bodies %8.3f ms\n", build);
+    std::printf("  physics: sync scene  %8.3f ms\n", sync);
     std::printf("  find(parent) x all   %8.3f ms\n", find);
     std::printf("  1000 raycasts        %8.3f ms\n", rays);
     std::printf("  Game::start          %8.3f ms\n", start);

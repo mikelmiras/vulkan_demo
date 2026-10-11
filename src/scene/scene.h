@@ -75,7 +75,7 @@ struct Collider {
 };
 const char* colliderShapeName(Collider::Shape shape);
 
-// Simulated motion for an entity with a (solid) collider (Jolt Physics, see physics/dynamics.h): gravity,
+// Simulated motion for an entity with a (solid) collider (Jolt Physics, see physics/physics.h): gravity,
 // bouncing, sliding, tumbling, stacking, being pushed and knocked.
 struct RigidBody {
     float mass = 1.f;

@@ -78,9 +78,7 @@ add_library(engine SHARED
   src/scene/prefab_sync.cpp
   src/scene/scene_diff.cpp
   src/scene/stress_scene.cpp
-  src/physics/collision.cpp
-  src/physics/physics_world.cpp
-  src/physics/dynamics.cpp
+  src/physics/physics.cpp
   src/audio/audio.cpp
   src/audio/miniaudio_impl.c
   src/game/input.cpp
