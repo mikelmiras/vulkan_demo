@@ -142,7 +142,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 24 (done) | Animation layers and blend trees: 1D blends (walk / run by speed), upper-body masks, root motion, a graph view of the state machine | The state machine (task 17) plays one clip at a time |
 | 25 (done) | Smarter navigation: dynamic obstacles (moving things carve the grid), avoidance between agents, off-mesh links (jumps, ladders, drops), baking in the background and saving the result | Agents walk through each other and through crates; a big level re-bakes (1.3 s) each run |
 | 26 (done) | Rendering: point-light (cube) shadows, SSAO, a prefiltered environment map, cut-out shadows, GPU culling for large scenes | Point lights don't shadow; grates and glass cast solid shadows; IBL is approximate |
-| 27 | Audio: streamed music (decoded as it plays), mixer buses with volumes (music / effects / UI) and ducking, reverb zones, Doppler | Every sound is decoded whole up front; there is one volume |
+| 27 (done) | Audio: streamed music (decoded as it plays), mixer buses with volumes (music / effects / UI) and ducking, reverb zones, Doppler | Every sound is decoded whole up front; there is one volume |
 | 28 | Editor: multi-selection with group transforms, nested prefabs / prefab variants, asset thumbnails, dockable panels | One entity at a time; prefabs can't contain prefabs; fixed panel layout |
 | 29 | Profiling and diagnostics: a frame profiler (CPU scopes per system, GPU timestamps) in the editor and as an overlay, log to file, crash-safe editor autosave | Performance work relies on engine_bench; a crash loses unsaved edits |
 | 30 | Text and localisation: UTF-8 text with font assets at several sizes, string tables per language, the game's UI and HudText using them | GameUI has one built-in font, ASCII only |
@@ -204,6 +204,14 @@ Working list for turning the renderer demo into a small game engine. Each task i
   at half size into an R8 image, applied with a 4-tap blur in the composite; RenderSettings aoStrength / aoRadius
   (scene format 22), SceneRenderInfo zNear / zFar, push constants 48 bytes. Module API 18. Deliberately not done:
   a prefiltered environment cubemap (the sky is analytic and smooth: environment() already evaluates it per
-  direction with roughness blur; worth it once skies are textures), GPU culling (CPU culling + batching of the
-  4700-entity stress scene is ~0.6 ms; indirect draws would matter at ~10x that).
+  direction with roughness blur; worth it once skies are textures), GPU culling (collectDrawItems on the 4700-entity stress
+  scene takes 0.43 ms; the renderer's own culling and batching aren't timed headless).
+- Task 27: AudioEngine buses (ma_sound_group per AudioBus: effects, music, ui, ambience) with volumes and timed
+  ducking (update(dt) eases levels); effects and ambience feed a custom ma_node reverb (Freeverb: 4 combs + 2
+  all-passes per channel, wet / room / damping atomics) into the endpoint; streamed sounds keep the file's bytes
+  and decode through ma_decoder on the audio thread; playMusic / stopMusic cross-fade (stop with fade, released in
+  update); Doppler from sound and listener velocities (Game measures them per frame). AudioSource bus / stream /
+  doppler, ReverbZone component (scene format 23), GameContext playMusic / stopMusic / setBusVolume / duck, built-in
+  MusicPlayer; editor inspectors. Module API 19. Not done: a settings menu for volumes, saving bus volumes, HRTF,
+  occlusion of sounds behind walls.
 

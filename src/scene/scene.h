@@ -308,6 +308,19 @@ struct AudioSource {
     bool playOnImpact = false;    // when its rigid body hits something (louder for harder hits)
     bool spatial = true;          // fades with distance from the listener and pans
     float minDistance = 2.f, maxDistance = 40.f;
+    std::string bus = "effects";  // mixer bus: effects, music, ui, ambience (audio/audio.h)
+    bool stream = false;          // decoded as it plays (long files: music, ambience) rather than all up front
+    float doppler = 1.f;          // pitch shift as it moves relative to the listener (0: none)
+};
+
+// A space with its own acoustics: while the listener is inside (within `radius`, easing in over `blend` metres at
+// the edge) effects and ambience get this much reverb, in a room this big (0..1) and muffled (0..1)
+struct ReverbZone {
+    float radius = 10.f;
+    float blend = 3.f;
+    float wet = 0.35f;
+    float roomSize = 0.7f;
+    float damping = 0.5f;
 };
 
 struct Entity {
@@ -334,6 +347,7 @@ struct Entity {
     std::optional<Joint> joint;
     std::optional<NavLink> navLink;
     std::optional<AudioSource> audioSource;
+    std::optional<ReverbZone> reverbZone;
     std::optional<Skin> skin;
     std::optional<Animator> animator;
     std::optional<ParticleEmitter> particleEmitter;

@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 22;  // 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 23;  // 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -301,6 +301,18 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("spatial", a.spatial);
         c.set("minDistance", a.minDistance);
         c.set("maxDistance", a.maxDistance);
+        if (a.bus != "effects") c.set("bus", a.bus);
+        if (a.stream) c.set("stream", true);
+        if (a.doppler != 1.f) c.set("doppler", a.doppler);
+    }
+    if (e.reverbZone) {
+        const ReverbZone& z = *e.reverbZone;
+        json::Value& c = v.set("reverbZone", json::Value::object());
+        c.set("radius", z.radius);
+        c.set("blend", z.blend);
+        c.set("wet", z.wet);
+        c.set("roomSize", z.roomSize);
+        c.set("damping", z.damping);
     }
     if (e.skin) {
         json::Value& c = v.set("skin", json::Value::object());
@@ -563,7 +575,19 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         a.spatial = c["spatial"].asBool(a.spatial);
         a.minDistance = c["minDistance"].asFloat(a.minDistance);
         a.maxDistance = c["maxDistance"].asFloat(a.maxDistance);
+        if (!c["bus"].asString().empty()) a.bus = c["bus"].asString();
+        a.stream = c["stream"].asBool(false);
+        a.doppler = c["doppler"].asFloat(1.f);
         e.audioSource = a;
+    }
+    if (const json::Value& c = v["reverbZone"]; c.isObject()) {
+        ReverbZone z;
+        z.radius = c["radius"].asFloat(z.radius);
+        z.blend = c["blend"].asFloat(z.blend);
+        z.wet = c["wet"].asFloat(z.wet);
+        z.roomSize = c["roomSize"].asFloat(z.roomSize);
+        z.damping = c["damping"].asFloat(z.damping);
+        e.reverbZone = z;
     }
     if (const json::Value& c = v["skin"]; c.isObject()) {
         Skin skin;

@@ -10,6 +10,7 @@
 
 #include "misc/cpp/imgui_stdlib.h"
 #include "platform/platform.h"
+#include "audio/audio.h"
 #include "game/ragdoll.h"
 #include "scene/prefab_sync.h"
 #include "editor/editor_ui.h"
@@ -429,8 +430,37 @@ void Editor::drawComponents(Entity& e) {
             if (a.spatial) {
                 ImGui::DragFloatRange2("Distance", &a.minDistance, &a.maxDistance, 0.1f, 0.f, 1000.f, "%.1f", "%.1f");
                 track();
+                ImGui::SliderFloat("Doppler", &a.doppler, 0.f, 3.f, "%.2f");
+                track();
+                tooltip("How much its pitch shifts as it moves towards or away from the listener (0: none)");
             }
+            int bus = (int)audioBusFromName(a.bus);
+            const char* buses[] = {"effects", "music", "ui", "ambience"};
+            if (ImGui::Combo("Bus", &bus, buses, IM_ARRAYSIZE(buses))) { pushUndo(); a.bus = buses[bus]; }
+            tooltip("The mixer bus it plays on: each has its own volume (ctx.setBusVolume) and can be ducked; effects "
+                    "and ambience get the reverb of the zone the listener is in");
+            ImGui::Checkbox("Stream", &a.stream);
+            track();
+            tooltip("Decode the file as it plays instead of all up front: for long music and ambience");
             if (!audio_ || !audio_->ready()) ImGui::TextDisabled("(no audio device: silent)");
+        }
+    }
+    if (e.reverbZone) {
+        if (!componentHeader("Reverb Zone", open)) { pushUndo(); e.reverbZone.reset(); }
+        else if (open) {
+            ReverbZone& z = *e.reverbZone;
+            ImGui::DragFloat("Radius", &z.radius, 0.1f, 0.f, 10000.f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::DragFloat("Blend", &z.blend, 0.05f, 0.f, 1000.f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            tooltip("How far in from the edge the reverb takes to reach its full amount");
+            ImGui::SliderFloat("Wet", &z.wet, 0.f, 1.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Room size", &z.roomSize, 0.f, 1.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Damping", &z.damping, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("Muffles the echoes: soft rooms high, stone halls low");
         }
     }
     if (e.rigidBody) {
@@ -634,6 +664,7 @@ void Editor::drawComponents(Entity& e) {
             if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
         }
         if (ImGui::MenuItem("Navigation Link", nullptr, false, !e.navLink)) { pushUndo(); e.navLink = NavLink{}; }
+        if (ImGui::MenuItem("Reverb Zone", nullptr, false, !e.reverbZone)) { pushUndo(); e.reverbZone = ReverbZone{}; }
         if (ImGui::MenuItem("Joint", nullptr, false, !e.joint)) {
             pushUndo();
             e.joint = Joint{};

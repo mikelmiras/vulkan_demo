@@ -602,6 +602,22 @@ struct StreamingZone : BehaviourBase<StreamingZone> {
     }
 };
 
+// Plays a music track (streamed, looping, cross-fading from whatever played before) when the scene starts
+struct MusicPlayer : BehaviourBase<MusicPlayer> {
+    static constexpr const char* kTypeName = "MusicPlayer";
+    std::string clip;
+    float volume = 0.8f;
+    float fade = 1.5f;   // seconds of cross-fade
+    void fields(FieldVisitor& v) override {
+        v.field("clip", clip, FieldRef::Sound);
+        v.field("volume", volume, 0.01f, 0.f, 2.f);
+        v.field("fade", fade, 0.05f, 0.f, 30.f);
+    }
+    void start(GameContext& ctx, Entity&) override {
+        if (!clip.empty()) ctx.playMusic(clip, fade, volume);
+    }
+};
+
 struct SaveLoadKeys : BehaviourBase<SaveLoadKeys> {
     static constexpr const char* kTypeName = "SaveLoadKeys";
     std::string slot = "quicksave";
@@ -724,6 +740,7 @@ void registerBuiltinBehaviours() {
     registerBehaviour<Spawner>("Spawns a prefab every few seconds, up to a maximum alive at once");
     registerBehaviour<SceneExit>("Goes to another scene when the collector touches its trigger collider");
     registerBehaviour<StreamingZone>("Streams a scene in around it while the collector is near, and out when it leaves");
+    registerBehaviour<MusicPlayer>("Plays a music track (streamed, looping, cross-faded) when the scene starts");
     registerBehaviour<SaveLoadKeys>("Saves the game on the save action (F5) and loads it on the load action (F9)");
     registerBehaviour<HudText>("Text over the game view; {key} shows a game state value (\"Score: {score}\")");
     registerBehaviour<HudBar>("A bar over the game view showing a game state number out of a maximum");

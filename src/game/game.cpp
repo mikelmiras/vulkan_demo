@@ -268,6 +268,22 @@ void GameContext::playSound(const std::string& clip, Vec3 position, float volume
     audio_->play(clip, p);
 }
 
+void GameContext::playMusic(const std::string& clip, float fadeSeconds, float volume) {
+    if (audio_) audio_->playMusic(clip, fadeSeconds, volume);
+}
+
+void GameContext::stopMusic(float fadeSeconds) {
+    if (audio_) audio_->stopMusic(fadeSeconds);
+}
+
+void GameContext::setBusVolume(const std::string& bus, float volume) {
+    if (audio_) audio_->setBusVolume(audioBusFromName(bus), volume);
+}
+
+void GameContext::duck(const std::string& bus, float volume, float seconds) {
+    if (audio_) audio_->duck(audioBusFromName(bus), volume, seconds);
+}
+
 void GameContext::playSound2D(const std::string& clip, float volume) {
     if (!audio_) return;
     AudioEngine::PlayParams p;
@@ -389,6 +405,7 @@ void Game::stopSounds() {
     if (audio_)
         for (const auto& a : attached_) audio_->stop(a.second);
     attached_.clear();
+    soundPos_.clear();
 }
 
 void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
@@ -397,7 +414,7 @@ void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     pollLoads(false);
     if (loader_.busy()) {   // the next scene is loading: this one waits, frozen
         input_.endFixedStep();
-        updateAudio();
+        updateAudio(dt);
         return;
     }
     if (paused_) {   // nothing consumes the latched presses: drop them, so they don't all fire on resume
@@ -412,7 +429,7 @@ void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
         ++steps;
     }
     if (steps == kMaxStepsPerFrame) accumulator_ = 0.f;
-    updateAudio();
+    updateAudio(dt);
 }
 
 void Game::drawUI(GameUI& ui) {
@@ -585,6 +602,8 @@ void Game::fixedUpdate(float dt) {
 // ---------------------------------------------------------------------------------------------
 void Game::startAudio() {
     attached_.clear();
+    soundPos_.clear();
+    haveListener_ = false;
     if (!audio_ || !audio_->ready()) return;
     std::vector<Mat4> worlds = scene_->worldMatrices();
     for (size_t i = 0; i < scene_->entities.size(); ++i) {
@@ -598,26 +617,58 @@ void Game::startAudio() {
         p.position = {worlds[i].m[12], worlds[i].m[13], worlds[i].m[14]};
         p.minDistance = a.minDistance;
         p.maxDistance = a.maxDistance;
-        if (AudioEngine::Sound s = audio_->play(a.clip, p)) attached_.emplace_back(e.id, s);
+        p.bus = audioBusFromName(a.bus);
+        p.stream = a.stream;
+        p.doppler = a.doppler;
+        if (AudioEngine::Sound s = audio_->play(a.clip, p)) {
+            attached_.emplace_back(e.id, s);
+            soundPos_[s] = p.position;
+        }
     }
 }
 
-// Once per frame: the listener is the camera, looping sounds follow their entities, finished sounds are freed
-void Game::updateAudio() {
+// Once per frame: the listener is the camera, looping sounds follow their entities (with their velocities, for the
+// Doppler shift), the reverb is the listener's zone's, finished sounds are freed
+void Game::updateAudio(float dt) {
     if (!audio_ || !audio_->ready()) return;
+    bool moving = dt > 1e-5f && !paused_ && !loader_.busy();
     CameraView cam;
-    if (activeCamera(cam)) audio_->setListener(cam.position, normalize(transformDir(inverseAffine(cam.view), {0, 0, -1})));
+    Vec3 listener = listener_;
+    if (activeCamera(cam)) {
+        listener = cam.position;
+        Vec3 velocity = moving && haveListener_ ? (cam.position - listener_) * (1.f / dt) : Vec3{};
+        audio_->setListener(cam.position, normalize(transformDir(inverseAffine(cam.view), {0, 0, -1})), velocity);
+        listener_ = cam.position;
+        haveListener_ = true;
+    }
     for (auto it = attached_.begin(); it != attached_.end();) {
         const Entity* e = scene_->find(it->first);
         if (!e || !audio_->playing(it->second)) {   // destroyed entity or finished sound
             audio_->stop(it->second);
+            soundPos_.erase(it->second);
             it = attached_.erase(it);
             continue;
         }
-        audio_->setPosition(it->second, ctx_.worldPosition(e->id));
+        Vec3 p = ctx_.worldPosition(e->id);
+        Vec3& last = soundPos_[it->second];
+        audio_->setPosition(it->second, p);
+        audio_->setVelocity(it->second, moving ? (p - last) * (1.f / dt) : Vec3{});
+        last = p;
         ++it;
     }
-    audio_->update();
+    // Reverb: the zone the listener is deepest in (fading in over its blend distance at the edge)
+    float bestWeight = 0.f;
+    const ReverbZone* best = nullptr;
+    for (const Entity& e : scene_->entities) {
+        if (!e.reverbZone || !scene_->visibleInHierarchy(e.id)) continue;
+        const ReverbZone& z = *e.reverbZone;
+        float d = length(ctx_.worldPosition(e.id) - listener);
+        float w = std::clamp((z.radius - d) / std::max(z.blend, 1e-3f), 0.f, 1.f);
+        if (w > bestWeight) { bestWeight = w; best = &z; }
+    }
+    if (best) audio_->setReverb(best->wet * bestWeight, best->roomSize, best->damping);
+    else audio_->setReverb(0.f);
+    audio_->update(dt);
 }
 
 void Game::playImpacts(const std::vector<Impact>& impacts) {
@@ -632,6 +683,8 @@ void Game::playImpacts(const std::vector<Impact>& impacts) {
         p.position = i.position;
         p.minDistance = a.minDistance;
         p.maxDistance = a.maxDistance;
+        p.bus = audioBusFromName(a.bus);
+        p.doppler = a.doppler;
         ctx_.audio_->play(a.clip, p);
     }
 }

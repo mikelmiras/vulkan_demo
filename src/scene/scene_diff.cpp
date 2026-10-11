@@ -45,7 +45,10 @@ bool eq(const Joint& a, const Joint& b) {
 bool eq(const AudioSource& a, const AudioSource& b) {
     return a.clip == b.clip && a.volume == b.volume && a.loop == b.loop && a.playOnStart == b.playOnStart &&
            a.playOnImpact == b.playOnImpact && a.spatial == b.spatial && a.minDistance == b.minDistance &&
-           a.maxDistance == b.maxDistance;
+           a.maxDistance == b.maxDistance && a.bus == b.bus && a.stream == b.stream && a.doppler == b.doppler;
+}
+bool eq(const ReverbZone& a, const ReverbZone& b) {
+    return a.radius == b.radius && a.blend == b.blend && a.wet == b.wet && a.roomSize == b.roomSize && a.damping == b.damping;
 }
 bool eq(const ParticleEmitter& a, const ParticleEmitter& b) {
     return a.rate == b.rate && a.burst == b.burst && a.playOnStart == b.playOnStart && a.duration == b.duration &&
@@ -124,7 +127,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
         !eq(a.transform.scale, b.transform.scale, 3))
         return false;
     if (!eq(a.meshRenderer, b.meshRenderer) || !eq(a.camera, b.camera) || !eq(a.collider, b.collider) ||
-        !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) ||
+        !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
         !eq(a.prefab, b.prefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter))
         return false;

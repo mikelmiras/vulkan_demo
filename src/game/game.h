@@ -7,6 +7,7 @@
 #include <memory>
 #include <initializer_list>
 #include <map>
+#include <unordered_map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -148,6 +149,12 @@ public:
     // Sounds (no-ops without an audio engine): a clip name or file, at a place in the world or in stereo
     void playSound(const std::string& clip, Vec3 position, float volume = 1.f);
     void playSound2D(const std::string& clip, float volume = 1.f);
+    // Music: one track, streamed and looping on the music bus, cross-fading from the one before
+    void playMusic(const std::string& clip, float fadeSeconds = 1.f, float volume = 1.f);
+    void stopMusic(float fadeSeconds = 1.f);
+    // The mixer's buses ("effects", "music", "ui", "ambience"): a volume, or lowered for a while (under a voice line)
+    void setBusVolume(const std::string& bus, float volume);
+    void duck(const std::string& bus, float volume, float seconds);
 
     // Particles: a burst from the entity's ParticleEmitter (`count`, or its burst size), or any look anywhere
     void emitParticles(EntityId id, int count = -1);
@@ -283,7 +290,7 @@ private:
     void runTimers();
     void updateTriggers();
     void startAudio();
-    void updateAudio();
+    void updateAudio(float dt);
     void playImpacts(const std::vector<struct Impact>& impacts);
     void savePreviousWorlds();
     void pollLoads(bool wait);   // applies finished loads (all of them, waiting, if `wait`)
@@ -325,6 +332,9 @@ private:
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity
+    std::unordered_map<AudioEngine::Sound, Vec3> soundPos_;           // ... where they were last frame
+    Vec3 listener_;
+    bool haveListener_ = false;
     GameContext ctx_;
     std::vector<std::pair<float, std::string>> log_;
     float accumulator_ = 0.f, time_ = 0.f, updateMs_ = 0.f;

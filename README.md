@@ -339,6 +339,14 @@ WAV / MP3 / FLAC file.
 - Game code: `ctx.playSound("Shot", position)` / `ctx.playSound2D("Beep")`. The built-in behaviours make noise:
   pickups, shots, things breaking, jumping. In the demo the centrepiece hums, crates thud and balls bounce.
 - The listener is the game's camera. Without an audio device everything just stays silent.
+- **Mixer**: every sound plays on a bus (effects, music, UI, ambience) with its own volume
+  (`ctx.setBusVolume("music", 0.5f)`); `ctx.duck("music", 0.3f, 2.f)` lowers one for a while, easing back.
+- **Music** streams (decoded as it plays, not all up front) and loops on the music bus, cross-fading from one
+  track to the next: `ctx.playMusic("music/theme.ogg", 2.f)`, or the built-in **MusicPlayer** behaviour. Audio
+  Sources can stream too (long ambience).
+- **Reverb Zone** component: while the camera is inside one, effects and ambience echo (wet, room size, damping),
+  easing in at its edge.
+- **Doppler**: moving 3D sounds (and a moving camera) shift in pitch.
 
 ## Collision
 
