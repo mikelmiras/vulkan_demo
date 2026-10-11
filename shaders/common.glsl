@@ -3,7 +3,7 @@
 
 layout(set = 0, binding = 0) uniform Frame {
     mat4 viewProj;
-    mat4 lightViewProj;   // the directional light's shadow camera
+    mat4 shadowViewProj[8];   // 0-3: the sun's cascades, 4-7: spot lights
     vec4 camPos;
     vec4 fogColor;        // rgb = fog/sky colour, w = density
     vec4 viewport;        // width, height, outline width (px), unused
@@ -12,9 +12,27 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 ambient;         // rgb = ambient strength, w = number of point lights
     vec4 pointPos[8];     // xyz = position, w = range
     vec4 pointColor[8];   // rgb = colour * intensity (linear)
+    vec4 pointDir[8];     // spot lights: xyz = the direction it shines
+    vec4 pointSpot[8];    // x = cos inner, y = cos outer (-2: a point light), z = shadow layer (4-7) or -1
     vec4 camRight;        // the camera's axes in the world: billboards face it
     vec4 camUp;
+    vec4 camForward;      // w = tan(fovY / 2)
+    vec4 cascadeSplits;   // far end of each sun shadow cascade, metres along the view
+    vec4 zenith;          // sky overhead (linear)
+    vec4 ground;          // below the horizon (linear)
 } frame;
+
+// The sky in a direction: horizon (the fog colour) to zenith above, to ground below; with the sun, its disc and glow
+vec3 skyColor(vec3 dir, bool withSun) {
+    vec3 horizon = frame.fogColor.rgb;
+    vec3 c = dir.y >= 0.0 ? mix(horizon, frame.zenith.rgb, pow(clamp(dir.y, 0.0, 1.0), 0.6))
+                          : mix(horizon, frame.ground.rgb, pow(clamp(-dir.y * 4.0, 0.0, 1.0), 0.5));
+    if (withSun) {
+        float s = max(dot(dir, -frame.sunDir.xyz), 0.0);
+        c += frame.sunColor.rgb * (smoothstep(0.9995, 0.9998, s) * 8.0 + pow(s, 12.0) * 0.12);
+    }
+    return c;
+}
 
 // One per drawn object; draws are instanced, gl_InstanceIndex picks the object
 struct Instance {

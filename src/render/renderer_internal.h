@@ -25,7 +25,7 @@ namespace render_detail {
 constexpr int kMaxPointLights = 8;
 struct FrameUBO {
     Mat4 viewProj;
-    Mat4 lightViewProj;
+    Mat4 shadowViewProj[8];   // 0-3: the sun's cascades, 4-7: spot lights
     float camPos[4];
     float fogColor[4];   // rgb linear, w = density
     float viewport[4];   // width, height, outline width in pixels, unused
@@ -34,7 +34,12 @@ struct FrameUBO {
     float ambient[4];    // rgb, w = point light count
     float pointPos[kMaxPointLights][4];     // xyz, w = range
     float pointColor[kMaxPointLights][4];   // rgb linear * intensity
+    float pointDir[kMaxPointLights][4];     // spot lights: xyz = direction it shines
+    float pointSpot[kMaxPointLights][4];    // x = cos inner, y = cos outer (-2: a point light), z = shadow layer or -1
     float camRight[4], camUp[4];
+    float camForward[4];      // w = tan(fovY / 2)
+    float cascadeSplits[4];   // far end of each cascade, metres along the view
+    float zenith[4], ground[4];   // sky colours (linear)
 };
 
 struct InstanceData {

@@ -65,7 +65,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 11 (done) | Editor performance on big scenes: no whole-scene copy every frame, undo as diffs or commands | The editor copies the scene each frame (for undo); the stress scene runs the editor far slower than the game |
 | 12 (done) | One physics world: queries, triggers and the character on Jolt (CharacterVirtual: slopes, stairs, moving platforms), retire the duplicate PhysicsWorld snapshot | Two worlds are rebuilt per update (most of the 7 ms stress update); characters don't ride platforms |
 | 13 (done) | Particles: GPU or CPU emitters (sparks, smoke, pickups), a component with an editor | The most visible missing engine feature for games |
-| 14 | Shadows and sky: cascaded sun shadows, point / spot light shadows, a sky and image-based lighting | One 90 m shadow map; hemisphere ambient only |
+| 14 (done) | Shadows and sky: cascaded sun shadows, point / spot light shadows, a sky and image-based lighting | One 90 m shadow map; hemisphere ambient only |
 | 15 | Transparency: glTF alpha modes (mask, blend), sorted transparent pass | Every material is opaque today |
 | 16 | Single-file shipping: assets packed into one archive, optional static engine, icons / app bundles | Exports are a folder of loose files |
 | 17 | Animation tools: clip preview in the editor, animation events, a simple state machine, render interpolation between fixed steps | Animators only run in Play; motion is stepped at 60 Hz |
@@ -87,3 +87,8 @@ Working list for turning the renderer demo into a small game engine. Each task i
 - Task 13: ParticleEmitter component (scene format 13), game/particles (CPU, fixed update, world space, orphaned
   particles live on), renderer billboards from a storage buffer (binding 4) in the HDR pass: alpha (sorted) and
   additive pipelines, premultiplied, depth-tested without writing. Editor preview system. Module API 7.
+- Task 14: 4 sun cascades (2048, 160 m, log/linear splits, bounding spheres, texel snapping, per-cascade culling)
+  and 4 spot shadow maps (1024) in two depth arrays, one shadow pipeline with a layer push constant; spot lights
+  (cone + softness, scene format 14); procedural sky pass (after opaque, at the far plane) and sky-based IBL
+  (irradiance + roughness-blurred reflection). Not done: point-light (cube) shadows, a real prefiltered cubemap.
+  Module API 8.

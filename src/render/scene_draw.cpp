@@ -55,6 +55,9 @@ std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>
         const Mat4& m = worlds[i];
         LightInfo l;
         l.directional = e.light->type == Light::Type::Directional;
+        l.spot = e.light->type == Light::Type::Spot;
+        l.spotAngle = e.light->spotAngle;
+        l.spotSoftness = e.light->spotSoftness;
         l.position = {m.m[12], m.m[13], m.m[14]};
         l.direction = normalize(transformDir(m, {0, 0, -1}));
         l.color = e.light->color;

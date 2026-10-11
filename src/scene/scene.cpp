@@ -36,7 +36,9 @@ void Transform::setMatrix(const Mat4& m) {
     ImGuizmo::DecomposeMatrixToComponents(m.m, position, rotation, scale);
 }
 
-const char* lightTypeName(Light::Type type) { return type == Light::Type::Directional ? "directional" : "point"; }
+const char* lightTypeName(Light::Type type) {
+    return type == Light::Type::Directional ? "directional" : type == Light::Type::Spot ? "spot" : "point";
+}
 
 bool importGltfPrefab(const std::string& path, MeshLibrary& meshes, TextureLibrary& textures, Prefab& out,
                       std::string& error, std::string& warning) {

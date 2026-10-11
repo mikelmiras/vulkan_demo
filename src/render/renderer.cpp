@@ -533,15 +533,16 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[5] = {
+    VkDescriptorSetLayoutBinding frameBindings[6] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // joint matrices
         {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // particles
+        {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // spot shadows
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 5;
+    dslci.bindingCount = 6;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // One texture alone (Dear ImGui's layout, for UI images)
@@ -559,9 +560,12 @@ void Renderer::createPipelines() {
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &materialSetLayout_));
 
     VkDescriptorSetLayout layouts[2] = {setLayout_, materialSetLayout_};
+    VkPushConstantRange shadowLayer{VK_SHADER_STAGE_VERTEX_BIT, 0, 16};   // the shadow pass: which shadow camera
     VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     plci.setLayoutCount = 2;
     plci.pSetLayouts = layouts;
+    plci.pushConstantRangeCount = 1;
+    plci.pPushConstantRanges = &shadowLayer;
     VK_CHECK(vkCreatePipelineLayout(device_, &plci, nullptr, &pipelineLayout_));
 
     // Lit scene objects: depth tested, no stencil
@@ -597,6 +601,63 @@ void Renderer::createPipelines() {
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
     particleAlphaPipeline_ = createParticlePipeline(false);
     particleAdditivePipeline_ = createParticlePipeline(true);
+    skyPipeline_ = createSkyPipeline();
+}
+
+VkPipeline Renderer::createSkyPipeline() {
+    VkShaderModule vs = loadShader("sky.vert.spv"), fs = loadShader("sky.frag.spv");
+    VkPipelineShaderStageCreateInfo stages[2] = {
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
+        {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr},
+    };
+    VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineViewportStateCreateInfo vp{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    vp.viewportCount = 1;
+    vp.scissorCount = 1;
+    VkPipelineRasterizationStateCreateInfo rs{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rs.polygonMode = VK_POLYGON_MODE_FILL;
+    rs.cullMode = VK_CULL_MODE_NONE;
+    rs.lineWidth = 1.f;
+    VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    ms.rasterizationSamples = samples_;
+    VkPipelineDepthStencilStateCreateInfo ds{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    ds.depthTestEnable = VK_TRUE;    // at the far plane: only where nothing was drawn
+    ds.depthWriteEnable = VK_FALSE;
+    ds.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    VkPipelineColorBlendAttachmentState cba{};
+    cba.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    cb.attachmentCount = 1;
+    cb.pAttachments = &cba;
+    VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dy.dynamicStateCount = 2;
+    dy.pDynamicStates = dyn;
+    VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    rci.colorAttachmentCount = 1;
+    rci.pColorAttachmentFormats = &hdrFormat_;
+    rci.depthAttachmentFormat = depthFormat_;
+    rci.stencilAttachmentFormat = depthFormat_;
+    VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    ci.pNext = &rci;
+    ci.stageCount = 2;
+    ci.pStages = stages;
+    ci.pVertexInputState = &vi;
+    ci.pInputAssemblyState = &ia;
+    ci.pViewportState = &vp;
+    ci.pRasterizationState = &rs;
+    ci.pMultisampleState = &ms;
+    ci.pDepthStencilState = &ds;
+    ci.pColorBlendState = &cb;
+    ci.pDynamicState = &dy;
+    ci.layout = pipelineLayout_;
+    VkPipeline pipeline;
+    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
+    vkDestroyShaderModule(device_, vs, nullptr);
+    vkDestroyShaderModule(device_, fs, nullptr);
+    return pipeline;
 }
 
 VkPipeline Renderer::createParticlePipeline(bool additive) {
@@ -690,8 +751,8 @@ void Renderer::endOneTimeCommands(VkCommandBuffer cb) {
 }
 
 void Renderer::createShadowResources() {
-    shadowMap_ = createImage(shadowFormat_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                             VK_IMAGE_ASPECT_DEPTH_BIT, kShadowSize, kShadowSize, VK_SAMPLE_COUNT_1_BIT, 1);
+    cascades_ = createShadowArray(kCascadeSize);
+    spotShadows_ = createShadowArray(kSpotShadowSize);
     VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     sci.magFilter = sci.minFilter = VK_FILTER_NEAREST;   // the shader compares and filters itself
     sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -712,23 +773,6 @@ void Renderer::createShadowResources() {
     post.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
     post.addressModeU = post.addressModeV = post.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     VK_CHECK(vkCreateSampler(device_, &post, nullptr, &postSampler_));
-}
-
-// Orthographic camera looking along the sun, covering a square area in front of the viewer, moved in whole
-// shadow-map texels so the shadow edges don't shimmer as the camera moves
-Mat4 Renderer::shadowMatrix(const SceneRenderInfo& info, Vec3 sunDir) const {
-    const float r = kShadowRadius;
-    Vec3 flat{info.camForward.x, 0.f, info.camForward.z};
-    Vec3 center = info.camPos + (length(flat) > 1e-3f ? normalize(flat) * (r * 0.6f) : Vec3{});
-    Vec3 up = std::fabs(sunDir.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
-    Mat4 view = lookAt(center - sunDir * (r * 3.f), center, up);
-    Mat4 proj = orthographic(-r, r, -r, r, 0.1f, r * 6.f);
-    Mat4 vp = proj * view;
-    float half = kShadowSize * 0.5f;
-    float ox = vp.m[12] * half, oy = vp.m[13] * half;   // where the world origin lands, in texels
-    proj.m[12] += (std::round(ox) - ox) / half;
-    proj.m[13] += (std::round(oy) - oy) / half;
-    return proj * view;
 }
 
 void Renderer::uploadMeshes() {
@@ -753,7 +797,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -816,18 +860,23 @@ void Renderer::createResources(const MeshLibrary&) {
         VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &descSets_[i]));
 
         VkDescriptorBufferInfo bi{ubo_[i].buffer, 0, sizeof(FrameUBO)};
-        VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+        VkWriteDescriptorSet w[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                     {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
         w[0].dstSet = descSets_[i];
         w[0].descriptorCount = 1;
         w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         w[0].pBufferInfo = &bi;
-        VkDescriptorImageInfo shadowInfo{shadowSampler_, shadowMap_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo cascadeInfo{shadowSampler_, cascades_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo spotInfo{shadowSampler_, spotShadows_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         w[1].dstSet = descSets_[i];
         w[1].dstBinding = 1;
         w[1].descriptorCount = 1;
         w[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        w[1].pImageInfo = &shadowInfo;
-        vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+        w[1].pImageInfo = &cascadeInfo;
+        w[2] = w[1];
+        w[2].dstBinding = 5;
+        w[2].pImageInfo = &spotInfo;
+        vkUpdateDescriptorSets(device_, 3, w, 0, nullptr);
 
         VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &imageAvailable_[i]));
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
@@ -891,37 +940,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 0, nullptr);
 
-    // ---- Pass 0: shadow map (depth from the sun)
-    if (frameShadows_ && info.items) {
-        // The previous frame's sampling must finish first; the old contents are discarded
-        imageBarrier(cb, shadowMap_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                     depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
-        VkRenderingAttachmentInfo sd{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        sd.imageView = shadowMap_.view;
-        sd.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        sd.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        sd.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        sd.clearValue.depthStencil = {1.f, 0};
-        VkRenderingInfo sri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        sri.renderArea = {{0, 0}, {kShadowSize, kShadowSize}};
-        sri.layerCount = 1;
-        sri.pDepthAttachment = &sd;
-        vkCmdBeginRendering(cb, &sri);
-        VkViewport sv{0.f, 0.f, (float)kShadowSize, (float)kShadowSize, 0.f, 1.f};
-        VkRect2D ss{{0, 0}, {kShadowSize, kShadowSize}};
-        vkCmdSetViewport(cb, 0, 1, &sv);
-        vkCmdSetScissor(cb, 0, 1, &ss);
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
-        for (const Batch& b : shadowBatches_) {
-            const Mesh& mesh = meshes_->get(b.mesh);
-            vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
-        }
-        vkCmdEndRendering(cb);
-        imageBarrier(cb, shadowMap_.image, VK_IMAGE_ASPECT_DEPTH_BIT, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
-    }
+    // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
+    if (info.items) recordShadows(cb);
 
     // The previous frame's post passes may still be reading the HDR image: wait for them, discard its contents
     imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -995,6 +1015,10 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             stats_.drawCalls++;
             stats_.triangles += meshes_->get(b.mesh).indexCount / 3 * b.count;
         }
+
+        // The sky, wherever nothing was drawn
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
+        vkCmdDraw(cb, 3, 1, 0, 0);
 
         // Particles: see-through ones (sorted back to front), then the additive ones
         if (particleAlpha_) {
@@ -1103,8 +1127,8 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) VK_CHECK(r);
     VK_CHECK(vkResetFences(device_, 1, &inFlight_[frame_]));
 
-    // Lights: the first directional light is the sun (a default one if there's none), then the point lights
-    // nearest the camera
+    // Lights: the first directional light is the sun (a default one if there's none), then the point and spot
+    // lights nearest the camera
     LightInfo sun;
     sun.directional = true;
     sun.direction = normalize({-0.45f, -1.f, -0.3f});
@@ -1121,11 +1145,15 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     });
     if (points.size() > (size_t)kMaxPointLights) points.resize(kMaxPointLights);
     frameShadows_ = sun.castShadows && sun.intensity > 0.f;
+    std::vector<const LightInfo*> spots;
+    for (const LightInfo* l : points)
+        if (l->spot) spots.push_back(l);
 
     Vec3 fog = srgbToLinear(info.sky);
     FrameUBO u{};
     u.viewProj = info.viewProj;
-    u.lightViewProj = shadowMatrix(info, normalize(sun.direction));
+    shadowLayers_ = computeShadows(info, normalize(sun.direction), frameShadows_, spots, u);
+    for (int i = 0; i < 8; ++i) shadowViewProj_[i] = u.shadowViewProj[i];
     set4(u.camPos, info.camPos, 1.f);
     set4(u.fogColor, fog, info.fogDensity);
     u.viewport[0] = info.viewportW;
@@ -1134,18 +1162,33 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     set4(u.sunDir, normalize(sun.direction), frameShadows_ ? 1.f : 0.f);
     set4(u.sunColor, srgbToLinear(sun.color) * sun.intensity, 0.f);
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
-    {   // the camera's axes, for billboards (no roll: up is as close to the world's up as the view allows)
+    set4(u.zenith, srgbToLinear(info.zenith), 0.f);
+    set4(u.ground, srgbToLinear(info.ground), 0.f);
+    {   // the camera's axes, for billboards and the sky (no roll: up is as close to the world's up as possible)
         Vec3 f = normalize(info.camForward);
         Vec3 right = std::fabs(f.y) > 0.999f ? Vec3{1, 0, 0} : normalize(cross(f, {0, 1, 0}));
         set4(u.camRight, right, 0.f);
         set4(u.camUp, cross(right, f), 0.f);
+        set4(u.camForward, f, std::tan(info.fovY * 0.5f));
     }
+    int spotSlot = 0;
     for (size_t i = 0; i < points.size(); ++i) {
-        set4(u.pointPos[i], points[i]->position, std::max(points[i]->range, 0.01f));
-        set4(u.pointColor[i], srgbToLinear(points[i]->color) * points[i]->intensity, 0.f);
+        const LightInfo& l = *points[i];
+        set4(u.pointPos[i], l.position, std::max(l.range, 0.01f));
+        set4(u.pointColor[i], srgbToLinear(l.color) * l.intensity, 0.f);
+        set4(u.pointDir[i], normalize(l.direction), 0.f);
+        u.pointSpot[i][1] = -2.f;   // a point light
+        u.pointSpot[i][2] = -1.f;   // no shadow
+        if (l.spot) {
+            float outer = std::clamp(l.spotAngle, 1.f, 89.f) * DEG2RAD;
+            float inner = outer * (1.f - std::clamp(l.spotSoftness, 0.f, 1.f));
+            u.pointSpot[i][0] = std::cos(inner);
+            u.pointSpot[i][1] = std::cos(outer);
+            if (l.castShadows && spotSlot < (int)kSpotShadows) u.pointSpot[i][2] = (float)(kCascades + spotSlot++);
+        }
     }
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
-    prepareInstances(info, u.lightViewProj);
+    prepareInstances(info);
     uploadJoints(info);
     uploadParticles(info);
 
@@ -1183,7 +1226,8 @@ void Renderer::shutdown() {
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     for (VkPipeline p : {scenePipeline_, stencilPipeline_, outlinePipeline_, shadowPipeline_, bloomDownPipeline_,
-                         bloomUpPipeline_, compositePipeline_, particleAlphaPipeline_, particleAdditivePipeline_})
+                         bloomUpPipeline_, compositePipeline_, particleAlphaPipeline_, particleAdditivePipeline_,
+                         skyPipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     destroyPostImages();
     vkDestroyPipelineLayout(device_, postLayout_, nullptr);
@@ -1202,7 +1246,8 @@ void Renderer::shutdown() {
     vkDestroyDescriptorSetLayout(device_, materialSetLayout_, nullptr);
     vkDestroySampler(device_, sampler_, nullptr);
     vkDestroySampler(device_, shadowSampler_, nullptr);
-    destroyImage(shadowMap_);
+    destroyShadowArray(cascades_);
+    destroyShadowArray(spotShadows_);
     destroyBuffer(vertexBuffer_);
     destroyBuffer(skinBuffer_);
     destroyBuffer(indexBuffer_);

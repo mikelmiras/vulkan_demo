@@ -126,7 +126,11 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::TextDisabled("Click an object in the viewport\nor pick one in the outliner.");
         ImGui::SeparatorText("Scene look");
         RenderSettings& r = scene_.render;
-        ImGui::ColorEdit3("Sky", &r.sky.x);
+        ImGui::ColorEdit3("Sky (overhead)", &r.zenith.x);
+        track();
+        ImGui::ColorEdit3("Horizon / fog", &r.sky.x);
+        track();
+        ImGui::ColorEdit3("Ground", &r.ground.x);
         track();
         ImGui::DragFloat("Fog", &r.fogDensity, 0.0002f, 0.f, 0.1f, "%.4f");
         track();
@@ -413,7 +417,7 @@ void Editor::drawComponents(Entity& e) {
         else if (open) {
             Light& l = *e.light;
             int type = (int)l.type;
-            if (ImGui::Combo("Type", &type, "Directional\0Point\0")) {
+            if (ImGui::Combo("Type", &type, "Directional\0Point\0Spot\0")) {
                 pushUndo();
                 l.type = (Light::Type)type;
             }
@@ -421,14 +425,24 @@ void Editor::drawComponents(Entity& e) {
             track();
             ImGui::DragFloat("Intensity", &l.intensity, 0.01f, 0.f, 100.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
             track();
-            if (l.type == Light::Type::Point) {
+            if (l.type != Light::Type::Directional) {
                 ImGui::DragFloat("Range", &l.range, 0.1f, 0.1f, 1000.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
                 track();
-            } else {
+            }
+            if (l.type == Light::Type::Spot) {
+                ImGui::SliderFloat("Cone angle", &l.spotAngle, 1.f, 89.f, "%.0f deg");
+                track();
+                ImGui::SliderFloat("Edge softness", &l.spotSoftness, 0.f, 1.f, "%.2f");
+                track();
+            }
+            if (l.type != Light::Type::Point) {
                 ImGui::Checkbox("Cast shadows", &l.castShadows);
                 track();
-                ImGui::TextDisabled("Shines along the entity's -Z (rotate it).\nThe first directional light is the sun.");
             }
+            if (l.type == Light::Type::Directional)
+                ImGui::TextDisabled("Shines along the entity's -Z (rotate it).\nThe first directional light is the sun.");
+            else if (l.type == Light::Type::Spot)
+                ImGui::TextDisabled("Shines along the entity's -Z. Up to 4 spot\nlights cast shadows (the nearest).");
         }
     }
     if (e.collider) {

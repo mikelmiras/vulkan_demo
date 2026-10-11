@@ -13,7 +13,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 13;  // 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 14;  // 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -349,8 +349,12 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("type", lightTypeKey(l.type));
         c.set("color", vec3(l.color));
         c.set("intensity", l.intensity);
-        if (l.type == Light::Type::Point) c.set("range", l.range);
-        else c.set("castShadows", l.castShadows);
+        if (l.type != Light::Type::Directional) c.set("range", l.range);
+        if (l.type == Light::Type::Spot) {
+            c.set("spotAngle", l.spotAngle);
+            c.set("spotSoftness", l.spotSoftness);
+        }
+        if (l.type != Light::Type::Point) c.set("castShadows", l.castShadows);
     }
     if (e.collider) {
         const Collider& col = *e.collider;
@@ -498,7 +502,10 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
     }
     if (const json::Value& c = v["light"]; c.isObject()) {
         Light l;
-        l.type = c["type"].asString() == "directional" ? Light::Type::Directional : Light::Type::Point;
+        std::string type = c["type"].asString();
+        l.type = type == "directional" ? Light::Type::Directional : type == "spot" ? Light::Type::Spot : Light::Type::Point;
+        l.spotAngle = c["spotAngle"].asFloat(l.spotAngle);
+        l.spotSoftness = c["spotSoftness"].asFloat(l.spotSoftness);
         l.color = readVec3(c["color"], l.color);
         l.intensity = c["intensity"].asFloat(l.intensity);
         l.range = c["range"].asFloat(l.range);
@@ -673,6 +680,8 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
         const RenderSettings& r = scene.render;
         json::Value& rv = settings.set("render", json::Value::object());
         rv.set("sky", vec3(r.sky));
+        rv.set("zenith", vec3(r.zenith));
+        rv.set("ground", vec3(r.ground));
         rv.set("fogDensity", r.fogDensity);
         rv.set("ambient", r.ambient);
         rv.set("exposure", r.exposure);
@@ -733,6 +742,8 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
     if (const json::Value& rv = doc["settings"]["render"]; rv.isObject()) {
         RenderSettings& r = result.render;
         r.sky = readVec3(rv["sky"], r.sky);
+        r.zenith = readVec3(rv["zenith"], r.zenith);
+        r.ground = readVec3(rv["ground"], r.ground);
         r.fogDensity = rv["fogDensity"].asFloat(r.fogDensity);
         r.ambient = rv["ambient"].asFloat(r.ambient);
         r.exposure = rv["exposure"].asFloat(r.exposure);

@@ -4,7 +4,8 @@
 // Lit objects: metallic-roughness PBR (GGX), sun with shadows, point lights, hemisphere ambient, fog.
 // Writes linear HDR colour (alpha 1); the post pass adds bloom, tonemaps and gamma-encodes.
 
-layout(set = 0, binding = 1) uniform sampler2D shadowMap;      // depth from the directional light
+layout(set = 0, binding = 1) uniform sampler2DArray shadowCascades;   // the sun's, 4 layers
+layout(set = 0, binding = 5) uniform sampler2DArray spotShadows;      // spot lights', 4 layers
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (white if none)
 layout(set = 1, binding = 1) uniform sampler2D normalMap;      // tangent space (flat if none)
 layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness, b = metallic (white if none)
@@ -22,20 +23,29 @@ layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265;
 
-// 1 = lit, 0 = in shadow; 3x3 samples soften the edge
-float sunVisibility(vec3 N, vec3 L) {
-    if (frame.sunDir.w < 0.5) return 1.0;
-    vec3 p = vWorldPos + N * 0.05 + L * 0.02;   // nudged towards the light: no self-shadowing acne
-    vec4 ls = frame.lightViewProj * vec4(p, 1.0);
-    vec3 proj = ls.xyz / ls.w;
+// 1 = lit, 0 = in shadow, for a point seen by a shadow camera (clip space); 3x3 samples soften the edge
+float shadowTest(sampler2DArray map, float layer, vec4 clip, float bias) {
+    vec3 proj = clip.xyz / clip.w;
     vec2 uv = proj.xy * 0.5 + 0.5;
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) return 1.0;   // outside the map
-    vec2 texel = 1.0 / vec2(textureSize(shadowMap, 0));
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0 || proj.z < 0.0) return 1.0;
+    vec2 texel = 1.0 / vec2(textureSize(map, 0).xy);
     float lit = 0.0;
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x)
-            lit += proj.z - 0.0008 <= texture(shadowMap, uv + vec2(x, y) * texel).r ? 1.0 : 0.0;
+            lit += proj.z - bias <= texture(map, vec3(uv + vec2(x, y) * texel, layer)).r ? 1.0 : 0.0;
     return lit / 9.0;
+}
+
+// The sun: the cascade covering this distance from the camera (beyond the last one: lit)
+float sunVisibility(vec3 N, vec3 L) {
+    if (frame.sunDir.w < 0.5) return 1.0;
+    float d = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
+    int c = 0;
+    while (c < 4 && d > frame.cascadeSplits[c]) ++c;
+    if (c >= 4) return 1.0;
+    // Nudged along the normal and towards the light (more for the bigger, coarser cascades): no shadow acne
+    vec3 p = vWorldPos + N * (0.03 + 0.03 * float(c)) + L * 0.02;
+    return shadowTest(shadowCascades, float(c), frame.shadowViewProj[c] * vec4(p, 1.0), 0.0005);
 }
 
 // Normal mapping without stored tangents: the frame comes from screen-space derivatives (Schueler 2013)
@@ -88,9 +98,15 @@ vec3 envBRDF(vec3 f0, float rough, float NdotV) {
     return f0 * ab.x + ab.y;
 }
 
-vec3 hemisphere(vec3 dir) {
-    vec3 skyAmb = vec3(0.45, 0.55, 0.75), groundAmb = vec3(0.20, 0.18, 0.15);
-    return mix(groundAmb, skyAmb, dir.y * 0.5 + 0.5) * frame.ambient.rgb;
+// Image-based lighting from the sky: what a surface facing `n` gathers from all around (diffuse), and the sky
+// reflected along `r`, blurrier the rougher the surface
+vec3 irradiance(vec3 n) {
+    vec3 above = mix(frame.fogColor.rgb, frame.zenith.rgb, 0.6), below = frame.ground.rgb;
+    return mix(below, above, n.y * 0.5 + 0.5) * frame.ambient.rgb;
+}
+vec3 environment(vec3 r, float rough) {
+    vec3 sharp = skyColor(r, false) * frame.ambient.rgb;
+    return mix(sharp, irradiance(r), clamp(rough * rough * 1.5, 0.0, 1.0));
 }
 
 void main() {
@@ -121,21 +137,32 @@ void main() {
 
     // Ambient: hemisphere light, diffuse plus a reflection of it (so metals aren't black in the shade)
     vec3 f0 = mix(vec3(0.04), base, metallic);
-    vec3 color = base * (1.0 - metallic) * hemisphere(N) + envBRDF(f0, rough, NdotV) * hemisphere(reflect(-V, N));
+    vec3 color = base * (1.0 - metallic) * irradiance(N) + envBRDF(f0, rough, NdotV) * environment(reflect(-V, N), rough);
 
     // Sun
     vec3 L = normalize(-frame.sunDir.xyz);
     float vis = dot(N, L) > 0.0 ? sunVisibility(N, L) : 0.0;
     color += shade(N, V, L, frame.sunColor.rgb, base, metallic, rough) * vis;
 
-    // Point lights: smooth falloff to zero at their range
+    // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone
     int count = int(frame.ambient.w);
     for (int i = 0; i < count; ++i) {
         vec3 d = frame.pointPos[i].xyz - vWorldPos;
         float dist = length(d), range = frame.pointPos[i].w;
         if (dist >= range) continue;
+        vec3 Lp = d / max(dist, 1e-4);
         float window = clamp(1.0 - (dist * dist) / (range * range), 0.0, 1.0);
-        color += shade(N, V, d / max(dist, 1e-4), frame.pointColor[i].rgb * window * window, base, metallic, rough);
+        float light = window * window;
+        vec4 spot = frame.pointSpot[i];
+        if (spot.y > -1.5) {
+            light *= smoothstep(spot.y, spot.x, dot(-Lp, frame.pointDir[i].xyz));
+            if (light <= 0.0) continue;
+            if (spot.z >= 0.0) {
+                vec3 p = vWorldPos + N * 0.04;
+                light *= shadowTest(spotShadows, spot.z - 4.0, frame.shadowViewProj[int(spot.z)] * vec4(p, 1.0), 0.00015);
+            }
+        }
+        color += shade(N, V, Lp, frame.pointColor[i].rgb * light, base, metallic, rough);
     }
 
     color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;

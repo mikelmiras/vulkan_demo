@@ -220,3 +220,30 @@ TEST(builtin_brick_normal_map) {
     for (uint32_t x = 0; x < t.width; ++x) leaning += std::abs(at((int)x, 16)[0] - 128) > 40;
     CHECK(leaning > 4);   // the bevels at the brick ends
 }
+
+TEST(spot_lights_and_sky_saved) {
+    MeshLibrary meshes = buildMeshLibrary();
+    Scene s;
+    Light l;
+    l.type = Light::Type::Spot;
+    l.spotAngle = 22.f;
+    l.spotSoftness = 0.5f;
+    l.range = 12.f;
+    l.castShadows = false;
+    s.create("Spot").light = l;
+    s.render.zenith = {0.1f, 0.2f, 0.9f};
+    s.render.ground = {0.3f, 0.2f, 0.1f};
+    std::string error;
+    auto path = test::tempPath("spot.vkw").string();
+    REQUIRE(saveScene(path, s, meshes, textures(), error));
+    Scene loaded;
+    REQUIRE(loadScene(path, loaded, meshes, textures(), error));
+    const Light& got = *loaded.findByName("Spot")->light;
+    CHECK(got.type == Light::Type::Spot);
+    CHECK_NEAR(got.spotAngle, 22.0, 1e-6);
+    CHECK_NEAR(got.spotSoftness, 0.5, 1e-6);
+    CHECK_NEAR(got.range, 12.0, 1e-6);
+    CHECK(!got.castShadows);
+    CHECK_VEC(loaded.render.zenith, test::v3(0.1f, 0.2f, 0.9f), 1e-6f);
+    CHECK_VEC(loaded.render.ground, test::v3(0.3f, 0.2f, 0.1f), 1e-6f);
+}

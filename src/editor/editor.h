@@ -200,6 +200,7 @@ private:
     // Current view (editor or game camera) and what to draw, rebuilt every frame
     Mat4 viewProj_;
     Vec3 viewPos_, viewForward_;
+    float viewFov_ = 1.f;
     std::vector<LightInfo> lights_;
     std::vector<Mat4> worlds_;
     std::vector<DrawItem> drawItems_;

@@ -27,7 +27,7 @@ bool eq(const Collider& a, const Collider& b) {
 }
 bool eq(const Light& a, const Light& b) {
     return a.type == b.type && eq(a.color, b.color) && a.intensity == b.intensity && a.range == b.range &&
-           a.castShadows == b.castShadows;
+           a.spotAngle == b.spotAngle && a.spotSoftness == b.spotSoftness && a.castShadows == b.castShadows;
 }
 bool eq(const RigidBody& a, const RigidBody& b) {
     return a.mass == b.mass && a.lockRotation == b.lockRotation && a.useGravity == b.useGravity &&
@@ -117,7 +117,7 @@ bool sameInputActions(const std::vector<InputAction>& a, const std::vector<Input
 }
 
 bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
-    return eq(a.sky, b.sky) && a.fogDensity == b.fogDensity && a.ambient == b.ambient && a.exposure == b.exposure &&
+    return eq(a.sky, b.sky) && eq(a.zenith, b.zenith) && eq(a.ground, b.ground) && a.fogDensity == b.fogDensity && a.ambient == b.ambient && a.exposure == b.exposure &&
            a.bloomStrength == b.bloomStrength && a.bloomThreshold == b.bloomThreshold;
 }
 

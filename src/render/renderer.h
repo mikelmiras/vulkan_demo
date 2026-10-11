@@ -14,6 +14,7 @@
 #include "core/vecmath.h"
 
 struct ImDrawData;
+namespace render_detail { struct FrameUBO; }   // render/renderer_internal.h
 
 // One mesh to draw. The renderer knows nothing about the scene: callers flatten it into these.
 struct DrawItem {
@@ -42,6 +43,8 @@ struct ParticleDraw {
 
 struct LightInfo {
     bool directional = false;
+    bool spot = false;
+    float spotAngle = 30.f, spotSoftness = 0.2f;   // degrees, 0..1
     Vec3 position;              // point lights
     Vec3 direction{0, -1, 0};   // directional: where the light travels
     Vec3 color{1, 1, 1};        // sRGB
@@ -59,7 +62,11 @@ struct SceneRenderInfo {
     Vec3 camPos;
     Vec3 camForward{0, 0, -1};   // the shadow map covers the area in front of the camera
     // Look (Scene::render): sky / fog colour (sRGB), fog, ambient light, exposure and bloom
-    Vec3 sky{0.62f, 0.75f, 0.90f};
+    Vec3 sky{0.62f, 0.75f, 0.90f};       // horizon / fog
+    Vec3 zenith{0.36f, 0.56f, 0.88f};
+    Vec3 ground{0.34f, 0.35f, 0.31f};
+    float fovY = 60.f * DEG2RAD;           // the camera's (for the sky and the shadow cascades)
+    float aspect = 16.f / 9.f;
     float fogDensity = 0.006f, ambient = 0.45f, exposure = 1.f, bloomStrength = 0.06f, bloomThreshold = 1.f;
     float viewportX = 0, viewportY = 0, viewportW = 0, viewportH = 0;   // in window pixels
 };
@@ -138,15 +145,29 @@ private:
     void destroyTexture(GpuTexture& t);
     VkCommandBuffer beginOneTimeCommands();
     void endOneTimeCommands(VkCommandBuffer cb);
-    void createShadowResources();
+    void createShadowResources();   // the samplers (and the shadow maps)
     // Culls and batches the draw items into this frame's instance buffer (after its fence has been waited on)
-    void prepareInstances(const SceneRenderInfo& info, const Mat4& lightViewProj);
+    void prepareInstances(const SceneRenderInfo& info);
     void ensureInstanceCapacity(size_t count);
     void uploadJoints(const SceneRenderInfo& info);   // this frame's joint matrices into its storage buffer
     void uploadParticles(const SceneRenderInfo& info);   // sorted: see-through ones back to front, then additive
     uint32_t particleAlpha_ = 0, particleAdditive_ = 0;  // this frame's counts
     VkPipeline createParticlePipeline(bool additive);
-    Mat4 shadowMatrix(const SceneRenderInfo& info, Vec3 sunDir) const;
+    // Shadows (renderer_shadows.cpp): 4 cascades for the sun (orthographic, each a slice of the view, snapped to
+    // texels), and up to 4 spot lights (perspective). Layers 0-3 / 4-7 of one matrix table in the frame data.
+    struct ShadowArray {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView array = VK_NULL_HANDLE;    // sampled
+        VkImageView layers[4] = {};            // rendered into
+        uint32_t size = 0;
+    };
+    ShadowArray createShadowArray(uint32_t size);
+    void destroyShadowArray(ShadowArray& a);
+    // Fills the frame's shadow matrices and cascade splits; returns which layers to render (bit per layer)
+    uint32_t computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool sunShadows,
+                            const std::vector<const LightInfo*>& spots, render_detail::FrameUBO& u) const;
+    void recordShadows(VkCommandBuffer cb);
     void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui);
 
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props);
@@ -177,12 +198,13 @@ private:
     VkSampler sampler_ = VK_NULL_HANDLE;
     float maxAnisotropy_ = 1.f;             // 1 = anisotropic filtering not available
 
-    static constexpr uint32_t kShadowSize = 2048;
-    static constexpr float kShadowRadius = 45.f;   // half the size of the area the shadow map covers, metres
+    static constexpr uint32_t kCascadeSize = 2048, kSpotShadowSize = 1024, kCascades = 4, kSpotShadows = 4;
+    static constexpr float kShadowDistance = 160.f;   // the sun's shadows reach this far from the camera
     VkFormat shadowFormat_ = VK_FORMAT_D32_SFLOAT;
-    Image shadowMap_;
+    ShadowArray cascades_, spotShadows_;
     bool shadowMapReady_ = false;   // in SHADER_READ_ONLY layout
-    bool frameShadows_ = false;     // this frame renders the shadow pass
+    uint32_t shadowLayers_ = 0;     // this frame's shadow layers to render (bits 0-3 cascades, 4-7 spots)
+    bool frameShadows_ = false;     // the sun casts shadows this frame
     VkSampler shadowSampler_ = VK_NULL_HANDLE;
     VkPipeline shadowPipeline_ = VK_NULL_HANDLE;
 
@@ -224,7 +246,11 @@ private:
         VkDescriptorSet texture = VK_NULL_HANDLE;
         uint32_t first = 0, count = 0;
     };
-    std::vector<Batch> sceneBatches_, shadowBatches_, outlineBatches_;
+    std::vector<Batch> sceneBatches_, outlineBatches_;
+    std::vector<Batch> shadowBatches_[8];   // per shadow layer
+    Mat4 shadowViewProj_[8];
+    VkPipeline skyPipeline_ = VK_NULL_HANDLE;
+    VkPipeline createSkyPipeline();
     VkCommandPool cmdPool_ = VK_NULL_HANDLE;
     VkCommandBuffer cmd_[MAX_FRAMES] = {};
     VkSemaphore imageAvailable_[MAX_FRAMES] = {};

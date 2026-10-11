@@ -154,6 +154,10 @@ int main(int argc, char** argv) {
         info.joints = &joints;
         info.particles = &particles;
         info.sky = scene.render.sky;
+        info.zenith = scene.render.zenith;
+        info.ground = scene.render.ground;
+        info.fovY = cam.fovY;
+        info.aspect = aspect;
         info.fogDensity = scene.render.fogDensity;
         info.ambient = scene.render.ambient;
         info.exposure = scene.render.exposure;

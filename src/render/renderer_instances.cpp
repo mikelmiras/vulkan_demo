@@ -49,18 +49,26 @@ void Renderer::uploadJoints(const SceneRenderInfo& info) {
     if (count) std::memcpy(buf.mapped, info.joints->data(), count * sizeof(Mat4));
 }
 
-void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightViewProj) {
+void Renderer::prepareInstances(const SceneRenderInfo& info) {
     sceneBatches_.clear();
-    shadowBatches_.clear();
+    for (auto& b : shadowBatches_) b.clear();
     outlineBatches_.clear();
     stats_ = {};
     if (!info.items) return;
     const std::vector<DrawItem>& items = *info.items;
-    Frustum view(info.viewProj), light(lightViewProj);
+    Frustum view(info.viewProj);
+    std::vector<Frustum> shadowViews;
+    std::vector<uint32_t> shadowLayers;
+    for (uint32_t l = 0; l < 8; ++l)
+        if (shadowLayers_ & (1u << l)) {
+            shadowViews.emplace_back(shadowViewProj_[l]);
+            shadowLayers.push_back(l);
+        }
+    std::vector<std::vector<uint32_t>> casters(shadowLayers.size());
 
     auto textureSet = [&](const DrawItem& o) { return materialSet(o); };
     // Visible items, sorted so that equal (texture, mesh) pairs sit together and can be drawn as one batch
-    std::vector<uint32_t> visible, casters;
+    std::vector<uint32_t> visible;
     visible.reserve(items.size());
     for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
         const DrawItem& o = items[i];
@@ -69,18 +77,23 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
         bool skinned = o.jointOffset >= 0;
         if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) visible.push_back(i);
         else stats_.culled++;
-        if (frameShadows_ && (skinned || light.visible(o.model, mesh.boundsMin, mesh.boundsMax))) casters.push_back(i);
+        for (size_t k = 0; k < shadowViews.size(); ++k)   // each shadow camera: what it sees
+            if (skinned || shadowViews[k].visible(o.model, mesh.boundsMin, mesh.boundsMax)) casters[k].push_back(i);
     }
     std::stable_sort(visible.begin(), visible.end(), [&](uint32_t a, uint32_t b) {
         VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
         if (ta != tb) return ta < tb;
         return items[a].mesh < items[b].mesh;
     });
-    std::stable_sort(casters.begin(), casters.end(), [&](uint32_t a, uint32_t b) { return items[a].mesh < items[b].mesh; });
+    size_t casterCount = 0;
+    for (auto& list : casters) {
+        std::stable_sort(list.begin(), list.end(), [&](uint32_t a, uint32_t b) { return items[a].mesh < items[b].mesh; });
+        casterCount += list.size();
+    }
     size_t outlined = 0;
     for (const DrawItem& o : items) outlined += o.outlined;
 
-    ensureInstanceCapacity(visible.size() + casters.size() + outlined);
+    ensureInstanceCapacity(visible.size() + casterCount + outlined);
     InstanceData* out = static_cast<InstanceData*>(instances_[frame_].mapped);
     uint32_t n = 0;
     auto append = [&](std::vector<Batch>& batches, const DrawItem& o, Vec3 rgb, VkDescriptorSet set) {
@@ -98,7 +111,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
     };
     for (uint32_t i : visible) append(sceneBatches_, items[i], srgbToLinear(items[i].color), textureSet(items[i]));
     VkDescriptorSet plain = materialSet(DrawItem{});
-    for (uint32_t i : casters) append(shadowBatches_, items[i], {}, plain);
+    for (size_t k = 0; k < casters.size(); ++k)
+        for (uint32_t i : casters[k]) append(shadowBatches_[shadowLayers[k]], items[i], {}, plain);
     for (const DrawItem& o : items)   // each outline is drawn on its own (stencil, then hull): no merging
         if (o.outlined) {
             std::vector<Batch> single;
@@ -106,7 +120,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, const Mat4& lightVi
             outlineBatches_.push_back(single[0]);
         }
     stats_.objects = (uint32_t)visible.size();
-    stats_.shadowCasters = (uint32_t)casters.size();
+    stats_.shadowCasters = (uint32_t)casterCount;
 }
 
 void Renderer::uploadParticles(const SceneRenderInfo& info) {

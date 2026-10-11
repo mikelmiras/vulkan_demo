@@ -47,12 +47,14 @@ struct MeshRenderer {
 
 // Lights the scene. Without any directional light the renderer uses a default sun.
 struct Light {
-    enum class Type { Directional, Point };
+    enum class Type { Directional, Point, Spot };
     Type type = Type::Point;
     Vec3 color{1.f, 0.95f, 0.85f};   // sRGB
     float intensity = 1.f;
-    float range = 15.f;               // point lights fade to nothing at this distance
-    bool castShadows = true;          // directional lights (the first one casts the shadow map)
+    float range = 15.f;               // point and spot lights fade to nothing at this distance
+    float spotAngle = 30.f;           // spot lights: half-angle of the cone, degrees (along the entity's -Z)
+    float spotSoftness = 0.2f;        // spot lights: how much of the cone's edge fades out (0..1)
+    bool castShadows = true;          // the sun (the first directional light) and up to 4 spot lights
 };
 const char* lightTypeName(Light::Type type);
 
@@ -199,7 +201,9 @@ struct Entity {
 
 // How the scene looks: the renderer's per-scene settings (saved with the scene)
 struct RenderSettings {
-    Vec3 sky{0.62f, 0.75f, 0.90f};    // sRGB: the background and the fog
+    Vec3 sky{0.62f, 0.75f, 0.90f};    // sRGB: the sky at the horizon, and the fog
+    Vec3 zenith{0.36f, 0.56f, 0.88f}; // sRGB: the sky overhead
+    Vec3 ground{0.34f, 0.35f, 0.31f}; // sRGB: below the horizon (and light bounced up from the ground)
     float fogDensity = 0.006f;
     float ambient = 0.45f;            // light that comes from everywhere
     float exposure = 1.f;             // brightness before tonemapping

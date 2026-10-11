@@ -219,11 +219,14 @@ dropping on the right.
   import all of these. Built-in meshes have box-mapped texture coordinates; imported ones use their own. Textures
   get mipmaps and anisotropic filtering, and are read as sRGB colour or as plain data, whichever the slot needs.
   The demo scene's "Materials" row shows them.
-- **Lights**: Light components, directional (shines along the entity's -Z) or point (colour, intensity, range).
-  The first directional light is the sun and casts the shadows; up to 8 point lights (nearest the camera) light
-  each frame. Scenes without a directional light get a default sun.
-- **Shadows**: one 2048x2048 shadow map for the sun, covering about 90 m around the camera, filtered 3x3, snapped
-  to texels so edges don't shimmer.
+- **Lights**: Light components, directional (shines along the entity's -Z), point (colour, intensity, range) or
+  spot (a cone along -Z, with a soft edge). The first directional light is the sun; up to 8 point and spot lights
+  (nearest the camera) light each frame. Scenes without a directional light get a default sun.
+- **Shadows**: the sun's are 4 cascades (2048x2048 each) covering 160 m of the view, closer ones sharper, each
+  snapped to texels so edges don't shimmer; up to 4 spot lights cast shadows too (1024x1024). Filtered 3x3. Point
+  lights don't cast shadows.
+- **Sky**: a gradient from the horizon (also the fog colour) to the zenith, the ground below, and the sun's disc
+  and glow. It also lights the scene: ambient light and reflections come from it (blurrier on rougher surfaces).
 - **HDR**: the scene renders into a floating-point image; **bloom** (a 13-tap down / tent up mip chain, with a
   soft threshold) makes bright parts glow, and the final pass applies exposure and the Khronos **PBR Neutral**
   tonemapper (colours below about 0.8 come out as they are). Sky colour, fog, ambient, exposure and bloom are
