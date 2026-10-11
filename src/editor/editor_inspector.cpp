@@ -10,6 +10,7 @@
 
 #include "misc/cpp/imgui_stdlib.h"
 #include "platform/platform.h"
+#include "game/ragdoll.h"
 #include "scene/prefab_sync.h"
 #include "editor/editor_ui.h"
 
@@ -359,6 +360,13 @@ void Editor::drawComponents(Entity& e) {
                                scene_.find(scene_.modelRoot(e.id)) ? scene_.find(scene_.modelRoot(e.id))->name.c_str() : "?");
             if (e.meshRenderer && !meshes_.get(e.meshRenderer->mesh).skinned)
                 ImGui::TextColored(ImVec4(1.f, 0.6f, 0.3f, 1.f), "Its mesh has no joint weights: drawn as is");
+            if (ImGui::Button("Make ragdoll")) {
+                pushUndo();
+                int parts = makeRagdoll(scene_, scene_.modelRoot(e.id));
+                setStatus("Ragdoll: " + std::to_string(parts) + " parts (kinematic until ctx.setRagdoll(root, true))");
+            }
+            tooltip("Gives each bone a collider, a rigid body and a joint to its parent bone. The parts follow the "
+                    "animation (kinematic) until game code makes the ragdoll go limp.");
         }
     }
     if (e.audioSource) {
@@ -421,6 +429,10 @@ void Editor::drawComponents(Entity& e) {
             ImGui::Checkbox("Lock rotation", &rb.lockRotation);
             track();
             tooltip("Moves but never turns: tall things that shouldn't topple, upright characters");
+            ImGui::Checkbox("Kinematic", &rb.kinematic);
+            track();
+            tooltip("Moved by animation or game code instead of simulated: it pushes others but isn't pushed (a "
+                    "ragdoll's parts until it goes limp, a lift)");
             ImGui::SliderFloat("Bounciness", &rb.bounciness, 0.f, 1.f, "%.2f");
             track();
             ImGui::SliderFloat("Friction", &rb.friction, 0.f, 2.f, "%.2f");
@@ -434,6 +446,54 @@ void Editor::drawComponents(Entity& e) {
             tooltip("Angular velocity, radians per second around each axis");
             if (!e.collider || e.collider->trigger)
                 ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a solid collider to be simulated");
+        }
+    }
+    if (e.joint) {
+        if (!componentHeader("Joint", open)) { pushUndo(); e.joint.reset(); }
+        else if (open) {
+            Joint& j = *e.joint;
+            int type = (int)j.type;
+            const char* types[] = {"Fixed", "Ball", "Hinge", "Slider", "Distance", "Cone"};
+            if (ImGui::Combo("Type", &type, types, IM_ARRAYSIZE(types))) { pushUndo(); j.type = (Joint::Type)type; }
+            pickReference("Connected to", j.connectedTo, FieldRef::Entity);
+            tooltip("The other rigid body (or static collider), by name; empty: the world");
+            ImGui::DragFloat3("Anchor", &j.anchor.x, 0.01f, 0.f, 0.f, "%.2f");
+            track();
+            tooltip("Where the two are held together, in this entity's own space");
+            if (j.type == Joint::Type::Hinge || j.type == Joint::Type::Slider || j.type == Joint::Type::Cone ||
+                j.type == Joint::Type::Fixed) {
+                ImGui::DragFloat3("Axis", &j.axis.x, 0.01f, -1.f, 1.f, "%.2f");
+                track();
+            }
+            bool angles = j.type == Joint::Type::Hinge || j.type == Joint::Type::Cone;
+            if (j.type != Joint::Type::Fixed && j.type != Joint::Type::Ball) {
+                ImGui::DragFloatRange2("Limits", &j.minLimit, &j.maxLimit, angles ? 0.5f : 0.01f, 0.f, 0.f,
+                                       angles ? "%.0f deg" : "%.2f m", angles ? "%.0f deg" : "%.2f m");
+                track();
+                tooltip(j.type == Joint::Type::Cone ? "Twist around the axis (equal: +-20 deg)"
+                                                    : "Equal: free (distance: as they start)");
+            }
+            if (j.type == Joint::Type::Cone) {
+                ImGui::SliderFloat("Cone angle", &j.coneAngle, 0.f, 179.f, "%.0f deg");
+                track();
+            }
+            if (j.type == Joint::Type::Hinge || j.type == Joint::Type::Slider) {
+                ImGui::DragFloat("Motor speed", &j.motorSpeed, 0.5f, 0.f, 0.f, j.type == Joint::Type::Hinge ? "%.0f deg/s" : "%.2f m/s");
+                track();
+                ImGui::DragFloat("Motor strength", &j.motorStrength, 1.f, 0.f, 1e7f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+                track();
+                tooltip("Torque (N m) or force (N) the motor drives it with; 0: no motor");
+            }
+            ImGui::DragFloat("Break force", &j.breakForce, 1.f, 0.f, 1e9f, "%.0f N", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            tooltip("Comes apart when pulled harder than this (0: never)");
+            ImGui::Checkbox("Collide connected", &j.collideConnected);
+            track();
+            if (j.broken) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "broken");
+            }
+            if (!e.rigidBody) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a rigid body (and a collider)");
         }
     }
     if (e.light) {
@@ -542,6 +602,12 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Rigid Body", nullptr, false, !e.rigidBody)) {
             pushUndo();
             e.rigidBody = RigidBody{};
+            if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
+        }
+        if (ImGui::MenuItem("Joint", nullptr, false, !e.joint)) {
+            pushUndo();
+            e.joint = Joint{};
+            if (!e.rigidBody) e.rigidBody = RigidBody{};
             if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
         }
         if (ImGui::MenuItem("Collider", nullptr, false, !e.collider)) {

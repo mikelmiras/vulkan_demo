@@ -33,7 +33,13 @@ bool eq(const Light& a, const Light& b) {
 bool eq(const RigidBody& a, const RigidBody& b) {
     return a.mass == b.mass && a.lockRotation == b.lockRotation && a.useGravity == b.useGravity &&
            a.bounciness == b.bounciness && a.friction == b.friction && a.damping == b.damping &&
-           eq(a.velocity, b.velocity) && eq(a.angularVelocity, b.angularVelocity);
+           eq(a.velocity, b.velocity) && eq(a.angularVelocity, b.angularVelocity) && a.kinematic == b.kinematic;
+}
+bool eq(const Joint& a, const Joint& b) {
+    return a.type == b.type && a.connectedTo == b.connectedTo && eq(a.anchor, b.anchor) && eq(a.axis, b.axis) &&
+           a.minLimit == b.minLimit && a.maxLimit == b.maxLimit && a.coneAngle == b.coneAngle &&
+           a.motorSpeed == b.motorSpeed && a.motorStrength == b.motorStrength && a.breakForce == b.breakForce &&
+           a.collideConnected == b.collideConnected && a.broken == b.broken;
 }
 bool eq(const AudioSource& a, const AudioSource& b) {
     return a.clip == b.clip && a.volume == b.volume && a.loop == b.loop && a.playOnStart == b.playOnStart &&
@@ -109,7 +115,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
         !eq(a.transform.scale, b.transform.scale, 3))
         return false;
     if (!eq(a.meshRenderer, b.meshRenderer) || !eq(a.camera, b.camera) || !eq(a.collider, b.collider) ||
-        !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.audioSource, b.audioSource) ||
+        !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.audioSource, b.audioSource) ||
         !eq(a.prefab, b.prefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter))
         return false;

@@ -125,6 +125,9 @@ public:
     // climbs slopes and steps, rides moving platforms and pushes rigid bodies. Without one it just moves.
     CharacterMove moveCharacter(Entity& self, Vec3 delta);
 
+    // A ragdoll (game/ragdoll.h) under `root` goes limp (simulated, its Animator stopped) or back to animation
+    void setRagdoll(EntityId root, bool limp);
+
     // Navigation (see game/navigation.h): a walking path around walls and over steps, as corner points on the
     // ground from `from` to (nearest reachable spot to) `to`. The scene's walkable grid is baked the first time
     // it's needed, from its static colliders and scene.navigation; false if there's no way.

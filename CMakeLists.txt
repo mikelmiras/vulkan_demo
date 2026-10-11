@@ -93,6 +93,7 @@ set(ENGINE_SOURCES
   src/game/particles.cpp
   src/game/navigation.cpp
   src/game/scene_loader.cpp
+  src/game/ragdoll.cpp
   src/render/renderer.cpp
   src/render/renderer_textures.cpp
   src/render/renderer_instances.cpp
@@ -256,7 +257,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_particles.cpp
     tests/test_navigation.cpp
     tests/test_loading.cpp
-    tests/test_gameplay.cpp)
+    tests/test_gameplay.cpp
+    tests/test_joints.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

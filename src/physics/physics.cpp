@@ -24,6 +24,13 @@
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/GroupFilterTable.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/SliderConstraint.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -205,8 +212,223 @@ struct Physics::Impl {
     JPH::BodyInterface& bi() { return system.GetBodyInterfaceNoLock(); }
 
     void remove(Tracked& t) {
+        for (auto it = joints.begin(); it != joints.end();) {   // (a constraint mustn't outlive its bodies)
+            if (it->second.c->GetBody1()->GetID() == t.id || it->second.c->GetBody2()->GetID() == t.id) {
+                system.RemoveConstraint(it->second.c);
+                it = joints.erase(it);
+            } else {
+                ++it;
+            }
+        }
         bi().RemoveBody(t.id);
         bi().DestroyBody(t.id);
+    }
+
+    // ---- Joints
+    struct JointState {
+        JPH::Ref<JPH::TwoBodyConstraint> c;
+        uint64_t key = 0;
+        Joint::Type type;
+        float breakForce = 0.f;
+    };
+    std::unordered_map<EntityId, JointState> joints;
+    JPH::Ref<JPH::GroupFilterTable> groups;   // pairs of jointed bodies that don't collide
+    uint64_t groupsKey = 0;
+    std::vector<JPH::BodyID> grouped;
+
+    // The entity `name` refers to from `self`: under its parent first, then its grandparent's, ..., then anywhere
+    static EntityId resolve(const Scene& scene, const Entity& self, const std::string& name) {
+        for (EntityId p = self.parent; p != kNoEntity;) {
+            std::unordered_map<std::string, EntityId> names = scene.namesUnder(p);
+            if (auto it = names.find(name); it != names.end() && it->second != self.id) return it->second;
+            const Entity* pe = scene.find(p);
+            p = pe ? pe->parent : kNoEntity;
+        }
+        const Entity* any = scene.findByName(name);
+        return any && any->id != self.id ? any->id : kNoEntity;
+    }
+
+    JPH::Ref<JPH::TwoBodyConstraintSettings> jointSettings(const Joint& j, const Mat4& world, Vec3 otherOrigin) {
+        Vec3 at = transformPoint(world, j.anchor), axis = transformDir(world, j.axis);
+        axis = length(axis) > 1e-6f ? normalize(axis) : Vec3{1, 0, 0};
+        Vec3 normal = std::fabs(axis.y) < 0.9f ? normalize(cross(axis, {0, 1, 0})) : normalize(cross(axis, {1, 0, 0}));
+        JPH::RVec3 p(at.x, at.y, at.z);
+        bool limited = j.minLimit < j.maxLimit;
+        switch (j.type) {
+        case Joint::Type::Fixed: {
+            auto* s = new JPH::FixedConstraintSettings;
+            s->mPoint1 = s->mPoint2 = p;
+            s->mAxisX1 = s->mAxisX2 = toJ(axis);
+            s->mAxisY1 = s->mAxisY2 = toJ(normal);
+            return s;
+        }
+        case Joint::Type::Ball: {
+            auto* s = new JPH::PointConstraintSettings;
+            s->mPoint1 = s->mPoint2 = p;
+            return s;
+        }
+        case Joint::Type::Hinge: {
+            auto* s = new JPH::HingeConstraintSettings;
+            s->mPoint1 = s->mPoint2 = p;
+            s->mHingeAxis1 = s->mHingeAxis2 = toJ(axis);
+            s->mNormalAxis1 = s->mNormalAxis2 = toJ(normal);
+            if (limited) {
+                s->mLimitsMin = std::max(j.minLimit, -179.9f) * DEG2RAD;
+                s->mLimitsMax = std::min(j.maxLimit, 179.9f) * DEG2RAD;
+            }
+            if (j.motorStrength > 0.f) s->mMotorSettings.SetTorqueLimit(j.motorStrength);
+            return s;
+        }
+        case Joint::Type::Slider: {
+            auto* s = new JPH::SliderConstraintSettings;
+            s->mAutoDetectPoint = false;
+            s->mPoint1 = s->mPoint2 = p;
+            s->mSliderAxis1 = s->mSliderAxis2 = toJ(axis);
+            s->mNormalAxis1 = s->mNormalAxis2 = toJ(normal);
+            if (limited) {
+                s->mLimitsMin = j.minLimit;
+                s->mLimitsMax = j.maxLimit;
+            }
+            if (j.motorStrength > 0.f) s->mMotorSettings.SetForceLimit(j.motorStrength);
+            return s;
+        }
+        case Joint::Type::Distance: {
+            auto* s = new JPH::DistanceConstraintSettings;
+            s->mPoint1 = JPH::RVec3(otherOrigin.x, otherOrigin.y, otherOrigin.z);
+            s->mPoint2 = p;
+            if (limited) {
+                s->mMinDistance = j.minLimit;
+                s->mMaxDistance = j.maxLimit;
+            }
+            return s;
+        }
+        case Joint::Type::Cone: {
+            auto* s = new JPH::SwingTwistConstraintSettings;
+            s->mPosition1 = s->mPosition2 = p;
+            s->mTwistAxis1 = s->mTwistAxis2 = toJ(axis);
+            s->mPlaneAxis1 = s->mPlaneAxis2 = toJ(normal);
+            s->mNormalHalfConeAngle = s->mPlaneHalfConeAngle = std::clamp(j.coneAngle, 0.f, 179.f) * DEG2RAD;
+            s->mTwistMinAngle = (limited ? j.minLimit : -20.f) * DEG2RAD;
+            s->mTwistMaxAngle = (limited ? j.maxLimit : 20.f) * DEG2RAD;
+            return s;
+        }
+        }
+        return nullptr;
+    }
+
+    // Makes, keeps or remakes each joint's constraint (when it, or one of its bodies, changed)
+    void syncJoints(Scene& scene, const std::vector<Mat4>& worlds) {
+        std::vector<EntityId> seen;
+        std::vector<std::pair<JPH::BodyID, JPH::BodyID>> apart;
+        for (size_t i = 0; i < scene.entities.size(); ++i) {
+            const Entity& e = scene.entities[i];
+            if (!e.joint || e.joint->broken) continue;
+            auto self = bodies.find(e.id);
+            if (self == bodies.end()) continue;
+            const Joint& j = *e.joint;
+            JPH::BodyID otherId;   // invalid: the world
+            bool otherDynamic = false;
+            Vec3 otherOrigin = transformPoint(worlds[i], j.anchor);
+            if (!j.connectedTo.empty()) {
+                EntityId other = resolve(scene, e, j.connectedTo);
+                auto ob = other != kNoEntity ? bodies.find(other) : bodies.end();
+                if (ob == bodies.end()) continue;   // (not there, or without a body: nothing to connect to)
+                otherId = ob->second.id;
+                otherDynamic = ob->second.dynamic;
+                int oi = scene.indexOf(other);
+                if (oi >= 0) otherOrigin = {worlds[(size_t)oi].m[12], worlds[(size_t)oi].m[13], worlds[(size_t)oi].m[14]};
+                if (!j.collideConnected) apart.emplace_back(self->second.id, otherId);
+            }
+            if (!self->second.dynamic && !otherDynamic) continue;   // nothing moves: nothing to hold
+            uint64_t key = 1469598103934665603ull;
+            auto mix = [&](uint64_t v) { key = (key ^ v) * 1099511628211ull; };
+            auto mixf = [&](float f) { uint32_t u; std::memcpy(&u, &f, 4); mix(u); };
+            mix((uint64_t)j.type);
+            mix(self->second.id.GetIndexAndSequenceNumber());
+            mix(otherId.GetIndexAndSequenceNumber());
+            mix(self->second.dynamic * 2 + otherDynamic);
+            for (float f : {j.anchor.x, j.anchor.y, j.anchor.z, j.axis.x, j.axis.y, j.axis.z, j.minLimit, j.maxLimit,
+                            j.coneAngle, j.motorStrength})
+                mixf(f);
+            seen.push_back(e.id);
+            auto it = joints.find(e.id);
+            if (it != joints.end() && it->second.key == key) {
+                if (j.motorStrength > 0.f) applyMotor(it->second, j);   // (the speed may change while playing)
+                continue;
+            }
+            if (it != joints.end()) {
+                system.RemoveConstraint(it->second.c);
+                joints.erase(it);
+            }
+            JPH::Ref<JPH::TwoBodyConstraintSettings> settings = jointSettings(j, worlds[i], otherOrigin);
+            if (!settings) continue;
+            // (the other body first: angles, limits and motors are then this entity's, relative to it)
+            JPH::Ref<JPH::TwoBodyConstraint> c = bi().CreateConstraint(settings, otherId, self->second.id);
+            if (!c) continue;
+            system.AddConstraint(c);
+            JointState st{c, key, j.type, j.breakForce};
+            applyMotor(st, j);
+            joints.emplace(e.id, st);
+            bi().ActivateConstraint(c);
+        }
+        for (auto it = joints.begin(); it != joints.end();) {   // joints removed (or broken, or unconnected)
+            if (std::find(seen.begin(), seen.end(), it->first) != seen.end()) { ++it; continue; }
+            system.RemoveConstraint(it->second.c);
+            it = joints.erase(it);
+        }
+        // Jointed pairs that mustn't collide: one group table for them all, made again when they change
+        uint64_t key = 7;
+        for (const auto& [a, b] : apart) key = key * 1000003u + a.GetIndexAndSequenceNumber() * 31u + b.GetIndexAndSequenceNumber();
+        if (key == groupsKey) return;
+        groupsKey = key;
+        for (JPH::BodyID id : grouped) bi().SetCollisionGroup(id, JPH::CollisionGroup());
+        grouped.clear();
+        if (apart.empty()) { groups = nullptr; return; }
+        std::unordered_map<uint32_t, JPH::CollisionGroup::SubGroupID> sub;
+        for (const auto& [a, b] : apart)
+            for (JPH::BodyID id : {a, b})
+                if (!sub.count(id.GetIndexAndSequenceNumber())) {
+                    JPH::CollisionGroup::SubGroupID n = (JPH::CollisionGroup::SubGroupID)sub.size();
+                    sub[id.GetIndexAndSequenceNumber()] = n;
+                    grouped.push_back(id);
+                }
+        groups = new JPH::GroupFilterTable((JPH::uint)sub.size());
+        for (const auto& [a, b] : apart)
+            groups->DisableCollision(sub[a.GetIndexAndSequenceNumber()], sub[b.GetIndexAndSequenceNumber()]);
+        for (JPH::BodyID id : grouped)
+            bi().SetCollisionGroup(id, JPH::CollisionGroup(groups, 0, sub[id.GetIndexAndSequenceNumber()]));
+    }
+
+    static void applyMotor(JointState& st, const Joint& j) {
+        if (j.motorStrength <= 0.f) return;
+        if (st.type == Joint::Type::Hinge) {
+            auto* h = static_cast<JPH::HingeConstraint*>(st.c.GetPtr());
+            h->SetMotorState(JPH::EMotorState::Velocity);
+            h->SetTargetAngularVelocity(j.motorSpeed * DEG2RAD);
+        } else if (st.type == Joint::Type::Slider) {
+            auto* s = static_cast<JPH::SliderConstraint*>(st.c.GetPtr());
+            s->SetMotorState(JPH::EMotorState::Velocity);
+            s->SetTargetVelocity(j.motorSpeed);
+        }
+    }
+
+    // The force holding the joint together in the last step, N
+    static float jointForce(const JointState& st, float dt) {
+        float impulse = 0.f;
+        JPH::TwoBodyConstraint* c = st.c.GetPtr();
+        switch (st.type) {
+        case Joint::Type::Fixed: impulse = static_cast<JPH::FixedConstraint*>(c)->GetTotalLambdaPosition().Length(); break;
+        case Joint::Type::Ball: impulse = static_cast<JPH::PointConstraint*>(c)->GetTotalLambdaPosition().Length(); break;
+        case Joint::Type::Hinge: impulse = static_cast<JPH::HingeConstraint*>(c)->GetTotalLambdaPosition().Length(); break;
+        case Joint::Type::Slider: {
+            JPH::Vector<2> l = static_cast<JPH::SliderConstraint*>(c)->GetTotalLambdaPosition();
+            impulse = std::sqrt(l[0] * l[0] + l[1] * l[1]);
+            break;
+        }
+        case Joint::Type::Distance: impulse = std::fabs(static_cast<JPH::DistanceConstraint*>(c)->GetTotalLambdaPosition()); break;
+        case Joint::Type::Cone: impulse = static_cast<JPH::SwingTwistConstraint*>(c)->GetTotalLambdaPosition().Length(); break;
+        }
+        return dt > 0.f ? impulse / dt : 0.f;
     }
 
     // The collider as a Jolt shape, with the entity's scale baked in (Jolt bodies only move and rotate)
@@ -348,6 +570,11 @@ void Physics::remapMeshes(const std::vector<int>& map) {
 size_t Physics::bodyCount() const { return impl_->bodies.size(); }
 
 void Physics::clear() {
+    for (auto& [id, j] : impl_->joints) impl_->system.RemoveConstraint(j.c);
+    impl_->joints.clear();
+    impl_->groups = nullptr;
+    impl_->groupsKey = 0;
+    impl_->grouped.clear();
     impl_->characters.clear();   // (their inner bodies go with them)
     for (auto& [id, t] : impl_->bodies) impl_->remove(t);
     impl_->bodies.clear();
@@ -375,7 +602,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
         ShapeKey key;
         key.shape = (int)e.collider->shape;
         key.mesh = e.collider->shape == Collider::Shape::Mesh ? e.meshRenderer->mesh : e.collider->trigger ? -2 : -1;
-        key.dynamic = e.rigidBody.has_value() && !e.collider->trigger;
+        key.dynamic = e.rigidBody.has_value() && !e.rigidBody->kinematic && !e.collider->trigger;
         const Collider& c = e.collider.value();
         const float values[9] = {p.scale.x, p.scale.y, p.scale.z, c.center.x, c.center.y, c.center.z,
                                  c.size.x + c.size.y * 3.1f + c.size.z * 7.3f, c.radius, c.height};
@@ -437,6 +664,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
         it = im.bodies.erase(it);
     }
 
+    im.syncJoints(scene, worlds);
     if (im.added > 256) {   // many new bodies (a scene starting): rebuild the broad-phase's trees once
         im.system.OptimizeBroadPhase();
         im.added = 0;
@@ -447,12 +675,28 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
     im.contacts.impacts.clear();
     im.system.Update(dt, 1, &im.temp, &im.jobs);
 
-    // ---- Write the moving bodies back
+    // ---- Write the moving bodies back: ancestors first, each against its parent's world as it is now (a chain of
+    // bodies, like a ragdoll's bones, moves together)
+    std::vector<std::pair<int, int>> order;   // (depth, scene index)
     for (auto& [id, t] : im.bodies) {
         if (!t.dynamic) continue;
         int index = scene.indexOf(id);
         if (index < 0) continue;
+        int depth = 0;
+        for (EntityId p = scene.entities[(size_t)index].parent; p != kNoEntity && depth < 256; ++depth) {
+            const Entity* pe = scene.find(p);
+            p = pe ? pe->parent : kNoEntity;
+        }
+        order.emplace_back(depth, index);
+    }
+    std::sort(order.begin(), order.end());
+    for (const auto& [depth, index] : order) {
         Entity& e = scene.entities[(size_t)index];
+        Impl::Tracked& t = im.bodies.find(e.id)->second;
+        if (depth > 0) {   // its parents may have just moved
+            Mat4 parentWorld = scene.worldMatrix(e.parent);
+            worlds[(size_t)scene.indexOf(e.parent)] = parentWorld;
+        }
         JPH::RVec3 jp;
         JPH::Quat jq;
         im.bi().GetPositionAndRotation(t.id, jp, jq);
@@ -474,6 +718,17 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
         Placement now = place(parent >= 0 ? worlds[(size_t)parent] * e.transform.matrix() : e.transform.matrix());
         t.position = now.position;
         t.rotation = now.rotation;
+    }
+
+    // ---- Joints pulled harder than they hold come apart
+    for (auto it = im.joints.begin(); it != im.joints.end();) {
+        if (it->second.breakForce > 0.f && Impl::jointForce(it->second, dt) > it->second.breakForce) {
+            if (Entity* e = scene.find(it->first); e && e->joint) e->joint->broken = true;
+            im.system.RemoveConstraint(it->second.c);
+            it = im.joints.erase(it);
+        } else {
+            ++it;
+        }
     }
 
     std::vector<Impact> impacts;

@@ -36,6 +36,24 @@ void Transform::setMatrix(const Mat4& m) {
     ImGuizmo::DecomposeMatrixToComponents(m.m, position, rotation, scale);
 }
 
+const char* jointTypeName(Joint::Type type) {
+    switch (type) {
+    case Joint::Type::Fixed: return "fixed";
+    case Joint::Type::Ball: return "ball";
+    case Joint::Type::Hinge: return "hinge";
+    case Joint::Type::Slider: return "slider";
+    case Joint::Type::Distance: return "distance";
+    case Joint::Type::Cone: return "cone";
+    }
+    return "hinge";
+}
+
+Joint::Type jointTypeFromName(const std::string& name) {
+    for (int i = 0; i <= (int)Joint::Type::Cone; ++i)
+        if (name == jointTypeName((Joint::Type)i)) return (Joint::Type)i;
+    return Joint::Type::Hinge;
+}
+
 const char* animatorConditionName(AnimatorTransition::When when) {
     switch (when) {
     case AnimatorTransition::When::Greater: return "greater";

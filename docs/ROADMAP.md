@@ -138,7 +138,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 |---|------|-----|
 | 21 (done) | Loading without hitches: physics bodies made off the main thread, incremental GPU uploads (only new meshes / textures, through a staging ring), load progress, the first scene behind the loading screen too | Async loading (task 20) still stalls on Game::start (~55 ms on the stress scene) and on uploading a new scene's assets in one frame |
 | 22 (done) | Gameplay framework: timers and coroutine-style waits (`ctx.after(seconds, ...)`), messages between entities, tags and layers (queries and collisions filtered by them) | Behaviours hand-roll timers, find each other by name, and every query hits everything |
-| 23 | Physics joints and constraints (hinge, fixed, distance, slider) as a component, ragdolls from a skeleton, collision layers | Bodies can't be connected; skeletons can't go limp; nothing filters collisions |
+| 23 (done) | Physics joints and constraints (hinge, fixed, distance, slider) as a component, ragdolls from a skeleton, collision layers | Bodies can't be connected; skeletons can't go limp; nothing filters collisions |
 | 24 | Animation layers and blend trees: 1D blends (walk / run by speed), upper-body masks, root motion, a graph view of the state machine | The state machine (task 17) plays one clip at a time |
 | 25 | Smarter navigation: dynamic obstacles (moving things carve the grid), avoidance between agents, off-mesh links (jumps, ladders, drops), baking in the background and saving the result | Agents walk through each other and through crates; a big level re-bakes (1.3 s) each run |
 | 26 | Rendering: point-light (cube) shadows, SSAO, a prefiltered environment map, cut-out shadows, GPU culling for large scenes | Point lights don't shadow; grates and glass cast solid shadows; IBL is approximate |
@@ -167,4 +167,14 @@ Working list for turning the renderer demo into a small game engine. Each task i
   cleared by begin). Editor: tag chips + layer combo, Layers settings with a meet matrix. Fixed a dangling
   json::Value reference pattern in the writer. Module API 14. Not done: timers in save games, layer-filtered
   navigation, a message log in the editor.
+- Task 23: Joint component (fixed, ball, hinge, slider, distance, cone = SwingTwist; anchor / axis in the entity's
+  space, limits, hinge / slider velocity motors, break force from the constraint's position lambda / dt, collide
+  connected via one GroupFilterTable rebuilt when the jointed pairs change) and RigidBody::kinematic; scene format
+  19. Constraints are keyed by their settings and both BodyIDs (remade when a body is), the other body is body 1
+  (angles and motors are the entity's), removed with either body. The other entity is resolved by name under the
+  nearest ancestors first. Write-back of simulated bodies now goes ancestors first against live parent worlds
+  (parented chains). game/ragdoll: makeRagdoll (capsules along Y-pointing bones, else spheres; mass by length;
+  cone joints 40 deg) and setRagdollLimp / ctx.setRagdoll. Editor: Joint inspector, Kinematic, Skin > Make ragdoll.
+  Module API 15. Not done: joint gizmos in the viewport, carrying the animation's velocity into a limp ragdoll,
+  six-DOF / gear / pulley constraints.
 

@@ -2,6 +2,7 @@
 
 #include "physics/physics.h"
 #include "game/animation.h"
+#include "game/ragdoll.h"
 #include "core/project.h"
 #include "scene/serialization.h"
 
@@ -172,6 +173,8 @@ Sequence& Sequence::then(std::function<void(GameContext&)> step) {
     ctx_->after(at_, std::move(step), owner_);
     return *this;
 }
+
+void GameContext::setRagdoll(EntityId root, bool limp) { setRagdollLimp(*scene_, root, limp); }
 
 bool GameContext::loading() const { return game_->loading(); }
 void GameContext::showLoadingScreen(bool show) { game_->loadingScreen_ = show; }

@@ -94,7 +94,28 @@ struct RigidBody {
     float damping = 0.05f;     // air drag: fraction of the speed lost per second
     Vec3 velocity;             // the starting velocity; changes while playing
     Vec3 angularVelocity;      // radians per second around each axis (world space)
+    bool kinematic = false;    // moved by animation or game code, not simulated (pushes others, isn't pushed):
+                               // a ragdoll's parts until it goes limp
 };
+
+// Connects the entity's rigid body to another body, or to the world (Jolt constraints). The other body is found
+// by name, nearest first (under the same parents: a ragdoll's bones find their own model's).
+struct Joint {
+    enum class Type { Fixed, Ball, Hinge, Slider, Distance, Cone };
+    Type type = Type::Hinge;
+    std::string connectedTo;          // "" = the world
+    Vec3 anchor;                      // where, in this entity's local space
+    Vec3 axis{1, 0, 0};               // hinge and slider axis, a cone's twist axis (local)
+    float minLimit = 0.f, maxLimit = 0.f;   // hinge and cone twist: degrees; slider and distance: m (min >= max: free)
+    float coneAngle = 45.f;           // cone: how far it swings off its axis, degrees
+    float motorSpeed = 0.f;           // hinge: degrees / s, slider: m / s ...
+    float motorStrength = 0.f;        // ... with this much torque (N m) / force (N); 0: no motor
+    float breakForce = 0.f;           // N: comes apart beyond this (0: never)
+    bool collideConnected = false;    // the two bodies collide with each other
+    bool broken = false;              // runtime: it came apart
+};
+const char* jointTypeName(Joint::Type type);
+Joint::Type jointTypeFromName(const std::string& name);
 // Box for cubes and planes (a slab under the plane, so things can't fall through it), sphere for spheres,
 // mesh for everything else
 Collider fitCollider(const MeshLibrary& meshes, int mesh);
@@ -244,6 +265,7 @@ struct Entity {
     std::optional<Collider> collider;
     std::optional<Light> light;
     std::optional<RigidBody> rigidBody;
+    std::optional<Joint> joint;
     std::optional<AudioSource> audioSource;
     std::optional<Skin> skin;
     std::optional<Animator> animator;

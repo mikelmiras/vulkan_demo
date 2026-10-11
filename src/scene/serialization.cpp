@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 18;  // 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 19;  // 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -405,6 +405,25 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         if (length(rb.velocity) > 0.f) c.set("velocity", vec3(rb.velocity));
         if (length(rb.angularVelocity) > 0.f) c.set("angularVelocity", vec3(rb.angularVelocity));
         if (rb.lockRotation) c.set("lockRotation", true);
+        if (rb.kinematic) c.set("kinematic", true);
+    }
+    if (e.joint) {
+        const Joint& j = *e.joint;
+        json::Value& c = v.set("joint", json::Value::object());
+        c.set("type", jointTypeName(j.type));
+        if (!j.connectedTo.empty()) c.set("connectedTo", j.connectedTo);
+        c.set("anchor", vec3(j.anchor));
+        c.set("axis", vec3(j.axis));
+        c.set("minLimit", j.minLimit);
+        c.set("maxLimit", j.maxLimit);
+        c.set("coneAngle", j.coneAngle);
+        if (j.motorStrength > 0.f) {
+            c.set("motorSpeed", j.motorSpeed);
+            c.set("motorStrength", j.motorStrength);
+        }
+        if (j.breakForce > 0.f) c.set("breakForce", j.breakForce);
+        if (j.collideConnected) c.set("collideConnected", true);
+        if (j.broken) c.set("broken", true);
     }
     if (e.light) {
         const Light& l = *e.light;
@@ -593,7 +612,24 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         rb.velocity = readVec3(c["velocity"], {});
         rb.angularVelocity = readVec3(c["angularVelocity"], {});
         rb.lockRotation = c["lockRotation"].asBool(false);
+        rb.kinematic = c["kinematic"].asBool(false);
         e.rigidBody = rb;
+    }
+    if (const json::Value& c = v["joint"]; c.isObject()) {
+        Joint j;
+        j.type = jointTypeFromName(c["type"].asString());
+        j.connectedTo = c["connectedTo"].asString();
+        j.anchor = readVec3(c["anchor"], j.anchor);
+        j.axis = readVec3(c["axis"], j.axis);
+        j.minLimit = c["minLimit"].asFloat(j.minLimit);
+        j.maxLimit = c["maxLimit"].asFloat(j.maxLimit);
+        j.coneAngle = c["coneAngle"].asFloat(j.coneAngle);
+        j.motorSpeed = c["motorSpeed"].asFloat(0.f);
+        j.motorStrength = c["motorStrength"].asFloat(0.f);
+        j.breakForce = c["breakForce"].asFloat(0.f);
+        j.collideConnected = c["collideConnected"].asBool(false);
+        j.broken = c["broken"].asBool(false);
+        e.joint = j;
     }
     if (const json::Value& c = v["light"]; c.isObject()) {
         Light l;

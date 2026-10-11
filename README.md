@@ -342,6 +342,14 @@ colliders draws them all (blue = solid, green = trigger).
   sphere collider moved with `moveCharacter`) are Jolt `CharacterVirtual`s: they slide along walls, climb slopes
   up to 50 degrees and steps up to 40 cm, stick to the floor going down, ride moving platforms and push rigid
   bodies. Triggers are sensors: they block nothing.
+- A **Joint** connects a rigid body to another (by name, nearest first) or to the world: fixed, ball, hinge,
+  slider, distance or cone (swing and twist), with limits, a motor (hinges and sliders), a break force (it comes
+  apart when pulled harder; `joint->broken` says so) and whether the two still collide. A **kinematic** rigid
+  body is moved by animation or code and pushes others without being pushed.
+- **Ragdolls**: the Skin component's *Make ragdoll* gives every bone a collider, a kinematic rigid body and a cone
+  joint to its parent bone. The model animates as usual until `ctx.setRagdoll(root, true)` makes it go limp (its
+  Animator stops and the bones fall in one piece); `false` hands it back to the animation. Put the ragdoll on a
+  layer that doesn't meet its character's own capsule.
 - Everything (queries, triggers, characters, bodies) is one Jolt world, kept up to date with the scene each update.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
 
