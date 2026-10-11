@@ -137,6 +137,11 @@ bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
            a.bloomStrength == b.bloomStrength && a.bloomThreshold == b.bloomThreshold;
 }
 
+bool sameNavigationSettings(const NavigationSettings& a, const NavigationSettings& b) {
+    return a.cellSize == b.cellSize && a.agentRadius == b.agentRadius && a.agentHeight == b.agentHeight &&
+           a.maxClimb == b.maxClimb && a.maxSlope == b.maxSlope;
+}
+
 SceneDelta diffScenes(const Scene& before, const Scene& after) {
     SceneDelta d;
     std::unordered_map<EntityId, size_t> inAfter;
@@ -168,6 +173,7 @@ SceneDelta diffScenes(const Scene& before, const Scene& after) {
     if (!samePrefabs(before.prefabs, after.prefabs)) d.prefabs = before.prefabs;
     if (!sameInputActions(before.inputActions, after.inputActions)) d.inputActions = before.inputActions;
     if (!sameRenderSettings(before.render, after.render)) d.render = before.render;
+    if (!sameNavigationSettings(before.navigation, after.navigation)) d.navigation = before.navigation;
     return d;
 }
 
@@ -199,4 +205,5 @@ void applyDelta(Scene& scene, const SceneDelta& d) {
     if (d.prefabs) scene.prefabs = *d.prefabs;
     if (d.inputActions) scene.inputActions = *d.inputActions;
     if (d.render) scene.render = *d.render;
+    if (d.navigation) scene.navigation = *d.navigation;
 }

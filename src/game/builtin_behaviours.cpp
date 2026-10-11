@@ -101,6 +101,70 @@ struct LookAt : BehaviourBase<LookAt> {
 };
 
 // ---------------------------------------------------------------------------------------------
+// Walks to another entity around walls and over steps, along a path from the scene's navigation grid (recomputed
+// every `repath` seconds, as the target moves). With a capsule or sphere collider it moves as a character.
+struct NavAgent : BehaviourBase<NavAgent> {
+    static constexpr const char* kTypeName = "NavAgent";
+    std::string target = "Player";
+    float speed = 3.f;          // metres per second
+    float stopDistance = 1.2f;  // close enough
+    float range = 0.f;          // only follows within this distance (0: any)
+    float repath = 0.5f;        // seconds between new paths
+    bool turn = true;           // faces where it's going
+    // runtime
+    std::vector<Vec3> path;
+    size_t next = 0;
+    float repathIn = 0.f;
+
+    void fields(FieldVisitor& v) override {
+        v.field("target", target, FieldRef::Entity);
+        v.field("speed", speed, 0.05f, 0.f, 100.f);
+        v.field("stopDistance", stopDistance, 0.05f, 0.f, 100.f);
+        v.field("range", range, 0.1f, 0.f, 10000.f);
+        v.field("repath", repath, 0.01f, 0.02f, 60.f);
+        v.field("turn", turn);
+    }
+    void update(GameContext& ctx, Entity& self) override {
+        Entity* t = ctx.find(target);
+        if (!t || t == &self) return;
+        Vec3 pos = ctx.worldPosition(self.id), goal = ctx.worldPosition(t->id), flat = goal - pos;
+        flat.y = 0.f;
+        float d = length(flat);
+        if ((range > 0.f && d > range) || d <= stopDistance) {
+            path.clear();
+            return;
+        }
+        repathIn -= ctx.dt();
+        if (repathIn <= 0.f || next >= path.size()) {
+            repathIn = repath;
+            next = 1;
+            if (!ctx.findPath(pos, goal, path)) path.clear();
+        }
+        float step = speed * ctx.dt();
+        Vec3 to;
+        float dist = 0.f;
+        for (; next < path.size(); ++next) {   // skip corners already reached
+            to = path[next] - pos;
+            to.y = 0.f;
+            dist = length(to);
+            if (dist > 0.05f || next + 1 == path.size()) break;
+        }
+        if (next >= path.size() || dist < 1e-4f) return;
+        Vec3 delta = to * (std::min(step, dist) / dist);
+        ctx.moveCharacter(self, delta);
+        if (turn) {
+            Mat4 world = lookRotation(pos, normalize(delta), self.transform.scale);
+            Mat4 local = inverseAffine(ctx.scene().parentWorldMatrix(self.id)) * world;
+            Vec3 at = self.transform.pos();   // keep where moveCharacter put it
+            self.transform.setMatrix(local);
+            self.transform.position[0] = at.x;
+            self.transform.position[1] = at.y;
+            self.transform.position[2] = at.z;
+        }
+    }
+};
+
+// ---------------------------------------------------------------------------------------------
 // First-person controller. Put it on the player's body: an entity with a capsule collider (feet at its origin) and
 // a child entity with the camera at eye height. The body turns left/right, the camera looks up/down, so the capsule
 // stays upright. Walking slides along solid colliders; without a collider it walks at its starting height.
@@ -565,6 +629,7 @@ void registerBuiltinBehaviours() {
     registerBehaviour<Bob>("Floats up and down around its starting height");
     registerBehaviour<Patrol>("Moves back and forth between its start and start + offset");
     registerBehaviour<LookAt>("Turns to face another entity (by name) every update");
+    registerBehaviour<NavAgent>("Walks to another entity along paths around walls (the scene's navigation)");
     registerBehaviour<PlayerController>(
         "First-person walking: WASD / arrows to move, hold the right mouse button to look, Space to jump, Shift to "
         "sprint. Put it on a body with a capsule collider and a camera child at eye height.");

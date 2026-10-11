@@ -113,6 +113,18 @@ CharacterMove GameContext::moveCharacter(Entity& self, Vec3 delta) {
     return physics_->moveCharacter(*scene_, *meshes_, self, delta, dt_);
 }
 
+bool GameContext::findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path) { return game_->navigation().findPath(from, to, path); }
+const NavGrid& GameContext::navigation() { return game_->navigation(); }
+void GameContext::rebuildNavigation() { game_->navBaked_ = false; }
+
+const NavGrid& Game::navigation() {
+    if (!navBaked_ && scene_) {
+        navBaked_ = true;
+        if (!nav_.bake(*scene_, *meshes_, scene_->navigation)) nav_.clear();
+    }
+    return nav_;
+}
+
 void GameContext::playSound(const std::string& clip, Vec3 position, float volume) {
     if (!audio_) return;
     AudioEngine::PlayParams p;
@@ -188,6 +200,8 @@ void Game::begin(bool fresh) {
     particles_.clear();
     prevWorlds_.clear();
     prevIds_.clear();
+    nav_.clear();
+    navBaked_ = false;
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();

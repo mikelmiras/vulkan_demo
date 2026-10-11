@@ -250,6 +250,15 @@ struct Entity {
     }
 };
 
+// Where agents can walk (game/navigation.h): baked from the scene's static colliders for an agent of this size
+struct NavigationSettings {
+    float cellSize = 0.4f;      // the grid's resolution, m: walls thinner than this may be walked through
+    float agentRadius = 0.4f;   // keeps paths this far from walls and edges
+    float agentHeight = 1.8f;   // headroom needed
+    float maxClimb = 0.45f;     // highest step up (or down) between neighbouring cells
+    float maxSlope = 45.f;      // steepest walkable surface, degrees
+};
+
 // How the scene looks: the renderer's per-scene settings (saved with the scene)
 struct RenderSettings {
     Vec3 sky{0.62f, 0.75f, 0.90f};    // sRGB: the sky at the horizon, and the fog
@@ -276,6 +285,7 @@ public:
     std::vector<Prefab> prefabs;    // saved with the scene
     std::vector<InputAction> inputActions = defaultInputActions();   // the game's controls
     RenderSettings render;
+    NavigationSettings navigation;
 
     Entity& create(const std::string& name, EntityId parent = kNoEntity);   // appended with a fresh id
     Entity& add(Entity e);   // keeps e.id if it's free, otherwise assigns a new one

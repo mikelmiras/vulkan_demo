@@ -273,6 +273,26 @@ rate: `Game::worldMatrices()` and the game camera blend by how far the frame is 
 The sample game's tentacles (`examples/sample_game/models/tentacle.gltf`) curl, and stretch towards the player
 when it comes close (its `Lurker` behaviour).
 
+## Navigation
+
+Agents find their way around walls and up stairs on a **walkable grid** baked from the scene's static level
+geometry: the solid colliders of entities without a rigid body or behaviours. Every column of the grid is probed
+for surfaces flat enough to stand on with enough headroom, so floors can stack (a bridge and the ground under it).
+Neighbouring cells link when the step between them is low enough, and cells closer than the agent's radius to a
+wall or an edge are dropped. The scene's **Navigation** settings (Inspector, with nothing selected) set the cell
+size and the agent's radius, height, climb and steepest slope; **Bake and show** draws the grid in the viewport.
+
+The game bakes it the first time something asks for a path (22 ms for the sample game, 1.3 s for the 600 m stress
+scene on two cores). Paths are A* over the cells, straightened so they only turn where they must:
+
+```cpp
+std::vector<Vec3> path;   // corner points on the ground
+if (ctx.findPath(ctx.worldPosition(self.id), ctx.worldPosition(target), path)) { /* walk to path[1], ... */ }
+```
+
+The built-in **NavAgent** behaviour walks to an entity that way (repathing as it moves), and the sample game's
+drones chase the player around the blocks.
+
 ## Particles
 
 A **Particle Emitter** component sends out camera-facing dots: a rate per second and/or bursts, lifetime, speed,
@@ -357,6 +377,7 @@ Behaviours are C++ classes attached to entities as components (Inspector > Add c
 | Bob              | Floats up and down around its starting height                                |
 | Patrol           | Moves back and forth between its start and start + offset                    |
 | LookAt           | Turns to face another entity (by name)                                       |
+| NavAgent         | Walks to another entity along paths around walls (the scene's navigation)    |
 | PlayerController | First-person walking, mouse look, jumping; collides through its capsule collider |
 | Pickup           | Collected when the collector touches its trigger collider; logs how many are left |
 | Shooter          | Fires a prefab along its -Z while the fire action (left mouse) is held      |

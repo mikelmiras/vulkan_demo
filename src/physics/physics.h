@@ -56,6 +56,11 @@ public:
 
     // Closest solid collider along the ray (dir need not be normalised); triggers are ignored
     bool raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit, EntityId ignore = kNoEntity) const;
+    // Every solid surface along the ray that faces it (one hit per convex body, per triangle for meshes), nearest
+    // first: the floors stacked under a point, say
+    std::vector<RaycastHit> raycastAll(Vec3 origin, Vec3 dir, float maxDistance) const;
+    // The box around every body; false if there are none
+    bool bounds(Vec3& min, Vec3& max) const;
     // Entities whose collider touches the sphere
     std::vector<EntityId> overlapSphere(Vec3 center, float radius, bool includeTriggers = true,
                                         EntityId ignore = kNoEntity) const;

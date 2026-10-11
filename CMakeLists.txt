@@ -91,6 +91,7 @@ set(ENGINE_SOURCES
   src/game/ui.cpp
   src/game/animation.cpp
   src/game/particles.cpp
+  src/game/navigation.cpp
   src/render/renderer.cpp
   src/render/renderer_textures.cpp
   src/render/renderer_instances.cpp
@@ -251,7 +252,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_animation.cpp
     tests/test_formats.cpp
     tests/test_scene_diff.cpp
-    tests/test_particles.cpp)
+    tests/test_particles.cpp
+    tests/test_navigation.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

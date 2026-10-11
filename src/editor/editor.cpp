@@ -65,6 +65,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     frameEntity_.reset();
     if (int i = scene_.indexOf(selected_); i >= 0) frameEntity_.emplace((size_t)i, scene_.entities[(size_t)i]);
     frameRender_ = scene_.render;
+    frameNav_ = scene_.navigation;
     frameInput_ = scene_.inputActions;
     editBegan_ = false;
     if (statusTimer_ > 0.f) statusTimer_ -= dt;
@@ -108,6 +109,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     handleShortcuts();
     drawEntityIcons();
     drawColliders();
+    drawNavigation();
     drawViewportOverlay();
 
     // Deferred actions requested from inside list iteration (context menus, drag & drop)
@@ -603,6 +605,7 @@ void Editor::commitUndo() {
             if (now && !sameEntity(*now, frameEntity_->second)) step.delta.entities.push_back(*frameEntity_);
         }
         if (!sameRenderSettings(frameRender_, scene_.render)) step.delta.render = frameRender_;
+        if (!sameNavigationSettings(frameNav_, scene_.navigation)) step.delta.navigation = frameNav_;
         if (!sameInputActions(frameInput_, scene_.inputActions)) step.delta.inputActions = frameInput_;
         step.selected = frameSelected_;
     }

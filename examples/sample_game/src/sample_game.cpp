@@ -101,6 +101,9 @@ struct Chaser : BehaviourBase<Chaser> {
     float range = 14.f;     // starts chasing within this distance
     float penalty = 1.f;    // points lost when it catches the target
     float cooldown = 0.f;   // runtime: seconds until it can catch again
+    std::vector<Vec3> path; // runtime: the way to the target (around the blocks), and when to look again
+    size_t next = 0;
+    float repathIn = 0.f;
 
     void fields(FieldVisitor& v) override {
         v.field("target", target, FieldRef::Entity);
@@ -116,7 +119,20 @@ struct Chaser : BehaviourBase<Chaser> {
         to.y = 0.f;
         float d = length(to);
         if (d > range || d < 1e-3f) return;
-        if (d > 0.9f) ctx.moveCharacter(self, to * (speed * ctx.dt() / d));
+        // Along a path from the scene's navigation grid, so it goes around obstacles instead of into them
+        if ((repathIn -= ctx.dt()) <= 0.f || next >= path.size()) {
+            repathIn = 0.5f;
+            next = 1;
+            if (!ctx.findPath(ctx.worldPosition(self.id), ctx.worldPosition(t->id), path)) path.clear();
+        }
+        Vec3 step = to;
+        while (next < path.size()) {
+            step = path[next] - ctx.worldPosition(self.id);
+            step.y = 0.f;
+            if (length(step) > 0.1f || next + 1 == path.size()) break;
+            ++next;
+        }
+        if (d > 0.9f && length(step) > 1e-4f) ctx.moveCharacter(self, step * (speed * ctx.dt() / length(step)));
         if (d < 1.3f && cooldown <= 0.f) {
             cooldown = 1.5f;
             ctx.playSound("Thud", ctx.worldPosition(self.id));

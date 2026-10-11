@@ -440,3 +440,30 @@ void Editor::drawColliders() {
     }
     dl->PopClipRect();
 }
+
+void Editor::bakeNavigationPreview() {
+    navLinks_.clear();
+    if (!navPreview_.bake(scene_, meshes_, scene_.navigation)) setStatus("Nothing to walk on: no static colliders");
+    else setStatus("Navigation: " + std::to_string(navPreview_.cellCount()) + " cells");
+}
+
+// The walkable grid as lines between linked cells, near the camera (a big level has millions)
+void Editor::drawNavigation() {
+    if (!showNavigation_ || navPreview_.empty() || viewingGameCamera()) return;
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
+    const float reach = 40.f;
+    const Vec3 lift{0, 0.03f, 0};
+    int drawn = 0;
+    const std::vector<Vec3>& links = navLinks_.empty() ? (navLinks_ = navPreview_.links()) : navLinks_;
+    for (size_t i = 0; i + 1 < links.size() && drawn < 60000; i += 2) {
+        Vec3 d = links[i] - viewPos_;
+        if (d.x * d.x + d.z * d.z > reach * reach || std::fabs(d.y) > reach) continue;
+        ImVec2 a, b;
+        if (worldToScreen(links[i] + lift, a) && worldToScreen(links[i + 1] + lift, b)) {
+            dl->AddLine(a, b, IM_COL32(60, 220, 255, 110), px(1.f));
+            ++drawn;
+        }
+    }
+    dl->PopClipRect();
+}

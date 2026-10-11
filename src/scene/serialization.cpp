@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 16;  // 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 17;  // 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -777,6 +777,15 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
         rv.set("bloomStrength", r.bloomStrength);
         rv.set("bloomThreshold", r.bloomThreshold);
     }
+    {
+        const NavigationSettings& n = scene.navigation;
+        json::Value& nv = settings.set("navigation", json::Value::object());
+        nv.set("cellSize", n.cellSize);
+        nv.set("agentRadius", n.agentRadius);
+        nv.set("agentHeight", n.agentHeight);
+        nv.set("maxClimb", n.maxClimb);
+        nv.set("maxSlope", n.maxSlope);
+    }
     json::Value& input = settings.set("input", json::Value::array());
     for (const InputAction& a : scene.inputActions) {
         json::Value av = json::Value::object();
@@ -838,6 +847,14 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
         r.exposure = rv["exposure"].asFloat(r.exposure);
         r.bloomStrength = rv["bloomStrength"].asFloat(r.bloomStrength);
         r.bloomThreshold = rv["bloomThreshold"].asFloat(r.bloomThreshold);
+    }
+    if (const json::Value& nv = doc["settings"]["navigation"]; nv.isObject()) {
+        NavigationSettings& n = result.navigation;
+        n.cellSize = nv["cellSize"].asFloat(n.cellSize);
+        n.agentRadius = nv["agentRadius"].asFloat(n.agentRadius);
+        n.agentHeight = nv["agentHeight"].asFloat(n.agentHeight);
+        n.maxClimb = nv["maxClimb"].asFloat(n.maxClimb);
+        n.maxSlope = nv["maxSlope"].asFloat(n.maxSlope);
     }
     if (const json::Value& input = doc["settings"]["input"]; input.isArray()) {   // else: the defaults
         result.inputActions.clear();

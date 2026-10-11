@@ -105,6 +105,8 @@ private:
     void handleShortcuts();
     void drawViewportOverlay();
     void drawEntityIcons();   // cameras and empties have no mesh: draw something to see and click
+    void drawNavigation();    // the walkable grid's links near the camera (Bake and show, in the scene settings)
+    void bakeNavigationPreview();
     void drawColliders();     // wireframes of all colliders (View > Show colliders) or just the selected one
     void setCameraFromView(const Mat4& view);
     bool worldToScreen(Vec3 p, ImVec2& out) const;   // through the current view; false if behind the camera
@@ -211,6 +213,9 @@ private:
     std::vector<ParticleDraw> particles_;
     ParticleSystem previewParticles_;   // emitters outside Play (View > Preview particles)
     bool previewParticles_on_ = true;
+    NavGrid navPreview_;
+    std::vector<Vec3> navLinks_;   // navPreview_.links(), made when first drawn
+    bool showNavigation_ = false;
     // Clip preview outside Play: the entity's clip drawn at `time` (the scene itself isn't changed)
     struct AnimationPreview {
         EntityId entity = kNoEntity;
@@ -225,6 +230,7 @@ private:
     // The start of this frame, for widget edits: the selected entity (and its index), the look, the bindings
     std::optional<std::pair<size_t, Entity>> frameEntity_;
     RenderSettings frameRender_;
+    NavigationSettings frameNav_;
     std::vector<InputAction> frameInput_;
     EntityId frameSelected_ = kNoEntity;
     bool editBegan_ = false;

@@ -143,6 +143,32 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         tooltip("How much bright parts (emissive materials, strong highlights) glow");
         ImGui::SliderFloat("Bloom threshold", &r.bloomThreshold, 0.f, 4.f, "%.2f");
         track();
+
+        ImGui::SeparatorText("Navigation");
+        NavigationSettings& n = scene_.navigation;
+        ImGui::DragFloat("Cell size", &n.cellSize, 0.01f, 0.1f, 4.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+        track();
+        tooltip("The walkable grid's resolution: smaller is finer (and slower to bake). Walls thinner than this "
+                "may be walked through.");
+        ImGui::DragFloat("Agent radius", &n.agentRadius, 0.01f, 0.f, 10.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+        track();
+        ImGui::DragFloat("Agent height", &n.agentHeight, 0.01f, 0.1f, 20.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+        track();
+        ImGui::DragFloat("Max climb", &n.maxClimb, 0.01f, 0.f, 5.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+        track();
+        ImGui::DragFloat("Max slope", &n.maxSlope, 0.5f, 0.f, 89.f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
+        track();
+        if (ImGui::Button(showNavigation_ ? "Bake again" : "Bake and show")) {
+            showNavigation_ = true;
+            bakeNavigationPreview();
+        }
+        tooltip("Agents walk on the static colliders: the solid ones on entities without a rigid body or behaviours. "
+                "The game bakes this itself when it first needs a path.");
+        if (showNavigation_) {
+            ImGui::SameLine();
+            if (ImGui::Button("Hide")) showNavigation_ = false;
+            ImGui::TextDisabled("%zu walkable cells, baked in %.0f ms", navPreview_.cellCount(), navPreview_.bakeMs());
+        }
     }
 
     ImGui::SeparatorText("Editor camera");

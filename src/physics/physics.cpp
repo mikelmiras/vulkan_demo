@@ -470,6 +470,43 @@ bool Physics::raycast(Vec3 origin, Vec3 dir, float maxDistance, RaycastHit& hit,
     return true;
 }
 
+std::vector<RaycastHit> Physics::raycastAll(Vec3 origin, Vec3 dir, float maxDistance) const {
+    std::vector<RaycastHit> hits;
+    float len = length(dir);
+    if (len < 1e-9f || maxDistance <= 0.f) return hits;
+    dir = dir * (1.f / len);
+    JPH::RRayCast ray{JPH::RVec3(origin.x, origin.y, origin.z), toJ(dir * maxDistance)};
+    JPH::RayCastSettings settings;
+    settings.mBackFaceModeTriangles = JPH::EBackFaceMode::IgnoreBackFaces;
+    JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
+    QueryFilter filter(false, kNoEntity);
+    impl_->system.GetNarrowPhaseQueryNoLock().CastRay(ray, settings, collector, {}, {}, filter);
+    collector.Sort();
+    for (const JPH::RayCastResult& r : collector.mHits) {
+        JPH::RVec3 p = ray.GetPointOnRay(r.mFraction);
+        JPH::BodyLockRead lock(impl_->system.GetBodyLockInterfaceNoLock(), r.mBodyID);
+        if (!lock.Succeeded()) continue;
+        const JPH::Body& body = lock.GetBody();
+        Vec3 n = fromJ(body.GetWorldSpaceSurfaceNormal(r.mSubShapeID2, p));
+        if (dot(n, dir) > 0.f) continue;   // the inside of a convex body the ray started in
+        hits.push_back({(EntityId)body.GetUserData(), {(float)p.GetX(), (float)p.GetY(), (float)p.GetZ()}, n,
+                        r.mFraction * maxDistance});
+    }
+    return hits;
+}
+
+bool Physics::bounds(Vec3& min, Vec3& max) const {
+    JPH::AABox box;   // (the broad phase's own bounds aren't tight)
+    for (const auto& [entity, tracked] : impl_->bodies) {
+        JPH::BodyLockRead lock(impl_->system.GetBodyLockInterfaceNoLock(), tracked.id);
+        if (lock.Succeeded()) box.Encapsulate(lock.GetBody().GetWorldSpaceBounds());
+    }
+    if (!box.IsValid()) return false;
+    min = {(float)box.mMin.GetX(), (float)box.mMin.GetY(), (float)box.mMin.GetZ()};
+    max = {(float)box.mMax.GetX(), (float)box.mMax.GetY(), (float)box.mMax.GetZ()};
+    return true;
+}
+
 std::vector<EntityId> Physics::overlapSphere(Vec3 center, float radius, bool includeTriggers, EntityId ignore) const {
     std::vector<EntityId> out;
     if (radius <= 0.f) return out;

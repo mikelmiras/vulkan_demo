@@ -8,6 +8,7 @@
 #include "imgui.h"
 #include "physics/physics.h"
 #include "game/game.h"
+#include "game/navigation.h"
 #include "render/scene_draw.h"
 #include "scene/scene_diff.h"
 #include "scene/stress_scene.h"
@@ -63,6 +64,17 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 1000; ++i) pw.raycast({(float)(i % 100) - 50.f, 1.f, -60.f}, {0.f, -0.05f, 1.f}, 200.f, hit);
     });
 
+    NavGrid nav;
+    auto navT = Clock::now();
+    nav.bake(edit, meshes, edit.navigation);
+    double navBake = msSince(navT);
+    std::vector<Vec3> path;
+    int found = 0;
+    double paths = timeMs(1, [&] {
+        for (int i = 0; i < 100; ++i)
+            found += nav.findPath({(float)(i % 10) * 8.f - 40.f, 1.f, -40.f}, {(float)(i / 10) * 8.f - 40.f, 1.f, 40.f}, path);
+    });
+
     Scene play = edit;
     Game game;
     auto t0 = Clock::now();
@@ -93,6 +105,8 @@ int main(int argc, char** argv) {
     std::printf("  find(parent) x all   %8.3f ms\n", find);
     std::printf("  1000 raycasts        %8.3f ms\n", rays);
     std::printf("  Game::start          %8.3f ms\n", start);
+    std::printf("  navigation bake      %8.3f ms (%zu cells)\n", navBake, nav.cellCount());
+    std::printf("  100 paths            %8.3f ms (%d found)\n", paths, found);
     std::printf("  fixed update         %8.3f ms avg, %.3f ms worst (budget at 60 Hz: 16.7 ms)\n", total / ticks, worst);
     ImGui::DestroyContext();
     return 0;

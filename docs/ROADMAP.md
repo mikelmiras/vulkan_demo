@@ -70,7 +70,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 16 (done) | Single-file shipping: assets packed into one archive, optional static engine, icons / app bundles | Exports are a folder of loose files |
 | 17 (done) | Animation tools: clip preview in the editor, animation events, a simple state machine, render interpolation between fixed steps | Animators only run in Play; motion is stepped at 60 Hz |
 | 18 (done) | Behaviour fields: int, enum, entity and asset references with pickers in the inspector | Behaviours refer to entities and prefabs by typed-in names |
-| 19 | Navigation: navmesh baking and pathfinding for AI | Chasers walk straight at the player through walls |
+| 19 (done) | Navigation: navmesh baking and pathfinding for AI | Chasers walk straight at the player through walls |
 | 20 | Async loading and loading screens; scene streaming | Changing scenes stalls the frame (the stress scene takes ~60 ms to start) |
 
 ### Round 2 notes
@@ -114,3 +114,11 @@ Working list for turning the renderer demo into a small game engine. Each task i
   (outliner entities, asset browser scenes / sounds) + an unknown-name warning. References stay names (spawned
   entities match; files stay compatible); built-ins and the sample use them (Spawner maxAlive is an int, HudText
   align a choice). Module API 11.
+- Task 19: game/navigation (NavGrid), not Recast: a multi-level walkable grid baked from static colliders
+  (Physics::raycastAll down each column, slope and headroom checks, links within maxClimb, diagonals only between
+  open sides, erosion by agentRadius via Dijkstra from edges; columns probed on worker threads), weighted A* with
+  reused scratch + straightening along the links. Scene format 17 (scene.navigation), undo covers it. Game bakes
+  lazily (GameContext::findPath / navigation / rebuildNavigation); NavAgent built-in; sample Chaser uses paths;
+  editor Bake and show + View > Show navigation overlay. Stress scene (600 m, 2.2 M cells): bake 1.35 s on 2
+  cores, 0.47 ms per long path. Not done: dynamic obstacles / local avoidance between agents, off-mesh links
+  (jumps, ladders), baking in the background, saving the baked grid. Module API 12.

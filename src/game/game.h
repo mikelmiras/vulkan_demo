@@ -11,6 +11,7 @@
 #include "core/json.h"
 #include "core/vecmath.h"
 #include "game/input.h"
+#include "game/navigation.h"
 #include "game/particles.h"
 #include "game/ui.h"
 #include "physics/physics.h"
@@ -75,6 +76,13 @@ public:
     // Moves `self` by `delta` (world space) as a character: with a capsule or sphere collider it slides along walls,
     // climbs slopes and steps, rides moving platforms and pushes rigid bodies. Without one it just moves.
     CharacterMove moveCharacter(Entity& self, Vec3 delta);
+
+    // Navigation (see game/navigation.h): a walking path around walls and over steps, as corner points on the
+    // ground from `from` to (nearest reachable spot to) `to`. The scene's walkable grid is baked the first time
+    // it's needed, from its static colliders and scene.navigation; false if there's no way.
+    bool findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path);
+    const NavGrid& navigation();
+    void rebuildNavigation();   // after the level itself changed (static colliders added, moved or removed)
 
     // Creates a copy of the scene's prefab at `position` (world space), turned so its -Z faces `forward` (on top of
     // the prefab's own rotation and scale), under `parent` if given. It joins the scene after this update, when
@@ -170,6 +178,7 @@ public:
     const std::vector<std::pair<float, std::string>>& log() const { return log_; }
 
     std::vector<Mat4> worldMatrices() const;      // aligned with scene.entities
+    const NavGrid& navigation();                  // baked on first use (see GameContext::findPath)
     const Physics& physics() const { return physics_; }
     const ParticleSystem& particles() const { return particles_; }
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
@@ -199,6 +208,8 @@ private:
     InputMap input_;
     Physics physics_;   // (Jolt) bodies persist between updates: made again on a new scene
     ParticleSystem particles_;
+    NavGrid nav_;
+    bool navBaked_ = false;
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity

@@ -12,6 +12,7 @@
 bool sameEntity(const Entity& a, const Entity& b);
 bool sameInputActions(const std::vector<InputAction>& a, const std::vector<InputAction>& b);
 bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b);
+bool sameNavigationSettings(const NavigationSettings& a, const NavigationSettings& b);
 
 // How to turn one state of a scene back into another: apply it to the later state to get the earlier one
 struct SceneDelta {
@@ -21,9 +22,10 @@ struct SceneDelta {
     std::optional<std::vector<Prefab>> prefabs;        // when any prefab changed
     std::optional<std::vector<InputAction>> inputActions;
     std::optional<RenderSettings> render;
+    std::optional<NavigationSettings> navigation;
 
     bool empty() const {
-        return entities.empty() && added.empty() && !order && !prefabs && !inputActions && !render;
+        return entities.empty() && added.empty() && !order && !prefabs && !inputActions && !render && !navigation;
     }
     size_t entityCount() const { return entities.size() + added.size(); }
 };

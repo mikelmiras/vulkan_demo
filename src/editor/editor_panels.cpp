@@ -117,6 +117,7 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
         ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
+        if (ImGui::MenuItem("Show navigation", nullptr, &showNavigation_) && showNavigation_) bakeNavigationPreview();
         ImGui::MenuItem("Preview particles", nullptr, &previewParticles_on_);
         ImGui::Separator();
         if (ImGui::MenuItem("Focus selected", "F", false, selection() != nullptr)) focusSelected();
