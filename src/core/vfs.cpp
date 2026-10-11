@@ -30,7 +30,6 @@ std::mutex g_mutex;
 Pack* g_pack = nullptr;
 
 template <class T> bool get(std::istream& in, T& v) { return (bool)in.read(reinterpret_cast<char*>(&v), sizeof(T)); }
-template <class T> void put(std::ostream& out, T v) { out.write(reinterpret_cast<const char*>(&v), sizeof(T)); }
 
 std::string key(const fs::path& p) {
     std::string s = p.lexically_normal().generic_u8string();
@@ -137,30 +136,42 @@ bool writePack(const fs::path& outPath, const std::vector<std::pair<std::string,
                std::string& error) {
     std::ofstream out(outPath, std::ios::binary | (append ? std::ios::app : std::ios::trunc));
     if (!out) { error = "cannot write " + outPath.u8string(); return false; }
-    uint64_t base = append ? (uint64_t)out.tellp() : 0;
+    // Positions are counted here, from the pack's start (a stream opened for appending may not report them)
+    uint64_t at = 0;
+    auto write = [&](const void* data, size_t size) {
+        out.write(static_cast<const char*>(data), (std::streamsize)size);
+        at += size;
+    };
     struct Item {
         std::string name;
         uint64_t offset, size;
     };
     std::vector<Item> items;
+    std::vector<char> buffer(1 << 16);
     for (const auto& [name, file] : files) {
         std::ifstream in(file, std::ios::binary);
         if (!in) { error = "cannot read " + file.u8string(); return false; }
-        uint64_t at = (uint64_t)out.tellp() - base;
-        out << in.rdbuf();
-        items.push_back({key(fs::u8path(name)), at, (uint64_t)out.tellp() - base - at});
+        uint64_t start = at;
+        while (in) {
+            in.read(buffer.data(), (std::streamsize)buffer.size());
+            if (in.gcount() > 0) write(buffer.data(), (size_t)in.gcount());
+        }
+        items.push_back({key(fs::u8path(name)), start, at - start});
     }
-    uint64_t tableAt = (uint64_t)out.tellp() - base, tableStart = (uint64_t)out.tellp();
+    uint64_t tableAt = at;
     for (const Item& i : items) {
-        put(out, (uint32_t)i.name.size());
-        out.write(i.name.data(), (std::streamsize)i.name.size());
-        put(out, i.offset);
-        put(out, i.size);
+        uint32_t len = (uint32_t)i.name.size();
+        write(&len, sizeof(len));
+        write(i.name.data(), i.name.size());
+        write(&i.offset, sizeof(i.offset));
+        write(&i.size, sizeof(i.size));
     }
-    put(out, (uint64_t)((uint64_t)out.tellp() - tableStart));   // the table's size
-    put(out, tableAt);
-    put(out, (uint32_t)items.size());
-    out.write(kMagic, 8);
+    uint64_t tableSize = at - tableAt;
+    uint32_t count = (uint32_t)items.size();
+    write(&tableSize, sizeof(tableSize));
+    write(&tableAt, sizeof(tableAt));
+    write(&count, sizeof(count));
+    write(kMagic, sizeof(kMagic));
     if (!out) { error = "cannot write " + outPath.u8string(); return false; }
     return true;
 }

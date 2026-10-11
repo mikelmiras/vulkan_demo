@@ -100,6 +100,7 @@ TEST(export_game_folder) {
     std::string error;
     REQUIRE(exportGame(sample, out, platform::executableDir(), result, error));
     CHECK(fs::is_regular_file(result.executable));
+    out = result.executable.parent_path();   // (on macOS: inside the .app bundle)
     CHECK(result.executable.filename().u8string().rfind("Sample Game", 0) == 0);
     CHECK(fs::is_regular_file(out / "project.json"));
     CHECK(fs::is_regular_file(out / "scenes" / "main.vkw"));
