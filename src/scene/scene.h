@@ -115,6 +115,14 @@ struct Joint {
     bool broken = false;              // runtime: it came apart
 };
 const char* jointTypeName(Joint::Type type);
+
+// An off-mesh link for navigation: a way between two walkable spots the grid doesn't join (a jump across a gap, a
+// ladder, a drop), from where this entity is to `end` (in its own space). Agents cross it in a hop.
+struct NavLink {
+    Vec3 end{0.f, 0.f, 2.f};
+    bool bothWays = true;
+    float cost = 1.f;   // times its length: how much a path avoids it
+};
 Joint::Type jointTypeFromName(const std::string& name);
 // Box for cubes and planes (a slab under the plane, so things can't fall through it), sphere for spheres,
 // mesh for everything else
@@ -324,6 +332,7 @@ struct Entity {
     std::optional<Light> light;
     std::optional<RigidBody> rigidBody;
     std::optional<Joint> joint;
+    std::optional<NavLink> navLink;
     std::optional<AudioSource> audioSource;
     std::optional<Skin> skin;
     std::optional<Animator> animator;

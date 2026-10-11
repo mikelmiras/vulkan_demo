@@ -167,10 +167,21 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
             bakeNavigationPreview();
         }
         tooltip("Agents walk on the static colliders: the solid ones on entities without a rigid body or behaviours. "
-                "The game bakes this itself when it first needs a path.");
+                "The game bakes this itself when it first needs a path (or from the start, with NavAgents).");
+        ImGui::SameLine();
+        if (ImGui::Button("Bake and save")) {
+            NavGrid grid;
+            std::string file = project::resolve(scenePath_) + ".nav";
+            if (!grid.bake(scene_, meshes_, scene_.navigation)) setStatus("Nothing to walk on: no static colliders");
+            else if (!grid.save(std::filesystem::u8path(file))) setStatus("Can't write " + file);
+            else setStatus("Saved " + file + " (" + std::to_string(grid.cellCount()) + " cells): the game loads it "
+                           "while the level stays as it is");
+        }
+        tooltip("Writes the bake next to the scene file (<scene>.vkw.nav). The game uses it instead of baking for as "
+                "long as the level (static colliders, links, these settings) is unchanged; bake again after edits.");
         if (showNavigation_) {
-            ImGui::SameLine();
             if (ImGui::Button("Hide")) showNavigation_ = false;
+            ImGui::SameLine();
             ImGui::TextDisabled("%zu walkable cells, baked in %.0f ms", navPreview_.cellCount(), navPreview_.bakeMs());
         }
     }
@@ -448,6 +459,19 @@ void Editor::drawComponents(Entity& e) {
                 ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a solid collider to be simulated");
         }
     }
+    if (e.navLink) {
+        if (!componentHeader("Navigation Link", open)) { pushUndo(); e.navLink.reset(); }
+        else if (open) {
+            ImGui::DragFloat3("End", &e.navLink->end.x, 0.05f, 0.f, 0.f, "%.2f");
+            track();
+            tooltip("Where it leads, in this entity's own space (it starts where the entity is)");
+            ImGui::Checkbox("Both ways", &e.navLink->bothWays);
+            track();
+            ImGui::DragFloat("Cost", &e.navLink->cost, 0.05f, 0.01f, 100.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            tooltip("Times its length: above 1, paths take it only when walking round is much longer");
+        }
+    }
     if (e.joint) {
         if (!componentHeader("Joint", open)) { pushUndo(); e.joint.reset(); }
         else if (open) {
@@ -604,6 +628,7 @@ void Editor::drawComponents(Entity& e) {
             e.rigidBody = RigidBody{};
             if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
         }
+        if (ImGui::MenuItem("Navigation Link", nullptr, false, !e.navLink)) { pushUndo(); e.navLink = NavLink{}; }
         if (ImGui::MenuItem("Joint", nullptr, false, !e.joint)) {
             pushUndo();
             e.joint = Joint{};

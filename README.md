@@ -297,8 +297,15 @@ std::vector<Vec3> path;   // corner points on the ground
 if (ctx.findPath(ctx.worldPosition(self.id), ctx.worldPosition(target), path)) { /* walk to path[1], ... */ }
 ```
 
-The built-in **NavAgent** behaviour walks to an entity that way (repathing as it moves), and the sample game's
-drones chase the player around the blocks.
+The built-in **NavAgent** behaviour walks to an entity that way (repathing as it moves), keeps its distance from
+other agents, and hops across **Navigation Links**: components that join two spots the grid doesn't (a jump over
+a gap, a ladder, a drop; one way or both), drawn as arcs over the grid. The sample game's drones chase the player
+around the blocks. Rigid bodies (and entities tagged `NavObstacle`) block the cells they stand on while the game
+runs, so paths go round crates.
+
+Scenes with NavAgents or links bake on a worker thread as they start. For big levels, **Bake and save** writes
+the bake next to the scene (`level.vkw.nav`, exported with the game): it's loaded instead of baking for as long as
+the level's static colliders, links and settings stay the same.
 
 ## Particles
 

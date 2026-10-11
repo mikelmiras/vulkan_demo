@@ -102,7 +102,8 @@ struct LookAt : BehaviourBase<LookAt> {
 
 // ---------------------------------------------------------------------------------------------
 // Walks to another entity around walls and over steps, along a path from the scene's navigation grid (recomputed
-// every `repath` seconds, as the target moves). With a capsule or sphere collider it moves as a character.
+// every `repath` seconds, as the target moves), hopping across off-mesh links and keeping apart from other
+// NavAgents. With a capsule or sphere collider it moves as a character.
 struct NavAgent : BehaviourBase<NavAgent> {
     static constexpr const char* kTypeName = "NavAgent";
     std::string target = "Player";
@@ -111,10 +112,15 @@ struct NavAgent : BehaviourBase<NavAgent> {
     float range = 0.f;          // only follows within this distance (0: any)
     float repath = 0.5f;        // seconds between new paths
     bool turn = true;           // faces where it's going
+    float personalSpace = 1.f;  // other agents closer than this are steered away from
     // runtime
     std::vector<Vec3> path;
+    std::vector<uint8_t> jumps;
     size_t next = 0;
     float repathIn = 0.f;
+    bool hopping = false;       // crossing an off-mesh link
+    Vec3 hopFrom, hopTo;
+    float hopT = 0.f, hopTime = 0.f, hopHeight = 0.f, hopLift = 0.f;
 
     void fields(FieldVisitor& v) override {
         v.field("target", target, FieldRef::Entity);
@@ -123,8 +129,27 @@ struct NavAgent : BehaviourBase<NavAgent> {
         v.field("range", range, 0.1f, 0.f, 10000.f);
         v.field("repath", repath, 0.01f, 0.02f, 60.f);
         v.field("turn", turn);
+        v.field("personalSpace", personalSpace, 0.05f, 0.f, 20.f);
+    }
+    void placeAt(GameContext& ctx, Entity& self, Vec3 world) {
+        Vec3 local = transformPoint(inverseAffine(ctx.scene().parentWorldMatrix(self.id)), world);
+        self.transform.position[0] = local.x;
+        self.transform.position[1] = local.y;
+        self.transform.position[2] = local.z;
     }
     void update(GameContext& ctx, Entity& self) override {
+        if (hopping) {   // along an arc from one end of the link to the other
+            hopT += ctx.dt();
+            float u = std::min(hopT / std::max(hopTime, 1e-3f), 1.f);
+            Vec3 p = hopFrom + (hopTo - hopFrom) * u;
+            p.y += hopLift + 4.f * hopHeight * u * (1.f - u);
+            placeAt(ctx, self, p);
+            if (u >= 1.f) {
+                hopping = false;
+                ++next;
+            }
+            return;
+        }
         Entity* t = ctx.find(target);
         if (!t || t == &self) return;
         Vec3 pos = ctx.worldPosition(self.id), goal = ctx.worldPosition(t->id), flat = goal - pos;
@@ -138,7 +163,7 @@ struct NavAgent : BehaviourBase<NavAgent> {
         if (repathIn <= 0.f || next >= path.size()) {
             repathIn = repath;
             next = 1;
-            if (!ctx.findPath(pos, goal, path)) path.clear();
+            if (!ctx.findPath(pos, goal, path, &jumps)) path.clear();
         }
         float step = speed * ctx.dt();
         Vec3 to;
@@ -147,10 +172,39 @@ struct NavAgent : BehaviourBase<NavAgent> {
             to = path[next] - pos;
             to.y = 0.f;
             dist = length(to);
+            if (next > 0 && next - 1 < jumps.size() && jumps[next - 1] && dist > 0.05f) {   // at a link: hop
+                hopFrom = path[next - 1];
+                hopTo = path[next];
+                hopLift = pos.y - hopFrom.y;   // (its origin's height above its feet)
+                float span = length(hopTo - hopFrom);
+                hopTime = std::max(span / std::max(speed, 0.1f), 0.3f);
+                hopHeight = 0.3f + 0.2f * span;
+                hopT = 0.f;
+                hopping = true;
+                return;
+            }
             if (dist > 0.05f || next + 1 == path.size()) break;
         }
         if (next >= path.size() || dist < 1e-4f) return;
         Vec3 delta = to * (std::min(step, dist) / dist);
+        // Keep apart from other agents: a push away from each one within personal space
+        if (personalSpace > 0.f) {
+            Vec3 push;
+            for (const Entity& o : ctx.scene().entities) {
+                if (o.id == self.id || !o.behaviours.size()) continue;
+                bool agent = false;
+                for (const BehaviourPtr& b : o.behaviours) agent = agent || std::string(b->typeName()) == kTypeName;
+                if (!agent) continue;
+                Vec3 away = pos - ctx.worldPosition(o.id);
+                away.y = 0.f;
+                float d2 = dot(away, away);
+                if (d2 >= personalSpace * personalSpace) continue;
+                float d = std::sqrt(d2);
+                if (d < 1e-4f) away = {((self.id * 7919u) % 100) / 100.f - 0.5f, 0.f, 0.3f}, d = length(away);   // (on top of each other)
+                push = push + away * ((1.f - d / personalSpace) / d);
+            }
+            delta = delta + push * (step * 0.8f);
+        }
         ctx.moveCharacter(self, delta);
         if (turn) {
             Mat4 world = lookRotation(pos, normalize(delta), self.transform.scale);

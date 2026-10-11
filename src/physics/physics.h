@@ -66,6 +66,7 @@ public:
     std::vector<RaycastHit> raycastAll(Vec3 origin, Vec3 dir, float maxDistance, uint32_t layers = ~0u) const;
     // The box around every body; false if there are none
     bool bounds(Vec3& min, Vec3& max) const;
+    bool bodyBounds(EntityId id, Vec3& min, Vec3& max) const;   // one entity's body; false if it has none
     // Entities whose collider touches the sphere
     std::vector<EntityId> overlapSphere(Vec3 center, float radius, bool includeTriggers = true,
                                         EntityId ignore = kNoEntity, uint32_t layers = ~0u) const;

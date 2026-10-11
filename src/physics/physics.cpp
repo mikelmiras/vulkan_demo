@@ -786,6 +786,17 @@ std::vector<RaycastHit> Physics::raycastAll(Vec3 origin, Vec3 dir, float maxDist
     return hits;
 }
 
+bool Physics::bodyBounds(EntityId id, Vec3& min, Vec3& max) const {
+    auto it = impl_->bodies.find(id);
+    if (it == impl_->bodies.end()) return false;
+    JPH::BodyLockRead lock(impl_->system.GetBodyLockInterfaceNoLock(), it->second.id);
+    if (!lock.Succeeded()) return false;
+    JPH::AABox box = lock.GetBody().GetWorldSpaceBounds();
+    min = {(float)box.mMin.GetX(), (float)box.mMin.GetY(), (float)box.mMin.GetZ()};
+    max = {(float)box.mMax.GetX(), (float)box.mMax.GetY(), (float)box.mMax.GetZ()};
+    return true;
+}
+
 bool Physics::bounds(Vec3& min, Vec3& max) const {
     JPH::AABox box;   // (the broad phase's own bounds aren't tight)
     for (const auto& [entity, tracked] : impl_->bodies) {

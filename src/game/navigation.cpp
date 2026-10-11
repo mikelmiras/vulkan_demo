@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
+#include <fstream>
 #include <cmath>
 #include <atomic>
 #include <queue>
 #include <thread>
 
+#include "core/vfs.h"
 #include "physics/physics.h"
 
 namespace {
@@ -24,7 +27,100 @@ int dirOf(int dx, int dz) {
 
 }  // namespace
 
+namespace {
+
+const MeshLibrary& builtinMeshLibrary() {
+    static const MeshLibrary lib = buildMeshLibrary();
+    return lib;
+}
+
+struct Hasher {
+    uint64_t h = 1469598103934665603ull;
+    void add(uint64_t v) { h = (h ^ v) * 1099511628211ull; }
+    void add(float f) {
+        uint32_t u;
+        std::memcpy(&u, &f, 4);
+        add((uint64_t)u);
+    }
+    void add(const std::string& s) {
+        for (char c : s) add((uint64_t)(unsigned char)c);
+        add((uint64_t)s.size());
+    }
+};
+
+}  // namespace
+
+NavLevel prepareNavLevel(const Scene& scene, const MeshLibrary& meshes) {
+    NavLevel level;
+    level.settings = scene.navigation;
+    level.meshes = builtinMeshLibrary();
+    std::vector<Mat4> worlds = scene.worldMatrices();
+    std::unordered_map<int, int> meshMap;   // the scene's mesh ids -> the copy's
+    Hasher h;
+    for (float f : {scene.navigation.cellSize, scene.navigation.agentRadius, scene.navigation.agentHeight,
+                    scene.navigation.maxClimb, scene.navigation.maxSlope})
+        h.add(f);
+    // The level: solid colliders of things that don't move by themselves (no rigid body, no behaviours), and the
+    // navigation links. Everything else goes; hierarchy and transforms stay (worlds don't change).
+    level.scene = scene;
+    level.scene.prefabs.clear();
+    for (size_t i = 0; i < level.scene.entities.size(); ++i) {
+        Entity& e = level.scene.entities[i];
+        bool solid = e.collider && !e.collider->trigger && !e.rigidBody && e.behaviours.empty() &&
+                     (e.collider->shape != Collider::Shape::Mesh || e.meshRenderer);
+        Entity kept;
+        kept.id = e.id;
+        kept.name = e.name;
+        kept.parent = e.parent;
+        kept.transform = e.transform;
+        kept.layer = e.layer;
+        kept.navLink = e.navLink;
+        if (solid) {
+            kept.collider = e.collider;
+            if (e.collider->shape == Collider::Shape::Mesh) {   // the mesh is copied along
+                int id = e.meshRenderer->mesh;
+                auto it = meshMap.find(id);
+                if (it == meshMap.end()) {
+                    const Mesh& m = meshes.get(id);
+                    int copied = id;
+                    if (id >= (int)MeshKind::Count) {
+                        size_t first = (size_t)m.vertexOffset;
+                        size_t end = id + 1 < meshes.count() ? (size_t)meshes.get(id + 1).vertexOffset : meshes.vertices.size();
+                        std::vector<Vertex> verts(meshes.vertices.begin() + (long)first, meshes.vertices.begin() + (long)end);
+                        std::vector<uint32_t> idx(meshes.indices.begin() + m.firstIndex,
+                                                  meshes.indices.begin() + m.firstIndex + m.indexCount);
+                        copied = addMesh(level.meshes, m.name, m.source, verts, idx);
+                    }
+                    it = meshMap.emplace(id, copied).first;
+                }
+                kept.meshRenderer = MeshRenderer{};
+                kept.meshRenderer->mesh = it->second;
+                h.add(meshes.get(id).source.empty() ? std::string(meshes.name(id)) : meshes.get(id).source);
+            }
+            const Collider& c = *e.collider;
+            h.add((uint64_t)c.shape);
+            for (float f : {c.center.x, c.center.y, c.center.z, c.size.x, c.size.y, c.size.z, c.radius, c.height}) h.add(f);
+            for (float f : worlds[i].m) h.add(f);
+        }
+        if (e.navLink) {
+            h.add(e.navLink->end.x);
+            h.add(e.navLink->end.y);
+            h.add(e.navLink->end.z);
+            h.add((uint64_t)e.navLink->bothWays);
+            h.add(e.navLink->cost);
+            for (float f : worlds[i].m) h.add(f);
+        }
+        e = std::move(kept);
+    }
+    level.hash = h.h;
+    return level;
+}
+
 void NavGrid::clear() {
+    offLinks_.clear();
+    linksAt_.clear();
+    blocked_.clear();
+    hash_ = 0;
     nx_ = nz_ = 0;
     columnStart_.clear();
     cells_.clear();
@@ -33,21 +129,19 @@ void NavGrid::clear() {
 }
 
 bool NavGrid::bake(const Scene& scene, const MeshLibrary& meshes, const NavigationSettings& settings) {
+    NavLevel level = prepareNavLevel(scene, meshes);
+    level.settings = settings;
+    return bake(level);
+}
+
+bool NavGrid::bake(const NavLevel& level) {
     auto started = std::chrono::steady_clock::now();
     clear();
+    const NavigationSettings& settings = level.settings;
     settings_ = settings;
-
-    // The level: solid colliders of things that don't move by themselves (no rigid body, no behaviours)
-    Scene statics = scene;
-    for (size_t i = 0; i < statics.entities.size(); ++i) {
-        Entity& e = statics.entities[i];
-        bool level = e.collider && !e.collider->trigger && !e.rigidBody && e.behaviours.empty();
-        e.behaviours.clear();
-        e.rigidBody.reset();
-        if (!level) e.collider.reset();
-    }
+    Scene statics = level.scene;   // (stepping writes nothing back to it: no bodies move)
     Physics physics;
-    physics.step(statics, meshes, 0.f);
+    physics.step(statics, level.meshes, 0.f);
     Vec3 lo, hi;
     if (!physics.bounds(lo, hi)) return false;
 
@@ -185,6 +279,23 @@ bool NavGrid::bake(const Scene& scene, const MeshLibrary& meshes, const Navigati
     columnStart_ = std::move(starts);
     linkDiagonals();   // a side may have gone
 
+    // Off-mesh links: their two ends joined, whatever lies between
+    std::vector<Mat4> worlds = statics.worldMatrices();
+    for (size_t i = 0; i < statics.entities.size(); ++i) {
+        const Entity& e = statics.entities[i];
+        if (!e.navLink) continue;
+        Vec3 pa{worlds[i].m[12], worlds[i].m[13], worlds[i].m[14]}, pb = transformPoint(worlds[i], e.navLink->end);
+        int a = cellAt(pa, 1.5f), b = cellAt(pb, 1.5f);
+        if (a < 0 || b < 0 || a == b) continue;
+        OffLink l{a, b, {centre(a).x, cells_[(size_t)a].y, centre(a).z}, {centre(b).x, cells_[(size_t)b].y, centre(b).z},
+                  std::max(e.navLink->cost, 0.01f), e.navLink->bothWays};
+        int32_t index = (int32_t)offLinks_.size();
+        offLinks_.push_back(l);
+        linksAt_[a].push_back(index);
+        if (l.bothWays) linksAt_[b].push_back(index);
+    }
+    hash_ = level.hash;
+
     bakeMs_ = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count();
     return !cells_.empty();
 }
@@ -238,6 +349,7 @@ bool NavGrid::nearest(Vec3 p, Vec3& onGround, float maxDistance) const {
 bool NavGrid::walkable(Vec3 a, Vec3 b) const {
     int cur = cellAt(a, 0.f);
     if (cur < 0) return false;
+    const bool obstacles = !blocked_.empty();
     float dx = b.x - a.x, dz = b.z - a.z, len = std::sqrt(dx * dx + dz * dz);
     int steps = std::max(1, (int)std::ceil(len / (cell_ * 0.25f)));
     int col = cellColumn(cur);
@@ -249,15 +361,54 @@ bool NavGrid::walkable(Vec3 a, Vec3 b) const {
         int dir = dirOf(c % nx_ - col % nx_, c / nx_ - col / nx_);
         if (dir < 0) return false;
         int next = cells_[(size_t)cur].next[dir];
-        if (next < 0) return false;
+        if (next < 0 || (obstacles && blocked_[(size_t)next])) return false;
         cur = next;
         col = c;
     }
     return std::fabs(cells_[(size_t)cur].y - b.y) <= settings_.maxClimb + 0.05f;
 }
 
-bool NavGrid::findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path) const {
+void NavGrid::setObstacles(const std::vector<std::pair<Vec3, Vec3>>& boxes) {
+    blocked_.assign(boxes.empty() ? 0 : cells_.size(), 0);
+    const float r = settings_.agentRadius;
+    for (const auto& [lo, hi] : boxes) {
+        int x0 = std::max(0, (int)std::floor((lo.x - r - origin_.x) / cell_));
+        int x1 = std::min(nx_ - 1, (int)std::floor((hi.x + r - origin_.x) / cell_));
+        int z0 = std::max(0, (int)std::floor((lo.z - r - origin_.z) / cell_));
+        int z1 = std::min(nz_ - 1, (int)std::floor((hi.z + r - origin_.z) / cell_));
+        for (int z = z0; z <= z1; ++z)
+            for (int x = x0; x <= x1; ++x) {
+                int c = z * nx_ + x;
+                for (int i = columnStart_[(size_t)c]; i < columnStart_[(size_t)c + 1]; ++i) {
+                    float y = cells_[(size_t)i].y;   // standing there, would its head or feet be inside?
+                    if (y <= hi.y && y + settings_.agentHeight >= lo.y) blocked_[(size_t)i] = 1;
+                }
+            }
+    }
+}
+
+bool NavGrid::blocked(Vec3 p) const {
+    if (blocked_.empty()) return false;
+    int i = cellAt(p, 0.f);
+    return i >= 0 && blocked_[(size_t)i];
+}
+
+// From each corner, go as far along the cells as a straight walk reaches
+void NavGrid::straighten(const std::vector<Vec3>& points, std::vector<Vec3>& out) const {
+    if (points.empty()) return;
+    out.push_back(points[0]);
+    size_t i = 0;
+    while (i + 1 < points.size()) {
+        size_t k = i + 1;
+        while (k + 1 < points.size() && walkable(points[i], points[k + 1])) ++k;
+        out.push_back(points[k]);
+        i = k;
+    }
+}
+
+bool NavGrid::findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path, std::vector<uint8_t>* jumps) const {
     path.clear();
+    if (jumps) jumps->clear();
     int start = cellAt(from, std::max(settings_.agentRadius * 2.f, cell_ * 2.f));
     int goal = cellAt(to, 3.f);
     if (start < 0 || goal < 0) return false;
@@ -274,7 +425,7 @@ bool NavGrid::findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path) const {
     }
     auto node = [&](int i) -> Search& {
         Search& s = search_[(size_t)i];
-        if (s.generation != generation_) s = {1e30f, -1, generation_, false};
+        if (s.generation != generation_) s = {1e30f, -1, generation_, false, -1};
         return s;
     };
     using Item = std::pair<float, int>;
@@ -291,37 +442,125 @@ bool NavGrid::findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path) const {
         si.closed = true;
         if (i == goal) { found = true; break; }
         Vec3 pi = centre(i);
-        for (int j : cells_[(size_t)i].next) {
-            if (j < 0) continue;
+        const float g = si.g;
+        auto relax = [&](int j, float cost, int32_t via) {
+            if (!blocked_.empty() && blocked_[(size_t)j] && j != goal) return;   // (under an obstacle)
             Search& sj = node(j);
-            if (sj.closed) continue;
-            Vec3 pj = centre(j);
-            float ng = si.g + length(pj - pi);
+            if (sj.closed) return;
+            float ng = g + cost;
             if (ng < sj.g) {
                 sj.g = ng;
                 sj.parent = i;
-                open.push({ng + length(goalPos - pj) * 1.5f, j});   // (greedy: fewer cells searched; straightening evens it out)
+                sj.via = via;
+                open.push({ng + length(goalPos - centre(j)) * 1.5f, j});   // (greedy: fewer cells searched; straightening evens it out)
             }
-        }
+        };
+        for (int j : cells_[(size_t)i].next)
+            if (j >= 0) relax(j, length(centre(j) - pi), -1);
+        if (!offLinks_.empty())
+            if (auto it = linksAt_.find(i); it != linksAt_.end())
+                for (int32_t l : it->second) {
+                    const OffLink& link = offLinks_[(size_t)l];
+                    relax(link.a == i ? link.b : link.a, length(link.pb - link.pa) * link.cost, l);
+                }
     }
     if (!found) return false;
 
-    std::vector<Vec3> points;
-    for (int i = goal; i >= 0; i = search_[(size_t)i].parent) points.push_back(centre(i));
-    std::reverse(points.begin(), points.end());
-    // The ends where the points themselves are, when they're on the grid there
-    if (cellColumn(start) == columnOf(from.x, from.z)) points.front() = {from.x, points.front().y, from.z};
-    if (cellColumn(goal) == columnOf(to.x, to.z)) points.back() = {to.x, points.back().y, to.z};
-
-    // Straighten: from each corner, go as far along the cells as a straight walk reaches
-    path.push_back(points[0]);
-    size_t i = 0;
-    while (i + 1 < points.size()) {
-        size_t k = i + 1;
-        while (k + 1 < points.size() && walkable(points[i], points[k + 1])) ++k;
-        path.push_back(points[k]);
-        i = k;
+    std::vector<int> cellsOnPath;
+    for (int i = goal; i >= 0; i = search_[(size_t)i].parent) cellsOnPath.push_back(i);
+    std::reverse(cellsOnPath.begin(), cellsOnPath.end());
+    // Walks between the off-mesh links, each straightened on its own; a link is a hop from one to the next
+    std::vector<Vec3> walk;
+    for (size_t k = 0; k < cellsOnPath.size(); ++k) {
+        int c = cellsOnPath[k];
+        int32_t via = k > 0 ? search_[(size_t)c].via : -1;
+        if (via >= 0) {
+            const OffLink& l = offLinks_[(size_t)via];
+            bool forward = l.a == cellsOnPath[k - 1];
+            walk.push_back(forward ? l.pa : l.pb);
+            if (k == 1 && cellColumn(start) == columnOf(from.x, from.z)) walk.front() = {from.x, walk.front().y, from.z};
+            straighten(walk, path);
+            if (jumps) jumps->resize(path.size(), 0), jumps->back() = 1;
+            walk.clear();
+            walk.push_back(forward ? l.pb : l.pa);
+        }
+        walk.push_back(centre(c));
     }
+    // The ends where the points themselves are, when they're on the grid there
+    if (path.empty() && cellColumn(start) == columnOf(from.x, from.z)) walk.front() = {from.x, walk.front().y, from.z};
+    if (cellColumn(goal) == columnOf(to.x, to.z)) walk.back() = {to.x, walk.back().y, to.z};
+    straighten(walk, path);
+    if (jumps) jumps->resize(path.size(), 0);
+    return true;
+}
+
+std::vector<std::pair<Vec3, Vec3>> NavGrid::offMeshLinks() const {
+    std::vector<std::pair<Vec3, Vec3>> out;
+    for (const OffLink& l : offLinks_) out.emplace_back(l.pa, l.pb);
+    return out;
+}
+
+// The file: "VKWNAV01", the level hash, the settings, the grid's shape, then its arrays
+bool NavGrid::save(const std::filesystem::path& path) const {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) return false;
+    auto put = [&](const void* p, size_t n) { out.write(static_cast<const char*>(p), (std::streamsize)n); };
+    auto putVec = [&](const auto& v) {
+        uint64_t n = v.size();
+        put(&n, 8);
+        if (n) put(v.data(), n * sizeof(v[0]));
+    };
+    put("VKWNAV01", 8);
+    put(&hash_, 8);
+    put(&settings_, sizeof(settings_));
+    put(&origin_, sizeof(origin_));
+    put(&nx_, 4);
+    put(&nz_, 4);
+    put(&cell_, 4);
+    putVec(columnStart_);
+    putVec(cells_);
+    putVec(cellColumn_);
+    putVec(offLinks_);
+    return (bool)out;
+}
+
+bool NavGrid::load(const std::filesystem::path& path, uint64_t hash) {
+    std::string bytes;
+    if (!vfs::read(path, bytes) || bytes.size() < 16 || bytes.compare(0, 8, "VKWNAV01") != 0) return false;
+    size_t at = 8;
+    bool ok = true;
+    auto get = [&](void* p, size_t n) {
+        if (at + n > bytes.size()) { ok = false; return; }
+        std::memcpy(p, bytes.data() + at, n);
+        at += n;
+    };
+    auto getVec = [&](auto& v) {
+        uint64_t n = 0;
+        get(&n, 8);
+        if (!ok || n > (bytes.size() - at) / sizeof(v[0])) { ok = false; return; }
+        v.resize((size_t)n);
+        if (n) get(v.data(), (size_t)n * sizeof(v[0]));
+    };
+    uint64_t fileHash = 0;
+    get(&fileHash, 8);
+    if (!ok || fileHash != hash) return false;
+    NavGrid g;
+    get(&g.settings_, sizeof(g.settings_));
+    get(&g.origin_, sizeof(g.origin_));
+    get(&g.nx_, 4);
+    get(&g.nz_, 4);
+    get(&g.cell_, 4);
+    getVec(g.columnStart_);
+    getVec(g.cells_);
+    getVec(g.cellColumn_);
+    getVec(g.offLinks_);
+    if (!ok || g.columnStart_.size() != (size_t)g.nx_ * g.nz_ + 1 || g.cellColumn_.size() != g.cells_.size()) return false;
+    for (int32_t i = 0; i < (int32_t)g.offLinks_.size(); ++i) {
+        g.linksAt_[g.offLinks_[(size_t)i].a].push_back(i);
+        if (g.offLinks_[(size_t)i].bothWays) g.linksAt_[g.offLinks_[(size_t)i].b].push_back(i);
+    }
+    g.hash_ = hash;
+    *this = std::move(g);
     return true;
 }
 

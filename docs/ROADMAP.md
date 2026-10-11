@@ -140,7 +140,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 22 (done) | Gameplay framework: timers and coroutine-style waits (`ctx.after(seconds, ...)`), messages between entities, tags and layers (queries and collisions filtered by them) | Behaviours hand-roll timers, find each other by name, and every query hits everything |
 | 23 (done) | Physics joints and constraints (hinge, fixed, distance, slider) as a component, ragdolls from a skeleton, collision layers | Bodies can't be connected; skeletons can't go limp; nothing filters collisions |
 | 24 (done) | Animation layers and blend trees: 1D blends (walk / run by speed), upper-body masks, root motion, a graph view of the state machine | The state machine (task 17) plays one clip at a time |
-| 25 | Smarter navigation: dynamic obstacles (moving things carve the grid), avoidance between agents, off-mesh links (jumps, ladders, drops), baking in the background and saving the result | Agents walk through each other and through crates; a big level re-bakes (1.3 s) each run |
+| 25 (done) | Smarter navigation: dynamic obstacles (moving things carve the grid), avoidance between agents, off-mesh links (jumps, ladders, drops), baking in the background and saving the result | Agents walk through each other and through crates; a big level re-bakes (1.3 s) each run |
 | 26 | Rendering: point-light (cube) shadows, SSAO, a prefiltered environment map, cut-out shadows, GPU culling for large scenes | Point lights don't shadow; grates and glass cast solid shadows; IBL is approximate |
 | 27 | Audio: streamed music (decoded as it plays), mixer buses with volumes (music / effects / UI) and ducking, reverb zones, Doppler | Every sound is decoded whole up front; there is one volume |
 | 28 | Editor: multi-selection with group transforms, nested prefabs / prefab variants, asset thumbnails, dockable panels | One entity at a time; prefabs can't contain prefabs; fixed panel layout |
@@ -186,4 +186,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
   tree points, layers with mask pickers, root motion bone, and a state machine graph window (circle layout, any-state
   arrows, conditions on hover, live state). Module API 16. Not done: 2D blends, additive layers, events on blend
   trees, editing in the graph.
+- Task 25: prepareNavLevel copies the level (static colliders, NavLinks, transforms, only the meshes mesh colliders
+  use) and hashes it; NavGrid::bake(NavLevel) runs on a worker (Game::startNavigation when the scene has NavAgents
+  or links), or a saved "<scene>.vkw.nav" with the same hash is loaded (binary, via the VFS; editor Bake and
+  save). NavLink component (scene format 21): off-mesh edges in A* (cost x length, one or both ways), paths split
+  at links and straightened per walk, findPath(..., jumps) marks them. Obstacles: rigid bodies (non-kinematic) and
+  "NavObstacle" tags, from Physics::bodyBounds every 15 ticks, block cells (inflated by the agent radius) for A*
+  and walkable(). NavAgent: hops links on an arc, personal-space separation from other agents. Module API 17. Not
+  done: true local avoidance (RVO), obstacles carving per-frame, links for characters other than NavAgent,
+  rebaking only the changed tiles.
 

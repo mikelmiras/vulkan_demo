@@ -4,6 +4,7 @@
 #include "game/animation.h"
 #include "game/ragdoll.h"
 #include "core/project.h"
+#include "core/vfs.h"
 #include "scene/serialization.h"
 
 #include <algorithm>
@@ -198,16 +199,64 @@ void GameContext::streamOut(EntityId chunk) {
     if (scene_->find(chunk)) destroy(chunk);
 }
 
-bool GameContext::findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path) { return game_->navigation().findPath(from, to, path); }
+bool GameContext::findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path, std::vector<uint8_t>* jumps) {
+    return game_->navigation().findPath(from, to, path, jumps);
+}
 const NavGrid& GameContext::navigation() { return game_->navigation(); }
 void GameContext::rebuildNavigation() { game_->navBaked_ = false; }
 
 const NavGrid& Game::navigation() {
+    if (navJob_.valid()) {   // the bake started with the scene: wait for it (usually long done)
+        std::shared_ptr<NavGrid> baked = navJob_.get();
+        nav_ = std::move(*baked);
+        navBaked_ = true;
+        updateNavObstacles();
+    }
     if (!navBaked_ && scene_) {
         navBaked_ = true;
         if (!nav_.bake(*scene_, *meshes_, scene_->navigation)) nav_.clear();
+        updateNavObstacles();
     }
     return nav_;
+}
+
+void Game::startNavigation() {
+    if (navJob_.valid()) navJob_.wait();   // (an old scene's: let it finish, then drop it)
+    navJob_ = {};
+    nav_.clear();
+    navBaked_ = false;
+    bool wanted = false;   // agents or links: they'll want paths, so bake from the start
+    for (const Entity& e : scene_->entities) {
+        if (e.navLink) wanted = true;
+        for (const BehaviourPtr& b : e.behaviours) wanted = wanted || std::string(b->typeName()) == "NavAgent";
+    }
+    std::string file = scenePath_.empty() ? "" : project::resolve(scenePath_) + ".nav";
+    if (!wanted && (file.empty() || !vfs::exists(fs::u8path(file)))) return;   // baked when first asked for
+    auto level = std::make_shared<NavLevel>(prepareNavLevel(*scene_, *meshes_));
+    if (!file.empty() && nav_.load(fs::u8path(file), level->hash)) {   // a saved bake of this very level
+        navBaked_ = true;
+        return;
+    }
+    navBaked_ = true;
+    navJob_ = std::async(std::launch::async, [level] {
+        auto grid = std::make_shared<NavGrid>();
+        if (!grid->bake(*level)) grid->clear();
+        return grid;
+    });
+}
+
+// Moving things block the cells they stand on (refreshed a few times a second, once there's a grid)
+void Game::updateNavObstacles() {
+    if (!navBaked_ || navJob_.valid() || nav_.empty()) return;
+    std::vector<std::pair<Vec3, Vec3>> boxes;
+    for (const Entity& e : scene_->entities) {
+        if (!e.collider || e.collider->trigger) continue;
+        bool moving = e.rigidBody && !e.rigidBody->kinematic;
+        if (!moving && !e.hasTag("NavObstacle")) continue;
+        Vec3 lo, hi;
+        if (physics_.bodyBounds(e.id, lo, hi)) boxes.emplace_back(lo, hi);
+    }
+    nav_.setObstacles(boxes);
 }
 
 void GameContext::playSound(const std::string& clip, Vec3 position, float volume) {
@@ -285,8 +334,6 @@ void Game::begin(bool fresh, bool keepPhysics) {
     particles_.clear();
     prevWorlds_.clear();
     prevIds_.clear();
-    nav_.clear();
-    navBaked_ = false;
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();
@@ -312,6 +359,7 @@ void Game::begin(bool fresh, bool keepPhysics) {
     timers_.clear();
     ctx_.messages_.clear();
     physics_.step(*scene_, *meshes_, 0.f);   // make the bodies now (or catch up: kept ones are made already)
+    startNavigation();
     prepareContext(0.f);
     startAudio();
     std::vector<std::string> missing;   // behaviours whose game module isn't loaded: they do nothing
@@ -522,6 +570,7 @@ void Game::fixedUpdate(float dt) {
     flushQueues();
     runTimers();
     playImpacts(physics_.step(*scene_, *meshes_, dt));
+    if (tick_ % 15 == 0) updateNavObstacles();
     particles_.update(*scene_, scene_->worldMatrices(), dt);
     updateTriggers();
     flushQueues();

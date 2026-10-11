@@ -35,6 +35,7 @@ bool eq(const RigidBody& a, const RigidBody& b) {
            a.bounciness == b.bounciness && a.friction == b.friction && a.damping == b.damping &&
            eq(a.velocity, b.velocity) && eq(a.angularVelocity, b.angularVelocity) && a.kinematic == b.kinematic;
 }
+bool eq(const NavLink& a, const NavLink& b) { return eq(a.end, b.end) && a.bothWays == b.bothWays && a.cost == b.cost; }
 bool eq(const Joint& a, const Joint& b) {
     return a.type == b.type && a.connectedTo == b.connectedTo && eq(a.anchor, b.anchor) && eq(a.axis, b.axis) &&
            a.minLimit == b.minLimit && a.maxLimit == b.maxLimit && a.coneAngle == b.coneAngle &&
@@ -123,7 +124,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
         !eq(a.transform.scale, b.transform.scale, 3))
         return false;
     if (!eq(a.meshRenderer, b.meshRenderer) || !eq(a.camera, b.camera) || !eq(a.collider, b.collider) ||
-        !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.audioSource, b.audioSource) ||
+        !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) ||
         !eq(a.prefab, b.prefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter))
         return false;

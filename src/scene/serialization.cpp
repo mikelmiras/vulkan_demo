@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 20;  // 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 21;  // 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -441,6 +441,12 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         if (rb.lockRotation) c.set("lockRotation", true);
         if (rb.kinematic) c.set("kinematic", true);
     }
+    if (e.navLink) {
+        json::Value& c = v.set("navLink", json::Value::object());
+        c.set("end", vec3(e.navLink->end));
+        c.set("bothWays", e.navLink->bothWays);
+        c.set("cost", e.navLink->cost);
+    }
     if (e.joint) {
         const Joint& j = *e.joint;
         json::Value& c = v.set("joint", json::Value::object());
@@ -666,6 +672,13 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         rb.lockRotation = c["lockRotation"].asBool(false);
         rb.kinematic = c["kinematic"].asBool(false);
         e.rigidBody = rb;
+    }
+    if (const json::Value& c = v["navLink"]; c.isObject()) {
+        NavLink l;
+        l.end = readVec3(c["end"], l.end);
+        l.bothWays = c["bothWays"].asBool(true);
+        l.cost = c["cost"].asFloat(1.f);
+        e.navLink = l;
     }
     if (const json::Value& c = v["joint"]; c.isObject()) {
         Joint j;

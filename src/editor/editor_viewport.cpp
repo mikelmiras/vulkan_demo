@@ -465,5 +465,16 @@ void Editor::drawNavigation() {
             ++drawn;
         }
     }
+    for (const auto& [from, to] : navPreview_.offMeshLinks()) {   // links: arcs
+        Vec3 prev = from;
+        float height = 0.3f + 0.2f * length(to - from);
+        for (int k = 1; k <= 12; ++k) {
+            float u = (float)k / 12.f;
+            Vec3 p = from + (to - from) * u + Vec3{0.f, 4.f * height * u * (1.f - u), 0.f};
+            ImVec2 a, b;
+            if (worldToScreen(prev + lift, a) && worldToScreen(p + lift, b)) dl->AddLine(a, b, IM_COL32(255, 170, 60, 230), px(2.f));
+            prev = p;
+        }
+    }
     dl->PopClipRect();
 }

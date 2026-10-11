@@ -3,6 +3,8 @@
 
 #include <filesystem>
 #include <functional>
+#include <future>
+#include <memory>
 #include <initializer_list>
 #include <map>
 #include <string>
@@ -129,9 +131,12 @@ public:
     void setRagdoll(EntityId root, bool limp);
 
     // Navigation (see game/navigation.h): a walking path around walls and over steps, as corner points on the
-    // ground from `from` to (nearest reachable spot to) `to`. The scene's walkable grid is baked the first time
-    // it's needed, from its static colliders and scene.navigation; false if there's no way.
-    bool findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path);
+    // ground from `from` to (nearest reachable spot to) `to`; false if there's no way. The walkable grid comes
+    // from a saved bake next to the scene file (<scene>.vkw.nav, the editor's "Bake and save") when it matches the
+    // level, else it's baked: on a worker thread from the start when the scene has NavAgents or NavLinks, or the
+    // first time it's needed. Rigid bodies (and entities tagged "NavObstacle") block the cells under them.
+    // `jumps`, when given, marks the off-mesh links along it (see NavGrid::findPath).
+    bool findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path, std::vector<uint8_t>* jumps = nullptr);
     const NavGrid& navigation();
     void rebuildNavigation();   // after the level itself changed (static colliders added, moved or removed)
 
@@ -292,7 +297,10 @@ private:
     Physics physics_;   // (Jolt) bodies persist between updates: made again on a new scene
     ParticleSystem particles_;
     NavGrid nav_;
-    bool navBaked_ = false;
+    bool navBaked_ = false;                            // nav_ is up to date (or navJob_ will make it so)
+    std::future<std::shared_ptr<NavGrid>> navJob_;     // a bake on a worker thread, started with the scene
+    void startNavigation();
+    void updateNavObstacles();
     bool async_ = false, loadingScreen_ = true;
     SceneLoader loader_;   // the next scene, when changing scenes asynchronously
     std::string loadingScene_, loadError_;
