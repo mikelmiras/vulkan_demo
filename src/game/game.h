@@ -12,6 +12,7 @@
 #include "core/vecmath.h"
 #include "game/input.h"
 #include "game/navigation.h"
+#include "game/scene_loader.h"
 #include "game/particles.h"
 #include "game/ui.h"
 #include "physics/physics.h"
@@ -113,6 +114,21 @@ public:
     void loadGame(const std::string& slot = "quicksave");
     bool hasSaveGame(const std::string& slot = "quicksave") const;
     const std::string& scenePath() const;              // the current scene's file ("" for a scene built in code)
+    // Loading: with asynchronous loading on (Game::setAsyncLoading, as vkgame and the editor do), loadScene()
+    // reads the next scene in the background. The current one stays on screen, frozen (no updates; drawUI() still
+    // runs, so a behaviour can draw its own loading screen while loading() is true), under a default loading screen
+    // unless showLoadingScreen(false).
+    bool loading() const;
+    void showLoadingScreen(bool show);
+
+    // Streaming: adds another scene file's entities to this scene, under a new root entity placed at `offset`
+    // (loaded in the background with asynchronous loading, else at the end of this update). Their behaviours
+    // start() as they arrive. Returns that root's id: streamedIn() tells when it's there, streamOut() removes it all
+    // (or cancels the load). The file's prefabs join the scene's (by name); its settings are ignored.
+    EntityId streamIn(const std::string& path, Vec3 offset = {});
+    bool streamedIn(EntityId chunk) const;
+    void streamOut(EntityId chunk);
+
     // Pausing stops update() (and physics); drawUI() still runs, so a pause menu can resume
     void setPaused(bool paused);
     bool paused() const;
@@ -153,6 +169,11 @@ public:
     // For ctx.loadScene() / loadGame(): the libraries scenes load into (imports are appended). Without them, scene
     // changes fail (logged). The meshes must be the ones given to start().
     void setAssetLibraries(MeshLibrary& meshes, TextureLibrary& textures) { meshLib_ = &meshes; texLib_ = &textures; }
+    // Scene changes and streaming load on a worker thread (off by default: everything happens within the update
+    // that asked, which keeps tests and tools deterministic). Needs setAssetLibraries().
+    void setAsyncLoading(bool on) { async_ = on; }
+    bool loading() const { return loader_.busy(); }
+    void finishLoading();   // waits for loads in progress and applies them
     void setScenePath(const std::string& path) { scenePath_ = path; }   // the scene's file, recorded in save games
     const std::string& scenePath() const { return scenePath_; }
     void setSaveDirectory(const std::filesystem::path& dir) { saveDir_ = dir; }
@@ -202,6 +223,10 @@ private:
     void updateAudio();
     void playImpacts(const std::vector<struct Impact>& impacts);
     void savePreviousWorlds();
+    void pollLoads(bool wait);   // applies finished loads (all of them, waiting, if `wait`)
+    void completeSceneChange();
+    void addChunk(EntityId root, const std::string& path, Vec3 offset, Scene& chunk);
+    void drawLoadingScreen(GameUI& ui);
 
     Scene* scene_ = nullptr;
     const MeshLibrary* meshes_ = nullptr;
@@ -210,6 +235,17 @@ private:
     ParticleSystem particles_;
     NavGrid nav_;
     bool navBaked_ = false;
+    bool async_ = false, loadingScreen_ = true;
+    SceneLoader loader_;   // the next scene, when changing scenes asynchronously
+    std::string loadingScene_;
+    struct Chunk {   // a scene being streamed in
+        EntityId root = kNoEntity;
+        std::string path;
+        Vec3 offset;
+        std::unique_ptr<SceneLoader> loader;
+        bool cancelled = false;
+    };
+    std::vector<Chunk> chunks_;
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity

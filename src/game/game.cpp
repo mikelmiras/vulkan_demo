@@ -113,6 +113,28 @@ CharacterMove GameContext::moveCharacter(Entity& self, Vec3 delta) {
     return physics_->moveCharacter(*scene_, *meshes_, self, delta, dt_);
 }
 
+bool GameContext::loading() const { return game_->loading(); }
+void GameContext::showLoadingScreen(bool show) { game_->loadingScreen_ = show; }
+
+EntityId GameContext::streamIn(const std::string& path, Vec3 offset) {
+    Game::Chunk c;
+    c.root = scene_->reserveId();
+    c.path = path;
+    c.offset = offset;
+    c.loader = std::make_unique<SceneLoader>();
+    c.loader->start(project::resolve(path));
+    game_->chunks_.push_back(std::move(c));
+    return game_->chunks_.back().root;
+}
+
+bool GameContext::streamedIn(EntityId chunk) const { return scene_->find(chunk) != nullptr; }
+
+void GameContext::streamOut(EntityId chunk) {
+    for (Game::Chunk& c : game_->chunks_)
+        if (c.root == chunk) c.cancelled = true;
+    if (scene_->find(chunk)) destroy(chunk);
+}
+
 bool GameContext::findPath(Vec3 from, Vec3 to, std::vector<Vec3>& path) { return game_->navigation().findPath(from, to, path); }
 const NavGrid& GameContext::navigation() { return game_->navigation(); }
 void GameContext::rebuildNavigation() { game_->navBaked_ = false; }
@@ -240,6 +262,8 @@ void Game::begin(bool fresh) {
 }
 
 void Game::stop() {
+    loadingScene_.clear();
+    for (Chunk& c : chunks_) c.cancelled = true;
     stopSounds();
     physics_.clear();
     scene_ = nullptr;
@@ -255,6 +279,12 @@ void Game::stopSounds() {
 void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     if (!running()) return;
     input_.beginFrame(keyboard, mouse, mouseDelta);
+    pollLoads(false);
+    if (loader_.busy()) {   // the next scene is loading: this one waits, frozen
+        input_.endFixedStep();
+        updateAudio();
+        return;
+    }
     if (paused_) {   // nothing consumes the latched presses: drop them, so they don't all fire on resume
         input_.endFixedStep();
         return;
@@ -277,13 +307,94 @@ void Game::drawUI(GameUI& ui) {
         if (e.behaviours.empty() || !scene_->visibleInHierarchy(e.id)) continue;
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->drawUI(ctx_, e, ui);
     }
+    if (loader_.busy() && loadingScreen_) drawLoadingScreen(ui);
     // Requests made from the UI (a menu's Load, Quit) happen now, not at the next update (which may not come while
     // paused)
     applyRequests();
 }
 
 void Game::step() {
-    if (running()) fixedUpdate(kFixedDt);
+    if (!running()) return;
+    if (loader_.busy()) finishLoading();   // (stepping a loading game: the load completes)
+    else fixedUpdate(kFixedDt);
+}
+
+void Game::finishLoading() {
+    if (running()) pollLoads(true);
+}
+
+void Game::pollLoads(bool wait) {
+    for (size_t i = 0; i < chunks_.size();) {
+        if (!wait && !chunks_[i].loader->ready()) { ++i; continue; }
+        Chunk done = std::move(chunks_[i]);
+        chunks_.erase(chunks_.begin() + (long)i);
+        Scene chunk;
+        std::string error;
+        if (!meshLib_ || !texLib_) error = "no asset libraries to load scenes into";
+        else if (done.loader->finish(chunk, *meshLib_, *texLib_, error) && !done.cancelled)
+            addChunk(done.root, done.path, done.offset, chunk);
+        if (!error.empty()) ctx_.log("streamIn: " + error);
+    }
+    if (loader_.busy() && (wait || loader_.ready())) completeSceneChange();
+}
+
+void Game::addChunk(EntityId rootId, const std::string& path, Vec3 offset, Scene& chunk) {
+    prepareContext(ctx_.dt_);
+    // Prefabs: the scene's own when it has one by that name, else added
+    std::unordered_map<uint32_t, uint32_t> prefabIds;
+    for (Prefab& p : chunk.prefabs) {
+        const Prefab* have = scene_->findPrefab(p.name);
+        prefabIds[p.id] = have ? have->id : scene_->addPrefab(p).id;
+    }
+    Entity root;
+    root.id = rootId;
+    root.name = "Chunk " + fs::u8path(path).stem().u8string();
+    root.transform.position[0] = offset.x;
+    root.transform.position[1] = offset.y;
+    root.transform.position[2] = offset.z;
+    ctx_.spawnQueue_.push_back(std::move(root));
+    std::unordered_map<EntityId, EntityId> ids;
+    for (const Entity& e : chunk.entities) ids[e.id] = scene_->reserveId();
+    for (Entity& e : chunk.entities) {
+        e.id = ids[e.id];
+        e.parent = e.parent != kNoEntity && ids.count(e.parent) ? ids[e.parent] : rootId;
+        if (e.prefab) {
+            auto it = prefabIds.find(e.prefab->prefab);
+            if (it != prefabIds.end()) e.prefab->prefab = it->second;
+            else e.prefab.reset();
+        }
+        ctx_.spawnQueue_.push_back(std::move(e));
+    }
+    flushSpawned();   // added, and their behaviours start()
+    navBaked_ = false;   // the level changed
+}
+
+void Game::completeSceneChange() {
+    std::string path = std::move(loadingScene_), error;
+    loadingScene_.clear();
+    Scene next;
+    if (!meshLib_ || !texLib_ || !loader_.finish(next, *meshLib_, *texLib_, error)) {
+        ctx_.log("loadScene: " + (error.empty() ? std::string("no asset libraries") : error));
+        return;
+    }
+    for (Chunk& c : chunks_) c.cancelled = true;   // they were for the old scene
+    stopSounds();
+    *scene_ = std::move(next);
+    scenePath_ = path;
+    begin();
+}
+
+void Game::drawLoadingScreen(GameUI& ui) {
+    float t = loader_.seconds(), show = std::fmin(t / 0.3f, 1.f);   // quick loads barely show it
+    float w = ui.width(), h = ui.height(), cx = w * 0.5f, cy = h * 0.5f + 40.f;
+    ui.rect(0.f, 0.f, w, h, {0.02f, 0.03f, 0.05f, 0.88f * show});
+    ui.text(cx, cy - 120.f, "Loading", 56.f, {1.f, 1.f, 1.f, show}, GameUI::Align::Center);
+    for (int k = 0; k < 10; ++k) {   // a spinner
+        float a = (float)k / 10.f * 2.f * PI, phase = std::fmod((float)k / 10.f - t * 1.2f + 10.f, 1.f);
+        float r = 34.f, s = 12.f;
+        ui.rect(cx + std::cos(a) * r - s * 0.5f, cy + std::sin(a) * r - s * 0.5f, s, s,
+                {1.f, 1.f, 1.f, show * (0.15f + 0.85f * phase)}, s * 0.5f);
+    }
 }
 
 void Game::prepareContext(float dt) {
@@ -524,13 +635,26 @@ void Game::applyRequests() {
         std::string slot = std::move(pendingLoad_);
         pendingLoad_.clear();
         pendingScene_.clear();   // loading a save wins over a scene change asked for in the same update
+        if (loader_.busy()) {      // ... and over one still loading
+            Scene discarded;
+            std::string ignored;
+            if (meshLib_ && texLib_) loader_.finish(discarded, *meshLib_, *texLib_, ignored);
+            loadingScene_.clear();
+        }
+        for (Chunk& c : chunks_) c.cancelled = true;
         if (loadGame(slot, error)) ctx_.log("Loaded '" + slot + "'");
         else ctx_.log("Load failed: " + error);
     } else if (!pendingScene_.empty()) {
         std::string path = std::move(pendingScene_);
         pendingScene_.clear();
-        if (!changeScene(path, error)) ctx_.log("loadScene: " + error);
+        if (async_ && meshLib_ && texLib_) {
+            loader_.start(project::resolve(path));
+            loadingScene_ = path;
+        } else if (!changeScene(path, error)) {
+            ctx_.log("loadScene: " + error);
+        }
     }
+    if (!async_ && running()) pollLoads(true);   // streaming: done within the update that asked
 }
 
 bool Game::changeScene(const std::string& path, std::string& error) {

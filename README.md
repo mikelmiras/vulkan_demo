@@ -385,6 +385,7 @@ Behaviours are C++ classes attached to entities as components (Inspector > Add c
 | Destructible     | Destroyed after enough hits, optionally leaving a prefab behind              |
 | Spawner          | Spawns a prefab every few seconds (with a little random spread), up to a maximum alive at once |
 | SceneExit        | Goes to another scene when the collector touches its trigger collider        |
+| StreamingZone    | Streams a scene in around it while the player is near, out when it leaves    |
 | SaveLoadKeys     | Quicksave / quickload on the `quicksave` (F5) / `quickload` (F9) actions      |
 | HudText          | Text over the game view; `{key}` shows a game state value ("Score: {score}")  |
 | HudBar           | A bar showing a game state number out of a maximum                           |
@@ -446,6 +447,26 @@ Save games go to the user's data folder (`~/.local/share/vkworld/<project>/saves
 (entities, behaviours' fields, rigid-body velocities) and each behaviour's **runtime state**: what a behaviour
 builds up while playing goes in an optional `state(FieldVisitor&)` next to `fields()`, and is restored after
 `start()` when a save is loaded. In the editor, Stop still restores the scene you were editing.
+
+### Loading and streaming
+
+In vkgame and the editor's play mode, `loadScene()` reads the next scene on a **worker thread**: the file is
+parsed and its models and images decoded there, into asset libraries of its own, then merged into the game's
+(reusing what's already loaded). Meanwhile the current scene stays on screen, frozen, under a loading screen
+(a spinner; `ctx.showLoadingScreen(false)` and `ctx.loading()` let the game draw its own). `Game::setAsyncLoading`
+switches this on; without it (tests, tools) loads happen within the update.
+
+Big worlds can come in pieces: **streaming** adds another scene file's entities to the running scene, under a
+new root placed anywhere, and takes them out again:
+
+```cpp
+EntityId part = ctx.streamIn("scenes/castle.vkw", {200, 0, 0});   // in the background; its behaviours start()
+if (ctx.streamedIn(part)) { /* it's there */ }
+ctx.streamOut(part);                                               // removed (or the load cancelled)
+```
+
+The built-in **StreamingZone** does it by distance: its scene comes in where the zone is while the player is
+within its radius, and goes again once the player is a margin further away.
 
 ### Game UI
 

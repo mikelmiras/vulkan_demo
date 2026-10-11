@@ -518,6 +518,36 @@ struct SceneExit : BehaviourBase<SceneExit> {
     }
 };
 
+// Streams a scene file in (placed where this entity is) while the collector is within `radius`, and out again
+// once it's `margin` further away: big worlds in pieces
+struct StreamingZone : BehaviourBase<StreamingZone> {
+    static constexpr const char* kTypeName = "StreamingZone";
+    std::string scene;
+    std::string collector = "Player";
+    float radius = 40.f;
+    float margin = 10.f;
+    EntityId chunk = kNoEntity;   // runtime: the streamed-in part's root
+    void fields(FieldVisitor& v) override {
+        v.field("scene", scene, FieldRef::Scene);
+        v.field("collector", collector, FieldRef::Entity);
+        v.field("radius", radius, 0.5f, 0.f, 100000.f);
+        v.field("margin", margin, 0.5f, 0.f, 100000.f);
+    }
+    void state(FieldVisitor& v) override { v.field("chunk", chunk); }
+    void update(GameContext& ctx, Entity& self) override {
+        Entity* c = ctx.find(collector);
+        if (!c || scene.empty()) return;
+        Vec3 here = ctx.worldPosition(self.id);
+        float d = length(ctx.worldPosition(c->id) - here);
+        if (chunk == kNoEntity && d < radius) {
+            chunk = ctx.streamIn(scene, here);
+        } else if (chunk != kNoEntity && d > radius + margin) {
+            ctx.streamOut(chunk);
+            chunk = kNoEntity;
+        }
+    }
+};
+
 struct SaveLoadKeys : BehaviourBase<SaveLoadKeys> {
     static constexpr const char* kTypeName = "SaveLoadKeys";
     std::string slot = "quicksave";
@@ -639,6 +669,7 @@ void registerBuiltinBehaviours() {
     registerBehaviour<Destructible>("Destroyed after enough hits, optionally leaving a prefab behind");
     registerBehaviour<Spawner>("Spawns a prefab every few seconds, up to a maximum alive at once");
     registerBehaviour<SceneExit>("Goes to another scene when the collector touches its trigger collider");
+    registerBehaviour<StreamingZone>("Streams a scene in around it while the collector is near, and out when it leaves");
     registerBehaviour<SaveLoadKeys>("Saves the game on the save action (F5) and loads it on the load action (F9)");
     registerBehaviour<HudText>("Text over the game view; {key} shows a game state value (\"Score: {score}\")");
     registerBehaviour<HudBar>("A bar over the game view showing a game state number out of a maximum");

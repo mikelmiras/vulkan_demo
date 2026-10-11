@@ -216,6 +216,7 @@ void Editor::startPlay() {
     editSelected_ = selected_;
     nav_ = Nav::None;
     game_.setAssetLibraries(meshes_, textures_);
+    game_.setAsyncLoading(true);   // scene changes load in the background, behind a loading screen
     game_.setScenePath(scenePath_);
     game_.setSaveDirectory(project::saveDir(project_.name));
     game_.start(scene_, meshes_);

@@ -123,6 +123,7 @@ int main(int argc, char** argv) {
     Game game;
     game.setAudio(&audio);
     game.setAssetLibraries(meshes, textures);
+    game.setAsyncLoading(true);   // scene changes load in the background, behind a loading screen
     game.setScenePath(path.empty() ? "" : project::toStored(path));
     game.setSaveDirectory(project::saveDir(settings.name.empty() ? "Untitled" : settings.name));
     game.start(scene, meshes);
