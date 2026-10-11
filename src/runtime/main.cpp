@@ -1,6 +1,6 @@
 // The standalone game: plays a scene without the editor.
 //
-//   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--screenshot out.png [--frames N]]
+//   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--screenshot out.png [--frames N]]
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
 // directory or the executable's folder), then scene.vkw in those folders, and falls back to the built-in demo. The mouse is captured for the game: Esc releases it, a click takes it back.
@@ -98,6 +98,15 @@ int main(int argc, char** argv) {
     if (vfs::mount(platform::executablePath(), platform::executableDir()) ||
         vfs::mount(platform::executableDir() / "game.pak", platform::executableDir()))
         std::printf("Playing from a pack\n");
+    std::string language;   // --language es: play in another language (strings/es.json) than the project's
+    {
+        int out = 1;
+        for (int i = 1; i < argc; ++i) {
+            if (!std::strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
+            else argv[out++] = argv[i];
+        }
+        argc = out;
+    }
     GameModule module;   // declared before the scene: outlives the behaviours it made
     Scene scene;
     bool stress = argc > 1 && !std::strcmp(argv[1], "--stress");
@@ -136,6 +145,7 @@ int main(int argc, char** argv) {
     Game game;
     game.setAudio(&audio);
     game.setAssetLibraries(meshes, textures);
+    game.setLanguage(language.empty() ? settings.language : language);
     game.setAsyncLoading(true);   // scene changes load in the background, behind a loading screen
     game.setScenePath(path.empty() ? "" : project::toStored(path));
     game.setSaveDirectory(project::saveDir(settings.name.empty() ? "Untitled" : settings.name));

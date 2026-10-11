@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "game/fonts.h"
+
 void GameUI::begin(ImDrawList* dl, float x, float y, float w, float h, bool mouse) {
     dl_ = dl;
     x0_ = x;
@@ -31,18 +33,18 @@ void GameUI::border(float x, float y, float w, float h, Color color, float thick
     if (dl_) dl_->AddRect(toScreen(x, y), toScreen(x + w, y + h), rgba(color), rounding * scale_, 0, thickness * scale_);
 }
 
-float GameUI::textWidth(const std::string& text, float size) const {
-    ImFont* font = ImGui::GetFont();
+float GameUI::textWidth(const std::string& text, float size, const std::string& fontFile) const {
+    ImFont* font = gamefonts::font(fontFile);
     if (!font) return 0.f;
     return font->CalcTextSizeA(size * scale_, FLT_MAX, 0.f, text.c_str()).x / scale_;
 }
 
-void GameUI::text(float x, float y, const std::string& text, float size, Color color, Align align) {
+void GameUI::text(float x, float y, const std::string& text, float size, Color color, Align align, const std::string& fontFile) {
     if (!dl_ || text.empty()) return;
-    float w = textWidth(text, size);
+    float w = textWidth(text, size, fontFile);
     if (align == Align::Center) x -= w * 0.5f;
     else if (align == Align::Right) x -= w;
-    ImFont* font = ImGui::GetFont();
+    ImFont* font = gamefonts::font(fontFile);
     float px = size * scale_, off = std::max(1.f, size * 0.06f) * scale_;
     ImVec2 p = toScreen(x, y);
     dl_->AddText(font, px, ImVec2(p.x + off, p.y + off), rgba({0.f, 0.f, 0.f, color.a * 0.6f}), text.c_str());

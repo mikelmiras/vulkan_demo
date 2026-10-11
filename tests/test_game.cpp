@@ -1,6 +1,9 @@
 // game/: fixed-step loop, input actions, behaviours
 #include "test.h"
 
+#include <fstream>
+
+#include "core/project.h"
 #include "game/game.h"
 #include "scene/serialization.h"
 #include "imgui.h"
@@ -322,4 +325,45 @@ TEST(game_render_interpolation) {
     g.setInterpolation(true);
     g.setPaused(true);   // paused: the latest state, not a blend
     CHECK_NEAR(g.worldMatrices()[0].m[12], 1.0, 1e-6);
+}
+
+// String tables: nested keys, English under the language, fallbacks, {@key} in text, switching languages
+TEST(strings_tables_and_translation) {
+    StringTable t;
+    REQUIRE(t.loadJson(R"({"menu": {"resume": "Reanudar"}, "hud.score": "Puntos", "title": "¡Hola, señor!"})",
+                       R"({"menu": {"resume": "Resume", "quit": "Quit"}, "hud.score": "Score"})"));
+    CHECK(t.get("menu.resume") == "Reanudar");
+    CHECK(t.get("menu.quit") == "Quit");                 // English fills the gap
+    CHECK(t.get("missing", "Fallback") == "Fallback");
+    CHECK(t.get("missing") == "missing");
+    CHECK(t.get("title") == "¡Hola, señor!");            // UTF-8 as is
+    CHECK(t.translate("{@hud.score}: 10 ({@menu.quit})") == "Puntos: 10 (Quit)");
+    CHECK(t.translate("no keys {here}") == "no keys {here}");
+
+    // In a game: the project's tables, ctx.text / ctx.format, and changing language while playing
+    auto root = test::tempPath("strings_project");
+    std::filesystem::create_directories(root / "strings");
+    std::ofstream(root / "strings" / "en.json") << R"({"hello": "Hello", "count": "Coins"})";
+    std::ofstream(root / "strings" / "es.json") << R"({"hello": "Hola"})";
+    std::filesystem::path before = project::root();
+    project::setRoot(root);
+    CHECK(StringTable::languages(root) == std::vector<std::string>({"en", "es"}));
+    test::ImGuiContextGuard imgui;
+    Scene s;
+    s.create("Thing");
+    Game g;
+    g.setLanguage("es");
+    g.start(s, meshes());
+    GameContext& ctx = g.context();
+    CHECK(ctx.language() == "es");
+    CHECK(ctx.text("hello") == "Hola");
+    ctx.state().setNumber("coins", 3);
+    CHECK(ctx.format("{@hello}! {@count}: {coins}") == "Hola! Coins: 3");
+    ctx.setLanguage("en");
+    CHECK(ctx.text("hello") == "Hello");
+    ctx.setLanguage("fr");   // no table of its own: English, then the fallbacks
+    CHECK(ctx.language() == "fr");
+    CHECK(ctx.text("hello", "Bonjour") == "Hello");
+    CHECK(ctx.text("only.here", "Bonjour") == "Bonjour");
+    project::setRoot(before);
 }

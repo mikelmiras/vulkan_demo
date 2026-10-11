@@ -18,6 +18,7 @@
 #include "game/input.h"
 #include "game/navigation.h"
 #include "game/scene_loader.h"
+#include "game/strings.h"
 #include "game/particles.h"
 #include "game/ui.h"
 #include "physics/physics.h"
@@ -154,6 +155,13 @@ public:
     void stopMusic(float fadeSeconds = 1.f);
     // The mixer's buses ("effects", "music", "ui", "ambience"): a volume, or lowered for a while (under a voice line)
     void setBusVolume(const std::string& bus, float volume);
+
+    // Text in the player's language (game/strings.h): a key's text (or `fallback`), text with {@key}s and
+    // {state values} filled in, and the language (loads strings/<language>.json)
+    std::string text(const std::string& key, const std::string& fallback = "") const;
+    std::string format(const std::string& text) const;
+    void setLanguage(const std::string& language);
+    const std::string& language() const;
     void duck(const std::string& bus, float volume, float seconds);
 
     // Particles: a burst from the entity's ParticleEmitter (`count`, or its burst size), or any look anywhere
@@ -235,6 +243,10 @@ public:
     // Scene changes and streaming load on a worker thread (off by default: everything happens within the update
     // that asked, which keeps tests and tools deterministic). Needs setAssetLibraries().
     void setAsyncLoading(bool on) { async_ = on; }
+    // The language the game starts in (strings/<language>.json in the project); ctx.setLanguage changes it
+    void setLanguage(const std::string& language);
+    const StringTable& strings() const { return strings_; }
+    GameContext& context() { return ctx_; }   // what behaviours get (for hosts and tests)
     bool loading() const { return loader_.busy(); }
     void finishLoading();   // waits for loads in progress and applies them
     float loadingProgress() const { return loader_.progress(); }
@@ -303,6 +315,8 @@ private:
     InputMap input_;
     Physics physics_;   // (Jolt) bodies persist between updates: made again on a new scene
     ParticleSystem particles_;
+    StringTable strings_;
+    bool stringsLoaded_ = false;
     NavGrid nav_;
     bool navBaked_ = false;                            // nav_ is up to date (or navJob_ will make it so)
     std::future<std::shared_ptr<NavGrid>> navJob_;     // a bake on a worker thread, started with the scene

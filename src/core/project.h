@@ -18,6 +18,7 @@ struct Settings {
     // "{engineBuild}" stands for the editor's own build folder (for projects built along with the engine).
     std::string moduleBuild;
     std::string icon;   // the game's icon: a PNG in the project (window icon; exported games' desktop entries)
+    std::string language = "en";   // the strings/<language>.json the game starts with (see game/strings.h)
 };
 
 void setRoot(const std::filesystem::path& root);

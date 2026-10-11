@@ -145,7 +145,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 27 (done) | Audio: streamed music (decoded as it plays), mixer buses with volumes (music / effects / UI) and ducking, reverb zones, Doppler | Every sound is decoded whole up front; there is one volume |
 | 28 (done) | Editor: multi-selection with group transforms, nested prefabs / prefab variants, asset thumbnails, dockable panels | One entity at a time; prefabs can't contain prefabs; fixed panel layout |
 | 29 (done) | Profiling and diagnostics: a frame profiler (CPU scopes per system, GPU timestamps) in the editor and as an overlay, log to file, crash-safe editor autosave | Performance work relies on engine_bench; a crash loses unsaved edits |
-| 30 | Text and localisation: UTF-8 text with font assets at several sizes, string tables per language, the game's UI and HudText using them | GameUI has one built-in font, ASCII only |
+| 30 (done) | Text and localisation: UTF-8 text with font assets at several sizes, string tables per language, the game's UI and HudText using them | GameUI has one built-in font, ASCII only |
 | 31 | Shipping polish: window / executable icons (Windows resources, macOS icns), compressed packs, a Windows / macOS export smoke test in CI | Left over from task 16; exports are only run-tested on Linux |
 
 ### Round 3 notes
@@ -238,4 +238,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
   file; "unsaved" in the status bar. Also: shadow pipelines take an attribute mask (no unused normal input: the
   last validation warning). Not done: GPU scopes inside passes, a capture-to-file / chrome://tracing export,
   crash dumps / stack traces.
+- Task 30: game/fonts (Roboto-Medium embedded via cmake/embed_file.cmake; project TTF / OTF loaded through the
+  VFS; fonts are added between frames: font() queues, Application::beginFrame calls loadPending before NewFrame;
+  per ImGui atlas, so test contexts start clean). Dear ImGui 1.92's dynamic atlas rasterises glyphs on demand: no
+  glyph ranges. GameUI::text / textWidth take a font. game/strings (StringTable: strings/<lang>.json flattened to
+  dotted keys, English underneath, get with fallback, {@key} translate, languages()). Game::setLanguage,
+  GameContext text / format / setLanguage / language, Game::context(); project.json "language"; vkgame
+  --language; editor Game > Language. HudText (font field), HudBar and PauseMenu translate; the sample game has
+  en / es tables and translated HUD texts. Module API 21. Not done: right-to-left and complex shaping (no
+  HarfBuzz), plural rules, a string editor in the editor, fonts for the editor's own UI.
 

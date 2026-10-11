@@ -1,5 +1,6 @@
 // Editor panels: menu bar, toolbar, status bar, help, dialogs and the input bindings window.
 #include "editor/editor.h"
+#include "game/strings.h"
 
 #include <cctype>
 #include <cfloat>
@@ -99,6 +100,19 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem("Pause", "Ctrl+Shift+P", playing() && game_.paused(), playing())) togglePause();
         if (ImGui::MenuItem("Step one tick", nullptr, false, playing() && game_.paused())) game_.step();
         ImGui::Separator();
+        if (ImGui::BeginMenu("Language")) {   // the project's: what the game starts in (strings/<language>.json)
+            std::vector<std::string> langs = StringTable::languages(project::root());
+            if (langs.empty()) ImGui::TextDisabled("No string tables (strings/<language>.json)");
+            for (const std::string& l : langs)
+                if (ImGui::MenuItem(l.c_str(), nullptr, project_.language == l)) {
+                    project_.language = l;
+                    std::string error;
+                    if (project::exists(project::root()) && !project::save(project::root(), project_, error))
+                        setStatus("Can't save project.json: " + error);
+                    else setStatus("The game starts in " + l + " (Play to try it)");
+                }
+            ImGui::EndMenu();
+        }
         ImGui::MenuItem("Maximize viewport on play", nullptr, &maximizeOnPlay_);
         ImGui::MenuItem("Capture mouse on click", nullptr, &captureOnClick_);
         ImGui::Separator();

@@ -1,0 +1,19 @@
+{
+  "hud": {
+    "level": "Nivel",
+    "score": "Puntos",
+    "keys": "F5 guardar   F9 cargar   P pausa"
+  },
+  "pause": {
+    "resume": "Continuar",
+    "save": "Guardar",
+    "load": "Cargar",
+    "noSave": "Cargar (sin partida)",
+    "quit": "Salir"
+  },
+  "game": {
+    "paused": "En pausa",
+    "complete": "¡Nivel completado!",
+    "won": "¡Has ganado!"
+  }
+}

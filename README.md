@@ -572,6 +572,30 @@ void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
 `ctx.input().pressedThisFrame("action")` reads actions per rendered frame for UI code. Hiding an entity hides
 its UI. For HUDs without code there are the HudText, HudBar and PauseMenu behaviours.
 
+Text is UTF-8, drawn in Roboto (compiled in) at any size, or in a font of the game's own:
+`ui.text(x, y, "¡Hola!", 48, {}, GameUI::Align::Left, "fonts/Title.ttf")` (HudText has a Font field). Glyphs are
+made as they're first used, so any script the font covers works.
+
+### Languages
+
+Games speak several languages through **string tables**: `strings/<language>.json` in the project, keys to text
+(nested objects make dotted keys). A key missing in a language comes from `en.json`, then from the fallback the
+code gives:
+
+```json
+{ "hud": { "score": "Puntos" }, "pause": { "resume": "Continuar" } }
+```
+
+```cpp
+ui.text(40, 30, ctx.format("{@hud.score}: {score}"), 48);   // {@key}: the string; {key}: a game state value
+ui.button(x, y, w, h, ctx.text("pause.resume", "Resume"));
+ctx.setLanguage("es");                                       // switch while playing
+```
+
+HudText, HudBar and PauseMenu translate `{@key}`s (the pause menu's buttons use `pause.resume`, `pause.save`,
+`pause.load`, `pause.quit`). The project's language (project.json `"language"`, Game > Language in the editor) is
+what the game starts in; `vkgame --language es` overrides it. The sample game has English and Spanish.
+
 ### Game modules: a project's own code
 
 A game's behaviours don't go into the engine: they live in the project, built as a **game module** (a shared

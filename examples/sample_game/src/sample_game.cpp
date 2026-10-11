@@ -37,7 +37,7 @@ struct ScoreKeeper : BehaviourBase<ScoreKeeper> {
         if (wonAt < 0.f || shown > 3.f) return;
         float alpha = std::min(1.f, 3.f - shown);
         ui.rect(0.f, 380.f, ui.width(), 200.f, {0.05f, 0.05f, 0.1f, 0.6f * alpha});
-        ui.text(ui.width() * 0.5f, 420.f, nextScene.empty() ? "You win!" : "Level complete!", 110.f,
+        ui.text(ui.width() * 0.5f, 420.f, nextScene.empty() ? ctx.text("game.won", "You win!") : ctx.text("game.complete", "Level complete!"), 110.f,
                 {1.f, 0.85f, 0.3f, alpha}, GameUI::Align::Center);
     }
     void update(GameContext& ctx, Entity&) override {

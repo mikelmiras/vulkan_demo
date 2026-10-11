@@ -27,8 +27,10 @@ public:
     void border(float x, float y, float w, float h, Color color, float thickness = 3.f, float rounding = 0.f);
     // `y` is the top of the text; with Align::Center, `x` is its middle (Right: its right end). A soft shadow keeps
     // it readable over the scene.
-    void text(float x, float y, const std::string& text, float size = 36.f, Color color = {}, Align align = Align::Left);
-    float textWidth(const std::string& text, float size = 36.f) const;
+    // UTF-8, in the game's font (Roboto) or `font`: a TTF / OTF file in the project (game/fonts.h)
+    void text(float x, float y, const std::string& text, float size = 36.f, Color color = {}, Align align = Align::Left,
+              const std::string& font = "");
+    float textWidth(const std::string& text, float size = 36.f, const std::string& font = "") const;
     // A bar filled to `fraction` (0..1) from the left
     void bar(float x, float y, float w, float h, float fraction, Color fill, Color back = {0.f, 0.f, 0.f, 0.5f});
     // A texture by name (a built-in like "Checker", or an image file, relative to the project)

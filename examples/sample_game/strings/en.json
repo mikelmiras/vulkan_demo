@@ -1,0 +1,19 @@
+{
+  "hud": {
+    "level": "Level",
+    "score": "Score",
+    "keys": "F5 save   F9 load   P pause"
+  },
+  "pause": {
+    "resume": "Resume",
+    "save": "Save",
+    "load": "Load",
+    "noSave": "Load (no save yet)",
+    "quit": "Quit"
+  },
+  "game": {
+    "paused": "Paused",
+    "complete": "Level complete!",
+    "won": "You win!"
+  }
+}

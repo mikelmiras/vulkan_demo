@@ -65,7 +65,19 @@ endif()
 # Engine: everything a game needs at runtime (platform, rendering, assets, scene, game loop). A shared library, so
 # game modules (project code loaded at run time, see game/module.h) use the same engine as the editor and vkgame.
 # With VKWORLD_STANDALONE_GAMES it's also built as a static library, for games compiled into one executable.
+# The game UI's default font (Roboto Medium, Apache 2.0, from Dear ImGui's misc/fonts), compiled in
+set(DEFAULT_FONT_SOURCE ${CMAKE_BINARY_DIR}/generated/default_font.cpp)
+add_custom_command(
+  OUTPUT ${DEFAULT_FONT_SOURCE}
+  COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf
+          -DOUTPUT=${DEFAULT_FONT_SOURCE} -DSYMBOL=kDefaultGameFont -P ${CMAKE_SOURCE_DIR}/cmake/embed_file.cmake
+  DEPENDS ${CMAKE_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf ${CMAKE_SOURCE_DIR}/cmake/embed_file.cmake
+  COMMENT "Embedding the default game font")
+
 set(ENGINE_SOURCES
+  ${DEFAULT_FONT_SOURCE}
+  src/game/fonts.cpp
+  src/game/strings.cpp
   src/core/json.cpp
   src/core/png.cpp
   src/core/project.cpp

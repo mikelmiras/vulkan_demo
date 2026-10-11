@@ -97,6 +97,7 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     s.module = doc["module"].asString();
     s.moduleBuild = doc["moduleBuild"].asString();
     s.icon = doc["icon"].asString();
+    if (!doc["language"].asString().empty()) s.language = doc["language"].asString();
     out = s;
     return true;
 }
@@ -110,6 +111,7 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     if (!settings.module.empty()) doc.set("module", settings.module);
     if (!settings.moduleBuild.empty()) doc.set("moduleBuild", settings.moduleBuild);
     if (!settings.icon.empty()) doc.set("icon", settings.icon);
+    if (settings.language != "en") doc.set("language", settings.language);
     std::ofstream f(dir / "project.json", std::ios::binary);
     if (!f) { error = "cannot write " + (dir / "project.json").u8string(); return false; }
     f << json::write(doc);

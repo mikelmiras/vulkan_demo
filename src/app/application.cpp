@@ -1,5 +1,6 @@
 #include "app/application.h"
 #include "core/profiler.h"
+#include "game/fonts.h"
 
 #include <algorithm>
 #include <chrono>
@@ -110,6 +111,7 @@ bool Application::beginFrame(float& dt) {
         }
         profiler::endFrame();   // (the previous one)
         profiler::beginFrame();
+        gamefonts::loadPending();   // (fonts the game asked for last frame: they can only be added between frames)
         ImGui_ImplVulkan_NewFrame();
         platform::imguiNewFrame(dt);
         ImGui::NewFrame();

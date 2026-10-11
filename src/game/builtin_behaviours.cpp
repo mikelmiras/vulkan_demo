@@ -647,11 +647,12 @@ namespace {
 
 struct HudText : BehaviourBase<HudText> {
     static constexpr const char* kTypeName = "HudText";
-    std::string text = "Score: {score}";   // {key} shows the game state's value
+    std::string text = "Score: {score}";   // {key} shows the game state's value, {@key} a string table's text
     float x = 0.03f, y = 0.03f;            // position as a fraction of the game view (0..1)
     float size = 40.f;                     // canvas units: 1080 = the view's height
     int align = 0;                         // left, center, right (GameUI::Align)
     Vec3 color{1.f, 1.f, 1.f};
+    std::string font;                      // a TTF / OTF in the project ("": the game's default)
     void fields(FieldVisitor& v) override {
         v.field("text", text);
         v.field("x", x, 0.005f, 0.f, 1.f);
@@ -659,9 +660,11 @@ struct HudText : BehaviourBase<HudText> {
         v.field("size", size, 0.5f, 4.f, 400.f);
         v.field("align", align, {"left", "center", "right"});
         v.field("color", color, 0.01f);
+        v.field("font", font);
     }
     void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
-        ui.text(x * ui.width(), y * ui.height(), ctx.state().format(text), size, {color.x, color.y, color.z, 1.f}, (GameUI::Align)align);
+        ui.text(x * ui.width(), y * ui.height(), ctx.format(text), size, {color.x, color.y, color.z, 1.f},
+                (GameUI::Align)align, font);
     }
 };
 
@@ -685,7 +688,7 @@ struct HudBar : BehaviourBase<HudBar> {
     void drawUI(GameContext& ctx, Entity&, GameUI& ui) override {
         float bx = x * ui.width(), by = y * ui.height(), bw = w * ui.width(), bh = h * ui.height();
         ui.bar(bx, by, bw, bh, max > 0.f ? ctx.state().number(value) / max : 0.f, {color.x, color.y, color.z, 0.95f});
-        if (!label.empty()) ui.text(bx + bw * 0.5f, by + bh * 0.12f, ctx.state().format(label), bh * 0.75f, {}, GameUI::Align::Center);
+        if (!label.empty()) ui.text(bx + bw * 0.5f, by + bh * 0.12f, ctx.format(label), bh * 0.75f, {}, GameUI::Align::Center);
     }
 };
 
@@ -710,17 +713,20 @@ struct PauseMenu : BehaviourBase<PauseMenu> {
         ui.showCursor();
         float cx = ui.width() * 0.5f, w = 420.f, h = 72.f, gap = 22.f, top = 330.f;
         ui.rect(0.f, 0.f, ui.width(), ui.height(), {0.f, 0.f, 0.f, 0.55f});
-        ui.text(cx, top - 130.f, title, 84.f, {}, GameUI::Align::Center);
-        auto item = [&](int row, const char* label) { return ui.button(cx - w * 0.5f, top + row * (h + gap), w, h, label, 38.f); };
-        if (item(0, "Resume")) { open = false; ctx.setPaused(false); }
-        if (item(1, "Save")) ctx.saveGame(slot);
+        ui.text(cx, top - 130.f, ctx.format(title), 84.f, {}, GameUI::Align::Center);
+        // (labels from the string tables when the game has them: pause.resume, pause.save, ...)
+        auto item = [&](int row, const std::string& label) {
+            return ui.button(cx - w * 0.5f, top + row * (h + gap), w, h, label, 38.f);
+        };
+        if (item(0, ctx.text("pause.resume", "Resume"))) { open = false; ctx.setPaused(false); }
+        if (item(1, ctx.text("pause.save", "Save"))) ctx.saveGame(slot);
         bool canLoad = ctx.hasSaveGame(slot);
-        if (item(2, canLoad ? "Load" : "Load (no save yet)") && canLoad) {
+        if (item(2, canLoad ? ctx.text("pause.load", "Load") : ctx.text("pause.noSave", "Load (no save yet)")) && canLoad) {
             open = false;
             ctx.setPaused(false);
             ctx.loadGame(slot);
         }
-        if (item(3, "Quit")) ctx.quit();
+        if (item(3, ctx.text("pause.quit", "Quit"))) ctx.quit();
     }
 };
 

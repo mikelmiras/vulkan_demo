@@ -179,6 +179,22 @@ Sequence& Sequence::then(std::function<void(GameContext&)> step) {
 
 void GameContext::setRagdoll(EntityId root, bool limp) { setRagdollLimp(*scene_, root, limp); }
 
+std::string GameContext::text(const std::string& key, const std::string& fallback) const {
+    return game_->strings_.get(key, fallback);
+}
+
+std::string GameContext::format(const std::string& text) const {
+    return game_->state_.format(game_->strings_.translate(text));
+}
+
+void GameContext::setLanguage(const std::string& language) { game_->setLanguage(language); }
+const std::string& GameContext::language() const { return game_->strings_.language(); }
+
+void Game::setLanguage(const std::string& language) {
+    if (!strings_.load(project::root(), language)) strings_.loadJson("");   // (no tables: keys show their fallbacks)
+    stringsLoaded_ = true;
+}
+
 bool GameContext::loading() const { return game_->loading(); }
 void GameContext::showLoadingScreen(bool show) { game_->loadingScreen_ = show; }
 
@@ -346,6 +362,7 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     pendingSave_.clear();
     pendingLoad_.clear();
     quit_ = false;
+    if (!stringsLoaded_) setLanguage("en");
     begin();
     applyRequests();   // a scene may move on right away (a splash screen, say)
 }

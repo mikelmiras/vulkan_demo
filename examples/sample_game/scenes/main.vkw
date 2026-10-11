@@ -124,7 +124,7 @@
         },
         {
           "type": "HudText",
-          "text": "Level {level}     Score {score} / {target}",
+          "text": "{@hud.level} {level}     {@hud.score} {score} / {target}",
           "x": 0.03,
           "y": 0.035,
           "size": 46,
@@ -144,7 +144,7 @@
         },
         {
           "type": "HudText",
-          "text": "F5 save   F9 load   P pause",
+          "text": "{@hud.keys}",
           "x": 0.97,
           "y": 0.035,
           "size": 30,
@@ -154,7 +154,7 @@
         {
           "type": "PauseMenu",
           "action": "pause",
-          "title": "Paused",
+          "title": "{@game.paused}",
           "slot": "quicksave"
         }
       ]
