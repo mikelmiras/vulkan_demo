@@ -12,11 +12,10 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
     std::unordered_map<EntityId, std::unordered_map<std::string, EntityId>> skeletons;   // model root -> names
     for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i) {
         const Entity& e = scene.entities[i];
-        if (e.terrain && e.terrain->mesh >= 0 && (!meshes || e.terrain->mesh < meshes->count()) &&
-            scene.visibleInHierarchy(e.id)) {   // (its mesh comes from terrain::syncMeshes)
+        if (e.terrain && !e.terrain->meshes.empty() && scene.visibleInHierarchy(e.id)) {   // (from terrain::syncMeshes)
             DrawItem d;
             d.model = worlds[i];
-            d.mesh = e.terrain->mesh;
+            d.mesh = e.terrain->meshes[0];
             d.terrain = true;
             d.roughness = 0.9f;
             d.outlined = (e.id == outlined && outlined != kNoEntity) ||
@@ -35,7 +34,11 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
                 d.terrainLayers = (int)joints->size();
                 joints->push_back(layers);
             }
-            items.push_back(d);
+            for (int chunk : e.terrain->meshes) {   // a draw per chunk: culled and given a level of detail on its own
+                if (meshes && (chunk < 0 || chunk >= meshes->count())) continue;
+                d.mesh = chunk;
+                items.push_back(d);
+            }
         }
         if (!e.meshRenderer || !scene.visibleInHierarchy(e.id)) continue;
         DrawItem d;
@@ -77,6 +80,38 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
         items.push_back(d);
     }
     return items;
+}
+
+std::vector<PlantSet> collectPlants(const Scene& scene, const std::vector<Mat4>& worlds, const MeshLibrary& meshes) {
+    std::vector<PlantSet> sets;
+    for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i) {
+        const Entity& e = scene.entities[i];
+        if (!e.terrain || e.terrain->plants.empty() || !scene.visibleInHierarchy(e.id)) continue;
+        const Terrain& t = *e.terrain;
+        PlantSet s;
+        s.key = t.plantRevision ^ ((uint64_t)e.id << 40);
+        s.plants = &t.plants[0].pos[0];
+        s.count = t.plants.size();
+        s.model = worlds[i];
+        for (const Terrain::PlantRange& r : t.plantRanges) {
+            if (r.layer < 0 || r.layer >= (int)t.foliage.size()) continue;
+            const Terrain::Foliage& f = t.foliage[(size_t)r.layer];
+            PlantSet::Range out;
+            out.mesh = meshes.find(f.mesh);
+            if (out.mesh < 0) continue;
+            out.first = r.first;
+            out.count = r.count;
+            out.lo = r.lo;
+            out.hi = r.hi;
+            out.color = f.color;
+            out.wind = f.wind;
+            out.fade = f.fadeDistance;
+            out.maxScale = std::max(f.maxScale, f.minScale);
+            s.ranges.push_back(out);
+        }
+        sets.push_back(std::move(s));
+    }
+    return sets;
 }
 
 std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>& worlds) {

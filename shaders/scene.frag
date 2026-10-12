@@ -33,6 +33,7 @@ layout(location = 4) flat in vec4 vParams;
 layout(location = 5) flat in vec4 vMaterial;
 layout(location = 6) flat in vec4 vEmissive;
 layout(location = 7) in vec4 vSplat;
+layout(location = 8) in float vHole;
 
 layout(location = 0) out vec4 outColor;
 
@@ -212,6 +213,7 @@ void main() {
     vec3 base = vColor.rgb;
     float alpha = vColor.a;
     bool terrain = vParams.x > 1.5;
+    if (terrain && vHole > 0.001) discard;   // a hole in the ground
     if (terrain) {
         base = terrainColor();
     } else if (vParams.z > 0.5) {
@@ -239,7 +241,7 @@ void main() {
     }
 
     vec3 N = normalize(vNormal);
-    if (!gl_FrontFacing) N = -N;   // (two-sided surfaces)
+    if (!gl_FrontFacing && vParams.x > -0.5) N = -N;   // (two-sided surfaces; foliage keeps its normals)
     if (vMaterial.z > 0.0) N = perturbNormal(N, vMaterial.z);
     vec3 V = normalize(frame.camPos.xyz - vWorldPos);
     float NdotV = max(dot(N, V), 1e-4);

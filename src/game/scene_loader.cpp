@@ -41,7 +41,7 @@ void remapEntity(Entity& e, const std::vector<int>& meshMap, const std::vector<i
     }
     if (e.terrain) {
         for (Terrain::Layer& l : e.terrain->layers) tex(l.texture);
-        e.terrain->mesh = -1;   // (made in the library it's drawn from)
+        e.terrain->meshes.clear();   // (made in the library it's drawn from)
     }
     if (e.animator) {
         auto clip = [&](std::string& name) {

@@ -1,6 +1,10 @@
 // scene/terrain: heights, brushes, encoding, meshes, collision and navigation
 #include "test.h"
 
+#include <cstring>
+
+#include "core/json.h"
+#include "core/png.h"
 #include "game/navigation.h"
 #include "physics/physics.h"
 #include "scene/serialization.h"
@@ -126,27 +130,50 @@ TEST(terrain_meshes) {
     MeshLibrary lib = buildMeshLibrary();
     Scene s;
     Entity& e = s.create("T");
-    e.terrain = flat(64);
-    int meshes = lib.count();
+    e.terrain = flat(64);   // 63 cells: chunks of 32 and 31
+    int before = lib.count();
     terrain::syncMeshes(s, lib);
     Terrain& t = *s.findByName("T")->terrain;
-    REQUIRE(t.mesh == meshes);
-    CHECK(lib.get(t.mesh).indexCount == 63u * 63u * 6u);
-    CHECK(lib.count() == meshes + 1);
+    REQUIRE(t.meshes.size() == 4);
+    CHECK(lib.count() == before + 4);
+    const Mesh& first = lib.get(t.meshes[0]);
+    // Every chunk: its cells (two triangles each), skirts on four sides (both faces), two coarser levels; all over
+    // the same vertices
+    CHECK(first.indexCount == 32u * 32u * 6u + 4u * 32u * 12u);
+    CHECK(lib.get(t.meshes[3]).indexCount == 31u * 31u * 6u + 4u * 31u * 12u);
+    for (int id : t.meshes) {
+        const Mesh& m = lib.get(id);
+        CHECK(m.vertexOffset == first.vertexOffset);
+        REQUIRE(m.lods.size() == 2);
+        CHECK(m.lods[0].indexCount < m.indexCount / 3);
+        CHECK(m.lods[1].indexCount < m.lods[0].indexCount / 2);
+        uint32_t highest = 0;
+        for (uint32_t k = 0; k < m.indexCount; ++k) highest = std::max(highest, lib.indices[m.firstIndex + k]);
+        CHECK((size_t)m.vertexOffset + highest < lib.vertices.size());
+    }
     uint32_t version = lib.version;
     terrain::syncMeshes(s, lib);   // nothing changed
     CHECK(lib.version == version);
     terrain::BrushSettings b;
     terrain::applyBrush(t, b, {0, 0, 0}, 0.5f);
     terrain::syncMeshes(s, lib);
-    CHECK(lib.count() == meshes + 1 && t.mesh == meshes);   // the same mesh, rewritten
+    CHECK(lib.count() == before + 4);   // the same meshes, rewritten
     CHECK(lib.version != version && lib.rewriteSerial == 1);
-    CHECK(lib.get(t.mesh).boundsMax.y > 0.5f);
-    const Mesh& m = lib.get(t.mesh);
-    size_t centre = (size_t)m.vertexOffset + 32 * 64 + 32;
+    CHECK(lib.get(t.meshes[3]).boundsMax.y > 0.5f);   // (the centre is the corner of the four chunks)
+    size_t centre = (size_t)first.vertexOffset + 32 * 64 + 32;
     CHECK(lib.vertices[centre].pos.y > 0.5f);
     CHECK_NEAR(lib.skin[centre].weights[0], 1.f, 1e-6);
-    Entity copy = *s.findByName("T");   // a duplicate shares the mesh id at first
+    // A hole: its point flagged in the vertices, its chunk drawn at full detail only
+    b.mode = terrain::Brush::Holes;
+    b.radius = 2.f;
+    terrain::applyBrush(t, b, {-10.f, 0.f, -10.f}, 0.1f);
+    terrain::syncMeshes(s, lib);
+    CHECK(lib.get(t.meshes[0]).lods.empty());
+    CHECK(lib.get(t.meshes[3]).lods.size() == 2);
+    float cell = terrain::cellSize(t);
+    size_t holePoint = (size_t)std::lround((-10.f + 16.f) / cell) * 64 + (size_t)std::lround((-10.f + 16.f) / cell);
+    CHECK(lib.skin[(size_t)first.vertexOffset + holePoint].joints[0] == 1);
+    Entity copy = *s.findByName("T");   // a duplicate shares the mesh ids at first
     copy.id = 0;
     Entity& dup = s.create("T2");
     EntityId dupId = dup.id;
@@ -154,7 +181,130 @@ TEST(terrain_meshes) {
     dup.id = dupId;
     dup.name = "T2";
     terrain::syncMeshes(s, lib);
-    CHECK(s.findByName("T2")->terrain->mesh != s.findByName("T")->terrain->mesh);
+    CHECK(s.findByName("T2")->terrain->meshes[0] != s.findByName("T")->terrain->meshes[0]);
+}
+
+// Holes: cut with the brush, filled back; rays go through them, and so do things falling
+TEST(terrain_holes) {
+    Terrain t = flat(64, 32.f);
+    CHECK(!terrain::holeAt(t, 0.f, 0.f));
+    terrain::BrushSettings b;
+    b.mode = terrain::Brush::Holes;
+    b.radius = 3.f;
+    REQUIRE(terrain::applyBrush(t, b, {0, 0, 0}, 0.1f));
+    CHECK(terrain::holeAt(t, 0.f, 0.f));
+    CHECK(terrain::holeAt(t, 1.f, 0.5f));
+    CHECK(!terrain::holeAt(t, 6.f, 0.f));
+    float hit = 0.f;
+    CHECK(!terrain::raycast(t, {0.f, 5.f, 0.f}, {0, -1, 0}, 20.f, hit));   // straight through
+    REQUIRE(terrain::raycast(t, {6.f, 5.f, 0.f}, {0, -1, 0}, 20.f, hit));
+    CHECK_NEAR(hit, 5.0, 0.01);
+    // Collision: Jolt's height field has the same hole
+    MeshLibrary lib = buildMeshLibrary();
+    Scene s;
+    s.create("Ground").terrain = t;
+    Physics physics;
+    physics.step(s, lib, 0.f);
+    RaycastHit rh;
+    CHECK(!physics.raycast({0.f, 5.f, 0.f}, {0, -1, 0}, 20.f, rh));
+    CHECK(physics.raycast({6.f, 5.f, 0.f}, {0, -1, 0}, 20.f, rh));
+    // Filled back in
+    b.mode = terrain::Brush::Fill;
+    b.radius = 5.f;
+    terrain::applyBrush(t, b, {0, 0, 0}, 0.1f);
+    CHECK(!terrain::holeAt(t, 0.f, 0.f));
+    CHECK(terrain::raycast(t, {0.f, 5.f, 0.f}, {0, -1, 0}, 20.f, hit));
+}
+
+// Foliage: painted where it grows, scattered the same way every time, standing on the ground, never in holes
+TEST(terrain_foliage) {
+    Terrain t = flat(64, 32.f);
+    terrain::addNoise(t, 3.f, 10.f, 7);
+    t.foliage.emplace_back();
+    t.foliage[0].density = 4.f;
+    terrain::BrushSettings b;
+    b.mode = terrain::Brush::Foliage;
+    b.layer = 0;
+    b.radius = 6.f;
+    for (int i = 0; i < 40; ++i) terrain::applyBrush(t, b, {-8.f, 0.f, -8.f}, 0.05f);   // (fully painted in the middle)
+    terrain::scatterFoliage(t);
+    size_t count = t.plants.size();
+    CHECK(count > 100 && count < 4.f * 3.1416f * 36.f * 1.2f);   // up to 4 per m2 over the brush's disc
+    for (const Terrain::Plant& p : t.plants) {
+        CHECK(length(Vec3{p.pos[0] + 8.f, 0.f, p.pos[2] + 8.f}) < 6.f + terrain::cellSize(t) * 1.5f);
+        CHECK_NEAR(p.pos[1], terrain::heightAt(t, p.pos[0], p.pos[2]), 1e-4);
+        CHECK(p.scale >= 0.7f - 1e-5f && p.scale <= 1.3f + 1e-5f);
+    }
+    uint32_t inRanges = 0;
+    for (const Terrain::PlantRange& r : t.plantRanges) {
+        inRanges += r.count;
+        CHECK(r.layer == 0);
+        for (uint32_t k = r.first; k < r.first + r.count; ++k) {   // (each range's box holds its plants)
+            CHECK(t.plants[k].pos[0] >= r.lo.x - 1e-4f && t.plants[k].pos[0] <= r.hi.x + 1e-4f);
+            CHECK(t.plants[k].pos[2] >= r.lo.z - 1e-4f && t.plants[k].pos[2] <= r.hi.z + 1e-4f);
+        }
+    }
+    CHECK(inRanges == count);
+    std::vector<Terrain::Plant> first = t.plants;
+    terrain::scatterFoliage(t);   // the same again
+    REQUIRE(t.plants.size() == first.size());
+    CHECK(std::memcmp(t.plants.data(), first.data(), first.size() * sizeof(Terrain::Plant)) == 0);
+    // A hole where they grow: none there
+    b.mode = terrain::Brush::Holes;
+    b.radius = 2.f;
+    terrain::applyBrush(t, b, {-8.f, 0.f, -8.f}, 0.1f);
+    terrain::scatterFoliage(t);
+    CHECK(t.plants.size() < count);
+    for (const Terrain::Plant& p : t.plants) CHECK(!terrain::holeAt(t, p.pos[0], p.pos[2]));
+    // Erasing thins them out
+    b.mode = terrain::Brush::Foliage;
+    b.erase = true;
+    b.radius = 10.f;
+    for (int i = 0; i < 60; ++i) terrain::applyBrush(t, b, {-8.f, 0.f, -8.f}, 0.05f);
+    terrain::scatterFoliage(t);
+    CHECK(t.plants.empty());
+    // The built-in grass: made once
+    MeshLibrary lib = buildMeshLibrary();
+    int grass = terrain::grassBladeMesh(lib);
+    CHECK(grass >= 0 && terrain::grassBladeMesh(lib) == grass);
+    CHECK(lib.get(grass).boundsMax.y > 0.4f);
+}
+
+TEST(terrain_heightmap_and_saving) {
+    // A 16 x 8 image: black on the left, white on the right
+    std::vector<uint8_t> rgba(16 * 8 * 4);
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 16; ++x)
+            for (int c = 0; c < 4; ++c) rgba[((size_t)y * 16 + (size_t)x) * 4 + (size_t)c] = c == 3 ? 255 : (uint8_t)(x * 17);
+    std::string file = test::tempPath("heightmap.png").u8string();
+    REQUIRE(writePng(file, 16, 8, rgba.data()));
+    Terrain t = flat(64, 32.f);
+    std::string error;
+    REQUIRE(terrain::importHeightmap(t, file, 10.f, error));
+    CHECK_NEAR(terrain::heightAt(t, -16.f, 0.f), 0.0, 1e-3);
+    CHECK_NEAR(terrain::heightAt(t, 16.f, 0.f), 10.0, 1e-3);
+    CHECK_NEAR(terrain::heightAt(t, 0.f, 5.f), 5.0, 0.4);
+    CHECK(!terrain::importHeightmap(t, test::tempPath("missing.png").u8string(), 10.f, error));
+    // Holes and foliage are saved with the scene
+    terrain::BrushSettings b;
+    b.mode = terrain::Brush::Holes;
+    terrain::applyBrush(t, b, {0, 0, 0}, 0.1f);
+    t.foliage.emplace_back();
+    t.foliage[0].mesh = "Sphere";
+    t.foliage[0].density = 2.5f;
+    b.mode = terrain::Brush::Foliage;
+    terrain::applyBrush(t, b, {5, 0, 5}, 0.2f);
+    MeshLibrary lib = buildMeshLibrary();
+    TextureLibrary tex;
+    Scene s;
+    s.create("Ground").terrain = t;
+    Scene back;
+    REQUIRE(sceneFromJson(sceneToJson(s, lib, tex), back, lib, tex, error));
+    const Terrain& r = *back.findByName("Ground")->terrain;
+    CHECK(r.holes == t.holes);
+    CHECK(r.foliageDensity == t.foliageDensity);
+    REQUIRE(r.foliage.size() == 1);
+    CHECK(r.foliage[0].mesh == "Sphere" && r.foliage[0].density == 2.5f);
 }
 
 // It collides (a height field) and navigation walks over it

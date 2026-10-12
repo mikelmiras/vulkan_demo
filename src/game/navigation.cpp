@@ -78,7 +78,7 @@ NavLevel prepareNavLevel(const Scene& scene, const MeshLibrary& meshes) {
         kept.navLink = e.navLink;
         if (e.terrain) {   // (the ground itself)
             kept.terrain = e.terrain;
-            kept.terrain->mesh = -1;
+            kept.terrain->meshes.clear();
             h.add(terrain::contentHash(*e.terrain));
             for (float f : worlds[i].m) h.add(f);
         }

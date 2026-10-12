@@ -49,6 +49,7 @@ struct FrameUBO {
     float probeMin[4][4];     // its box
     float probeMax[4][4];     // w = 1: box projection
     float probeSh[4][9][4];   // its irradiance
+    float time[4];            // x = seconds since the renderer started (wind)
 };
 
 // A point or spot light (set 0, binding 14)

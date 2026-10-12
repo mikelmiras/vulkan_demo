@@ -14,6 +14,10 @@
 
 using namespace render_detail;
 
+namespace {
+void writePlantSet(VkDevice device, VkDescriptorSet set, VkBuffer buffer);   // (binding 16)
+}
+
 void Renderer::createLightBuffers() {
     const size_t clusterBytes = ((size_t)kClusterX * kClusterY * kClusterSlices * 2 + kMaxClusterIndices) * sizeof(uint32_t);
     for (int i = 0; i < MAX_FRAMES; ++i) {
@@ -31,6 +35,96 @@ void Renderer::createLightBuffers() {
             w[k].pBufferInfo = &infos[k];
         }
         vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+        plantBuffers_[i] = createBuffer(1024 * 6 * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        plantBuffers_[i].size = 1024 * 6 * sizeof(float);
+        writePlantSet(device_, descSets_[i], plantBuffers_[i].buffer);
+        plantKeys_[i] = 0;
+    }
+}
+
+// ---- Foliage: the plants of every terrain, one buffer per frame (rewritten when any of them changes)
+namespace {
+void writePlantSet(VkDevice device, VkDescriptorSet set, VkBuffer buffer) {
+    VkDescriptorBufferInfo bi{buffer, 0, VK_WHOLE_SIZE};
+    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    w.dstSet = set;
+    w.dstBinding = 16;
+    w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w.pBufferInfo = &bi;
+    vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
+}
+}  // namespace
+
+void Renderer::uploadPlants(const SceneRenderInfo& info) {
+    plantBases_.clear();
+    uint64_t key = 1469598103934665603ull;
+    size_t total = 0;
+    if (info.plants)
+        for (const PlantSet& s : *info.plants) {
+            plantBases_.push_back((uint32_t)total);
+            total += s.count;
+            key = (key ^ s.key) * 1099511628211ull;
+            key = (key ^ (uint64_t)s.count) * 1099511628211ull;
+        }
+    if (key == plantKeys_[frame_]) return;   // (as this frame's buffer already holds them)
+    Buffer& buf = plantBuffers_[frame_];
+    size_t bytes = std::max<size_t>(total, 1) * 6 * sizeof(float);
+    if (buf.size < bytes) {   // (this frame's fence has passed: its buffer and set are free)
+        destroyBuffer(buf);
+        size_t capacity = 1024;
+        while (capacity * 6 * sizeof(float) < bytes) capacity *= 2;
+        buf = createBuffer(capacity * 6 * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        buf.size = capacity * 6 * sizeof(float);
+        writePlantSet(device_, descSets_[frame_], buf.buffer);
+    }
+    if (info.plants)
+        for (size_t k = 0; k < info.plants->size(); ++k) {
+            const PlantSet& s = (*info.plants)[k];
+            if (s.count) std::memcpy(static_cast<float*>(buf.mapped) + (size_t)plantBases_[k] * 6, s.plants, s.count * 6 * sizeof(float));
+        }
+    plantKeys_[frame_] = key;
+}
+
+// After the solid objects: each range of plants in view and nearer than it fades out, instanced
+void Renderer::drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info) {
+    if (!info.plants || info.plants->empty() || !foliagePipeline_) return;
+    Frustum view(info.viewProj);
+    struct Push {
+        int32_t shadowLayer, pad[3];
+        Mat4 model;
+        float color[4], params[4];
+    } p{};
+    bool bound = false;
+    for (size_t k = 0; k < info.plants->size() && k < plantBases_.size(); ++k) {
+        const PlantSet& s = (*info.plants)[k];
+        for (const PlantSet::Range& r : s.ranges) {
+            if (r.mesh < 0 || r.mesh >= meshes_->count() || !r.count) continue;
+            const Mesh& mesh = meshes_->get(r.mesh);
+            // The range's box: where they stand, grown by the mesh at its biggest
+            float reach = std::max({std::fabs(mesh.boundsMin.x), std::fabs(mesh.boundsMax.x), std::fabs(mesh.boundsMin.z),
+                                    std::fabs(mesh.boundsMax.z), mesh.boundsMax.y, -mesh.boundsMin.y}) * r.maxScale;
+            Vec3 lo = r.lo - Vec3{reach, reach, reach}, hi = r.hi + Vec3{reach, reach, reach};
+            if (!view.visible(s.model, lo, hi)) continue;
+            Vec3 c = transformPoint(s.model, (lo + hi) * 0.5f);
+            float radius = length(transformDir(s.model, (hi - lo) * 0.5f));
+            if (length(c - info.camPos) - radius > r.fade) continue;   // (all faded out)
+            if (!bound) {
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, foliagePipeline_);
+                VkDescriptorSet plain = materialSet(DrawItem{});
+                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &plain, 0, nullptr);
+                bound = true;
+            }
+            Vec3 color = srgbToLinear(r.color);
+            p.model = s.model;
+            p.color[0] = color.x; p.color[1] = color.y; p.color[2] = color.z;
+            p.params[0] = r.wind;
+            p.params[1] = std::max(r.fade, 0.1f);
+            vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(p), &p);
+            vkCmdDrawIndexed(cb, mesh.indexCount, r.count, mesh.firstIndex, mesh.vertexOffset, plantBases_[k] + r.first);
+            stats_.drawCalls++;
+            stats_.triangles += mesh.indexCount / 3 * r.count;
+        }
     }
 }
 

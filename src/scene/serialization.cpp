@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 32;  // 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 33;  // 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -479,6 +479,24 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             lv.set("tiling", l.tiling);
             layers.push(std::move(lv));
         }
+        if (std::any_of(t.holes.begin(), t.holes.end(), [](uint8_t h) { return h != 0; }))
+            c.set("holes", terrain::encodeBytes(t.holes));
+        if (!t.foliage.empty()) {
+            json::Value& fl = c.set("foliage", json::Value::array());
+            for (const Terrain::Foliage& f : t.foliage) {
+                json::Value fv = json::Value::object();
+                fv.set("mesh", f.mesh);
+                fv.set("color", vec3(f.color));
+                fv.set("density", f.density);
+                fv.set("minScale", f.minScale);
+                fv.set("maxScale", f.maxScale);
+                fv.set("wind", f.wind);
+                fv.set("fadeDistance", f.fadeDistance);
+                fl.push(std::move(fv));
+            }
+            if (t.foliageDensity.size() == t.heights.size() * Terrain::kFoliageLayers)
+                c.set("foliageDensity", terrain::encodeBytes(t.foliageDensity));
+        }
     }
     if (e.vehicle) {
         const Vehicle& ve = *e.vehicle;
@@ -830,6 +848,28 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             }
             l.color = readVec3(lv["color"], l.color);
             l.tiling = lv["tiling"].asFloat(l.tiling);
+        }
+        size_t points = (size_t)t.resolution * (size_t)t.resolution;
+        if (c.has("holes") && !terrain::decodeBytes(c["holes"].asString(), points, t.holes)) {
+            error = "entity '" + e.name + "': the terrain's holes are damaged";
+            return false;
+        }
+        for (const json::Value& fv : c["foliage"].elements()) {
+            if (t.foliage.size() >= (size_t)Terrain::kFoliageLayers) break;
+            Terrain::Foliage f;
+            f.mesh = fv["mesh"].asString().empty() ? f.mesh : fv["mesh"].asString();
+            f.color = readVec3(fv["color"], f.color);
+            f.density = fv["density"].asFloat(f.density);
+            f.minScale = fv["minScale"].asFloat(f.minScale);
+            f.maxScale = fv["maxScale"].asFloat(f.maxScale);
+            f.wind = fv["wind"].asFloat(f.wind);
+            f.fadeDistance = fv["fadeDistance"].asFloat(f.fadeDistance);
+            t.foliage.push_back(f);
+        }
+        if (c.has("foliageDensity") &&
+            !terrain::decodeBytes(c["foliageDensity"].asString(), points * Terrain::kFoliageLayers, t.foliageDensity)) {
+            error = "entity '" + e.name + "': the terrain's foliage is damaged";
+            return false;
         }
         terrain::touch(t);
         e.terrain = std::move(t);

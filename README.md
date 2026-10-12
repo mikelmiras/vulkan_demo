@@ -382,8 +382,19 @@ a brush (its circle follows the ground under the mouse):
   *Flatten all*.
 - **Layers**: four, each a texture (or none) times a tint, repeating every so many metres; the terrain starts as
   grass, with rock, dirt and sand to paint. Drop a texture from the Assets panel onto a layer.
+- **Holes** cut the ground away (cave mouths, tunnels; Shift, or **Fill**, puts it back): the triangles touching a
+  hole point go, from the picture and from the collision alike, and rays pass through. A hole still casts a shadow.
+- **Import heightmap...** takes a greyscale image (16-bit PNGs keep the most detail) as the heights, black at 0 and
+  white at the height given, stretched over the whole terrain.
+- **Foliage**: up to four layers of plants, each a mesh (the built-in *Grass Blade* clump, or any mesh: rocks,
+  bushes), a colour, a density (per square metre where fully painted), a scale range, how much it sways in the
+  wind and how far away it fades out. Paint where they grow with the **Foliage** brush (Shift or *Erase* thins
+  them). They're scattered the same way every time (from the painting, never in holes), drawn instanced and lit
+  like everything else; they don't cast shadows.
 
-A terrain collides as a height field (characters walk on it, things land on it, rays hit it; any Collider on the
+Terrains are drawn in chunks of 32 x 32 cells, each culled on its own and drawn with fewer triangles (every second
+or fourth point) when it's far away; skirts hanging under chunk edges hide the seams between levels (chunks with
+holes keep full detail). A terrain collides as a height field (characters walk on it, things land on it, rays hit it; any Collider on the
 same entity is ignored), navigation bakes over it, and it's saved in the scene (compressed: a flat terrain is a few
 hundred bytes).
 

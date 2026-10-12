@@ -479,7 +479,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 |---|------|-----|
 | 43 (done) | Lighting at scale: clustered forward lighting (hundreds of point / spot lights), a shadow atlas for point and spot lights, light cookies | Light counts are capped and only a few lights cast shadows |
 | 44 (done) | GPU-driven rendering: persistent instance data on the GPU (only changes uploaded), Hi-Z occlusion culling, mesh LODs chosen on the GPU | The CPU still writes every instance every frame; hidden objects behind walls are drawn |
-| 45 | Terrain and vegetation: terrain LOD, holes, heightmap import, instanced grass and foliage painted with a brush (wind, distance fade) | 256 x 256 terrains are 130k triangles; there's nothing to fill them with |
+| 45 (done) | Terrain and vegetation: terrain LOD, holes, heightmap import, instanced grass and foliage painted with a brush (wind, distance fade) | 256 x 256 terrains are 130k triangles; there's nothing to fill them with |
 | 46 | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
 | 47 | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
 | 48 | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
@@ -526,4 +526,24 @@ Working list for turning the renderer demo into a small game engine. Each task i
   with occlusion on and off, the CPU and GPU paths identical with LODs, sync validation clean. Module API 31. Not
   done: two-phase occlusion (no one-frame pop-in), occlusion for shadow views, LOD cross-fading, meshlets, LODs for
   skinned meshes, the GPU writing the instances (the CPU still diffs them).
+- Task 45: terrains draw as chunks (terrain::kChunkCells = 32 cells), one Mesh each over one shared vertex block
+  (the grid, then a dropped copy of every point on a chunk line for the skirts, 6 cells deep), each chunk's indices
+  being its cells, skirts on its four sides (both faces) and, after them, its two coarser levels (every 2nd and 4th
+  point, the last row and column kept), exposed as Mesh::lods so the renderer's LOD choice (CPU or cull.comp)
+  applies; sculpting still rewrites the vertices in place. Holes: a byte per point (scene format 33); the point's
+  flag rides in the vertex's first joint (terrains aren't skinned), scene.vert passes it to scene.frag, which drops
+  triangles touching one (> 0 anywhere off the hole's far edge); chunks with holes get no LODs; Jolt gets
+  cNoCollisionValue samples (the same triangles go); terrain::holeAt / raycast / editor picking agree.
+  Heightmaps: stb_image's 16-bit loader, bilinear onto the grid. Foliage: Terrain::foliage (up to four layers),
+  foliageDensity (a byte per point per layer), scattered by terrain::scatterFoliage per chunk and layer (expected
+  count from the cell's painted density, a xorshift seeded by the cell and layer, so the same every time; skipped
+  in holes; capped at 300k) into Terrain::plants / plantRanges whenever the terrain's revision changes (foliage
+  settings edits touch it). The renderer gets PlantSets (collectPlants), copies all plants into a per-frame buffer
+  (set 0, binding 16) when their key changes, and draws each range in view and nearer than its fade distance with
+  foliage.vert (yaw, scale, wind from frame.time with a sway and a flutter growing with height squared, shrinking
+  away towards the fade distance; the terrain's matrix and the layer's colour as push constants, now 112 bytes)
+  and scene.frag (foliage keeps its normals on back faces). The built-in Grass Blade mesh is made on first use.
+  Module API 32. Not done: geomorphing between levels (they pop), holes in shadows, foliage shadows and LODs,
+  billboards for far foliage, foliage collision, painting foliage density finer than the height grid, terrain
+  streaming / multiple terrains stitched.
 

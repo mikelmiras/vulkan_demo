@@ -285,11 +285,13 @@ int main(int argc, char** argv) {
         terrain::syncMeshes(scene, meshes);
         std::vector<DrawItem> items = collectDrawItems(scene, worlds, kNoEntity, &joints, &meshes);
         std::vector<LightInfo> lights = collectLights(scene, worlds);
+        std::vector<PlantSet> plants = collectPlants(scene, worlds, meshes);
         std::vector<ProbeInfo> probes = collectProbes(scene, worlds);
         std::vector<ParticleDraw> particles;
         game.particles().collect(particles);
         SceneRenderInfo info;
         info.items = &items;
+        info.plants = &plants;
         info.lights = &lights;
         info.probes = &probes;
         info.joints = &joints;

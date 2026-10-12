@@ -229,6 +229,7 @@ void Editor::buildDrawItems() {
                                       viewingGameCamera() ? nullptr : &extraSelected_);
     }
     lights_ = collectLights(scene_, worlds_);
+    plants_ = collectPlants(scene_, worlds_, meshes_);
     probes_ = collectProbes(scene_, worlds_, probeBakes_);
     particles_.clear();
     if (playing()) {
@@ -245,6 +246,7 @@ void Editor::buildDrawItems() {
 SceneRenderInfo Editor::renderInfo() const {
     SceneRenderInfo info;
     info.items = &drawItems_;
+    info.plants = &plants_;
     info.lights = &lights_;
     info.probes = &probes_;
     info.joints = &joints_;

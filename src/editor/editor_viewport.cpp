@@ -1,5 +1,6 @@
 // Editor viewport: camera navigation, transform gizmos, picking, keyboard shortcuts and overlays.
 #include "editor/editor.h"
+#include "scene/terrain.h"
 
 #include <cfloat>
 #include <cstdio>
@@ -188,10 +189,14 @@ EntityId Editor::pickAt(ImVec2 mp) const {
         const Entity& e = scene_.entities[i];
         if (e.locked) continue;
         const Mat4& world = worlds_[i];
-        if (e.terrain && e.terrain->mesh >= 0 && e.terrain->mesh < meshes_.count() && scene_.visibleInHierarchy(e.id)) {
+        if (e.terrain && e.terrain->resolution >= 2 && scene_.visibleInHierarchy(e.id)) {   // (through its holes)
             Mat4 inv = inverseAffine(world);
-            float t = intersectMesh(meshes_, e.terrain->mesh, transformPoint(inv, origin), transformDir(inv, dir));
-            if (t > 0.f && t < bestT) { bestT = t; best = e.id; }
+            Vec3 lo = transformPoint(inv, origin), ld = normalize(transformDir(inv, dir));
+            float hit = 0.f;
+            if (terrain::raycast(*e.terrain, lo, ld, 1e5f, hit)) {
+                float t = length(transformPoint(world, lo + ld * hit) - origin) / std::max(length(dir), 1e-9f);
+                if (t > 0.f && t < bestT) { bestT = t; best = e.id; }
+            }
             continue;
         }
         if (!e.meshRenderer) {

@@ -1,6 +1,7 @@
 #include "render/renderer.h"
 
 #include <atomic>
+#include <chrono>
 
 #include "core/vfs.h"
 #include "render/renderer_internal.h"
@@ -583,7 +584,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[16] = {
+    VkDescriptorSetLayoutBinding frameBindings[17] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -600,9 +601,10 @@ void Renderer::createPipelines() {
         {13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // instance indices (GPU culling)
         {14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // point and spot lights
         {15, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // their clusters
+        {16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},     // foliage instances
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 16;
+    dslci.bindingCount = 17;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -614,7 +616,8 @@ void Renderer::createPipelines() {
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &materialSetLayout_));
 
     VkDescriptorSetLayout layouts[2] = {setLayout_, materialSetLayout_};
-    VkPushConstantRange shadowLayer{VK_SHADER_STAGE_VERTEX_BIT, 0, 16};   // the shadow pass: which shadow camera
+    // The shadow pass: which shadow camera (the first 16 bytes); foliage: its terrain, colour and wind (all 112)
+    VkPushConstantRange shadowLayer{VK_SHADER_STAGE_VERTEX_BIT, 0, 112};
     VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     plci.setLayoutCount = 2;
     plci.pSetLayouts = layouts;
@@ -664,6 +667,9 @@ void Renderer::createSampledPipelines() {
     // See-through objects: depth-tested, but not hiding what's drawn after them
     transparentPipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
                                            false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, true});
+    // Foliage: instanced plants (two-sided), lit like everything else
+    foliagePipeline_ = createPipeline({"foliage.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_NONE,
+                                       false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
     // Selected object's full silhouette into stencil (ignores depth so occluded parts are marked too)
     stencilPipeline_ = createPipeline({"scene.vert.spv", "outline.frag.spv", false, false, false, VK_CULL_MODE_NONE,
                                        true, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_REPLACE, 0xff});
@@ -680,7 +686,7 @@ void Renderer::createSampledPipelines() {
 
 void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_,
-                          &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_}) {
+                          &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_}) {
         if (*p) vkDestroyPipeline(device_, *p, nullptr);
         *p = VK_NULL_HANDLE;
     }
@@ -911,7 +917,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9 * MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 6 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 7 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
@@ -1187,6 +1193,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         }
         if (gpuCulled_) stats_.triangles += gpuTriangles_;   // (a frame or two old)
 
+        drawPlants(cb, info);
+
         // The sky, wherever nothing was drawn
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
         vkCmdDraw(cb, 3, 1, 0, 0);
@@ -1358,6 +1366,8 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         set4(u.camUp, cross(right, f), 0.f);
         set4(u.camForward, f, std::tan(info.fovY * 0.5f));
     }
+    static const auto started = std::chrono::steady_clock::now();
+    u.time[0] = std::chrono::duration<float>(std::chrono::steady_clock::now() - started).count();
 }
 
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
@@ -1395,6 +1405,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     FrameUBO u{};
     fillFrameUBO(info, u, true);
     setProbeData(u);
+    uploadPlants(info);
     if (aa_ == Antialiasing::Temporal) {   // a different sub-pixel offset every frame (Halton 2, 3: eight of them)
         auto halton = [](uint32_t i, uint32_t b) {
             float f = 1.f, r = 0.f;
@@ -1498,6 +1509,7 @@ void Renderer::shutdown() {
     for (int i = 0; i < MAX_FRAMES; ++i) {
         destroyBuffer(lights_[i]);
         destroyBuffer(clusters_[i]);
+        destroyBuffer(plantBuffers_[i]);
     }
     destroyBuffer(vertexBuffer_);
     destroyBuffer(skinBuffer_);

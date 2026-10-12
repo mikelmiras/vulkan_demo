@@ -422,10 +422,39 @@ struct Terrain {
     std::vector<float> heights;    // resolution^2, row by row along +Z, metres above the entity
     std::vector<uint8_t> weights;  // resolution^2 * 4: how much of each layer at each point (they add up to 255)
     Layer layers[kLayers];
+    std::vector<uint8_t> holes;    // resolution^2: 1 where the ground is cut away (the triangles using that point
+                                   // go, drawn and colliding); empty: none
+    // Vegetation: up to four kinds of plant (or rock), each painted with how much grows where; their instances are
+    // scattered from that (the same every time) by terrain::syncFoliage
+    static constexpr int kFoliageLayers = 4;
+    struct Foliage {
+        std::string mesh = "Grass Blade";   // a mesh in the library by name ("Grass Blade": a clump of blades)
+        Vec3 color{0.33f, 0.55f, 0.18f};    // sRGB
+        float density = 6.f;                // per square metre where fully painted
+        float minScale = 0.7f, maxScale = 1.3f;
+        float wind = 0.25f;                 // how far the tips sway (0: still)
+        float fadeDistance = 60.f;          // they shrink away towards this far from the camera
+    };
+    std::vector<Foliage> foliage;
+    std::vector<uint8_t> foliageDensity;    // resolution^2 * kFoliageLayers: how much of each grows at each point
     // Runtime: a new number after every change (redrawn, collision remade); not saved
     uint64_t revision = 0;
-    int mesh = -1;                 // its mesh in the MeshLibrary, built by syncTerrainMeshes()
-    uint64_t meshRevision = 0;     // the revision that mesh shows
+    std::vector<int> meshes;       // its chunks' meshes in the MeshLibrary, built by terrain::syncMeshes
+    uint64_t meshRevision = 0;     // the revision they show
+    int meshResolution = 0;        // the resolution they were made for
+    std::vector<uint32_t> chunkLods;   // per chunk: (first index, index count) of its two coarser levels
+    struct Plant {                 // one scattered instance, in the terrain's space
+        float pos[3];
+        float yaw, scale, shade;
+    };
+    struct PlantRange {            // the instances of one foliage layer in one chunk (with their bounds)
+        int layer = 0;
+        uint32_t first = 0, count = 0;
+        Vec3 lo, hi;
+    };
+    std::vector<Plant> plants;
+    std::vector<PlantRange> plantRanges;
+    uint64_t plantRevision = 0;    // the revision they were scattered from
 };
 
 struct PrefabLink {

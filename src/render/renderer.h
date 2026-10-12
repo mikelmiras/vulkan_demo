@@ -69,8 +69,26 @@ struct ProbeInfo {
     uint64_t key = 0;   // what it's a picture of: its entity, place, size, resolution and the bake count
 };
 
+// A terrain's foliage to draw (collectPlants, render/scene_draw.h): its scattered instances in the terrain's space
+// (Terrain::Plant: position, yaw, scale, shade), and ranges of them (a layer in a chunk) with what to draw them as
+struct PlantSet {
+    uint64_t key = 0;               // what the instances are: a new key when they change (uploaded again)
+    const float* plants = nullptr;  // 6 floats each
+    size_t count = 0;
+    Mat4 model;                     // the terrain's
+    struct Range {
+        int mesh = -1;
+        uint32_t first = 0, count = 0;
+        Vec3 lo, hi;                // where the plants stand (terrain space)
+        Vec3 color{1, 1, 1};        // sRGB
+        float wind = 0.f, fade = 60.f, maxScale = 1.f;
+    };
+    std::vector<Range> ranges;
+};
+
 struct SceneRenderInfo {
     const std::vector<DrawItem>* items = nullptr;
+    const std::vector<PlantSet>* plants = nullptr;   // foliage (main view only: no shadows, not in probes)
     const std::vector<LightInfo>* lights = nullptr;   // no directional light: a default sun is used
     const std::vector<Mat4>* joints = nullptr;        // skinning matrices of every skinned item (see DrawItem)
     const std::vector<ParticleDraw>* particles = nullptr;
@@ -350,6 +368,14 @@ private:
     // Lights (binding 14) and their clusters (binding 15), per frame
     Buffer lights_[MAX_FRAMES], clusters_[MAX_FRAMES];
     void createLightBuffers();
+    // Foliage (renderer_lights.cpp): every terrain's plants in one buffer per frame (binding 16), rewritten when
+    // they change; drawn instanced after the solid objects
+    Buffer plantBuffers_[MAX_FRAMES];
+    uint64_t plantKeys_[MAX_FRAMES] = {};
+    std::vector<uint32_t> plantBases_;   // this frame: where each set's plants start
+    VkPipeline foliagePipeline_ = VK_NULL_HANDLE;
+    void uploadPlants(const SceneRenderInfo& info);
+    void drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info);
     uint32_t lightCount_ = 0, clusteredIndices_ = 0;   // (stats)
     // Spot lights' cookies: images projected through the cone, in a texture array (binding 6)
     static constexpr uint32_t kCookieSize = 256, kCookieLayers = 16;

@@ -82,6 +82,13 @@ bool eq(const Terrain& a, const Terrain& b) {
         if (a.layers[k].texture != b.layers[k].texture || !eq(a.layers[k].color, b.layers[k].color) ||
             a.layers[k].tiling != b.layers[k].tiling)
             return false;
+    if (a.foliage.size() != b.foliage.size()) return false;   // (holes and painting: a new revision)
+    for (size_t k = 0; k < a.foliage.size(); ++k) {
+        const Terrain::Foliage &x = a.foliage[k], &y = b.foliage[k];
+        if (x.mesh != y.mesh || !eq(x.color, y.color) || x.density != y.density || x.minScale != y.minScale ||
+            x.maxScale != y.maxScale || x.wind != y.wind || x.fadeDistance != y.fadeDistance)
+            return false;
+    }
     return true;
 }
 bool eq(const ParticleEmitter& a, const ParticleEmitter& b) {

@@ -38,10 +38,10 @@ void Editor::drawTerrainInspector(Entity& e) {
     bool active = tool_ == Tool::Terrain;
     if (ImGui::Button(active ? "Sculpting (T)" : "Sculpt and paint (T)")) tool_ = active ? Tool::Move : Tool::Terrain;
     tooltip("The Terrain tool: drag on the terrain with the brush; Shift: the opposite (lower / raise)");
-    const char* modes[] = {"Raise", "Lower", "Smooth", "Flatten", "Paint"};
+    const char* modes[] = {"Raise", "Lower", "Smooth", "Flatten", "Paint", "Holes", "Fill", "Foliage"};
     int mode = (int)brush_.mode;
-    for (int i = 0; i < 5; ++i) {
-        if (i && i != 3) ImGui::SameLine();   // (two rows: they don't fit a narrow panel on one)
+    for (int i = 0; i < 8; ++i) {
+        if (i && i != 3 && i != 5) ImGui::SameLine();   // (three rows: they don't fit a narrow panel on one)
         if (ImGui::RadioButton(modes[i], mode == i)) {
             brush_.mode = (terrain::Brush)i;
             tool_ = Tool::Terrain;
@@ -56,6 +56,21 @@ void Editor::drawTerrainInspector(Entity& e) {
     if (brush_.mode == terrain::Brush::Paint) {
         const char* names[] = {"Layer 1", "Layer 2", "Layer 3", "Layer 4"};
         ImGui::Combo("Paint layer", &brush_.layer, names, Terrain::kLayers);
+    }
+    if (brush_.mode == terrain::Brush::Holes || brush_.mode == terrain::Brush::Fill)
+        ImGui::TextDisabled("Cuts the ground away (caves, tunnels; Shift: fill)");
+    if (brush_.mode == terrain::Brush::Foliage) {
+        if (t.foliage.empty()) {
+            ImGui::TextColored(ImVec4(1.f, 0.7f, 0.4f, 1.f), "Add a foliage layer below first");
+        } else {
+            brush_.layer = std::clamp(brush_.layer, 0, (int)t.foliage.size() - 1);
+            std::vector<std::string> names;
+            for (size_t k = 0; k < t.foliage.size(); ++k) names.push_back(std::to_string(k + 1) + ": " + t.foliage[k].mesh);
+            ImGui::Combo("Plant", &brush_.layer, [](void* v, int i) { return (*(std::vector<std::string>*)v)[(size_t)i].c_str(); },
+                         &names, (int)names.size());
+            ImGui::Checkbox("Erase", &brush_.erase);
+            tooltip("Thin them out instead (or hold Shift)");
+        }
     }
 
     ImGui::SeparatorText("Size");
@@ -86,6 +101,21 @@ void Editor::drawTerrainInspector(Entity& e) {
         std::fill(t.heights.begin(), t.heights.end(), 0.f);
         terrain::touch(t);
     }
+    static float mapHeight = 20.f;
+    ImGui::DragFloat("Heightmap height", &mapHeight, 0.1f, 0.f, 4000.f, "%.1f m");
+    tooltip("How high white is (black: 0)");
+    if (ImGui::Button("Import heightmap...")) {
+        std::filesystem::path path = platform::openFileDialog("Heightmap", "png,jpg,jpeg,tga,bmp");
+        ImGui::GetIO().ClearInputKeys();
+        ImGui::GetIO().ClearInputMouse();
+        if (!path.empty()) {
+            pushUndo();
+            std::string error;
+            if (terrain::importHeightmap(t, path.u8string(), mapHeight, error)) setStatus("Heights from " + path.filename().u8string());
+            else setStatus("Heightmap failed: " + error);
+        }
+    }
+    tooltip("A greyscale image (16-bit PNGs keep the most detail), stretched over the whole terrain");
 
     ImGui::SeparatorText("Layers");
     for (int k = 0; k < Terrain::kLayers; ++k) {
@@ -126,6 +156,73 @@ void Editor::drawTerrainInspector(Entity& e) {
         }
         ImGui::PopID();
     }
+
+    ImGui::SeparatorText("Foliage");
+    int removeLayer = -1;
+    for (size_t k = 0; k < t.foliage.size(); ++k) {
+        Terrain::Foliage& f = t.foliage[k];
+        ImGui::PushID(100 + (int)k);
+        bool open = ImGui::TreeNode("foliage", "%d: %s", (int)k + 1, f.mesh.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove")) removeLayer = (int)k;
+        if (open) {
+            bool edited = false;
+            if (ImGui::BeginCombo("Mesh", f.mesh.c_str())) {
+                std::vector<std::string> options{"Grass Blade"};
+                for (int m = 0; m < meshes_.count(); ++m) {
+                    const std::string& name = meshes_.get(m).name;
+                    if (name != "Terrain" && name != "Grass Blade") options.push_back(name);
+                }
+                for (const std::string& o : options)
+                    if (ImGui::Selectable(o.c_str(), o == f.mesh)) {
+                        pushUndo();
+                        f.mesh = o;
+                        edited = true;
+                    }
+                ImGui::EndCombo();
+            }
+            ImGui::ColorEdit3("Colour", &f.color.x);
+            track();
+            ImGui::DragFloat("Density", &f.density, 0.05f, 0.f, 200.f, "%.2f / m2", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloatRange2("Scale", &f.minScale, &f.maxScale, 0.01f, 0.01f, 100.f, "%.2f", "%.2f");
+            track();
+            edited |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SliderFloat("Wind", &f.wind, 0.f, 2.f, "%.2f");
+            track();
+            ImGui::DragFloat("Fade distance", &f.fadeDistance, 0.5f, 1.f, 5000.f, "%.0f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            if (edited) terrain::touch(t);   // (scattered again)
+            if (ImGui::SmallButton("Paint with this")) {
+                brush_.mode = terrain::Brush::Foliage;
+                brush_.layer = (int)k;
+                tool_ = Tool::Terrain;
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+    if (removeLayer >= 0) {   // (its painting goes; later layers move down a slot)
+        pushUndo();
+        const size_t layers = Terrain::kFoliageLayers, points = (size_t)t.resolution * (size_t)t.resolution;
+        if (t.foliageDensity.size() == points * layers)
+            for (size_t i = 0; i < points; ++i) {
+                uint8_t* d = &t.foliageDensity[i * layers];
+                for (size_t k = (size_t)removeLayer; k + 1 < layers; ++k) d[k] = d[k + 1];
+                d[layers - 1] = 0;
+            }
+        t.foliage.erase(t.foliage.begin() + removeLayer);
+        terrain::touch(t);
+    }
+    if (t.foliage.size() < (size_t)Terrain::kFoliageLayers && ImGui::Button("Add foliage layer")) {
+        pushUndo();
+        t.foliage.emplace_back();
+        brush_.mode = terrain::Brush::Foliage;
+        brush_.layer = (int)t.foliage.size() - 1;
+        tool_ = Tool::Terrain;
+    }
+    tooltip("Grass (or any mesh: rocks, bushes) scattered where you paint it with the Foliage brush");
 }
 
 // The Terrain tool: a brush where the mouse meets the selected terrain; dragging applies it. True while it has the
@@ -167,6 +264,9 @@ bool Editor::handleTerrainTool(float dt) {
     b.radius = brush_.radius / scale;   // (metres in the world -> the terrain's own)
     if (io.KeyShift && b.mode == terrain::Brush::Raise) b.mode = terrain::Brush::Lower;
     else if (io.KeyShift && b.mode == terrain::Brush::Lower) b.mode = terrain::Brush::Raise;
+    else if (io.KeyShift && b.mode == terrain::Brush::Holes) b.mode = terrain::Brush::Fill;
+    else if (io.KeyShift && b.mode == terrain::Brush::Fill) b.mode = terrain::Brush::Holes;
+    else if (io.KeyShift && b.mode == terrain::Brush::Foliage) b.erase = !b.erase;
 
     // The brush's outline on the ground
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
@@ -179,8 +279,9 @@ bool Editor::handleTerrainTool(float dt) {
         Vec3 w = transformPoint(world, {x, terrain::heightAt(t, x, z) + 0.05f, z});
         if (worldToScreen(w, pts[n])) ++n;
     }
-    ImU32 col = b.mode == terrain::Brush::Lower ? IM_COL32(255, 140, 90, 230)
-                : b.mode == terrain::Brush::Paint ? IM_COL32(120, 220, 255, 230) : IM_COL32(255, 230, 120, 230);
+    ImU32 col = b.mode == terrain::Brush::Lower || b.mode == terrain::Brush::Holes ? IM_COL32(255, 140, 90, 230)
+                : b.mode == terrain::Brush::Paint ? IM_COL32(120, 220, 255, 230)
+                : b.mode == terrain::Brush::Foliage ? IM_COL32(120, 255, 140, 230) : IM_COL32(255, 230, 120, 230);
     if (n == segments) dl->AddPolyline(pts, n, col, ImDrawFlags_Closed, 2.f);
     ImVec2 c;
     if (worldToScreen(transformPoint(world, p), c)) dl->AddCircleFilled(c, 3.f, col);

@@ -691,7 +691,11 @@ struct Physics::Impl {
     bool createTerrain(Tracked& t, const Entity& e, const Placement& p, const ShapeKey& key) {
         const Terrain& tr = *e.terrain;
         float cell = terrain::cellSize(tr);
-        JPH::HeightFieldShapeSettings hs(tr.heights.data(),
+        std::vector<float> samples = tr.heights;   // (holes: Jolt's "no collision" samples, whose triangles go)
+        if (tr.holes.size() == samples.size())
+            for (size_t i = 0; i < samples.size(); ++i)
+                if (tr.holes[i]) samples[i] = JPH::HeightFieldShapeConstants::cNoCollisionValue;
+        JPH::HeightFieldShapeSettings hs(samples.data(),
                                          JPH::Vec3(-tr.size * 0.5f * p.scale.x, 0.f, -tr.size * 0.5f * p.scale.z),
                                          JPH::Vec3(cell * p.scale.x, p.scale.y, cell * p.scale.z), (JPH::uint32)tr.resolution);
         hs.mBlockSize = 4;
