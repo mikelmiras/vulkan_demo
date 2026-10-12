@@ -141,7 +141,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawImportPopup();
     if (showInputBindings_) drawInputBindings();
     if (animGraphEntity_ != kNoEntity) drawAnimatorGraph();
-    if (showProfiler_) drawProfilerWindow(&showProfiler_);
+    if (showProfiler_) drawProfilerWindow(&showProfiler_, project::saveDir("Editor").parent_path() / "traces");
     drawAssetDialogs();
 
     handleNavigation(dt);

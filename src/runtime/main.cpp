@@ -1,7 +1,7 @@
 // The standalone game: plays a scene without the editor.
 //
 //   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--aa msaa|taa|off]
-//          [--host [port] | --join address[:port]] [--screenshot out.png [--frames N]]
+//          [--host [port] | --join address[:port]] [--screenshot out.png [--frames N]] [--trace out.json]
 //          [--check]   (loads everything but opens no window: for testing an exported game anywhere)
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
@@ -16,6 +16,7 @@
 
 #include "app/application.h"
 #include "app/profiler_view.h"
+#include "core/crash.h"
 #include "core/log.h"
 #include "core/profiler.h"
 #include "audio/audio.h"
@@ -110,6 +111,7 @@ int main(int argc, char** argv) {
     bool check = false;     // --check: load the game (pack, project, module, start scene) without a window, and exit
     std::string aa;         // --aa msaa | taa | off: anti-aliasing (the renderer's default: MSAA)
     std::string host, join; // --host [port] / --join address[:port]: a multiplayer game (net/net_session.h)
+    std::string trace;      // --trace out.json: every frame's profile, saved as a Chrome trace on exit
     {
         int out = 1;
         for (int i = 1; i < argc; ++i) {
@@ -119,6 +121,7 @@ int main(int argc, char** argv) {
                 host = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? argv[++i] : "27015";
             else if (!std::strcmp(argv[i], "--join") && i + 1 < argc) join = argv[++i];
             else if (!std::strcmp(argv[i], "--check")) check = true;
+            else if (!std::strcmp(argv[i], "--trace") && i + 1 < argc) trace = argv[++i];
             else argv[out++] = argv[i];
         }
         argc = out;
@@ -182,11 +185,14 @@ int main(int argc, char** argv) {
     }
     // The log: in the user's data folder, next to the save games
     logfile::open(project::saveDir(settings.name.empty() ? "Untitled" : settings.name).parent_path() / "game.log");
+    crash::install(project::saveDir(settings.name.empty() ? "Untitled" : settings.name).parent_path(), "game");
+    if (!crash::previousReport().empty()) logLine("The last run crashed: %s", crash::previousReport().u8string().c_str());
     std::printf("Playing %s\n", stress ? "the stress test scene" : path.empty() ? "the built-in demo scene" : path.c_str());
     logfile::write("Playing " + (stress ? std::string("the stress test scene") : path.empty() ? std::string("the built-in demo scene") : path));
 
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
+    if (!trace.empty()) profiler::startRecording();
     if (aa == "taa") app.renderer().setAntialiasing(Renderer::Antialiasing::Temporal);
     else if (aa == "off") app.renderer().setAntialiasing(Renderer::Antialiasing::Off);
     else if (aa == "msaa") app.renderer().setAntialiasing(Renderer::Antialiasing::Msaa);
@@ -317,6 +323,14 @@ int main(int argc, char** argv) {
     }
     game.stop();
     platform::setCursorCaptured(false);
+    if (!trace.empty()) {
+        profiler::stopRecording();
+        std::string error;
+        if (profiler::saveChromeTrace(fs::u8path(trace), profiler::recorded(), error))
+            std::printf("Saved a trace of %zu frames to %s\n", profiler::recorded().size(), trace.c_str());
+        else
+            logLine("trace: %s", error.c_str());
+    }
     int code = app.exitCode();
     app.shutdown();
     return code;

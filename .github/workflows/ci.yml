@@ -59,6 +59,14 @@ jobs:
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
 
+      # Every platform: the benchmark's times against tools/perf_baseline.json (best of three runs; fails past 2x + 1 ms)
+      - name: Performance check
+        shell: bash
+        run: |
+          BENCH=build/engine_bench; [ -f build/Release/engine_bench.exe ] && BENCH=build/Release/engine_bench.exe
+          PY=python3; [ "$RUNNER_OS" = "Windows" ] && PY=python
+          $PY tools/check_perf.py --bench "$BENCH" --platform "$RUNNER_OS"
+
       # Every platform: export the sample (one file, and a game + pack), then load each exported game from a folder
       # with nothing of the project in it: pack, project, module code and start scene, everything but a GPU
       - name: Export check

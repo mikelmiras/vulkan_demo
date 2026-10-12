@@ -270,7 +270,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 38 (done) | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
 | 39 (done) | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
 | 40 (done) | Physics: vehicles (Jolt's wheeled vehicle), crouching / ladders / swimming for characters, debug drawing of contacts | Common game mechanics have to be hand-built |
-| 41 | Reliability: crash reports (stack traces into the log), chrome://tracing export of profiles, a performance regression check in CI | Crashes leave little to go on; performance drifts unnoticed |
+| 41 (done) | Reliability: crash reports (stack traces into the log), chrome://tracing export of profiles, a performance regression check in CI | Crashes leave little to go on; performance drifts unnoticed |
 | 42 | Audio: sound occlusion by geometry, HRTF for headphones, a settings screen with saved volumes, music stingers / layers | Sounds come through walls; volume settings don't persist |
 
 ### Round 4 notes
@@ -440,3 +440,17 @@ Working list for turning the renderer demo into a small game engine. Each task i
   vehicle's wheels drawn in the viewport. Module API 29. Not done: tracked vehicles and motorcycles, gearbox / clutch
   settings and anti-roll bars in the inspector, Lua access to vehicles, getting in and out of vehicles as a
   ready-made behaviour, swimming animations or buoyancy for rigid bodies, ladders that aren't vertical.
+- Task 41: core/crash: install(folder, name) after the log opens (editor and vkgame). POSIX: sigaction for SIGSEGV,
+  SIGBUS, SIGABRT, SIGILL, SIGFPE on a 64 KiB alternate stack (stack overflows); the handler writes (no allocation;
+  paths copied at install, backtrace() warmed up then) a header and numbered backtrace_symbols_fd frames to stderr,
+  <name>-crash.txt and the log, then restores the default action and re-raises (core dumps and exit codes as
+  before). Windows: SetUnhandledExceptionFilter walking the faulting context with StackWalk64, names and lines from
+  DbgHelp (SymFromAddr, SymGetLineFromAddr64; module + offset without a .pdb), and SIGABRT. std::set_terminate
+  reports uncaught exceptions with what(). A report left by the last run is renamed *-crash-last.txt and named by
+  previousReport(). Profiler: frames carry their start time and the GPU times known then; startRecording /
+  stopRecording keep up to 30000 frames; chromeTraceJson writes complete ("X") events in microseconds (frames and
+  CPU scopes on tid 1, GPU passes laid end to end from the frame's start on tid 2: their real start isn't known).
+  The profiler window saves traces; vkgame --trace. engine_bench --json; tools/check_perf.py (best of 3, 2x + 1 ms
+  against tools/perf_baseline.json per runner OS; --write) as a CI step on all three platforms; the baseline holds
+  numbers from CI's own runners. Not done: minidumps, symbol upload / symbolication of release builds, crash
+  reports sent anywhere, a GPU crash (device lost) report, other threads' stacks, per-test-case performance history.

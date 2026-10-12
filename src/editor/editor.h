@@ -61,6 +61,7 @@ public:
         gameUi_.setTextureLookup(std::move(lookup));
     }
     bool selectByName(const std::string& names);   // "A" or "A,B,C" (A is the primary)
+    void showStatus(const std::string& msg) { setStatus(msg); }   // (the status bar, for a while)
     // The renderer drawing the editor (for View > Anti-aliasing); the saved choice is applied to it
     void setRenderer(Renderer* renderer);
 

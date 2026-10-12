@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "core/crash.h"
 #include "core/log.h"
 #include <filesystem>
 
@@ -66,6 +67,8 @@ int main(int argc, char** argv) {
     bool projectArg = scenePath && std::filesystem::is_directory(scenePath, ec);
     if (projectArg) project::setRoot(scenePath);
     logfile::open(project::saveDir("Editor").parent_path() / "editor.log");
+    crash::install(project::saveDir("Editor").parent_path(), "editor");
+    if (!crash::previousReport().empty()) logLine("The last session crashed: %s", crash::previousReport().u8string().c_str());
     // (screenshot runs always start from the default layout and preferences, and leave the saved ones alone)
     Editor editor(meshes, textures, &audio, app.uiScale(), options.screenshotPath.empty());
     editor.setUiTextures(app.uiTextures(textures));
@@ -76,6 +79,8 @@ int main(int argc, char** argv) {
     if (stress) editor.newStressScene();
     if (selectName && !editor.selectByName(selectName)) std::fprintf(stderr, "no entity named %s\n", selectName);
     if (play) editor.play();
+    if (!crash::previousReport().empty())
+        editor.showStatus("The last session crashed. Its report: " + crash::previousReport().u8string());
 
     float dt = 0.f;
     while (!editor.quitRequested() && app.beginFrame(dt)) {

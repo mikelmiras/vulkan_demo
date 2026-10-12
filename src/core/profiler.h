@@ -7,6 +7,7 @@
 // beginFrame(): anywhere else (tests, loading threads) they cost two clock reads and record nothing.
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -21,6 +22,8 @@ struct Scope {
 struct Frame {
     std::vector<Scope> scopes;   // in the order they began
     double ms = 0.0;
+    double begin = 0.0;          // ms since the profiler first ran
+    std::vector<std::pair<std::string, float>> gpu;   // the GPU pass times known then (a frame or two late)
 };
 
 void beginFrame();
@@ -36,6 +39,17 @@ struct Summary {
     double avgMs, maxMs;
 };
 std::vector<Summary> summarize();
+
+// Recording: every frame from now (up to 30000, about 8 minutes at 60 fps) kept until stopped, for saving
+void startRecording();
+void stopRecording();
+bool recording();
+const std::vector<Frame>& recorded();
+
+// The frames as a Chrome trace (JSON: open in chrome://tracing, edge://tracing or ui.perfetto.dev): CPU scopes
+// nested on one track, GPU passes on another, one marker per frame
+bool saveChromeTrace(const std::filesystem::path& file, const std::vector<Frame>& frames, std::string& error);
+std::string chromeTraceJson(const std::vector<Frame>& frames);
 
 // GPU pass times (ms) of the latest frame the renderer could read back
 void setGpuTimes(std::vector<std::pair<std::string, float>> times);

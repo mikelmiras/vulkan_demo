@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <fstream>
 #include <map>
 #include <thread>
 
@@ -19,7 +21,11 @@ struct State {
     std::vector<size_t> open;   // indices into current.scopes
     std::vector<Frame> history;
     std::vector<std::pair<std::string, float>> gpu;
+    Clock::time_point epoch = Clock::now();
+    bool recording = false;
+    std::vector<Frame> recorded;
 };
+constexpr size_t kMaxRecorded = 30000;
 
 State& state() {
     static State s;
@@ -36,6 +42,7 @@ void beginFrame() {
     s.inFrame = true;
     s.frameStart = Clock::now();
     s.current = {};
+    s.current.begin = std::chrono::duration<double, std::milli>(s.frameStart - s.epoch).count();
     s.open.clear();
 }
 
@@ -44,6 +51,8 @@ void endFrame() {
     if (!s.inFrame) return;
     while (!s.open.empty()) pop();   // (unbalanced: close what's left)
     s.current.ms = since(s.frameStart);
+    s.current.gpu = s.gpu;
+    if (s.recording && s.recorded.size() < kMaxRecorded) s.recorded.push_back(s.current);
     s.history.push_back(std::move(s.current));
     if (s.history.size() > kHistory) s.history.erase(s.history.begin());
     s.inFrame = false;
@@ -108,6 +117,64 @@ std::vector<Summary> summarize() {
         for (auto it = n.children.rbegin(); it != n.children.rend(); ++it) todo.push_back(*it);
     }
     return out;
+}
+
+void startRecording() {
+    state().recorded.clear();
+    state().recording = true;
+}
+void stopRecording() { state().recording = false; }
+bool recording() { return state().recording; }
+const std::vector<Frame>& recorded() { return state().recorded; }
+
+std::string chromeTraceJson(const std::vector<Frame>& frames) {
+    // Complete events ("ph": "X") in microseconds; Chrome nests them by time on a track
+    std::string out = "{\"displayTimeUnit\": \"ms\", \"traceEvents\": [\n";
+    out += "{\"name\": \"thread_name\", \"ph\": \"M\", \"pid\": 1, \"tid\": 1, \"args\": {\"name\": \"CPU (main thread)\"}},\n";
+    out += "{\"name\": \"thread_name\", \"ph\": \"M\", \"pid\": 1, \"tid\": 2, \"args\": {\"name\": \"GPU passes\"}}";
+    char buf[512];
+    auto escape = [](const std::string& s) {
+        std::string e;
+        for (char c : s) {
+            if (c == '"' || c == '\\') e += '\\';
+            if ((unsigned char)c >= 0x20) e += c;
+        }
+        return e;
+    };
+    for (size_t i = 0; i < frames.size(); ++i) {
+        const Frame& f = frames[i];
+        std::snprintf(buf, sizeof(buf), ",\n{\"name\": \"Frame\", \"cat\": \"frame\", \"ph\": \"X\", \"pid\": 1, \"tid\": 1, "
+                      "\"ts\": %.3f, \"dur\": %.3f}", f.begin * 1000.0, f.ms * 1000.0);
+        out += buf;
+        for (const Scope& sc : f.scopes) {
+            std::snprintf(buf, sizeof(buf), ",\n{\"name\": \"%s\", \"cat\": \"cpu\", \"ph\": \"X\", \"pid\": 1, \"tid\": 1, "
+                          "\"ts\": %.3f, \"dur\": %.3f}", escape(sc.name).c_str(), (f.begin + sc.start) * 1000.0, sc.ms * 1000.0);
+            out += buf;
+        }
+        double t = f.begin;   // (GPU passes one after another from the frame's start: their real start isn't known)
+        for (const auto& [name, ms] : f.gpu) {
+            std::snprintf(buf, sizeof(buf), ",\n{\"name\": \"%s\", \"cat\": \"gpu\", \"ph\": \"X\", \"pid\": 1, \"tid\": 2, "
+                          "\"ts\": %.3f, \"dur\": %.3f}", escape(name).c_str(), t * 1000.0, (double)ms * 1000.0);
+            out += buf;
+            t += ms;
+        }
+    }
+    out += "\n]}\n";
+    return out;
+}
+
+bool saveChromeTrace(const std::filesystem::path& file, const std::vector<Frame>& frames, std::string& error) {
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        error = "cannot write " + file.u8string();
+        return false;
+    }
+    out << chromeTraceJson(frames);
+    if (!out) {
+        error = "cannot write " + file.u8string();
+        return false;
+    }
+    return true;
 }
 
 void setGpuTimes(std::vector<std::pair<std::string, float>> times) { state().gpu = std::move(times); }

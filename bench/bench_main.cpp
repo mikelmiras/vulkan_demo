@@ -1,8 +1,11 @@
 // Engine benchmark: builds the stress scene and times the CPU side of a frame (game updates, physics, draw lists).
-//   engine_bench [statics] [bodies] [triggers] [ticks]
+//   engine_bench [statics] [bodies] [triggers] [ticks] [--json results.json]
+// --json also writes the times by name, for tools/check_perf.py (CI's performance regression check)
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <fstream>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -31,6 +34,15 @@ template <class F> double timeMs(int reps, F&& f) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    std::string jsonPath;
+    {
+        int out = 1;
+        for (int i = 1; i < argc; ++i) {
+            if (!std::strcmp(argv[i], "--json") && i + 1 < argc) jsonPath = argv[++i];
+            else argv[out++] = argv[i];
+        }
+        argc = out;
+    }
     StressSettings st;
     if (argc > 1) st.statics = std::atoi(argv[1]);
     if (argc > 2) st.bodies = std::atoi(argv[2]);
@@ -139,6 +151,22 @@ int main(int argc, char** argv) {
     std::printf("  navigation bake      %8.3f ms (%zu cells)\n", navBake, nav.cellCount());
     std::printf("  100 paths            %8.3f ms (%d found)\n", paths, found);
     std::printf("  fixed update         %8.3f ms avg, %.3f ms worst (budget at 60 Hz: 16.7 ms)\n", total / ticks, worst);
+    if (!jsonPath.empty()) {
+        const std::pair<const char*, double> metrics[] = {
+            {"scene_copy", copy}, {"diff_scenes", diff}, {"world_matrices", world}, {"draw_items", draw},
+            {"physics_make_bodies", build}, {"physics_sync", sync}, {"raycasts_1000", rays}, {"game_start", start},
+            {"scene_change_sync", syncChange}, {"navigation_bake", navBake}, {"paths_100", paths},
+            {"fixed_update_avg", total / ticks}};
+        std::ofstream out(jsonPath, std::ios::trunc);
+        out << "{\n  \"entities\": " << play.entities.size() << ",\n  \"ms\": {";
+        for (size_t i = 0; i < sizeof(metrics) / sizeof(metrics[0]); ++i)
+            out << (i ? "," : "") << "\n    \"" << metrics[i].first << "\": " << metrics[i].second;
+        out << "\n  }\n}\n";
+        if (!out) {
+            std::fprintf(stderr, "cannot write %s\n", jsonPath.c_str());
+            return 1;
+        }
+    }
     ImGui::DestroyContext();
     return 0;
 }

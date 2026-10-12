@@ -121,6 +121,11 @@ physics world, raycasts and the fixed update. It also prints a checksum of where
 that an optimisation didn't change the simulation. `vkworld --stress` / `vkgame --stress` (or File > New stress
 test scene) open the same scene; the editor's Inspector shows drawn / culled objects and the game update time.
 
+`engine_bench --json out.json` also writes the times by name. CI runs `tools/check_perf.py`, which takes the best
+of three runs and fails when a time is more than twice its baseline (plus 1 ms) in `tools/perf_baseline.json`,
+kept per platform. After a change meant to make something slower (or faster), update the baseline with the
+numbers CI printed, or `check_perf.py --bench build/engine_bench --platform Linux --write` on that platform.
+
 ### Validation layer
 
 Set `VKWORLD_VALIDATION=1` to enable the Khronos validation layer (on by default in Debug builds,
@@ -483,7 +488,17 @@ colliders draws them all (blue = solid, green = trigger).
 - **Profiler** (editor: View > Profiler or F3; vkgame: F3 for an overlay): frame times over the last two seconds,
   the last frame's CPU scopes as nested bars, each scope's average and worst time, and the GPU's time per pass
   (shadows, scene, AO / bloom / composite, UI) from timestamp queries. Game code can time its own parts:
-  `PROFILE_SCOPE("Pathfinding");` (core/profiler.h).
+  `PROFILE_SCOPE("Pathfinding");` (core/profiler.h). **Save trace** writes the last two seconds, and **Record** /
+  **Stop and save** any stretch of frames, as a Chrome trace (`traces/trace-<date>-<time>.json` in the user's data
+  folder): open it in `chrome://tracing`, `edge://tracing` or [ui.perfetto.dev](https://ui.perfetto.dev) to scroll
+  and zoom through frames, CPU scopes nested on one track and GPU passes on another. `vkgame --trace out.json`
+  records the whole run and saves it on exit.
+- **Crash reports**: a crash (a bad memory access, an assertion, an illegal instruction, an exception nothing
+  caught) writes what happened and the stack to the console, the log file and `game-crash.txt` /
+  `editor-crash.txt` next to it, then the program ends as it would have. The next run keeps it as
+  `*-crash-last.txt` and says so (the editor in its status bar, the game in its log). Linux and macOS stacks name
+  library functions and give offsets into programs (`addr2line -f -C -e vkgame <offset>`, `atos` on macOS);
+  Windows names functions from the `.pdb` when one is next to the program.
 - **Log files**: vkgame writes `game.log`, the editor `editor.log`, in the user's data folder next to the save games
   (`~/.local/share/vkworld/<project>/`), with the game's messages, validation messages and fatal errors; the
   previous run's log stays as `*.1`.

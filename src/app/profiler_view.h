@@ -2,5 +2,8 @@
 // (vkgame, F3)
 #pragma once
 
-void drawProfilerWindow(bool* open);
+#include <filesystem>
+
+// traceFolder: where Save trace / Record write Chrome traces (trace-<date>-<time>.json)
+void drawProfilerWindow(bool* open, const std::filesystem::path& traceFolder);
 void drawProfilerOverlay(float uiScale);

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <ctime>
+#include <string>
 
 #include "core/profiler.h"
 #include "imgui.h"
@@ -14,11 +16,42 @@ ImU32 scopeColor(const char* name) {   // a steady colour per name
     return IM_COL32(80 + (h & 0x7F), 80 + ((h >> 8) & 0x7F), 110 + ((h >> 16) & 0x7F), 255);
 }
 
+std::string saveTrace(const std::filesystem::path& folder, const std::vector<profiler::Frame>& frames) {
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+    std::time_t now = std::time(nullptr);
+    char name[64];
+    std::strftime(name, sizeof(name), "trace-%Y%m%d-%H%M%S.json", std::localtime(&now));
+    std::string error;
+    std::filesystem::path file = folder / name;
+    if (!profiler::saveChromeTrace(file, frames, error)) return error;
+    return "Saved " + std::to_string(frames.size()) + " frames to " + file.u8string() + " (open it in chrome://tracing)";
+}
+
 }  // namespace
 
-void drawProfilerWindow(bool* open) {
+void drawProfilerWindow(bool* open, const std::filesystem::path& traceFolder) {
     ImGui::SetNextWindowSize(ImVec2(560.f, 460.f), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Profiler", open)) { ImGui::End(); return; }
+    static std::string traceMessage;
+    if (ImGui::Button("Save trace")) traceMessage = saveTrace(traceFolder, profiler::history());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The last 2 s as a Chrome trace (chrome://tracing, ui.perfetto.dev)");
+    ImGui::SameLine();
+    if (!profiler::recording()) {
+        if (ImGui::Button("Record")) {
+            profiler::startRecording();
+            traceMessage.clear();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Keeps every frame until Stop, then saves them as a trace");
+    } else {
+        char stop[64];
+        std::snprintf(stop, sizeof(stop), "Stop and save (%zu frames)", profiler::recorded().size());
+        if (ImGui::Button(stop)) {
+            profiler::stopRecording();
+            traceMessage = saveTrace(traceFolder, profiler::recorded());
+        }
+    }
+    if (!traceMessage.empty()) ImGui::TextWrapped("%s", traceMessage.c_str());
     const std::vector<profiler::Frame>& frames = profiler::history();
     if (frames.empty()) {
         ImGui::TextDisabled("No frames yet");

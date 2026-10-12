@@ -88,6 +88,7 @@ set(ENGINE_SOURCES
   src/core/project.cpp
   src/core/vfs.cpp
   src/core/profiler.cpp
+  src/core/crash.cpp
   src/core/log.cpp
   src/core/compress.cpp
   src/app/profiler_view.cpp
@@ -309,7 +310,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_loading.cpp
     tests/test_gameplay.cpp
     tests/test_joints.cpp
-    tests/test_vehicles.cpp)
+    tests/test_vehicles.cpp
+    tests/test_reliability.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module
