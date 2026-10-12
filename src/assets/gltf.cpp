@@ -291,6 +291,7 @@ void importAnimations(MeshLibrary& lib, const cgltf_data& data, const std::strin
             for (size_t k = 0; k < out->count; ++k) cgltf_accessor_read_float(out, k, &keys.values[k * (size_t)width], (cgltf_size)width);
             if (!keys.times.empty()) clip.duration = std::max(clip.duration, keys.times.back());
         }
+        compressClip(clip);   // (keys interpolation gives back anyway: gone)
         names.push_back(clip.name);
         lib.animations.push_back(std::move(clip));
     }

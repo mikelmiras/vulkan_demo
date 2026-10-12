@@ -411,6 +411,64 @@ struct PlayerController : BehaviourBase<PlayerController> {
 };
 
 // ---------------------------------------------------------------------------------------------
+// Foot placement: keeps the feet of an animated character on uneven ground, through its Animator's two-bone IK
+// chains (one per foot): each foot goes up or down by how much higher or lower the ground under it is than under the
+// character, and the hips drop when a foot needs to reach lower ground
+struct FootIK : BehaviourBase<FootIK> {
+    static constexpr const char* kTypeName = "FootIK";
+    std::string leftChain = "LeftFoot", rightChain = "RightFoot";   // the Animator's IK chains
+    std::string hips = "Hips";      // the bone lowered with the lower foot ("": none)
+    float reach = 0.5f;             // how far up or down a foot goes for the ground (metres)
+    float smoothing = 12.f;         // how quickly it follows the ground (higher: snappier)
+    float shift[2] = {0.f, 0.f};    // runtime: how far each foot was moved last time
+    float drop = 0.f;
+    void fields(FieldVisitor& v) override {
+        v.field("leftChain", leftChain);
+        v.field("rightChain", rightChain);
+        v.field("hips", hips);
+        v.field("reach", reach, 0.01f, 0.f, 5.f);
+        v.field("smoothing", smoothing, 0.1f, 0.f, 100.f);
+    }
+    // The entity with the Animator (this one or one under it)
+    static Entity* animated(GameContext& ctx, Entity& self) {
+        if (self.animator) return &self;
+        for (Entity& e : ctx.scene().entities)
+            if (e.animator && ctx.scene().isAncestor(self.id, e.id)) return &e;
+        return nullptr;
+    }
+    void update(GameContext& ctx, Entity& self) override {
+        Entity* model = animated(ctx, self);
+        if (!model) return;
+        Animator& a = *model->animator;
+        Vec3 root = ctx.worldPosition(self.id);
+        float k = std::min(1.f, smoothing * ctx.dt());
+        float lowest = 0.f;
+        const std::string* chains[2] = {&leftChain, &rightChain};
+        for (int side = 0; side < 2; ++side) {
+            const AnimatorIK* chain = nullptr;
+            for (const AnimatorIK& c : a.ik)
+                if (c.name == *chains[side]) chain = &c;
+            if (!chain || !chain->hasPosed) continue;
+            // Where the animation put the foot (before the hips dropped and the IK moved it), and the ground under it
+            // compared with the ground under the character
+            Vec3 at = chain->posed;
+            RaycastHit hit;
+            float wanted = 0.f;
+            if (ctx.raycast({at.x, root.y + reach, at.z}, {0, -1, 0}, 2.f * reach, hit, self.id))
+                wanted = std::clamp(hit.point.y - root.y, -reach, reach);
+            shift[side] += (wanted - shift[side]) * k;
+            lowest = std::min(lowest, shift[side]);
+            Entity* m = model;   // (the target: the animated foot moved by its shift, from the dropped hips)
+            Vec3 target = at + Vec3{0.f, shift[side], 0.f};
+            m->animator->setIK(*chains[side], target, 1.f);
+        }
+        drop += (lowest - drop) * k;
+        a.offsetBone = hips;
+        a.offset = {0.f, drop, 0.f};
+    }
+};
+
+// ---------------------------------------------------------------------------------------------
 // Drives the entity's Vehicle: forward / back are the throttle (back brakes first, then reverses), left / right
 // steer (eased), jump is the handbrake
 struct VehicleDriver : BehaviourBase<VehicleDriver> {
@@ -876,6 +934,7 @@ void registerBuiltinBehaviours() {
     registerBehaviour<PlayerController>(
         "First-person walking: WASD / arrows to move, hold the right mouse button to look, Space to jump, Shift to "
         "sprint. Put it on a body with a capsule collider and a camera child at eye height.");
+    registerBehaviour<FootIK>("Keeps an animated character's feet on uneven ground (its Animator's IK chains)");
     registerBehaviour<VehicleDriver>("Drives the entity's Vehicle with the move keys (jump: the handbrake)");
     registerBehaviour<Pickup>("Collected when the collector entity (by name) touches its trigger collider");
     registerBehaviour<Shooter>("Fires a prefab along its -Z while the fire action (left mouse) is held");

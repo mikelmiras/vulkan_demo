@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include "misc/cpp/imgui_stdlib.h"
+#include "assets/retarget.h"
 #include "editor/editor_ui.h"
 
 using namespace editor_ui;
@@ -389,6 +390,35 @@ void Editor::drawAnimatorInspector(Entity& e) {
         if (playing() && !a.state.empty()) {
             ImGui::TextDisabled("Now in %s", a.state.c_str());
             for (const auto& p : a.parameters) ImGui::TextDisabled("  %s = %.2f", p.first.c_str(), p.second);
+        }
+        ImGui::TreePop();
+    }
+    // Retargeting: another model's clip for this one's skeleton (assets/retarget.h)
+    if (ImGui::TreeNode("Retarget a clip")) {
+        static std::string clip, fromPrefab;
+        clipCombo("Clip", clip, meshes_);
+        if (ImGui::BeginCombo("Its model", fromPrefab.empty() ? "(a prefab)" : fromPrefab.c_str())) {
+            for (const Prefab& p : scene_.prefabs)
+                if (ImGui::Selectable(p.name.c_str(), p.name == fromPrefab)) fromPrefab = p.name;
+            ImGui::EndCombo();
+        }
+        tooltip("The model the clip was made for (its prefab: its skeleton in its rest pose)");
+        const Prefab* from = scene_.findPrefab(fromPrefab);
+        const AnimationClip* source = meshes_.findAnimation(clip);
+        if (from && source) {
+            Skeleton fromSkeleton = retarget::skeletonOf(*from), toSkeleton = retarget::skeletonOf(scene_, e.id);
+            auto map = retarget::mapBones(fromSkeleton, toSkeleton);
+            ImGui::TextDisabled("%d of this model's %d bones paired", (int)map.size(), (int)toSkeleton.bones.size());
+            std::string shortName = clip.substr(clip.rfind('/') == std::string::npos ? 0 : clip.rfind('/') + 1);
+            std::string name = e.name + "/" + shortName;
+            if (ImGui::Button("Retarget") && !map.empty()) {
+                for (int n = 2; meshes_.findAnimation(name); ++n) name = e.name + "/" + shortName + " " + std::to_string(n);
+                meshes_.animations.push_back(retarget::retargetClip(*source, fromSkeleton, toSkeleton, map, name));
+                pushUndo();
+                a.clip = name;
+                setStatus("Made " + name + " (" + std::to_string(map.size()) + " bones)");
+            }
+            tooltip("Makes the clip for this model (saved with the scene as how it was made) and plays it");
         }
         ImGui::TreePop();
     }

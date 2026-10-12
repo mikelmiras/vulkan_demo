@@ -356,6 +356,21 @@ With **root motion** on, the root bone's travel across the ground moves the enti
 capsule) and the bone stays put, so feet don't slide. *Open graph* shows the state machine as a diagram, the
 playing state lit while the game runs.
 
+**Foot placement**: the built-in **FootIK** behaviour keeps a character's feet on uneven ground through its
+Animator's two-bone chains (one per foot, named *LeftFoot* / *RightFoot* by default): each foot goes up or down by
+how much higher or lower the ground under it is than under the character, and the hips (a bone you name) drop
+when a foot needs to reach lower ground.
+
+**Retargeting**: a clip made for one model can be played by another with a different rig. In the Animator
+inspector, *Retarget a clip* takes the clip and the model it was made for (its prefab) and makes the clip for this
+one: bones are paired by name (rig prefixes, sides and the usual humanoid names understood: Mixamo's
+`mixamorig:LeftUpLeg` pairs with `Thigh_L`), each turns as much as its partner turns away from its rest pose, in the
+world (so differently oriented bones still bend the same way, when both rest poses are alike), and the hips carry
+the travel, scaled by their height. The scene saves how the clip was made and makes it again when it loads.
+
+**Compression**: imported clips drop the keys their neighbours' interpolation gives back anyway (to within 0.05
+degrees and half a millimetre): smaller clips, the same motion.
+
 **Animation events** are named times in a clip (a footstep, the frame a sword hits): when playback passes one,
 the entity's behaviours get `onAnimationEvent(ctx, self, "Footstep")`. In a blend tree the clip that weighs most
 fires its events (at the same point of its cycle), and layers' clips fire theirs.

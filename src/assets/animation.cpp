@@ -1,6 +1,7 @@
 #include "assets/animation.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
@@ -73,4 +74,84 @@ AnimationPose blendPoses(const AnimationPose& a, const AnimationPose& b, float t
     r.hasRotation |= b.hasRotation;
     r.hasScale |= b.hasScale;
     return r;
+}
+
+namespace {
+
+// How far apart two values of a channel are: an angle (degrees) for rotations, a distance otherwise
+float keyError(const float* a, const float* b, int width) {
+    if (width == 4) {
+        float d = std::fabs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
+        return 2.f * std::acos(std::min(d, 1.f)) / DEG2RAD;
+    }
+    float s = 0.f;
+    for (int c = 0; c < width; ++c) s += (a[c] - b[c]) * (a[c] - b[c]);
+    return std::sqrt(s);
+}
+
+size_t compressKeys(AnimationKeys& k, float tolerance) {
+    using I = AnimationKeys::Interpolation;
+    size_t n = k.times.size();
+    if (n < 3 || k.interpolation == I::CubicSpline || k.values.size() != n * (size_t)k.width) return 0;
+    std::vector<size_t> kept{0};
+    const int w = k.width;
+    auto at = [&](size_t i) { return &k.values[i * (size_t)w]; };
+    if (k.interpolation == I::Step) {   // a key the same as the one before it changes nothing
+        for (size_t i = 1; i + 1 < n; ++i)
+            if (keyError(at(i), at(kept.back()), w) > tolerance) kept.push_back(i);
+    } else {
+        // From each kept key, reach as far as a straight run (interpolated from it to the far key) still passes within
+        // the tolerance of every key in between
+        size_t i = 0;
+        while (i + 1 < n) {
+            size_t j = i + 1;
+            while (j + 1 < n) {
+                size_t far = j + 1;
+                bool ok = true;
+                for (size_t m = i + 1; m < far && ok; ++m) {
+                    float span = k.times[far] - k.times[i], u = span > 0.f ? (k.times[m] - k.times[i]) / span : 0.f;
+                    float v[4];
+                    if (w == 4) {
+                        Quat q = slerp({at(i)[0], at(i)[1], at(i)[2], at(i)[3]}, {at(far)[0], at(far)[1], at(far)[2], at(far)[3]}, u);
+                        v[0] = q.x; v[1] = q.y; v[2] = q.z; v[3] = q.w;
+                    } else {
+                        for (int c = 0; c < w; ++c) v[c] = at(i)[c] + (at(far)[c] - at(i)[c]) * u;
+                    }
+                    ok = keyError(v, at(m), w) <= tolerance;
+                }
+                if (!ok) break;
+                j = far;
+            }
+            kept.push_back(j);
+            i = j;
+        }
+    }
+    if (kept.back() != n - 1) kept.push_back(n - 1);
+    std::vector<float> times, values;
+    for (size_t i : kept) {
+        times.push_back(k.times[i]);
+        values.insert(values.end(), at(i), at(i) + w);
+    }
+    size_t removed = n - kept.size();
+    k.times = std::move(times);
+    k.values = std::move(values);
+    return removed;
+}
+
+}  // namespace
+
+size_t compressClip(AnimationClip& clip, float rotationDegrees, float translation, float scale) {
+    size_t removed = 0;
+    for (AnimationTrack& t : clip.tracks) {
+        removed += compressKeys(t.rotation, rotationDegrees);
+        removed += compressKeys(t.translation, translation);
+        removed += compressKeys(t.scale, scale);
+    }
+    return removed;
+}
+
+size_t keyCount(const AnimationClip& clip) {
+    size_t n = 0;
+    for (const AnimationTrack& t : clip.tracks) n += t.rotation.times.size() + t.translation.times.size() + t.scale.times.size();
+    return n;
 }

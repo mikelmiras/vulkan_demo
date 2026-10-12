@@ -1,4 +1,6 @@
 #include "scene/serialization.h"
+
+#include "assets/retarget.h"
 #include "assets/asset_db.h"
 #include "scene/terrain.h"
 
@@ -1184,8 +1186,31 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
         t.push(std::move(v));
     }
     json::Value& a = doc.set("animations", json::Value::array());
-    for (const std::string& name : usedClips) {
+    std::vector<std::string> clips(usedClips.begin(), usedClips.end());
+    for (size_t i = 0; i < clips.size(); ++i)   // (a retargeted clip needs the clip it's made from)
+        if (const AnimationClip* c = meshes.findAnimation(clips[i]); c && c->retarget &&
+                                                                     std::find(clips.begin(), clips.end(), c->retarget->clip) == clips.end())
+            clips.push_back(c->retarget->clip);
+    std::vector<json::Value> retargeted;
+    for (const std::string& name : clips) {
         const AnimationClip* clip = meshes.findAnimation(name);
+        if (clip && clip->retarget) {   // its recipe: made again on loading (after the clips it's made from)
+            json::Value v = json::Value::object();
+            v.set("name", name);
+            json::Value& r = v.set("retarget", json::Value::object());
+            r.set("clip", clip->retarget->clip);
+            r.set("from", retarget::skeletonToJson(clip->retarget->from));
+            r.set("to", retarget::skeletonToJson(clip->retarget->to));
+            json::Value& m = r.set("map", json::Value::array());
+            for (const auto& [t, s] : clip->retarget->map) {
+                json::Value pair = json::Value::array();
+                pair.push(t);
+                pair.push(s);
+                m.push(std::move(pair));
+            }
+            retargeted.push_back(std::move(v));
+            continue;
+        }
         if (!clip || clip->source.empty()) continue;
         json::Value v = json::Value::object();
         v.set("name", name);
@@ -1193,6 +1218,7 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
         if (std::string aid = assetdb::idOfStored(clip->source); !aid.empty()) v.set("id", aid);
         a.push(std::move(v));
     }
+    for (json::Value& v : retargeted) a.push(std::move(v));
 }
 
 thread_local std::atomic<float>* t_progress = nullptr;
@@ -1220,9 +1246,30 @@ bool assetListsFromJson(const json::Value& doc, MeshLibrary& meshes, TextureLibr
         step();
     }
     for (const json::Value& a : doc["animations"].elements()) {
+        if (a.has("retarget")) continue;   // (after the clips they're made from)
         int id = importAnimationClip(meshes, project::resolve(assetdb::heal(a["source"].asString(), a["id"].asString())), error);
         if (id < 0) return false;
         ids.animations[a["name"].asString()] = meshes.animations[(size_t)id].name;
+        step();
+    }
+    for (const json::Value& a : doc["animations"].elements()) {   // retargeted clips: made again from their recipes
+        const json::Value& r = a["retarget"];
+        if (!r.isObject()) continue;
+        std::string name = a["name"].asString(), sourceName = r["clip"].asString();
+        auto known = ids.animations.find(sourceName);
+        const AnimationClip* source = meshes.findAnimation(known != ids.animations.end() ? known->second : sourceName);
+        if (!source) {
+            error = "animation '" + name + "': the clip it's made from ('" + sourceName + "') is missing";
+            return false;
+        }
+        if (!meshes.findAnimation(name)) {
+            std::vector<std::pair<std::string, std::string>> map;
+            for (const json::Value& m : r["map"].elements()) map.emplace_back(m[0].asString(), m[1].asString());
+            AnimationClip clip = retarget::retargetClip(*source, retarget::skeletonFromJson(r["from"]),
+                                                       retarget::skeletonFromJson(r["to"]), map, name);
+            meshes.animations.push_back(std::move(clip));
+        }
+        ids.animations[name] = name;
         step();
     }
     reportProgress(0.8f);

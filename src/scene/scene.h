@@ -262,6 +262,8 @@ struct AnimatorIK {
     // runtime: the point to reach (world space), set by game code
     Vec3 target;
     bool hasTarget = false;
+    Vec3 posed;                   // runtime: where the animation put the end bone (world), before any offset and IK
+    bool hasPosed = false;
 };
 struct AnimatorTransition {
     enum class When { Greater, Less, IsTrue, IsFalse, ClipEnded };
@@ -302,6 +304,11 @@ struct Animator {
     std::string state;           // the state machine's current state
     std::string fadeFromState;   // the state being faded out (a blend tree is faded out as one)
     Vec3 rootDelta;              // root motion of the last update, in the entity's own space
+    std::string offsetBone;      // runtime, set by game code (FootIK): moved by `offset` (world space) after posing,
+    Vec3 offset;                 // before IK (hips lowered so legs reach lower ground)
+    Vec3 offsetApplied, offsetResult;   // runtime: the last offset applied (local) and where it left the bone
+    // runtime: bones IK turned last time (before, after): put back first if nothing has posed them since
+    std::vector<std::pair<EntityId, std::pair<Transform, Transform>>> ikTouched;
     // Where nodes only layers move were before any layer did (what a layer's weight mixes with)
     std::vector<std::pair<std::string, Transform>> layerRest;
     std::vector<std::pair<std::string, float>> parameters;   // set by game code (bools are 0 / 1)

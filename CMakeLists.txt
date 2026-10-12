@@ -133,6 +133,7 @@ set(ENGINE_SOURCES
   src/render/environment.cpp
   src/render/light_clusters.cpp
   src/assets/mesh_lod.cpp
+  src/assets/retarget.cpp
   src/render/renderer_lights.cpp
   src/render/renderer_environment.cpp
   src/render/renderer_probes.cpp
@@ -324,7 +325,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_lights.cpp
     tests/test_lod.cpp
     tests/test_ai.cpp
-    tests/test_soft_fracture.cpp)
+    tests/test_soft_fracture.cpp
+    tests/test_retarget.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

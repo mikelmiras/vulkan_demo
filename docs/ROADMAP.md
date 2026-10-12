@@ -483,7 +483,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 46 (done) | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
 | 47 (done) | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
 | 48 (done) | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
-| 49 | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
+| 49 (done) | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
 | 50 | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
 | 51 | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
 | 52 | Platform: Wayland, gamepad rumble and light bars, a mouse-free text-input keyboard for consoles-style UI, high-contrast / colour-blind UI options | X11 only; accessibility settings are missing |
@@ -601,4 +601,21 @@ Working list for turning the renderer demo into a small game engine. Each task i
   Fracture; Game destroys pieces after their pieceLife. Scene format 36, module API 35. Not done: soft bodies
   following a moved entity (they're made again), tearing cloth, soft bodies in water, fracturing concave meshes
   properly, breaking pieces further, joints holding pieces until they're hit.
+- Task 49: assets/retarget: skeletons (a scene subtree or a prefab: names, parents, rest TRS); boneKey normalises a
+  bone's name (prefixes before ':' / '|', rig words like mixamorig, words split on separators, case and digits,
+  the side as .l / .r, a humanoid part table, finger names kept) and mapBones pairs by key, else exact name.
+  retargetClip samples the source at 30 Hz: per paired bone, the rotation from rest in its parent's frame is taken
+  into the world through the parent's rest world rotation and back out through the target parent's, onto the
+  target's rest rotation; the paired bone nearest the root also gets the source's travel from rest, through the same
+  frames, times the ratio of hip heights (above the root bone; their own height when the hips are the root); then
+  compressed. The clip keeps a RetargetRecipe (source clip, both skeletons, the map): scenes save it (skeletons as
+  JSON, after the clips it needs) and loading makes it again. compressClip: a greedy reduction per channel (from each
+  kept key, the farthest key such that interpolating to it stays within tolerance of every key between; step
+  channels drop repeats; cubic splines kept), on every glTF import. FootIK: the Animator records each IK chain's end
+  bone where the pose put it (before an offset bone shift and IK) and now puts back bones IK turned when nothing
+  re-posed them (non-playing animators no longer feed IK its own result); FootIK casts down from above each foot,
+  shifts the foot by the ground's height relative to the character's, eased, and sets the Animator's offset bone
+  (the hips) down by the lower shift, applied after posing and before IK. Module API 36. Not done: a bone-map editor
+  (the automatic pairing only), retargeting with different rest poses (A-pose to T-pose), foot rotation to the
+  ground's slope, retargeting root motion clips' curves separately, quantised key storage.
 

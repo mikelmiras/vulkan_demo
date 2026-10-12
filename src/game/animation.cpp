@@ -1,6 +1,7 @@
 #include "game/animation.h"
 
 #include <algorithm>
+#include <cstring>
 #include <cmath>
 #include <unordered_map>
 
@@ -214,6 +215,46 @@ Vec3 positionOf(const Scene& scene, EntityId id) {
 
 // The Animator's IK chains, on its entities as they're posed now
 void applyIK(Scene& scene, EntityId rootId, Animator& a, const std::unordered_map<std::string, EntityId>& names) {
+    // Bones still as last time's IK left them (no clip posed them since): back to how they were before it, so IK
+    // (and what's measured below) starts from the pose, not from its own last result
+    auto same = [](const Transform& x, const Transform& y) {
+        return std::memcmp(x.position, y.position, sizeof(x.position)) == 0 &&
+               std::memcmp(x.rotation, y.rotation, sizeof(x.rotation)) == 0;
+    };
+    for (auto it = a.ikTouched.rbegin(); it != a.ikTouched.rend(); ++it)
+        if (Entity* b = scene.find(it->first); b && same(b->transform, it->second.second)) b->transform = it->second.first;
+    a.ikTouched.clear();
+    auto touch = [&](Entity& b) {   // (remembered before IK first turns it)
+        for (const auto& t : a.ikTouched)
+            if (t.first == b.id) return;
+        a.ikTouched.push_back({b.id, {b.transform, b.transform}});
+    };
+    for (AnimatorIK& k : a.ik)   // (as posed, for game code placing targets relative to the animation: FootIK)
+        if (auto it = names.find(k.bone); it != names.end()) {
+            Mat4 w = scene.worldMatrix(it->second);
+            k.posed = {w.m[12], w.m[13], w.m[14]};
+            if (!a.offsetBone.empty() && length(a.offsetApplied) > 0.f) {   // (an un-reposed offset bone: still moved)
+                auto ob = names.find(a.offsetBone);
+                if (ob != names.end() && scene.isAncestor(ob->second, it->second) &&
+                    length(scene.find(ob->second)->transform.pos() - a.offsetResult) < 1e-6f)
+                    k.posed = k.posed - transformDir(scene.parentWorldMatrix(ob->second), a.offsetApplied);
+            }
+            k.hasPosed = true;
+        }
+    if (!a.offsetBone.empty())   // (the hips lowered first: the legs solve from there)
+        if (auto it = names.find(a.offsetBone); it != names.end())
+            if (Entity* b = scene.find(it->second)) {
+                // Where the pose put it: if nothing posed it since (no clip moves it), take the last offset back off
+                Vec3 at = b->transform.pos();
+                if (length(at - a.offsetResult) < 1e-6f) at = at - a.offsetApplied;
+                Vec3 local = transformDir(inverseAffine(scene.parentWorldMatrix(b->id)), a.offset);
+                Vec3 now = at + local;
+                b->transform.position[0] = now.x;
+                b->transform.position[1] = now.y;
+                b->transform.position[2] = now.z;
+                a.offsetApplied = local;
+                a.offsetResult = now;
+            }
     for (AnimatorIK& k : a.ik) {
         float w = std::clamp(k.weight, 0.f, 1.f);
         if (w <= 0.f || k.bone.empty()) continue;
@@ -236,6 +277,7 @@ void applyIK(Scene& scene, EntityId rootId, Animator& a, const std::unordered_ma
             Quat q = rotationBetween(aim, to);
             float angle = quatAngle(q), limit = std::max(k.maxAngle, 0.f) * DEG2RAD;
             if (angle > limit && angle > 1e-6f) q = slerp(Quat{}, q, limit / angle);
+            touch(*end);
             turnAbout(scene, *end, p, slerp(Quat{}, q, w));
             continue;
         }
@@ -256,12 +298,16 @@ void applyIK(Scene& scene, EntityId rootId, Animator& a, const std::unordered_ma
         perp = normalize(perp);
         float cosA = std::clamp((ab * ab + reach * reach - bc * bc) / (2.f * ab * reach), -1.f, 1.f);
         Vec3 knee = A + dir * (cosA * ab) + perp * (std::sqrt(std::max(0.f, 1.f - cosA * cosA)) * ab);
+        touch(*top);
+        touch(*mid);
         turnAbout(scene, *top, A, slerp(Quat{}, rotationBetween(B - A, knee - A), w));
         B = positionOf(scene, mid->id);
         C = positionOf(scene, end->id);
         Vec3 goal = A + dir * reach;   // (the target, or as near as the chain reaches)
         turnAbout(scene, *mid, B, slerp(Quat{}, rotationBetween(C - B, goal - B), w));
     }
+    for (auto& t : a.ikTouched)   // (how IK left them: compared next time)
+        if (const Entity* b = scene.find(t.first)) t.second.second = b->transform;
 }
 
 }  // namespace
