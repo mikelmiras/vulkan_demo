@@ -347,6 +347,7 @@ void Editor::drawAddMenuItems() {
     if (ImGui::MenuItem("Empty")) addEmpty();
     if (ImGui::MenuItem("Camera")) addCamera();
     if (ImGui::MenuItem("Terrain")) addTerrain();
+    if (ImGui::MenuItem("Reflection probe")) addReflectionProbe();
     if (ImGui::MenuItem("Point light")) addLight(Light::Type::Point);
     if (ImGui::MenuItem("Spot light")) addLight(Light::Type::Spot);
     if (ImGui::MenuItem("Directional light")) addLight(Light::Type::Directional);

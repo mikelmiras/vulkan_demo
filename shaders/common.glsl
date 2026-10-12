@@ -23,6 +23,10 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 ground;          // below the horizon (linear)
     vec4 envParams;       // a sky image: x = 1 if there is one, y = brightness, z = turn around the vertical
     vec4 sh[9];           // its irradiance as spherical harmonics (rgb)
+    vec4 probePos[4];     // reflection probes: xyz = where it was baked, w = 1 if used
+    vec4 probeMin[4];     // its box
+    vec4 probeMax[4];     // w = 1: box projection
+    vec4 probeSh[4 * 9];  // its irradiance (nine per probe)
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness

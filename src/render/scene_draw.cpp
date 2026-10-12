@@ -1,6 +1,7 @@
 #include "render/scene_draw.h"
 
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 
 std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat4>& worlds, EntityId outlined,
@@ -98,4 +99,32 @@ std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>
         lights.push_back(l);
     }
     return lights;
+}
+
+std::vector<ProbeInfo> collectProbes(const Scene& scene, const std::vector<Mat4>& worlds, uint32_t bakeCount) {
+    std::vector<ProbeInfo> probes;
+    for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i) {
+        const Entity& e = scene.entities[i];
+        if (!e.reflectionProbe || !scene.visibleInHierarchy(e.id)) continue;
+        const ReflectionProbe& r = *e.reflectionProbe;
+        ProbeInfo p;
+        p.position = {worlds[i].m[12], worlds[i].m[13], worlds[i].m[14]};
+        Vec3 half{std::fabs(r.size.x) * 0.5f, std::fabs(r.size.y) * 0.5f, std::fabs(r.size.z) * 0.5f};
+        p.boxMin = p.position - half;
+        p.boxMax = p.position + half;
+        p.resolution = r.resolution;
+        p.boxProjection = r.boxProjection;
+        uint64_t h = 1469598103934665603ull;   // (what it shows: a new key, a new bake)
+        auto add = [&](const void* d, size_t n) {
+            for (size_t k = 0; k < n; ++k) h = (h ^ static_cast<const uint8_t*>(d)[k]) * 1099511628211ull;
+        };
+        add(&e.id, sizeof(e.id));
+        add(&p.position, sizeof(p.position));
+        add(&half, sizeof(half));
+        add(&p.resolution, sizeof(p.resolution));
+        add(&bakeCount, sizeof(bakeCount));
+        p.key = h;
+        probes.push_back(p);
+    }
+    return probes;
 }

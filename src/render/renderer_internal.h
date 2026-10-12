@@ -43,6 +43,10 @@ struct FrameUBO {
     float zenith[4], ground[4];   // sky colours (linear)
     float envParams[4];       // the sky image: x = 1 if there is one, y = brightness, z = turn (radians)
     float sh[9][4];           // its irradiance (spherical harmonics, rgb)
+    float probePos[4][4];     // reflection probes: xyz = where it was baked, w = 1 if used
+    float probeMin[4][4];     // its box
+    float probeMax[4][4];     // w = 1: box projection
+    float probeSh[4][9][4];   // its irradiance
 };
 
 struct InstanceData {

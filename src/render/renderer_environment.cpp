@@ -67,19 +67,22 @@ Renderer::Image Renderer::createFloatImage(const std::vector<const Environment::
     return img;
 }
 
+// Every frame's set: the sky image and its radiance (7, 8), and the radiance standing in for the probes (9-12) until
+// a frame binds its own (writeProbeDescriptors). Only while the GPU is idle.
 void Renderer::writeEnvironmentDescriptors() {
     for (int i = 0; i < MAX_FRAMES; ++i) {
         VkDescriptorImageInfo sky{envSampler_, envSky_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkDescriptorImageInfo radiance{envSampler_, envRadiance_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
-        for (int k = 0; k < 2; ++k) {
+        VkWriteDescriptorSet w[6];
+        for (int k = 0; k < 6; ++k) {
+            w[k] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             w[k].dstSet = descSets_[i];
             w[k].dstBinding = 7 + (uint32_t)k;
             w[k].descriptorCount = 1;
             w[k].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             w[k].pImageInfo = k == 0 ? &sky : &radiance;
         }
-        vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 6, w, 0, nullptr);
     }
 }
 

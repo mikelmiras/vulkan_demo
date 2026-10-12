@@ -274,6 +274,11 @@ dropping on the right.
   matte surfaces get its light from all around (spherical harmonics), shiny ones reflect it, sharp on smooth
   surfaces and blurred like their highlights on rough ones (six levels prefiltered with the GGX lobe when it's
   loaded). The sun is still the scene's directional light; the fog keeps the horizon colour.
+- **Reflection probes** (Add > Reflection probe): a box where shiny things reflect their real surroundings instead
+  of the sky. The probe renders the scene from its centre in all six directions (when it's first seen, moved or
+  resized, or on Bake in its Inspector), and that picture is prefiltered like a sky image; surfaces inside the box
+  reflect it (lined up with the walls of a box-shaped room with *Box projection*) and get their ambient light from
+  it, blending into the sky over the last metre inside its edges. The four probes nearest the camera are used.
 - **Transparency** (glTF alpha modes): cut-out materials (Mask) have holes wherever their texture's alpha is below a
   cutoff (the built-in Grate texture has them); see-through ones (Blend) are drawn after everything solid, sorted
   back to front, with their opacity.

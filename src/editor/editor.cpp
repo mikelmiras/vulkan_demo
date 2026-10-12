@@ -221,6 +221,7 @@ void Editor::buildDrawItems() {
                                       viewingGameCamera() ? nullptr : &extraSelected_);
     }
     lights_ = collectLights(scene_, worlds_);
+    probes_ = collectProbes(scene_, worlds_, probeBakes_);
     particles_.clear();
     if (playing()) {
         previewParticles_.clear();
@@ -237,6 +238,7 @@ SceneRenderInfo Editor::renderInfo() const {
     SceneRenderInfo info;
     info.items = &drawItems_;
     info.lights = &lights_;
+    info.probes = &probes_;
     info.joints = &joints_;
     info.particles = &particles_;
     const RenderSettings& r = scene_.render;
@@ -512,6 +514,16 @@ void Editor::addEmpty() {
     e.transform.position[0] = p.x; e.transform.position[1] = p.y; e.transform.position[2] = p.z;
     select(e.id);
     setStatus("Added " + e.name + " (an empty: group objects under it in the outliner)");
+}
+
+void Editor::addReflectionProbe() {
+    pushUndo();
+    Entity& e = scene_.create(scene_.uniqueName("Reflection Probe"));
+    Vec3 p = spawnPoint(0.f);
+    e.transform.position[0] = p.x; e.transform.position[1] = p.y + 1.5f; e.transform.position[2] = p.z;
+    e.reflectionProbe = ReflectionProbe{};
+    select(e.id);
+    setStatus("Added a reflection probe: shiny things inside its box reflect what it sees from its centre");
 }
 
 void Editor::addCamera() {

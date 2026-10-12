@@ -558,7 +558,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[9] = {
+    VkDescriptorSetLayoutBinding frameBindings[13] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -568,9 +568,13 @@ void Renderer::createPipelines() {
         {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // point shadows
         {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the sky image
         {8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // its radiance
+        {9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // reflection probes
+        {10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 9;
+    dslci.bindingCount = 13;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -860,7 +864,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 5 * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9 * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1230,32 +1234,8 @@ void Renderer::saveScreenshot() {
 }
 
 
-void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
-    if (width_ == 0 || height_ == 0) return;
-    PROFILE_SCOPE("Render (CPU)");
-    if (resized_) recreateSwapchain();
-    if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
-    reuploadChangedTextures();   // (before any of this frame's material sets are made: it may remake them all)
-    uploadEnvironment(info.environment);
-
-    {
-        PROFILE_SCOPE("Wait for the GPU");
-        VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
-    }
-    readGpuTimes();   // that frame's pass times
-    for (Buffer& b : retired_[frame_]) destroyBuffer(b);   // staging for uploads that frame made: done now
-    retired_[frame_].clear();
-
-    uint32_t imageIndex = 0;
-    VkResult r;
-    {
-        PROFILE_SCOPE("Acquire image");
-        r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, imageAvailable_[frame_], VK_NULL_HANDLE, &imageIndex);
-    }
-    if (r == VK_ERROR_OUT_OF_DATE_KHR) { recreateSwapchain(); return; }
-    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) VK_CHECK(r);
-    VK_CHECK(vkResetFences(device_, 1, &inFlight_[frame_]));
-
+// The frame's camera, lights and look (and, with `shadows`, where the shadow cameras go this frame)
+void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shadows) {
     // Lights: the first directional light is the sun (a default one if there's none), then the point and spot
     // lights nearest the camera
     LightInfo sun;
@@ -1273,20 +1253,21 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         return length(a->position - info.camPos) < length(b->position - info.camPos);
     });
     if (points.size() > (size_t)kMaxPointLights) points.resize(kMaxPointLights);
-    frameShadows_ = sun.castShadows && sun.intensity > 0.f;
+    if (shadows) frameShadows_ = sun.castShadows && sun.intensity > 0.f;
 
     Vec3 fog = srgbToLinear(info.sky);
-    FrameUBO u{};
     u.viewProj = info.viewProj;
-    std::vector<int> lightShadow;
-    shadowLayers_ = computeShadows(info, normalize(sun.direction), frameShadows_, points, u, lightShadow);
-    for (uint32_t i = 0; i < kShadowLayers; ++i) shadowViewProj_[i] = u.shadowViewProj[i];
+    std::vector<int> lightShadow(points.size(), -1);
+    if (shadows) {
+        shadowLayers_ = computeShadows(info, normalize(sun.direction), frameShadows_, points, u, lightShadow);
+        for (uint32_t i = 0; i < kShadowLayers; ++i) shadowViewProj_[i] = u.shadowViewProj[i];
+    }
     set4(u.camPos, info.camPos, 1.f);
     set4(u.fogColor, fog, info.fogDensity);
     u.viewport[0] = info.viewportW;
     u.viewport[1] = info.viewportH;
     u.viewport[2] = 2.5f;
-    set4(u.sunDir, normalize(sun.direction), frameShadows_ ? 1.f : 0.f);
+    set4(u.sunDir, normalize(sun.direction), shadows && frameShadows_ ? 1.f : 0.f);
     set4(u.sunColor, srgbToLinear(sun.color) * sun.intensity, 0.f);
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
     set4(u.zenith, srgbToLinear(info.zenith), 0.f);
@@ -1314,6 +1295,39 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
             u.pointSpot[i][1] = std::cos(outer);
         }
     }
+}
+
+void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
+    if (width_ == 0 || height_ == 0) return;
+    PROFILE_SCOPE("Render (CPU)");
+    if (resized_) recreateSwapchain();
+    if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
+    reuploadChangedTextures();   // (before any of this frame's material sets are made: it may remake them all)
+    uploadEnvironment(info.environment);
+    updateProbes(info);
+
+    {
+        PROFILE_SCOPE("Wait for the GPU");
+        VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
+    }
+    readGpuTimes();   // that frame's pass times
+    writeProbeDescriptors();   // (its set is free now)
+    for (Buffer& b : retired_[frame_]) destroyBuffer(b);   // staging for uploads that frame made: done now
+    retired_[frame_].clear();
+
+    uint32_t imageIndex = 0;
+    VkResult r;
+    {
+        PROFILE_SCOPE("Acquire image");
+        r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, imageAvailable_[frame_], VK_NULL_HANDLE, &imageIndex);
+    }
+    if (r == VK_ERROR_OUT_OF_DATE_KHR) { recreateSwapchain(); return; }
+    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) VK_CHECK(r);
+    VK_CHECK(vkResetFences(device_, 1, &inFlight_[frame_]));
+
+    FrameUBO u{};
+    fillFrameUBO(info, u, true);
+    setProbeData(u);
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
     {
         PROFILE_SCOPE("Instances");
@@ -1384,6 +1398,7 @@ void Renderer::shutdown() {
     vkDestroySampler(device_, sampler_, nullptr);
     vkDestroySampler(device_, nearestSampler_, nullptr);
     destroyEnvironmentResources();
+    destroyProbes();
     vkDestroySampler(device_, shadowSampler_, nullptr);
     destroyShadowArray(cascades_);
     destroyShadowArray(spotShadows_);

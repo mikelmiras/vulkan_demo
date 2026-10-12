@@ -50,6 +50,9 @@ bool eq(const AudioSource& a, const AudioSource& b) {
 bool eq(const ReverbZone& a, const ReverbZone& b) {
     return a.radius == b.radius && a.blend == b.blend && a.wet == b.wet && a.roomSize == b.roomSize && a.damping == b.damping;
 }
+bool eq(const ReflectionProbe& a, const ReflectionProbe& b) {
+    return eq(a.size, b.size) && a.resolution == b.resolution && a.boxProjection == b.boxProjection;
+}
 // (any change to the heights or paint gives a terrain a new revision: no need to compare them)
 bool eq(const Terrain& a, const Terrain& b) {
     if (a.revision != b.revision || a.resolution != b.resolution || a.size != b.size) return false;
@@ -138,7 +141,8 @@ bool sameEntity(const Entity& a, const Entity& b) {
     if (!eq(a.meshRenderer, b.meshRenderer) || !eq(a.camera, b.camera) || !eq(a.collider, b.collider) ||
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
         !eq(a.prefab, b.prefab) || !eq(a.nestedPrefab, b.nestedPrefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
-        !eq(a.particleEmitter, b.particleEmitter) || !eq(a.terrain, b.terrain))
+        !eq(a.particleEmitter, b.particleEmitter) || !eq(a.terrain, b.terrain) ||
+        !eq(a.reflectionProbe, b.reflectionProbe))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;
     for (size_t i = 0; i < a.behaviours.size(); ++i) {

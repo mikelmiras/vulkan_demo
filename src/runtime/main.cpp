@@ -252,11 +252,13 @@ int main(int argc, char** argv) {
         terrain::syncMeshes(scene, meshes);
         std::vector<DrawItem> items = collectDrawItems(scene, worlds, kNoEntity, &joints, &meshes);
         std::vector<LightInfo> lights = collectLights(scene, worlds);
+        std::vector<ProbeInfo> probes = collectProbes(scene, worlds);
         std::vector<ParticleDraw> particles;
         game.particles().collect(particles);
         SceneRenderInfo info;
         info.items = &items;
         info.lights = &lights;
+        info.probes = &probes;
         info.joints = &joints;
         info.particles = &particles;
         info.sky = scene.render.sky;

@@ -60,6 +60,14 @@ struct LightInfo {
     bool castShadows = true;
 };
 
+// A reflection probe to draw with (ReflectionProbe, scene/scene.h): baked when its key is new
+struct ProbeInfo {
+    Vec3 position, boxMin, boxMax;
+    int resolution = 128;
+    bool boxProjection = true;
+    uint64_t key = 0;   // what it's a picture of: its entity, place, size, resolution and the bake count
+};
+
 struct SceneRenderInfo {
     const std::vector<DrawItem>* items = nullptr;
     const std::vector<LightInfo>* lights = nullptr;   // no directional light: a default sun is used
@@ -80,6 +88,7 @@ struct SceneRenderInfo {
     // A sky image (render/environment.h): drawn as the sky, lighting and reflected (null: the colours above)
     const Environment* environment = nullptr;
     float skyIntensity = 1.f, skyRotation = 0.f;   // brightness, turn around the vertical (radians)
+    const std::vector<ProbeInfo>* probes = nullptr;   // the four nearest the camera are used
     float viewportX = 0, viewportY = 0, viewportW = 0, viewportH = 0;   // in window pixels
 };
 
@@ -163,7 +172,24 @@ private:
     void createEnvironmentResources();
     void destroyEnvironmentResources();
     void writeEnvironmentDescriptors();
-    void uploadEnvironment(const Environment* env);   // (when it's another one: waits for the GPU)   // textures reloaded in place (TextureLibrary revisions): waits for the GPU
+    void uploadEnvironment(const Environment* env);   // (when it's another one: waits for the GPU)
+    void fillFrameUBO(const SceneRenderInfo& info, render_detail::FrameUBO& u, bool shadows);
+    // Reflection probes (renderer_probes.cpp): baked on first sight, the nearest four bound (set 0, bindings 9-12)
+    struct BakedProbe {
+        uint64_t key = 0;
+        Image radiance;
+        float sh[9][3] = {};
+        uint64_t lastUsed = 0;
+    };
+    std::vector<BakedProbe> probes_;
+    std::vector<int> activeProbes_;           // indices into probes_, nearest first (at most 4)
+    std::vector<ProbeInfo> activeProbeInfo_;
+    uint64_t frameCounter_ = 0;
+    void updateProbes(const SceneRenderInfo& info);   // bakes what's new (waits for the GPU), picks the nearest four
+    bool bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, BakedProbe& out);
+    void writeProbeDescriptors();             // this frame's set: the active probes (black where none)
+    void setProbeData(render_detail::FrameUBO& u);
+    void destroyProbes();   // textures reloaded in place (TextureLibrary revisions): waits for the GPU
     // Set 1 for a draw: albedo, normal, metal/rough and emissive maps (defaults where it has none), made on first use
     VkDescriptorSet materialSet(const DrawItem& item);
     // Records the upload into `frame` when given (its staging buffer retired with that frame), else uploads now

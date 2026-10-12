@@ -15,3 +15,5 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
                                        const std::vector<EntityId>* alsoOutlined = nullptr);
 // Every visible entity with a light (directional lights shine along the entity's -Z)
 std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>& worlds);
+// Every visible reflection probe. `bakeCount` goes into their keys: a new value bakes them all again (the editor's Bake)
+std::vector<ProbeInfo> collectProbes(const Scene& scene, const std::vector<Mat4>& worlds, uint32_t bakeCount = 0);

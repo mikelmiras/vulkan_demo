@@ -294,6 +294,15 @@ struct ParticleEmitter {
 };
 
 // Marks an entity as part of a copy ("instance") of a prefab
+// Reflections of the surroundings for shiny things inside a box: the scene is rendered from the entity's position in
+// all directions (when it's first seen, when it moves or changes, and on the editor's Bake), prefiltered like a sky
+// image, and surfaces inside the box reflect that (and get its ambient light) instead of the sky
+struct ReflectionProbe {
+    Vec3 size{10, 6, 10};         // the box, centred on the entity (not turned with it), metres
+    int resolution = 128;         // pixels along each of the six views (64, 128 or 256)
+    bool boxProjection = true;    // reflections lined up with a box-shaped room's walls (parallax correction)
+};
+
 // A heightmap ground (scene/terrain.h): a square grid of heights over size x size metres, centred on the entity (its
 // transform applies on top), with up to four painted layers (a texture and a tint each; weights per grid point). It
 // collides (a static height field: its Collider, if any, is ignored), navigation walks on it, and it's drawn like a
@@ -374,6 +383,7 @@ struct Entity {
     std::optional<Animator> animator;
     std::optional<ParticleEmitter> particleEmitter;
     std::optional<Terrain> terrain;
+    std::optional<ReflectionProbe> reflectionProbe;
     std::optional<PrefabLink> prefab;
     // In an instance of a prefab that itself contains an instance of another prefab (or is a variant of one), the
     // link the prefab's entity has to that inner prefab. Inside a prefab's own entities, `prefab` is that link.

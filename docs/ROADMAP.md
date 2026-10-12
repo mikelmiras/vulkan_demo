@@ -349,3 +349,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
   now sees terrain changes made from the Inspector (sameEntity compared everything but terrains). Seen on the way:
   stb_image decodes uncompressed (flat) .hdr scanlines wrongly here (every other row black); run-length encoded ones,
   what tools write, are fine.
+- Task 36, reflection probes: a ReflectionProbe component (box size, resolution 64 / 128 / 256, box projection;
+  scene format 26). collectProbes gives each a key (entity, place, size, resolution, the editor's bake count);
+  Renderer::updateProbes bakes new keys between frames (waits for the GPU): six 90-degree views rendered with the
+  scene pipelines into a small HDR target (MSAA resolved; no shadows, probes, particles or outlines), read back,
+  resampled into a 512 x 256 panorama and prefiltered by environment::build; eight kept (least recently used out).
+  fillFrameUBO came out of render() for the views. The nearest four are bound at set 0, bindings 9-12 (the sky's
+  radiance stands in; written after each frame's fence), with position, box and SH in the frame UBO; scene.frag uses
+  the first probe whose box holds the point (box-projected lookups), fading to the sky over the last metre.
+  Editor: Add > Reflection probe, Add component, the box drawn when selected, Bake. Not done: baking in the
+  background, shadows in probe views, probes blending with each other, saving bakes with the scene.

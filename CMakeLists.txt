@@ -125,6 +125,7 @@ set(ENGINE_SOURCES
   src/render/scene_draw.cpp
   src/render/environment.cpp
   src/render/renderer_environment.cpp
+  src/render/renderer_probes.cpp
   src/app/application.cpp
   src/app/export.cpp
   src/script/lua_script.cpp

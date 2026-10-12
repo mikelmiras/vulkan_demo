@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 25;  // 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 26;  // 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -453,6 +453,12 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             layers.push(std::move(lv));
         }
     }
+    if (e.reflectionProbe) {
+        json::Value& c = v.set("reflectionProbe", json::Value::object());
+        c.set("size", vec3(e.reflectionProbe->size));
+        c.set("resolution", e.reflectionProbe->resolution);
+        c.set("boxProjection", e.reflectionProbe->boxProjection);
+    }
     if (e.particleEmitter) {
         const ParticleEmitter& p = *e.particleEmitter;
         json::Value& c = v.set("particles", json::Value::object());
@@ -724,6 +730,13 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         }
         terrain::touch(t);
         e.terrain = std::move(t);
+    }
+    if (const json::Value& c = v["reflectionProbe"]; c.isObject()) {
+        ReflectionProbe p;
+        p.size = readVec3(c["size"], p.size);
+        p.resolution = std::clamp(c["resolution"].asInt(p.resolution), 16, 1024);
+        p.boxProjection = c["boxProjection"].asBool(p.boxProjection);
+        e.reflectionProbe = p;
     }
     if (const json::Value& c = v["particles"]; c.isObject()) {
         ParticleEmitter p;

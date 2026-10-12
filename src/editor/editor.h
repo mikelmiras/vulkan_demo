@@ -278,6 +278,9 @@ private:
     float viewFov_ = 1.f;
     float viewNear_ = 0.1f, viewFar_ = 2000.f;   // the clip planes of the view drawn
     std::vector<LightInfo> lights_;
+    std::vector<ProbeInfo> probes_;
+    uint32_t probeBakes_ = 0;   // bumped by Bake: every reflection probe is baked again
+    void addReflectionProbe();
     std::vector<Mat4> worlds_;
     std::vector<DrawItem> drawItems_;
     std::vector<Mat4> joints_;   // skinned meshes' joint matrices (see DrawItem::jointOffset)

@@ -370,6 +370,27 @@ void Editor::drawComponents(Entity& e) {
             drawAnimatorInspector(e);
         }
     }
+    if (e.reflectionProbe) {
+        if (!componentHeader("Reflection Probe", open)) { pushUndo(); e.reflectionProbe.reset(); }
+        else if (open) {
+            ReflectionProbe& p = *e.reflectionProbe;
+            ImGui::DragFloat3("Box size", &p.size.x, 0.05f, 0.1f, 1000.f, "%.2f m");
+            track();
+            tooltip("Shiny things inside this box (centred on the probe) reflect what it sees");
+            int res = p.resolution <= 64 ? 0 : p.resolution <= 128 ? 1 : 2;
+            const char* resNames[] = {"64", "128", "256"};
+            if (ImGui::Combo("Resolution", &res, resNames, 3)) {
+                pushUndo();
+                p.resolution = 64 << res;
+            }
+            ImGui::Checkbox("Box projection", &p.boxProjection);
+            track();
+            tooltip("Reflections lined up with the walls of a box-shaped room (off: as if seen from far away)");
+            if (ImGui::Button("Bake")) ++probeBakes_;
+            tooltip("Render what it sees again (it's baked when first seen, moved or resized; not when the scene "
+                    "around it changes)");
+        }
+    }
     if (e.terrain) {
         if (!componentHeader("Terrain", open)) { pushUndo(); e.terrain.reset(); }
         else if (open) drawTerrainInspector(e);
@@ -708,6 +729,7 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Audio Source", nullptr, false, !e.audioSource)) { pushUndo(); e.audioSource = AudioSource{}; }
         if (ImGui::MenuItem("Animator", nullptr, false, !e.animator)) { pushUndo(); e.animator = Animator{}; }
         if (ImGui::MenuItem("Particle Emitter", nullptr, false, !e.particleEmitter)) { pushUndo(); e.particleEmitter = ParticleEmitter{}; }
+        if (ImGui::MenuItem("Reflection Probe", nullptr, false, !e.reflectionProbe)) { pushUndo(); e.reflectionProbe = ReflectionProbe{}; }
         if (ImGui::MenuItem("Terrain", nullptr, false, !e.terrain)) {
             pushUndo();
             e.terrain = Terrain{};

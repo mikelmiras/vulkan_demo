@@ -7,6 +7,10 @@
 layout(set = 0, binding = 1) uniform sampler2DArray shadowCascades;   // the sun's, 4 layers
 layout(set = 0, binding = 5) uniform sampler2DArray spotShadows;      // spot lights', 4 layers
 layout(set = 0, binding = 6) uniform sampler2DArray pointShadows;     // point lights', 6 faces each
+layout(set = 0, binding = 9) uniform sampler2D probe0;         // reflection probes' radiance (like skyRadiance)
+layout(set = 0, binding = 10) uniform sampler2D probe1;
+layout(set = 0, binding = 11) uniform sampler2D probe2;
+layout(set = 0, binding = 12) uniform sampler2D probe3;
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (white if none)
 layout(set = 1, binding = 1) uniform sampler2D normalMap;      // tangent space (flat if none)
 layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness, b = metallic (white if none)
@@ -102,15 +106,68 @@ vec3 envBRDF(vec3 f0, float rough, float NdotV) {
 
 // Image-based lighting from the sky: what a surface facing `n` gathers from all around (diffuse), and the sky
 // reflected along `r`, blurrier the rougher the surface
-vec3 irradiance(vec3 n) {
+// Reflection probes: the first whose box holds this point; it takes over from the sky over the last metre inside
+float probeWeight(int i) {
+    if (frame.probePos[i].w < 0.5) return 0.0;
+    vec3 d = min(vWorldPos - frame.probeMin[i].xyz, frame.probeMax[i].xyz - vWorldPos);
+    return clamp(min(d.x, min(d.y, d.z)), 0.0, 1.0);
+}
+int probeAt(out float w) {
+    for (int i = 0; i < 4; ++i) {
+        w = probeWeight(i);
+        if (w > 0.0) return i;
+    }
+    return -1;
+}
+// Where to look in the probe's picture: along r, or (box projection) towards where r meets the box's walls
+vec3 probeDir(int i, vec3 r) {
+    if (frame.probeMax[i].w < 0.5) return r;
+    vec3 a = (frame.probeMax[i].xyz - vWorldPos) / r, b = (frame.probeMin[i].xyz - vWorldPos) / r;
+    vec3 far = max(a, b);
+    float t = min(far.x, min(far.y, far.z));
+    return vWorldPos + r * t - frame.probePos[i].xyz;
+}
+vec3 probeReflection(int i, vec3 r, float rough) {
+    vec2 uv = equirect(normalize(probeDir(i, r)));
+    float lod = rough * (kRadianceLevels - 1.0);
+    if (i == 0) return textureLod(probe0, uv, lod).rgb;
+    if (i == 1) return textureLod(probe1, uv, lod).rgb;
+    if (i == 2) return textureLod(probe2, uv, lod).rgb;
+    return textureLod(probe3, uv, lod).rgb;
+}
+vec3 probeIrradiance(int i, vec3 n) {
+    vec3 d = normalize(n);
+    int o = i * 9;
+    vec3 e = frame.probeSh[o].rgb * 0.282095 + frame.probeSh[o + 1].rgb * (0.488603 * d.y) +
+             frame.probeSh[o + 2].rgb * (0.488603 * d.z) + frame.probeSh[o + 3].rgb * (0.488603 * d.x) +
+             frame.probeSh[o + 4].rgb * (1.092548 * d.x * d.y) + frame.probeSh[o + 5].rgb * (1.092548 * d.y * d.z) +
+             frame.probeSh[o + 6].rgb * (0.315392 * (3.0 * d.z * d.z - 1.0)) +
+             frame.probeSh[o + 7].rgb * (1.092548 * d.x * d.z) + frame.probeSh[o + 8].rgb * (0.546274 * (d.x * d.x - d.y * d.y));
+    return max(e, vec3(0.0)) / kPi;
+}
+
+vec3 skyIrradianceAt(vec3 n) {
     if (frame.envParams.x > 0.5) return skyIrradiance(n) * frame.ambient.rgb;
     vec3 above = mix(frame.fogColor.rgb, frame.zenith.rgb, 0.6), below = frame.ground.rgb;
     return mix(below, above, n.y * 0.5 + 0.5) * frame.ambient.rgb;
 }
-vec3 environment(vec3 r, float rough) {
+// (probes' light is scaled by the ambient strength like the sky's: indirect light the same strength inside and out)
+vec3 irradiance(vec3 n) {
+    float w;
+    int p = probeAt(w);
+    vec3 sky = skyIrradianceAt(n);
+    return p < 0 ? sky : mix(sky, probeIrradiance(p, n) * frame.ambient.rgb, w);
+}
+vec3 skyEnvironment(vec3 r, float rough) {
     if (frame.envParams.x > 0.5) return skyReflection(r, rough) * frame.ambient.rgb;
     vec3 sharp = skyColor(r, false) * frame.ambient.rgb;
-    return mix(sharp, irradiance(r), clamp(rough * rough * 1.5, 0.0, 1.0));
+    return mix(sharp, skyIrradianceAt(r), clamp(rough * rough * 1.5, 0.0, 1.0));
+}
+vec3 environment(vec3 r, float rough) {
+    float w;
+    int p = probeAt(w);
+    vec3 sky = skyEnvironment(r, rough);
+    return p < 0 ? sky : mix(sky, probeReflection(p, r, rough) * frame.ambient.rgb, w);
 }
 
 // A terrain's colour: its four layers (the material set's four textures, sRGB) mixed by the vertex weights, each

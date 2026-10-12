@@ -388,6 +388,21 @@ void Editor::drawEntityIcons() {
 // Collider wireframes: blue = solid, green = trigger. All of them with View > Show colliders, else the selection's
 void Editor::drawColliders() {
     if (viewingGameCamera()) return;
+    if (const Entity* e = scene_.find(selected_); e && e->reflectionProbe) {   // the selected probe's box
+        ImDrawList* dl = ImGui::GetBackgroundDrawList();
+        dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
+        const Mat4& w = worldOf(e->id);
+        Vec3 c{w.m[12], w.m[13], w.m[14]}, h = e->reflectionProbe->size * 0.5f;
+        auto corner = [&](int i) { return c + Vec3{i & 1 ? h.x : -h.x, i & 2 ? h.y : -h.y, i & 4 ? h.z : -h.z}; };
+        for (int i = 0; i < 8; ++i)
+            for (int bit : {1, 2, 4})
+                if (!(i & bit)) {
+                    ImVec2 a, b;
+                    if (worldToScreen(corner(i), a) && worldToScreen(corner(i | bit), b))
+                        dl->AddLine(a, b, IM_COL32(120, 200, 255, 200), px(1.2f));
+                }
+        dl->PopClipRect();
+    }
     bool any = showColliders_;
     if (!any)
         if (const Entity* e = scene_.find(selected_)) any = e->collider.has_value();
