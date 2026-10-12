@@ -97,9 +97,9 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     game_.frame(dt, !io.WantTextInput, captured || gameMouse, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
     net_.update(dt);
     uiWantsCursor_ = false;
-    if (playing()) {   // the game's HUD and menus, over the viewport (last frame's layout)
-        if (gameViewShown()) gameUi_.begin(ImGui::GetBackgroundDrawList(), gx_, gy_, gw_, gh_, !captured && gameViewHovered_);
-        else gameUi_.begin(ImGui::GetBackgroundDrawList(), vx_, vy_, vw_, vh_, !captured && viewportHovered());
+    gameUiCaptured_ = captured;
+    if (playing() && !gameViewShown()) {   // the game's HUD and menus, over the viewport (the Game view draws its own)
+        gameUi_.begin(ImGui::GetBackgroundDrawList(), vx_, vy_, vw_, vh_, !captured && viewportHovered());
         game_.drawUI(gameUi_);
         gameUi_.end();
         uiWantsCursor_ = gameUi_.wantsCursor();
@@ -294,21 +294,24 @@ SceneRenderInfo Editor::renderInfo() const {
     info.viewportW = vw_;
     info.viewportH = vh_;
     CameraView gc;
-    if (gameViewShown() && game_.activeCamera(gc)) {   // the game's camera, into the Game view's rectangle
-        insetInfo_ = info;
-        insetInfo_.inset = nullptr;
-        insetInfo_.aspect = gw_ / gh_;
-        insetInfo_.fovY = gc.fovY;
-        insetInfo_.zNear = gc.zNear;
-        insetInfo_.zFar = gc.zFar;
-        insetInfo_.viewProj = perspective(gc.fovY, insetInfo_.aspect, gc.zNear, gc.zFar, true) * gc.view;
-        insetInfo_.camPos = gc.position;
-        insetInfo_.camForward = normalize(transformDir(inverseAffine(gc.view), {0, 0, -1}));
-        insetInfo_.viewportX = gx_;
-        insetInfo_.viewportY = gy_;
-        insetInfo_.viewportW = gw_;
-        insetInfo_.viewportH = gh_;
-        info.inset = &insetInfo_;
+    gameViews_.clear();
+    if (gameViewShown() && game_.activeCamera(gc)) {   // the game's camera: drawn into the Game view's image
+        SceneRenderInfo g = info;
+        g.views = nullptr;
+        g.colorFilter = game_.colorFilter();
+        g.aspect = gw_ / gh_;
+        g.fovY = gc.fovY;
+        g.zNear = gc.zNear;
+        g.zFar = gc.zFar;
+        g.viewProj = perspective(gc.fovY, g.aspect, gc.zNear, gc.zFar, true) * gc.view;
+        g.camPos = gc.position;
+        g.camForward = normalize(transformDir(inverseAffine(gc.view), {0, 0, -1}));
+        g.viewportX = g.viewportY = 0.f;
+        g.viewportW = gw_;
+        g.viewportH = gh_;
+        gameViews_.push_back(g);
+        info.views = &gameViews_;
+        info.colorFilter = 0;   // (the editor's own view: as it is)
     }
     return info;
 }
@@ -322,7 +325,6 @@ void Editor::drawGameView() {
         return;
     }
     ImGui::SetNextWindowSize(ImVec2(480.f, 300.f), ImGuiCond_FirstUseEver);   // (undocked; docked at first: above)
-    ImGui::SetNextWindowBgAlpha(0.f);   // (not NoBackground: docked, its node draws the colour it last had)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));   // (the view fills it)
     bool open = ImGui::Begin("Game", &showGameView_, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
@@ -332,8 +334,16 @@ void Editor::drawGameView() {
         gy_ = at.y;
         gw_ = std::max(size.x, 0.f);
         gh_ = std::max(size.y, 0.f);
+        // The game's camera, rendered into an image of its own (renderInfo() asks for it at this size), then the
+        // game's HUD and menus over it
+        ImTextureID image = renderer_ && gw_ >= 1.f && gh_ >= 1.f ? renderer_->viewTexture(0, (uint32_t)gw_, (uint32_t)gh_) : (ImTextureID)0;
         ImGui::InvisibleButton("##game", ImVec2(std::max(size.x, 1.f), std::max(size.y, 1.f)));   // (it takes the mouse)
         gameViewHovered_ = ImGui::IsItemHovered();
+        if (image) ImGui::GetWindowDrawList()->AddImage(image, at, ImVec2(at.x + gw_, at.y + gh_));
+        gameUi_.begin(ImGui::GetWindowDrawList(), gx_, gy_, gw_, gh_, !gameUiCaptured_ && gameViewHovered_);
+        game_.drawUI(gameUi_);
+        gameUi_.end();
+        uiWantsCursor_ = gameUi_.wantsCursor();
     } else {
         gw_ = gh_ = 0.f;
         gameViewHovered_ = false;
@@ -472,11 +482,7 @@ void Editor::drawDockspace(bool panels) {
     }
     // While playing maximised the panels aren't drawn: the dockspace is only kept alive, the view takes it all
     ImGuiDockNodeFlags dockFlags = ImGuiDockNodeFlags_PassthruCentralNode | ImGuiDockNodeFlags_NoDockingOverCentralNode;
-    // (a passthru dockspace paints WindowBg around the central node: not over the Game view's node)
-    bool clearBg = playing() && showGameView_;
-    if (clearBg) ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.f, 0.f, 0.f, 0.f));
     ImGui::DockSpace(id, ImVec2(0.f, 0.f), dockFlags | (panels ? 0 : ImGuiDockNodeFlags_KeepAliveOnly));
-    if (clearBg) ImGui::PopStyleColor();
     ImGui::End();
 
     vx_ = pos.x, vy_ = pos.y, vw_ = size.x, vh_ = size.y;

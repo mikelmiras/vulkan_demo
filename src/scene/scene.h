@@ -71,6 +71,9 @@ const char* lightTypeName(Light::Type type);
 struct Camera {
     float fovY = 60.f * DEG2RAD;   // vertical field of view, radians
     float zNear = 0.1f, zFar = 2000.f;
+    // Split screen: 1-4 makes it that player's camera. With two or more player cameras the screen is shared (two
+    // side by side, three or four in quarters, by player number); 0: an ordinary camera.
+    int player = 0;
 };
 
 // Collision shape in the entity's local space (scaled with it). Solid colliders block characters and rays;

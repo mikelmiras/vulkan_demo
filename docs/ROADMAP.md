@@ -712,11 +712,11 @@ Working list for turning the renderer demo into a small game engine. Each task i
   and notarization (macOS, Windows SmartScreen), crash report upload, Flatpak / Snap, delta updates, symbols for
   the game module in the editor's own exports (tools/symbols.py by hand).
 
-## Round 6 (planned)
+## Round 6 (in progress)
 
 | # | Task | Why |
 |---|------|-----|
-| 54 | Editor game view as its own render target (an ImGui image: bloom, temporal AA, any window layout), split-screen local multiplayer (several cameras, one pad each) | The game view shares the scene view's pass; local co-op isn't possible |
+| 54 (done) | Editor game view as its own render target (an ImGui image: bloom, temporal AA, any window layout), split-screen local multiplayer (several cameras, one pad each) | The game view shares the scene view's pass; local co-op isn't possible |
 | 55 | Global illumination: dynamic diffuse GI from a probe grid updated over frames (DDGI-style), screen-space reflections | Indirect light only comes from baked reflection probes and an ambient term |
 | 56 | Texture streaming: mips loaded on demand under a memory budget, residency feedback from the GPU | Every texture is fully resident; big projects run out of memory |
 | 57 | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
@@ -727,4 +727,27 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 62 | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
 | 63 | Text: complex scripts and right-to-left (HarfBuzz shaping), font fallback for CJK and emoji | Latin text only renders correctly |
 | 64 | Shipping, more: an auto-updater (download, verify, swap), crash report upload (opt-in), code signing and notarization in the release workflow | Updates are announced, not applied; crashes stay on players' machines |
+
+### Round 6 notes
+- Task 54: SceneRenderInfo::inset became `views` (up to Renderer::kMaxViews = 4): each extra view is drawn whole,
+  one after another before the main view, into the shared targets (HDR, MSAA colour, depth: cleared all over, the
+  view in their top-left corner), then its own temporal AA pass, AO, bloom and the composite, which writes into the
+  view's own image (swapchain format, sampled by Dear ImGui) instead of the swapchain; barriers from UNDEFINED with
+  the earlier readers' stages hand the targets on to the next view and the main one. Renderer::viewTexture(view,
+  w, h) makes or resizes that image (waiting for the GPU on a resize) while the host builds its UI, so the texture in
+  the frame's draw data is the one the frame renders; a new image is cleared to black before the UI can sample it.
+  The frame UBO has a slot per view (dynamic offset); views are culled and LOD'd on the CPU into their own batches
+  (after the main view's in the instance index list), share the main view's shadows and lights (unclustered), and
+  each has a TaaState (history pair, descriptor sets from the post pool, jitter and reprojection; the main view's
+  TAA moved into the same struct), its history sized like the targets and remade with them. The Hi-Z pyramid is the
+  main view's only (views never overlap it now). Editor: the Game view is an InvisibleButton with the image added to
+  the window's draw list, the game's UI drawn into that window after it (the old transparent-window and dockspace
+  background tricks are gone). Split screen: Camera::player (scene format 37, module API 37), Game::cameras() (player
+  cameras by number with rects: halves for two, quarters for three or four; else the active camera), vkgame draws
+  player 1 as the main view in its rectangle and the others' images on ImGui's background list under the HUD, with
+  dividing lines. Checked: a four-player scene and the editor's Game view under the validation layer with
+  synchronisation checks, in MSAA, temporal and no AA. Not done: per-player gamepads and input (task 62), a HUD per
+  player, shadows per view (far-apart players share player 1's cascades), view images smaller than the targets'
+  history (each view's TAA history is screen-sized), split screen in the editor's Game view, picture-in-picture
+  layouts other than halves and quarters.
 

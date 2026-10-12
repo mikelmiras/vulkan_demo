@@ -262,8 +262,15 @@ the scene exactly as it was, so anything changed while playing is temporary (and
 
 **View > Game view** shows the game's camera in a window of its own, docked beside the scene view the first time
 (drag its tab anywhere): the viewport stays with your camera, gizmos and selection while the game plays next to it,
-and the game's mouse and UI go to the Game view. (It has no bloom or temporal AA of its own; with it shown,
-temporal AA is off.) `vkworld --play --game-view` starts that way.
+and the game's mouse and UI go to the Game view. It's rendered whole into an image of its own (bloom, ambient
+occlusion, anti-aliasing, the player's colour filter), so it can go anywhere, even under other windows.
+`vkworld --play --game-view` starts that way.
+
+**Split screen**: give two to four cameras a *Split-screen player* (1-4, Inspector > Camera) and vkgame shares the
+screen between them: two side by side, three or four in quarters, by player number (`Game::cameras()` lists them
+with their parts of the screen). Player 1's view is drawn as usual and the others each whole into an image of their
+own; they share the sun's shadows (its cascades follow player 1) and the lights. Gamepads per player aren't there
+yet (one pad drives what reads input). The editor's Game view shows player 1.
 
 The demo scene is a tiny game: you are the **Player** (a capsule body with a PlayerController and a camera child).
 Walk with WASD / arrow keys or the left stick, look with the mouse (click the view to capture it, or hold the right

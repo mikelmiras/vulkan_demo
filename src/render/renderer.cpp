@@ -931,12 +931,13 @@ void Renderer::createResources(const MeshLibrary&) {
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &materialPool_));
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
-    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * (2 * kMaxBloomMips + 5)};
-    dpci.maxSets = 2 * kMaxBloomMips + 5;   // (+2: the temporal pass's two directions)
+    const uint32_t postSetCount = 2 * kMaxBloomMips + 5 + 2 * kMaxViews;   // (+2 per view: the temporal pass's two directions)
+    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * postSetCount};
+    dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &postSize;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &postPool_));
-    std::vector<VkDescriptorSetLayout> postLayouts(2 * kMaxBloomMips + 5, postSetLayout_);
+    std::vector<VkDescriptorSetLayout> postLayouts(postSetCount, postSetLayout_);
     std::vector<VkDescriptorSet> postSets(postLayouts.size());
     VkDescriptorSetAllocateInfo pai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     pai.descriptorPool = postPool_;
@@ -946,8 +947,10 @@ void Renderer::createResources(const MeshLibrary&) {
     prefilterSet_ = postSets[0];
     compositeSet_ = postSets[1];
     aoSet_ = postSets[2 + 2 * kMaxBloomMips];
-    taaSets_[0] = postSets[3 + 2 * kMaxBloomMips];
-    taaSets_[1] = postSets[4 + 2 * kMaxBloomMips];
+    taa_.sets[0] = postSets[3 + 2 * kMaxBloomMips];
+    taa_.sets[1] = postSets[4 + 2 * kMaxBloomMips];
+    for (int v = 0; v < kMaxViews; ++v)   // (the extra views' temporal passes)
+        for (int k = 0; k < 2; ++k) viewImages_[v].taa.sets[k] = postSets[5 + 2 * kMaxBloomMips + 2 * v + k];
     for (uint32_t m = 0; m < kMaxBloomMips; ++m) {
         downSets_[m] = postSets[2 + m];
         upSets_[m] = postSets[2 + kMaxBloomMips + m];
@@ -970,13 +973,13 @@ void Renderer::createResources(const MeshLibrary&) {
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     for (int i = 0; i < MAX_FRAMES; ++i) {
-        if (!uboStride_) {   // (two slots: this view's, the inset's; each at an offset the device allows)
+        if (!uboStride_) {   // (slots: this view's, then the extra views'; each at an offset the device allows)
             VkPhysicalDeviceProperties props;
             vkGetPhysicalDeviceProperties(gpu_, &props);
             VkDeviceSize align = std::max<VkDeviceSize>(props.limits.minUniformBufferOffsetAlignment, 16);
             uboStride_ = (sizeof(FrameUBO) + align - 1) / align * align;
         }
-        ubo_[i] = createBuffer(uboStride_ * 2, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        ubo_[i] = createBuffer(uboStride_ * (1 + kMaxViews), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
         VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dsai.descriptorPool = descPool_;
@@ -1087,11 +1090,22 @@ void Renderer::initImGui() {
 // ---------------------------------------------------------------------------------------------
 
 void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui) {
-    const SceneRenderInfo* inset = info.inset && info.inset->viewportW >= 1.f && info.inset->viewportH >= 1.f ? info.inset : nullptr;
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
     uploadTextures(cb);   // new ones, a few megabytes a frame (until then they're drawn plain)
+    for (ViewImage& v : viewImages_) {   // extra views' images made since the last frame: readable (black) from now
+        if (!v.fresh) continue;
+        imageBarrier(cb, v.image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        VkClearColorValue black{};
+        VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, v.image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
+        imageBarrier(cb, v.image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        v.fresh = false;
+    }
     stampNames_[frame_].clear();
     if (timestamps_[frame_]) vkCmdResetQueryPool(cb, timestamps_[frame_], 0, kMaxTimestamps);
     timestamp(cb, "start");
@@ -1114,6 +1128,15 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
     timestamp(cb, "Shadows");
+
+    // ---- The extra views, each whole into its own image (they use the same targets, before this view does)
+    if (info.items && info.views)
+        for (size_t v = 0; v < info.views->size() && v < (size_t)kMaxViews; ++v) recordView(cb, (int)v, (*info.views)[v]);
+    if (info.views && !info.views->empty()) {
+        const uint32_t mainSlot0 = 0;   // (the views bound their own slots)
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &mainSlot0);
+        timestamp(cb, "Other views");
+    }
 
     // The previous frame's post passes may still be reading the HDR image: wait for them, discard its contents
     imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1233,52 +1256,6 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             draw(b);
         }
     }
-    // The inset view: the same scene from its camera (the frame UBO's second slot), in its rectangle
-    if (inset && info.items) {
-        float ix = std::clamp(inset->viewportX, 0.f, (float)extent_.width), iy = std::clamp(inset->viewportY, 0.f, (float)extent_.height);
-        float iw = std::min(inset->viewportW, (float)extent_.width - ix), ih = std::min(inset->viewportH, (float)extent_.height - iy);
-        if (iw >= 1.f && ih >= 1.f) {
-            const uint32_t insetSlot = (uint32_t)uboStride_;
-            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &insetSlot);
-            VkViewport viewport{ix, iy, iw, ih, 0.f, 1.f};
-            VkRect2D scissor{{(int32_t)ix, (int32_t)iy}, {(uint32_t)iw, (uint32_t)ih}};
-            vkCmdSetViewport(cb, 0, 1, &viewport);
-            vkCmdSetScissor(cb, 0, 1, &scissor);
-            VkClearAttachment clearDepth{dsAspect, 0, {}};   // (where it lies over the main view: its own depth)
-            clearDepth.clearValue.depthStencil = {1.f, 0};
-            VkClearRect clearRect{scissor, 0, 1};
-            vkCmdClearAttachments(cb, 1, &clearDepth, 1, &clearRect);
-            VkDescriptorSet bound = VK_NULL_HANDLE;
-            auto drawInset = [&](const Batch& b) {
-                if (b.texture != bound) {
-                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
-                    bound = b.texture;
-                }
-                drawBatch(cb, b);
-                stats_.drawCalls++;
-            };
-            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-            for (const Batch& b : insetBatches_) drawInset(b);
-            drawPlants(cb, *inset);
-            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
-            vkCmdDraw(cb, 3, 1, 0, 0);
-            if (!insetTransparentBatches_.empty()) {
-                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline_);
-                bound = VK_NULL_HANDLE;
-                for (const Batch& b : insetTransparentBatches_) drawInset(b);
-            }
-            if (particleAlpha_) {
-                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAlphaPipeline_);
-                vkCmdDraw(cb, 6, particleAlpha_, 0, 0);
-            }
-            if (particleAdditive_) {
-                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAdditivePipeline_);
-                vkCmdDraw(cb, 6, particleAdditive_, 0, particleAlpha_);
-            }
-            const uint32_t mainSlot = 0;
-            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &mainSlot);
-        }
-    }
     vkCmdEndRendering(cb);
     if (aoSupported_) {   // the depth, for ambient occlusion and the occlusion culling pyramid
         imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -1289,8 +1266,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     }
 
     timestamp(cb, "Scene");
-    if (aa_ == Antialiasing::Temporal && info.items && !inset) {   // blended with the frames before (renderer_taa.cpp)
-        recordTaa(cb, info);
+    if (aa_ == Antialiasing::Temporal && info.items) {   // blended with the frames before (renderer_taa.cpp)
+        recordTaa(cb, info, taa_);
         timestamp(cb, "Temporal AA");
     }
     // ---- Bloom and the composite onto the swapchain image
@@ -1456,47 +1433,33 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) VK_CHECK(r);
     VK_CHECK(vkResetFences(device_, 1, &inFlight_[frame_]));
 
-    // The inset view's frame data first (its lights go into the shared buffer: this view's, after, are the ones kept)
-    const SceneRenderInfo* inset = info.inset && info.inset->viewportW >= 1.f && info.inset->viewportH >= 1.f ? info.inset : nullptr;
-    FrameUBO u2{};
-    if (inset) {
-        fillFrameUBO(*inset, u2, false);
-        setProbeData(u2);
+    // The extra views' frame data first (their lights go into the shared buffer: this view's, after, are the ones
+    // kept), then this view's; the views take its shadows
+    size_t viewCount = info.views ? std::min(info.views->size(), (size_t)kMaxViews) : 0;
+    std::vector<FrameUBO> viewUbos(viewCount);
+    for (size_t v = 0; v < viewCount; ++v) {
+        fillFrameUBO((*info.views)[v], viewUbos[v], false);
+        setProbeData(viewUbos[v]);
     }
     FrameUBO u{};
     fillFrameUBO(info, u, true);
     setProbeData(u);
     uploadPlants(info);
-    if (inset) {   // its shadows: this view's
-        std::memcpy(u2.shadowViewProj, u.shadowViewProj, sizeof(u.shadowViewProj));
-        std::memcpy(u2.shadowRect, u.shadowRect, sizeof(u.shadowRect));
-        std::memcpy(u2.cascadeSplits, u.cascadeSplits, sizeof(u.cascadeSplits));
-        u2.sunDir[3] = u.sunDir[3];
-        std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_, &u2, sizeof(u2));
-        taaHistory_ = false;   // (temporal AA is off while there's an inset: it reprojects with one camera)
+    for (size_t v = 0; v < viewCount; ++v) {
+        FrameUBO& uv = viewUbos[v];
+        std::memcpy(uv.shadowViewProj, u.shadowViewProj, sizeof(u.shadowViewProj));
+        std::memcpy(uv.shadowRect, u.shadowRect, sizeof(u.shadowRect));
+        std::memcpy(uv.cascadeSplits, u.cascadeSplits, sizeof(u.cascadeSplits));
+        uv.sunDir[3] = u.sunDir[3];
+        std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &uv, sizeof(uv));
     }
-    if (aa_ == Antialiasing::Temporal && !inset) {   // a different sub-pixel offset every frame (Halton 2, 3: eight of them)
-        auto halton = [](uint32_t i, uint32_t b) {
-            float f = 1.f, r = 0.f;
-            for (; i > 0; i /= b) {
-                f /= (float)b;
-                r += f * (float)(i % b);
-            }
-            return r;
-        };
+    if (aa_ == Antialiasing::Temporal) {   // jittered, a different sub-pixel offset every frame
         jitterIndex_ = jitterIndex_ % 8 + 1;
-        float vw = std::max(info.viewportW, 1.f), vh = std::max(info.viewportH, 1.f);
-        Mat4 jitter;
-        jitter.m[12] = (halton(jitterIndex_, 2) - 0.5f) * 2.f / vw;
-        jitter.m[13] = (halton(jitterIndex_, 3) - 0.5f) * 2.f / vh;
-        u.viewProj = jitter * info.viewProj;
-        // From this frame's clip space to last frame's: where each pixel was. Both without the jitter, so a still
-        // view finds its history exactly at the same pixel (no blur creeping in from resampling)
-        taaReproject_ = prevViewProj_ * inverse(info.viewProj);
-        float viewport[4] = {info.viewportX, info.viewportY, info.viewportW, info.viewportH};
-        if (std::memcmp(viewport, taaViewport_, sizeof(viewport)) != 0) taaHistory_ = false;   // (moved or resized)
-        std::memcpy(taaViewport_, viewport, sizeof(viewport));
-        prevViewProj_ = info.viewProj;
+        jitterView(info, u, taa_);
+        for (size_t v = 0; v < viewCount; ++v) {   // (the views' too, into their slots)
+            jitterView((*info.views)[v], viewUbos[v], viewImages_[v].taa);
+            std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &viewUbos[v], sizeof(FrameUBO));
+        }
     }
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
     {
@@ -1545,6 +1508,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
 
 void Renderer::shutdown() {
     vkDeviceWaitIdle(device_);
+    for (ViewImage& v : viewImages_) destroyViewImage(v);   // (their textures: before the ImGui backend goes)
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);

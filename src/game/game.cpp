@@ -1257,6 +1257,56 @@ std::vector<Mat4> Game::worldMatrices() const {
     return worlds;
 }
 
+// The camera of entities[i], where it is this frame
+CameraView Game::cameraAt(size_t i) const {
+    CameraView out;
+    const Entity& e = scene_->entities[i];
+    Mat4 world = scene_->worldMatrix(e.id);
+    if (interpolate_ && !paused_ && !prevWorlds_.empty()) {   // the camera moves as smoothly as what it follows
+        std::vector<Mat4> worlds = worldMatrices();
+        world = worlds[i];
+    }
+    // Strip scale so it doesn't distort the view; the camera looks down its local -Z
+    Vec3 x = normalize(transformDir(world, {1, 0, 0})), y = normalize(transformDir(world, {0, 1, 0}));
+    Vec3 z = normalize(cross(x, y));
+    Mat4 rigid;
+    rigid.m[0] = x.x; rigid.m[1] = x.y; rigid.m[2] = x.z;
+    rigid.m[4] = y.x; rigid.m[5] = y.y; rigid.m[6] = y.z;
+    rigid.m[8] = z.x; rigid.m[9] = z.y; rigid.m[10] = z.z;
+    rigid.m[12] = world.m[12]; rigid.m[13] = world.m[13]; rigid.m[14] = world.m[14];
+    out.view = inverseAffine(rigid);
+    out.position = {world.m[12], world.m[13], world.m[14]};
+    out.fovY = e.camera->fovY;
+    out.zNear = e.camera->zNear;
+    out.zFar = e.camera->zFar;
+    out.entity = e.id;
+    out.player = e.camera->player;
+    return out;
+}
+
+std::vector<CameraView> Game::cameras() const {
+    std::vector<CameraView> out;
+    if (!scene_) return out;
+    for (size_t i = 0; i < scene_->entities.size(); ++i) {
+        const Entity& e = scene_->entities[i];
+        if (e.camera && e.camera->player > 0 && scene_->visibleInHierarchy(e.id)) out.push_back(cameraAt(i));
+    }
+    std::stable_sort(out.begin(), out.end(), [](const CameraView& a, const CameraView& b) { return a.player < b.player; });
+    if (out.size() > 4) out.resize(4);
+    if (out.size() >= 2) {
+        for (size_t k = 0; k < out.size(); ++k) {
+            float* r = out[k].rect;
+            if (out.size() == 2) r[0] = 0.5f * (float)k, r[1] = 0.f, r[2] = 0.5f, r[3] = 1.f;
+            else r[0] = 0.5f * (float)(k % 2), r[1] = 0.5f * (float)(k / 2), r[2] = 0.5f, r[3] = 0.5f;
+        }
+        return out;
+    }
+    out.clear();
+    CameraView one;
+    if (activeCamera(one)) out.push_back(one);
+    return out;
+}
+
 bool Game::activeCamera(CameraView& out) const {
     if (!scene_) return false;
     // (in a multiplayer game: the local player's own camera, if it has one)
@@ -1271,27 +1321,8 @@ bool Game::activeCamera(CameraView& out) const {
         }
     for (size_t k = 0; k < scene_->entities.size(); ++k) {
         size_t i = preferred < scene_->entities.size() ? preferred : k;
-        const Entity& e = scene_->entities[i];
-        if (!e.camera) continue;
-        Mat4 world = scene_->worldMatrix(e.id);
-        if (interpolate_ && !paused_ && !prevWorlds_.empty()) {   // the camera moves as smoothly as what it follows
-            std::vector<Mat4> worlds = worldMatrices();
-            world = worlds[i];
-        }
-        // Strip scale so it doesn't distort the view; the camera looks down its local -Z
-        Vec3 x = normalize(transformDir(world, {1, 0, 0})), y = normalize(transformDir(world, {0, 1, 0}));
-        Vec3 z = normalize(cross(x, y));
-        Mat4 rigid;
-        rigid.m[0] = x.x; rigid.m[1] = x.y; rigid.m[2] = x.z;
-        rigid.m[4] = y.x; rigid.m[5] = y.y; rigid.m[6] = y.z;
-        rigid.m[8] = z.x; rigid.m[9] = z.y; rigid.m[10] = z.z;
-        rigid.m[12] = world.m[12]; rigid.m[13] = world.m[13]; rigid.m[14] = world.m[14];
-        out.view = inverseAffine(rigid);
-        out.position = {world.m[12], world.m[13], world.m[14]};
-        out.fovY = e.camera->fovY;
-        out.zNear = e.camera->zNear;
-        out.zFar = e.camera->zFar;
-        out.entity = e.id;
+        if (!scene_->entities[i].camera) continue;
+        out = cameraAt(i);
         return true;
     }
     return false;

@@ -367,3 +367,55 @@ TEST(strings_tables_and_translation) {
     CHECK(ctx.text("only.here", "Bonjour") == "Bonjour");
     project::setRoot(before);
 }
+
+// Split screen: player cameras share the screen (by player number), saved with the scene; one alone doesn't split
+TEST(game_split_screen_cameras) {
+    Scene s;
+    auto camera = [&](const char* name, int player, float x) {
+        Entity& e = s.create(name);
+        e.camera = Camera{};
+        e.camera->player = player;
+        e.transform.position[0] = x;
+    };
+    camera("Overview", 0, 0.f);
+    camera("Two", 2, 20.f);
+    camera("One", 1, 10.f);
+    Game g;
+    g.start(s, meshes());
+    std::vector<CameraView> two = g.cameras();
+    REQUIRE(two.size() == 2);
+    CHECK(two[0].player == 1 && two[0].entity == s.findByName("One")->id);
+    CHECK(two[0].rect[0] == 0.f && two[0].rect[2] == 0.5f && two[0].rect[3] == 1.f);
+    CHECK(two[1].player == 2 && two[1].rect[0] == 0.5f);
+    CHECK_NEAR(two[1].position.x, 20.0, 1e-4);
+    g.stop();
+
+    camera("Three", 3, 30.f);
+    g.start(s, meshes());
+    std::vector<CameraView> three = g.cameras();
+    REQUIRE(three.size() == 3);
+    CHECK(three[2].player == 3 && three[2].rect[0] == 0.f && three[2].rect[1] == 0.5f && three[2].rect[3] == 0.5f);
+    CHECK(three[1].rect[0] == 0.5f && three[1].rect[1] == 0.f);
+    g.stop();
+
+    // Saved and loaded with the scene
+    std::string error, path = test::tempPath("split.vkw").string();
+    MeshLibrary lib = buildMeshLibrary();
+    REQUIRE(saveScene(path, s, lib, textures(), error));
+    Scene back;
+    REQUIRE(loadScene(path, back, lib, textures(), error));
+    CHECK(back.findByName("Three")->camera->player == 3);
+    CHECK(back.findByName("Overview")->camera->player == 0);
+
+    // One player camera alone: the usual single camera, all of the screen
+    Scene single;
+    Entity& only = single.create("Only");
+    only.camera = Camera{};
+    only.camera->player = 1;
+    Game g2;
+    g2.start(single, meshes());
+    std::vector<CameraView> one = g2.cameras();
+    REQUIRE(one.size() == 1);
+    CHECK(one[0].rect[2] == 1.f && one[0].rect[3] == 1.f);
+    g2.stop();
+}

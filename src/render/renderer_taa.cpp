@@ -4,6 +4,9 @@
 
 #include "render/renderer_internal.h"
 
+#include <algorithm>
+#include <cstring>
+
 using namespace render_detail;
 
 bool Renderer::supports(Antialiasing mode) const {
@@ -26,22 +29,22 @@ void Renderer::setAntialiasing(Antialiasing mode) {
     recreateSwapchain();   // (and the post images: the temporal ones come and go with the mode)
 }
 
-void Renderer::createTaaImages() {
-    for (Image& img : taa_)
+void Renderer::createTaaImages(TaaState& t) {
+    for (Image& img : t.img)
         img = createImage(hdrFormat_,
                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                           VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
-    taaFresh_ = true;   // (made readable by the first pass: this may run before there's a command pool)
-    // Set k writes taa_[k]: it reads this frame's image, taa_[1 - k] (the history) and the depth
+    t.fresh = true;   // (made readable by the first pass: this may run before there's a command pool)
+    // Set k writes img[k]: it reads this frame's image, img[1 - k] (the history) and the depth
     for (int k = 0; k < 2; ++k) {
         VkDescriptorImageInfo infos[3] = {
             {postSampler_, hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-            {postSampler_, taa_[1 - k].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+            {postSampler_, t.img[1 - k].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
             {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL}};
         VkWriteDescriptorSet w[3];
         for (uint32_t i = 0; i < 3; ++i) {
             w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-            w[i].dstSet = taaSets_[k];
+            w[i].dstSet = t.sets[k];
             w[i].dstBinding = i;
             w[i].descriptorCount = 1;
             w[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -49,26 +52,50 @@ void Renderer::createTaaImages() {
         }
         vkUpdateDescriptorSets(device_, 3, w, 0, nullptr);
     }
-    taaHistory_ = false;
+    t.history = false;
 }
 
-void Renderer::destroyTaaImages() {
-    for (Image& img : taa_)
+void Renderer::destroyTaaImages(TaaState& t) {
+    for (Image& img : t.img)
         if (img.image) destroyImage(img);
-    taaHistory_ = false;
+    t.history = false;
 }
 
-void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info) {
+// A different sub-pixel offset every frame (Halton 2, 3: eight of them), the same for every view
+void Renderer::jitterView(const SceneRenderInfo& info, FrameUBO& u, TaaState& t) {
+    auto halton = [](uint32_t i, uint32_t b) {
+        float f = 1.f, r = 0.f;
+        for (; i > 0; i /= b) {
+            f /= (float)b;
+            r += f * (float)(i % b);
+        }
+        return r;
+    };
+    float vw = std::max(info.viewportW, 1.f), vh = std::max(info.viewportH, 1.f);
+    Mat4 jitter;
+    jitter.m[12] = (halton(jitterIndex_, 2) - 0.5f) * 2.f / vw;
+    jitter.m[13] = (halton(jitterIndex_, 3) - 0.5f) * 2.f / vh;
+    u.viewProj = jitter * info.viewProj;
+    // From this frame's clip space to last frame's: where each pixel was. Both without the jitter, so a still view
+    // finds its history exactly at the same pixel (no blur creeping in from resampling)
+    t.reproject = t.prevViewProj * inverse(info.viewProj);
+    float viewport[4] = {info.viewportX, info.viewportY, info.viewportW, info.viewportH};
+    if (std::memcmp(viewport, t.viewport, sizeof(viewport)) != 0) t.history = false;   // (moved or resized)
+    std::memcpy(t.viewport, viewport, sizeof(viewport));
+    t.prevViewProj = info.viewProj;
+}
+
+void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaState& t) {
     const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     const VkPipelineStageFlags transfer = VK_PIPELINE_STAGE_TRANSFER_BIT;
     const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    Image& out = taa_[taaIndex_];
-    if (taaFresh_) {   // both readable to start with (the history isn't used until there's one)
-        for (Image& img : taa_)
+    Image& out = t.img[t.index];
+    if (t.fresh) {   // both readable to start with (the history isn't used until there's one)
+        for (Image& img : t.img)
             imageBarrier(cb, img.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, readable,
                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, fragStage, VK_ACCESS_SHADER_READ_BIT);
-        taaFresh_ = false;
+        t.fresh = false;
     }
     imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, target, readable, colorStage,
                  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
@@ -91,18 +118,18 @@ void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info) {
     vkCmdSetViewport(cb, 0, 1, &vp);
     vkCmdSetScissor(cb, 0, 1, &sc);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, taaPipeline_);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, taaLayout_, 0, 1, &taaSets_[taaIndex_], 0, nullptr);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, taaLayout_, 0, 1, &t.sets[t.index], 0, nullptr);
     struct Push {
         Mat4 reproject;
         float viewport[4];   // the scene's rectangle in the image (pixels)
         float params[4];     // x = how much history (0: none), y, z = 1 / image size
     } p;
-    p.reproject = taaReproject_;
+    p.reproject = t.reproject;
     p.viewport[0] = info.viewportX;
     p.viewport[1] = info.viewportY;
     p.viewport[2] = std::max(info.viewportW, 1.f);
     p.viewport[3] = std::max(info.viewportH, 1.f);
-    p.params[0] = taaHistory_ ? 0.9f : 0.f;
+    p.params[0] = t.history ? 0.9f : 0.f;
     p.params[1] = 1.f / (float)extent_.width;
     p.params[2] = 1.f / (float)extent_.height;
     p.params[3] = 0.f;
@@ -124,6 +151,6 @@ void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info) {
                  VK_ACCESS_TRANSFER_WRITE_BIT, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     imageBarrier(cb, out.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readable, transfer, 0,
                  fragStage, VK_ACCESS_SHADER_READ_BIT);
-    taaIndex_ = 1 - taaIndex_;
-    taaHistory_ = true;
+    t.index = 1 - t.index;
+    t.history = true;
 }

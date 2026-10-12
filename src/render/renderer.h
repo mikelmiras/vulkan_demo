@@ -88,10 +88,12 @@ struct PlantSet {
 
 struct SceneRenderInfo {
     const std::vector<DrawItem>* items = nullptr;
-    // A second view of the same scene in its own rectangle (the editor's game view while playing): its camera and
-    // viewport fields are used; it shares this view's shadows (the sun's cascades follow this view's camera),
-    // shades with every light (not clustered) and gets no ambient occlusion; temporal anti-aliasing is off meanwhile
-    const SceneRenderInfo* inset = nullptr;
+    // Other views of the same scene (the editor's game view, split-screen players), up to Renderer::kMaxViews: each
+    // is rendered whole (scene, ambient occlusion, bloom, the composite) into its own image, which Dear ImGui shows
+    // (Renderer::viewTexture: ask for it, at the size given here, while building the UI). Their camera and look
+    // fields are used, viewportW / H are the size (X / Y aren't); they share this view's shadows (the sun's cascades
+    // follow this view's camera) and its lights (every light, not clustered), and are culled on the CPU.
+    const std::vector<SceneRenderInfo>* views = nullptr;
     const std::vector<PlantSet>* plants = nullptr;   // foliage (main view only: no shadows, not in probes)
     const std::vector<LightInfo>* lights = nullptr;   // no directional light: a default sun is used
     const std::vector<Mat4>* joints = nullptr;        // skinning matrices of every skinned item (see DrawItem)
@@ -155,6 +157,10 @@ public:
     static int validationErrors();   // errors the validation layer has reported (VKWORLD_VALIDATION=1)
     // A TextureLibrary texture for Dear ImGui (AddImage); 0 until it has been uploaded (the next render() does it)
     ImTextureID uiTexture(int id) const;   // a library texture for Dear ImGui (made on first use)
+    // Extra view `view`'s image (SceneRenderInfo::views), for Dear ImGui: made or resized to width x height now
+    // (resizing waits for the GPU), drawn by the next render(). 0 if the view number or size can't be.
+    static constexpr int kMaxViews = 4;
+    ImTextureID viewTexture(int view, uint32_t width, uint32_t height);
 
 private:
     static constexpr int MAX_FRAMES = 2;
@@ -251,21 +257,26 @@ private:
     // Anti-aliasing (renderer_taa.cpp): the pipelines that depend on the sample count, and the temporal pass
     void createSampledPipelines();
     void destroySampledPipelines();
-    void createTaaImages();    // (with the post images, when temporal)
-    void destroyTaaImages();
-    void recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info);
+    struct TaaState {   // one view's temporal anti-aliasing (the main view's, and each extra view's)
+        Image img[2];                // the blended result, alternately written and read back as history
+        VkDescriptorSet sets[2] = {};
+        uint32_t index = 0;          // written this frame
+        bool history = false;        // the other one holds last frame's
+        bool fresh = false;          // just made: not yet in a readable layout
+        Mat4 prevViewProj, reproject;
+        float viewport[4] = {};
+    };
+    void createTaaImages(TaaState& t);    // (the main view's with the post images, when temporal; views' on use)
+    void destroyTaaImages(TaaState& t);
+    void recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaState& t);
+    // This frame's jitter for a view (into `u`), and its reprojection from last frame
+    void jitterView(const SceneRenderInfo& info, render_detail::FrameUBO& u, TaaState& t);
     Antialiasing aa_ = Antialiasing::Msaa;
     VkSampleCountFlagBits maxSamples_ = VK_SAMPLE_COUNT_1_BIT;
-    Image taa_[2];                 // the blended result, alternately written and read back as history
-    VkDescriptorSet taaSets_[2] = {};
+    TaaState taa_;
     VkPipelineLayout taaLayout_ = VK_NULL_HANDLE;
     VkPipeline taaPipeline_ = VK_NULL_HANDLE;
-    uint32_t taaIndex_ = 0;        // written this frame
-    bool taaHistory_ = false;      // the other one holds last frame's
-    bool taaFresh_ = false;        // just made: not yet in a readable layout
     uint32_t jitterIndex_ = 0;
-    Mat4 prevViewProj_, taaReproject_;
-    float taaViewport_[4] = {};
     // Reflection probes (renderer_probes.cpp): baked on first sight, the nearest four bound (set 0, bindings 9-12)
     struct BakedProbe {
         uint64_t key = 0;
@@ -456,8 +467,18 @@ private:
     MeshLod rangeOf(const Batch& b) const;   // the indices to draw for it
     void drawBatch(VkCommandBuffer cb, const Batch& b);
     std::vector<Batch> sceneBatches_, outlineBatches_, transparentBatches_;   // (transparent: back to front)
-    std::vector<Batch> insetBatches_, insetTransparentBatches_;              // the inset view's (culled on the CPU)
-    VkDeviceSize uboStride_ = 0;   // the frame UBO's two slots (this view, the inset), aligned
+    std::vector<Batch> viewBatches_[kMaxViews], viewTransparent_[kMaxViews];   // the extra views' (culled on the CPU)
+    VkDeviceSize uboStride_ = 0;   // the frame UBO's slots (this view, then the extra views), aligned
+    struct ViewImage {   // an extra view's picture (swapchain format), sampled by Dear ImGui
+        Image image;
+        VkDescriptorSet ui = VK_NULL_HANDLE;
+        uint32_t width = 0, height = 0;
+        bool fresh = false;   // made, never drawn: cleared to be readable before the UI samples it
+        TaaState taa;         // (images made when it's first drawn with temporal AA; sets from the start)
+    };
+    ViewImage viewImages_[kMaxViews];
+    void destroyViewImage(ViewImage& v);
+    void recordView(VkCommandBuffer cb, int view, const SceneRenderInfo& info);
     std::vector<Batch> shadowBatches_[kShadowLayers];         // per shadow layer: solid casters ...
     std::vector<Batch> shadowCutoutBatches_[kShadowLayers];   // ... and ones with holes (cut-outs, see-through)
     Mat4 shadowViewProj_[kShadowLayers];
@@ -496,7 +517,8 @@ private:
                                   VkPipelineLayout layout = VK_NULL_HANDLE);   // (null: postLayout_)
     void createPostImages();    // window-sized: made again when the swapchain is
     void destroyPostImages();
-    void recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info);
+    // Bloom, AO and the composite: onto swapchain image `imageIndex`, or (view >= 0) into that extra view's image
+    void recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, int view = -1);
 
     std::string screenshotPath_;
     int screenshotResult_ = 0;

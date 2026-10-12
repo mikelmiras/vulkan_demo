@@ -125,11 +125,12 @@ void Renderer::createPostImages() {
         wa.pImageInfo = &depthInfo;
         vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
     }
-    if (aa_ == Antialiasing::Temporal) createTaaImages();
+    if (aa_ == Antialiasing::Temporal) createTaaImages(taa_);
 }
 
 void Renderer::destroyPostImages() {
-    destroyTaaImages();
+    destroyTaaImages(taa_);
+    for (ViewImage& v : viewImages_) destroyTaaImages(v.taa);   // (sized like the targets: remade when next drawn)
     for (uint32_t m = 0; m < bloomMips_; ++m) vkDestroyImageView(device_, bloomViews_[m], nullptr);
     bloomMips_ = 0;
     if (bloom_.image) destroyImage(bloom_);
@@ -137,7 +138,7 @@ void Renderer::destroyPostImages() {
     if (hdr_.image) destroyImage(hdr_);
 }
 
-void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info) {
+void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, int view) {
     const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -213,17 +214,20 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                    VK_ACCESS_SHADER_READ_BIT);
     }
 
-    // Composite: into the scene's viewport on the swapchain image; the rest gets the sky colour (under the UI)
-    imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, target, colorStage, 0,
-                 colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    // Composite: into the scene's viewport on the swapchain image, the rest getting the sky colour (under the UI); or
+    // into an extra view's own image (sampled by the last frame's UI until now)
+    VkImage outImage = view >= 0 ? viewImages_[view].image.image : swapImages_[imageIndex];
+    VkExtent2D outExtent = view >= 0 ? VkExtent2D{viewImages_[view].width, viewImages_[view].height} : extent_;
+    imageBarrier(cb, outImage, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, target,
+                 colorStage | (view >= 0 ? fragStage : 0), 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    att.imageView = swapViews_[imageIndex];
+    att.imageView = view >= 0 ? viewImages_[view].image.view : swapViews_[imageIndex];
     att.imageLayout = target;
     att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     att.clearValue.color = {{info.sky.x, info.sky.y, info.sky.z, 1.f}};
     VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-    ri.renderArea = {{0, 0}, extent_};
+    ri.renderArea = {{0, 0}, outExtent};
     ri.layerCount = 1;
     ri.colorAttachmentCount = 1;
     ri.pColorAttachments = &att;
@@ -239,21 +243,6 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}, {(float)info.colorFilter, 0.f, 0.f, 0.f}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
-        if (const SceneRenderInfo* in = info.inset; in && in->viewportW >= 1.f && in->viewportH >= 1.f) {   // the inset's
-            float ix = std::clamp(in->viewportX, 0.f, (float)extent_.width), iy = std::clamp(in->viewportY, 0.f, (float)extent_.height);
-            float iw = std::min(in->viewportW, (float)extent_.width - ix), ih = std::min(in->viewportH, (float)extent_.height - iy);
-            if (iw >= 1.f && ih >= 1.f) {
-                VkViewport ivp{ix, iy, iw, ih, 0.f, 1.f};
-                VkRect2D isc{{(int32_t)ix, (int32_t)iy}, {(uint32_t)iw, (uint32_t)ih}};
-                vkCmdSetViewport(cb, 0, 1, &ivp);
-                vkCmdSetScissor(cb, 0, 1, &isc);
-                Push ip = p;   // (no AO or bloom: those passes only ran over this view's rectangle)
-                ip.a[1] = ip.a[2] = 0.f;
-                ip.a[0] = in->exposure;
-                vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &ip);
-                vkCmdDraw(cb, 3, 1, 0, 0);
-            }
-        }
     }
     vkCmdEndRendering(cb);
 }

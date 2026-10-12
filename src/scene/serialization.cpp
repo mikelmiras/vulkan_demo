@@ -19,7 +19,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 36;  // 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 37;  // 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -313,6 +313,7 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("fov", e.camera->fovY / DEG2RAD);
         c.set("near", e.camera->zNear);
         c.set("far", e.camera->zFar);
+        if (e.camera->player) c.set("player", e.camera->player);
     }
     if (e.audioSource) {
         const AudioSource& a = *e.audioSource;
@@ -768,6 +769,7 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         cam.fovY = c["fov"].asFloat(cam.fovY / DEG2RAD) * DEG2RAD;
         cam.zNear = c["near"].asFloat(cam.zNear);
         cam.zFar = c["far"].asFloat(cam.zFar);
+        cam.player = std::clamp(c["player"].asInt(0), 0, 4);
         e.camera = cam;
     }
     if (const json::Value& c = v["audioSource"]; c.isObject()) {

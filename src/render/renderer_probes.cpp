@@ -46,7 +46,7 @@ bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, Ba
 
     for (int face = 0; face < 6; ++face) {
         SceneRenderInfo f = info;
-        f.inset = nullptr;
+        f.views = nullptr;
         f.camPos = probe.position;
         f.camForward = kFaceForward[face];
         f.fovY = 90.f * DEG2RAD;

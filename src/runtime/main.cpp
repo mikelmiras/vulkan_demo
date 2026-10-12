@@ -10,6 +10,8 @@
 // F11 toggles fullscreen.
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -300,6 +302,24 @@ int main(int argc, char** argv) {
 
         uint32_t w = 0, h = 0;
         app.windowSize(w, h);
+        // The cameras: one, or split-screen players' (the first is drawn as usual in its part of the screen, the
+        // others into images of their own, put in theirs under the UI)
+        std::vector<CameraView> cams = game.cameras();
+        auto pixels = [&](const CameraView& c) {
+            return std::array<float, 4>{std::floor(c.rect[0] * (float)w), std::floor(c.rect[1] * (float)h),
+                                        std::floor(c.rect[2] * (float)w), std::floor(c.rect[3] * (float)h)};
+        };
+        for (size_t k = 1; k < cams.size() && k <= (size_t)Renderer::kMaxViews; ++k) {
+            std::array<float, 4> r = pixels(cams[k]);
+            if (r[2] < 1.f || r[3] < 1.f) continue;
+            ImTextureID image = app.renderer().viewTexture((int)k - 1, (uint32_t)r[2], (uint32_t)r[3]);
+            if (image) ImGui::GetBackgroundDrawList()->AddImage(image, ImVec2(r[0], r[1]), ImVec2(r[0] + r[2], r[1] + r[3]));
+        }
+        if (cams.size() >= 2) {   // the lines between them
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
+            dl->AddLine(ImVec2((float)w * 0.5f, 0.f), ImVec2((float)w * 0.5f, (float)h), IM_COL32(0, 0, 0, 255), 3.f);
+            if (cams.size() > 2) dl->AddLine(ImVec2(0.f, (float)h * 0.5f), ImVec2((float)w, (float)h * 0.5f), IM_COL32(0, 0, 0, 255), 3.f);
+        }
         ui.begin(ImGui::GetBackgroundDrawList(), 0.f, 0.f, (float)w, (float)h, !captured);
         game.drawUI(ui);
         ui.end();
@@ -312,9 +332,11 @@ int main(int argc, char** argv) {
             ImGui::GetForegroundDrawList()->AddText(ImVec2((float)w - size.x - 12.f, 8.f), IM_COL32(255, 255, 255, 200),
                                                     st.c_str());
         }
-        float aspect = h > 0 ? (float)w / (float)h : 1.f;
         CameraView cam;
-        if (!game.activeCamera(cam)) cam.view = lookAt({0, 10, 40}, {0, 0, 0}, {0, 1, 0});   // no camera: a fixed view
+        if (!cams.empty()) cam = cams[0];
+        else cam.view = lookAt({0, 10, 40}, {0, 0, 0}, {0, 1, 0});   // no camera: a fixed view
+        std::array<float, 4> rect = pixels(cam);
+        float aspect = rect[3] > 0.f ? rect[2] / rect[3] : 1.f;
         PROFILE_SCOPE("Draw and render");   // (to the end of the frame)
         std::vector<Mat4> worlds = game.worldMatrices();
         std::vector<Mat4> joints;
@@ -358,8 +380,28 @@ int main(int argc, char** argv) {
         info.camForward = normalize(transformDir(inverseAffine(cam.view), {0, 0, -1}));
         info.viewProj = perspective(cam.fovY, aspect, cam.zNear, cam.zFar, true) * cam.view;
         info.camPos = cam.position;
-        info.viewportW = (float)w;
-        info.viewportH = (float)h;
+        info.viewportX = rect[0];
+        info.viewportY = rect[1];
+        info.viewportW = rect[2];
+        info.viewportH = rect[3];
+        std::vector<SceneRenderInfo> others;   // (split screen: the other players' cameras)
+        for (size_t k = 1; k < cams.size() && k <= (size_t)Renderer::kMaxViews; ++k) {
+            const CameraView& c = cams[k];
+            std::array<float, 4> r = pixels(c);
+            SceneRenderInfo v = info;
+            v.aspect = r[3] > 0.f ? r[2] / r[3] : 1.f;
+            v.fovY = c.fovY;
+            v.zNear = c.zNear;
+            v.zFar = c.zFar;
+            v.viewProj = perspective(c.fovY, v.aspect, c.zNear, c.zFar, true) * c.view;
+            v.camPos = c.position;
+            v.camForward = normalize(transformDir(inverseAffine(c.view), {0, 0, -1}));
+            v.viewportX = v.viewportY = 0.f;
+            v.viewportW = r[2];
+            v.viewportH = r[3];
+            others.push_back(v);
+        }
+        if (!others.empty()) info.views = &others;
         app.endFrame(info);
     }
     game.stop();

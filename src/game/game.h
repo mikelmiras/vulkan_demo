@@ -34,6 +34,8 @@ struct CameraView {
     float fovY = 60.f * DEG2RAD;
     float zNear = 0.1f, zFar = 2000.f;
     EntityId entity = kNoEntity;   // the camera's entity
+    int player = 0;                // (split screen) its player, and its part of the screen: x, y, w, h (0..1)
+    float rect[4] = {0.f, 0.f, 1.f, 1.f};
 };
 
 class Game;
@@ -362,6 +364,15 @@ public:
     void setRecordContacts(bool on) { physics_.setRecordContacts(on); }   // (Physics::contacts(): for showing them)
     const ParticleSystem& particles() const { return particles_; }
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
+    // What the screen shows: the split-screen player cameras (Camera::player) when there are two or more, by player,
+    // each with its part of the screen (2: left and right halves; 3-4: quarters, player order); else just
+    // activeCamera()'s, all of it. Empty if there's no camera.
+    std::vector<CameraView> cameras() const;
+
+private:
+    CameraView cameraAt(size_t entityIndex) const;
+
+public:
     // Render interpolation (on by default): worldMatrices() and activeCamera() blend the last two fixed updates
     // by how far the frame is into the next one, so motion is smooth when frames and updates don't line up
     void setInterpolation(bool on) { interpolate_ = on; }

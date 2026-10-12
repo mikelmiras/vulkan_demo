@@ -375,6 +375,11 @@ void Editor::drawComponents(Entity& e) {
             track();
             ImGui::DragFloat("Far", &c.zFar, 10.f, 10.f, 100000.f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
             track();
+            const char* players[5] = {"none", "1", "2", "3", "4"};
+            ImGui::Combo("Split-screen player", &c.player, players, 5);
+            track();
+            tooltip("With two or more player cameras, vkgame splits the screen between them (2: side by side, 3-4: in "
+                    "quarters)");
             const Entity* first = nullptr;
             for (const Entity& o : scene_.entities)
                 if (o.camera) { first = &o; break; }

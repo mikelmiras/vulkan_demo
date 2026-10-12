@@ -165,6 +165,7 @@ set(ENGINE_SOURCES
   src/render/renderer_probes.cpp
   src/render/renderer_taa.cpp
   src/render/renderer_cull.cpp
+  src/render/renderer_views.cpp
   src/app/application.cpp
   src/app/export.cpp
   src/app/updates.cpp

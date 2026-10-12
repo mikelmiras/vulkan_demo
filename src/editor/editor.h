@@ -360,7 +360,8 @@ private:
     bool showGameView_ = false;
     float gx_ = 0, gy_ = 0, gw_ = 0, gh_ = 0;   // the Game view's rectangle (last frame's)
     bool gameViewHovered_ = false;
-    mutable SceneRenderInfo insetInfo_;          // (what renderInfo() points the renderer's inset at)
+    mutable std::vector<SceneRenderInfo> gameViews_;   // (what renderInfo() points the renderer's extra views at)
+    bool gameUiCaptured_ = false;                      // (this frame: the mouse is the game's)
     bool openAddMenu_ = false, scrollToSelected_ = false;
     EntityId pendingDelete_ = kNoEntity, pendingDuplicate_ = kNoEntity, pendingFocus_ = kNoEntity;
     EntityId pendingReparent_ = kNoEntity, pendingParent_ = kNoEntity;   // drag & drop in the outliner
