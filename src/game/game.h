@@ -8,6 +8,7 @@
 #include <initializer_list>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -278,6 +279,27 @@ public:
     void drawUI(GameUI& ui);
     const UIController& uiController() const { return uiController_; }
 
+    // ---- Multiplayer (net/net_session.h)
+    // The behaviours of `root` and everything under it read `input` (a remote player's) instead of this machine's;
+    // null: back to this machine's
+    void setInputSource(EntityId root, const InputMap* input);
+    // Not simulated here: its behaviours don't run (another machine runs it and sends where it is)
+    void setSimulated(EntityId id, bool simulated);
+    bool simulated(EntityId id) const { return !notSimulated_.count(id); }
+    // This machine's player: the game looks through a camera under it (rather than the first one in the scene)
+    void setLocalPlayer(EntityId id) { localPlayer_ = id; }
+    EntityId localPlayer() const { return localPlayer_; }
+    // Called just before and after every fixed update (feeding remote inputs, sending this machine's)
+    void setTickHooks(std::function<void()> before, std::function<void()> after) {
+        beforeTick_ = std::move(before);
+        afterTick_ = std::move(after);
+    }
+    Scene* scene() { return scene_; }
+    // Entities joining the scene at the next update, their behaviours started then (like spawns; their ids kept)
+    void addEntities(std::vector<Entity> entities) {
+        for (Entity& e : entities) ctx_.spawnQueue_.push_back(std::move(e));
+    }
+
     float time() const { return time_; }               // simulated seconds since start()
     float updateMs() const { return updateMs_; }       // CPU time of a fixed update (smoothed), milliseconds
     unsigned long long tick() const { return tick_; }  // fixed updates since start()
@@ -318,6 +340,11 @@ private:
     void drawLoadingScreen(GameUI& ui);
     void runUIAction(const UIAction& a);   // a button pressed in a UI layout (game/ui_layout.h)
     UIController uiController_;
+    std::unordered_map<EntityId, const InputMap*> inputSources_;
+    std::unordered_set<EntityId> notSimulated_;
+    EntityId localPlayer_ = kNoEntity;
+    std::function<void()> beforeTick_, afterTick_;
+    const InputMap* inputFor(const Entity& e) const;
     bool keyboard_ = true;   // the last frame's: whether the UI may read keys
 
     Scene* scene_ = nullptr;

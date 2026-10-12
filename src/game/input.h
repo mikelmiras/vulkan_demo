@@ -34,6 +34,10 @@ public:
     bool mouseCaptured() const { return mouseCaptured_; }
 
     const std::vector<InputAction>& actions() const { return actions_; }
+    // Multiplayer (net/net_session.h): every action's value now, in actions() order (what a client sends), and a
+    // remote player's input applied as if read here (edges from the last values; endFixedStep() after the update)
+    const std::vector<float>& values() const { return value_; }
+    void applyRemote(const std::vector<float>& values, ImVec2 mouseDelta);
 
 private:
     int find(const std::string& name) const;

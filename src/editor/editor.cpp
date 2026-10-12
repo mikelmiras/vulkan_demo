@@ -86,6 +86,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     platform::takeMouseDelta(mdx, mdy);
     game_.input().setMouseCaptured(captured);
     game_.frame(dt, !io.WantTextInput, captured || viewportHovered(), captured ? ImVec2(mdx, mdy) : io.MouseDelta);
+    net_.update(dt);
     uiWantsCursor_ = false;
     if (playing()) {   // the game's HUD and menus, over the viewport (last frame's layout)
         gameUi_.begin(ImGui::GetBackgroundDrawList(), vx_, vy_, vw_, vh_, !captured && viewportHovered());
@@ -293,11 +294,16 @@ void Editor::startPlay() {
     game_.setSaveDirectory(project::saveDir(project_.name));
     game_.start(scene_, meshes_);
     setStatus("Playing. Ctrl+P stops and restores the scene.");
+    if (hostMultiplayer_) {
+        std::string error;
+        if (!net_.host(game_, NetSession::kDefaultPort, error)) setStatus("Can't host: " + error);
+    }
 }
 
 void Editor::stopPlay() {
     if (!playing()) return;
     platform::setCursorCaptured(false);
+    net_.stop();
     game_.stop();
     scene_ = std::move(editScene_);
     editScene_ = Scene{};

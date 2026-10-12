@@ -44,6 +44,8 @@ std::unique_ptr<Behaviour> behaviourFromJson(const json::Value& v);
 
 // A behaviour's runtime state() <-> JSON object (save games)
 json::Value behaviourStateToJson(Behaviour& b);
+// A behaviourToJson's fields into an existing behaviour (keeping its runtime state): replicated behaviours
+void readBehaviourFields(Behaviour& b, const json::Value& fields);
 void behaviourStateFromJson(Behaviour& b, const json::Value& v);
 
 // Game module reloading: behaviours of the given types become MissingBehaviours (keeping their fields), before the

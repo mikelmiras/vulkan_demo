@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 28;  // 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 29;  // 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -193,6 +193,11 @@ json::Value behaviourStateToJson(Behaviour& b) {
     FieldWriter writer(v);
     b.state(writer);
     return v;
+}
+
+void readBehaviourFields(Behaviour& b, const json::Value& fields) {
+    FieldReader reader(fields);
+    b.fields(reader);
 }
 
 void behaviourStateFromJson(Behaviour& b, const json::Value& v) {
@@ -473,6 +478,10 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             lv.set("tiling", l.tiling);
             layers.push(std::move(lv));
         }
+    }
+    if (e.replicated) {
+        json::Value& c = v.set("replicated", json::Value::object());
+        c.set("fields", e.replicated->fields);
     }
     if (e.ui) {
         const UIElement& u = *e.ui;
@@ -797,6 +806,11 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         }
         terrain::touch(t);
         e.terrain = std::move(t);
+    }
+    if (const json::Value& c = v["replicated"]; c.isObject()) {
+        Replicated r;
+        r.fields = c["fields"].asBool(true);
+        e.replicated = r;
     }
     if (const json::Value& c = v["ui"]; c.isObject()) {
         UIElement u;
@@ -1123,6 +1137,12 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
         nv.set("maxClimb", n.maxClimb);
         nv.set("maxSlope", n.maxSlope);
     }
+    if (!scene.network.playerPrefab.empty()) {
+        json::Value& nw = settings.set("network", json::Value::object());
+        nw.set("playerPrefab", scene.network.playerPrefab);
+        nw.set("spawnPoint", vec3(scene.network.spawnPoint));
+        nw.set("spawnSpread", scene.network.spawnSpread);
+    }
     {
         const LayerSettings& l = scene.layers;
         json::Value& lv = settings.set("layers", json::Value::object());
@@ -1219,6 +1239,11 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
         n.agentHeight = nv["agentHeight"].asFloat(n.agentHeight);
         n.maxClimb = nv["maxClimb"].asFloat(n.maxClimb);
         n.maxSlope = nv["maxSlope"].asFloat(n.maxSlope);
+    }
+    if (const json::Value& nw = doc["settings"]["network"]; nw.isObject()) {
+        result.network.playerPrefab = nw["playerPrefab"].asString();
+        result.network.spawnPoint = readVec3(nw["spawnPoint"], result.network.spawnPoint);
+        result.network.spawnSpread = nw["spawnSpread"].asFloat(result.network.spawnSpread);
     }
     if (const json::Value& input = doc["settings"]["input"]; input.isArray()) {   // else: the defaults
         result.inputActions.clear();

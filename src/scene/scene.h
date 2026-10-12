@@ -332,6 +332,12 @@ struct ParticleEmitter {
 };
 
 // Marks an entity as part of a copy ("instance") of a prefab
+// Shared with the players of a multiplayer game (net/net_session.h): the server sends where it is (and whether it's
+// visible, and with `fields` its behaviours' fields) to every client, which shows it there instead of simulating it
+struct Replicated {
+    bool fields = true;
+};
+
 // A piece of the game's interface, laid out in the editor (game/ui_layout.h): a rectangle placed by its anchors (where
 // in the parent element's rectangle, as fractions: 0,0 top left; or the screen's, for the top one) and offsets (canvas
 // units from those points: the canvas is 1080 high), nested by the entity hierarchy and drawn in its order over the
@@ -453,6 +459,7 @@ struct Entity {
     std::optional<Terrain> terrain;
     std::optional<ReflectionProbe> reflectionProbe;
     std::optional<UIElement> ui;
+    std::optional<Replicated> replicated;
     std::optional<PrefabLink> prefab;
     // In an instance of a prefab that itself contains an instance of another prefab (or is a variant of one), the
     // link the prefab's entity has to that inner prefab. Inside a prefab's own entities, `prefab` is that link.
@@ -473,6 +480,13 @@ struct NavigationSettings {
     float agentHeight = 1.8f;   // headroom needed
     float maxClimb = 0.45f;     // highest step up (or down) between neighbouring cells
     float maxSlope = 45.f;      // steepest walkable surface, degrees
+};
+
+// Multiplayer (net/net_session.h): what a joining player gets
+struct NetworkSettings {
+    std::string playerPrefab;      // spawned for each client that joins ("": clients only watch)
+    Vec3 spawnPoint{0, 1, 0};
+    float spawnSpread = 2.f;       // players are spread around it, this far apart
 };
 
 // Layers: up to 32, named per scene. Colliders on two layers only meet (collide, or set off triggers) when the
@@ -533,6 +547,7 @@ public:
     RenderSettings render;
     NavigationSettings navigation;
     LayerSettings layers;
+    NetworkSettings network;
 
     Entity& create(const std::string& name, EntityId parent = kNoEntity);   // appended with a fresh id
     Entity& add(Entity e);   // keeps e.id if it's free, otherwise assigns a new one
@@ -578,6 +593,7 @@ public:
     // the scene: pass them to add() (in order). Ids are reserved, so they stay unique even if added later.
     std::vector<Entity> instantiate(const Prefab& prefab, EntityId parent = kNoEntity);
     EntityId reserveId() { return nextId_++; }
+    void setNextId(EntityId id) { nextId_ = std::max(nextId_, id); }   // (ids below are left for another machine's)
     std::string uniquePrefabName(const std::string& wanted) const;
 
 private:

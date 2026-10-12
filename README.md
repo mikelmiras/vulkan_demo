@@ -742,6 +742,34 @@ it was saved and shown as *code not loaded*; it does nothing when played, and co
 A module must be built with the same compiler and engine headers as the programs that load it (they share the
 engine library: `libengine.so` / `engine.dll` / `libengine.dylib`).
 
+### Multiplayer
+
+The basics of a networked game, over UDP: one machine **hosts** (the server runs the game), others **join**:
+
+```sh
+./vkgame path/to/MyGame --host            # on port 27015 (or --host 4000)
+./vkgame path/to/MyGame --join 192.168.1.5    # (:port if not the default)
+```
+
+In the editor, Game > Host a multiplayer game hosts while you play. Both sides load the same scene; a client
+joins once it has.
+
+- **Players**: the scene's Multiplayer settings (Inspector, nothing selected) name a **player prefab**: each player
+  who joins gets one (spread around a spawn point), and so does the host. On the server, a player's behaviours read
+  *that player's* input as their `ctx.input()` (the client sends its input actions every update), so a
+  `PlayerController` works for everyone unchanged. The game looks through a camera under the local player.
+- **Replication**: entities with a **Replicated** component (players always) are sent to every client 20 times a
+  second: where they are, whether they're visible and (optionally) their behaviours' fields; ones spawned or
+  destroyed on the server appear and go on the clients too. The **game state** (`ctx.state()`) is shared the same
+  way. Clients show replicated entities where the server has them (smoothed between updates) and don't simulate
+  them; everything else runs on each machine as usual (effects, UI).
+- **Prediction**: a client moves its own player at once with its own input, and only puts it where the server has
+  it when they disagree by more than a metre.
+
+Not there yet: scene changes and save games while connected, joining mid-game with history, lag compensation,
+replaying unacknowledged inputs, encryption and NAT punch-through. Messages between behaviours stay on the machine
+that sends them.
+
 ### Lua scripting
 
 Behaviours can also be written in **Lua** (5.4, built into the engine): no compiler, and they reload while the game
@@ -861,6 +889,7 @@ Includes are relative to `src/`.
 | `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
 | `src/script/`              | `lua_script.*`: Lua behaviours (the scripts/ folder, the Lua API, hot reload)   |
+| `src/net/`                 | `udp.*` sockets, `net_session.*` multiplayer: hosting, joining, replication, remote input |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_asset_db.cpp` asset inspector, moving / renaming assets, `editor_terrain.cpp` terrain tool, `editor_prefs.cpp` preferences saved per user |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |

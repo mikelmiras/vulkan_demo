@@ -199,6 +199,21 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
 
         drawLayerSettings();
 
+        ImGui::SeparatorText("Multiplayer");
+        {
+            NetworkSettings& n = scene_.network;
+            std::string prefab = n.playerPrefab;
+            if (ImGui::BeginCombo("Player prefab", prefab.empty() ? "(none: joiners watch)" : prefab.c_str())) {
+                if (ImGui::Selectable("(none: joiners watch)", prefab.empty())) { pushUndo(); n.playerPrefab.clear(); }
+                for (const Prefab& p : scene_.prefabs)
+                    if (ImGui::Selectable(p.name.c_str(), p.name == prefab)) { pushUndo(); n.playerPrefab = p.name; }
+                ImGui::EndCombo();
+            }
+            tooltip("Each player who joins a hosted game gets one of these (and the host too), driven by their input");
+            ImGui::DragFloat3("Spawn point", &n.spawnPoint.x, 0.05f, 0.f, 0.f, "%.2f");
+            ImGui::DragFloat("Spawn spread", &n.spawnSpread, 0.05f, 0.f, 100.f, "%.2f m");
+        }
+
         ImGui::SeparatorText("Navigation");
         NavigationSettings& n = scene_.navigation;
         ImGui::DragFloat("Cell size", &n.cellSize, 0.01f, 0.1f, 4.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
@@ -368,6 +383,14 @@ void Editor::drawComponents(Entity& e) {
         if (!componentHeader("Animator", open)) { pushUndo(); e.animator.reset(); }
         else if (open) {
             drawAnimatorInspector(e);
+        }
+    }
+    if (e.replicated) {
+        if (!componentHeader("Replicated", open)) { pushUndo(); e.replicated.reset(); }
+        else if (open) {
+            ImGui::Checkbox("Behaviour fields too", &e.replicated->fields);
+            track();
+            ImGui::TextDisabled("In a multiplayer game, players see it where the host has it");
         }
     }
     if (e.ui) {
@@ -735,6 +758,7 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Particle Emitter", nullptr, false, !e.particleEmitter)) { pushUndo(); e.particleEmitter = ParticleEmitter{}; }
         if (ImGui::MenuItem("Reflection Probe", nullptr, false, !e.reflectionProbe)) { pushUndo(); e.reflectionProbe = ReflectionProbe{}; }
         if (ImGui::MenuItem("UI Element", nullptr, false, !e.ui)) { pushUndo(); e.ui = UIElement{}; }
+        if (ImGui::MenuItem("Replicated", nullptr, false, !e.replicated)) { pushUndo(); e.replicated = Replicated{}; }
         if (ImGui::MenuItem("Terrain", nullptr, false, !e.terrain)) {
             pushUndo();
             e.terrain = Terrain{};

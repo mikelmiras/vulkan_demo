@@ -155,7 +155,8 @@ bool sameEntity(const Entity& a, const Entity& b) {
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
         !eq(a.prefab, b.prefab) || !eq(a.nestedPrefab, b.nestedPrefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter) || !eq(a.terrain, b.terrain) ||
-        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.ui, b.ui))
+        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.ui, b.ui) ||
+        a.replicated.has_value() != b.replicated.has_value() || (a.replicated && a.replicated->fields != b.replicated->fields))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;
     for (size_t i = 0; i < a.behaviours.size(); ++i) {

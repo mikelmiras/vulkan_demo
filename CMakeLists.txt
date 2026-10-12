@@ -132,6 +132,8 @@ set(ENGINE_SOURCES
   src/app/application.cpp
   src/app/export.cpp
   src/script/lua_script.cpp
+  src/net/udp.cpp
+  src/net/net_session.cpp
   ${LUA_SOURCES})
 if(WIN32)
   list(APPEND ENGINE_SOURCES src/platform/platform_win32.cpp)
@@ -160,7 +162,7 @@ function(vkworld_engine_target name type)
     if(NOT MSVC)
       target_link_libraries(${name} PRIVATE gdi32 dwmapi)   # MSVC gets these via #pragma comment
     endif()
-    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32)
+    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32)
     target_compile_definitions(${name} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   elseif(APPLE)
     target_link_libraries(${name} PRIVATE "-framework Cocoa" "-framework GameController")
@@ -285,6 +287,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_environment.cpp
     tests/test_animation_ik.cpp
     tests/test_ui_layout.cpp
+    tests/test_network.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

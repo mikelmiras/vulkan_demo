@@ -112,6 +112,16 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem("Pause", "Ctrl+Shift+P", playing() && game_.paused(), playing())) togglePause();
         if (ImGui::MenuItem("Step one tick", nullptr, false, playing() && game_.paused())) game_.step();
         ImGui::Separator();
+        if (ImGui::MenuItem("Host a multiplayer game", nullptr, &hostMultiplayer_)) {
+            if (playing() && hostMultiplayer_ && !net_.active()) {
+                std::string error;
+                if (!net_.host(game_, NetSession::kDefaultPort, error)) setStatus("Can't host: " + error);
+            } else if (!hostMultiplayer_) {
+                net_.stop();
+            }
+        }
+        tooltip("While playing, others can join with vkgame --join <this machine>:27015 (the scene's Network "
+                "settings say what player they get)");
         if (ImGui::BeginMenu("Language")) {   // the project's: what the game starts in (strings/<language>.json)
             std::vector<std::string> langs = StringTable::languages(project::root());
             if (langs.empty()) ImGui::TextDisabled("No string tables (strings/<language>.json)");
@@ -276,6 +286,8 @@ void Editor::drawStatusBar(const RenderStats& stats) {
     ImGui::Begin("##status", nullptr, kBarFlags);
     if (statusTimer_ > 0.f) {
         ImGui::TextColored(ImVec4(1.f, 0.8f, 0.3f, 1.f), "%s", status_.c_str());
+    } else if (net_.active()) {
+        ImGui::TextColored(ImVec4(0.5f, 0.85f, 1.f, 1.f), "Multiplayer: %s", net_.status().c_str());
     } else {
         const char* hint = nav_ == Nav::Fly     ? "Flying: WASD move, E/Q up/down, Shift fast, wheel = speed"
                            : nav_ == Nav::Orbit ? "Orbiting (Shift+MMB to pan)"

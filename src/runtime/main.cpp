@@ -1,7 +1,7 @@
 // The standalone game: plays a scene without the editor.
 //
 //   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--aa msaa|taa|off]
-//          [--screenshot out.png [--frames N]]
+//          [--host [port] | --join address[:port]] [--screenshot out.png [--frames N]]
 //          [--check]   (loads everything but opens no window: for testing an exported game anywhere)
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
@@ -9,6 +9,7 @@
 // F11 toggles fullscreen.
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -24,6 +25,7 @@
 #include "game/game.h"
 #include "script/lua_script.h"
 #include "assets/asset_db.h"
+#include "net/net_session.h"
 #include "scene/terrain.h"
 #include "render/environment.h"
 #include "game/module.h"
@@ -107,11 +109,15 @@ int main(int argc, char** argv) {
     std::string language;   // --language es: play in another language (strings/es.json) than the project's
     bool check = false;     // --check: load the game (pack, project, module, start scene) without a window, and exit
     std::string aa;         // --aa msaa | taa | off: anti-aliasing (the renderer's default: MSAA)
+    std::string host, join; // --host [port] / --join address[:port]: a multiplayer game (net/net_session.h)
     {
         int out = 1;
         for (int i = 1; i < argc; ++i) {
             if (!std::strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
             else if (!std::strcmp(argv[i], "--aa") && i + 1 < argc) aa = argv[++i];
+            else if (!std::strcmp(argv[i], "--host"))
+                host = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? argv[++i] : "27015";
+            else if (!std::strcmp(argv[i], "--join") && i + 1 < argc) join = argv[++i];
             else if (!std::strcmp(argv[i], "--check")) check = true;
             else argv[out++] = argv[i];
         }
@@ -211,6 +217,7 @@ int main(int argc, char** argv) {
     ui.setTextureLookup(app.uiTextures(textures));
     bool uiWantsCursor = false;   // the game's UI had a menu up last frame: keep the pointer free
 
+    NetSession net;
     float dt = 0.f;
     bool firstLoad = !path.empty();
     bool showProfiler = false;   // F3
@@ -222,6 +229,13 @@ int main(int argc, char** argv) {
                 app.shutdown();
                 return 1;
             }
+        }
+        if (!firstLoad && !net.active() && (!host.empty() || !join.empty())) {   // (once the scene is in)
+            std::string netError;
+            bool ok = !host.empty() ? net.host(game, (uint16_t)std::atoi(host.c_str()), netError) : net.join(game, join, netError);
+            if (!ok) logLine("multiplayer: %s", netError.c_str());
+            host.clear();
+            join.clear();
         }
         ImGuiIO& io = ImGui::GetIO();
         if (platform::cursorCaptured() && (uiWantsCursor || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
@@ -240,6 +254,7 @@ int main(int argc, char** argv) {
             PROFILE_SCOPE("Game");
             game.frame(dt, !io.WantTextInput, true, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
         }
+        net.update(dt);   // (multiplayer: sends and receives after the game's updates)
 
         uint32_t w = 0, h = 0;
         app.windowSize(w, h);
@@ -249,6 +264,12 @@ int main(int argc, char** argv) {
         uiWantsCursor = ui.wantsCursor();
         drawHud(game, captured || uiWantsCursor, app.uiScale());
         if (showProfiler) drawProfilerOverlay(app.uiScale());
+        if (net.active()) {   // where the multiplayer game stands, in the top right corner
+            const std::string& st = net.status();
+            ImVec2 size = ImGui::CalcTextSize(st.c_str());
+            ImGui::GetForegroundDrawList()->AddText(ImVec2((float)w - size.x - 12.f, 8.f), IM_COL32(255, 255, 255, 200),
+                                                    st.c_str());
+        }
         float aspect = h > 0 ? (float)w / (float)h : 1.f;
         CameraView cam;
         if (!game.activeCamera(cam)) cam.view = lookAt({0, 10, 40}, {0, 0, 0}, {0, 1, 0});   // no camera: a fixed view

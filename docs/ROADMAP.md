@@ -268,7 +268,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 36 (done) | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
 | 37 (done) | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
 | 38 (done) | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
-| 39 | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
+| 39 (done) | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
 | 40 | Physics: vehicles (Jolt's wheeled vehicle), crouching / ladders / swimming for characters, debug drawing of contacts | Common game mechanics have to be hand-built |
 | 41 | Reliability: crash reports (stack traces into the log), chrome://tracing export of profiles, a performance regression check in CI | Crashes leave little to go on; performance drifts unnoticed |
 | 42 | Audio: sound occlusion by geometry, HRTF for headphones, a settings screen with saved volumes, music stingers / layers | Sounds come through walls; volume settings don't persist |
@@ -404,3 +404,21 @@ Working list for turning the renderer demo into a small game engine. Each task i
   entities, [ui] in the outliner. The sample game starts on a menu scene. Module API 27. Not done: grid / horizontal
   layouts, scroll views, nine-slice images, animations / transitions, a back action, focus memory per menu, Lua
   access to UI elements beyond the game state.
+- Task 39: net/udp (non-blocking IPv4 sockets, POSIX and Winsock; resolve "host:port") and net/net_session: a
+  little binary protocol ("VKN1"): Hello / Welcome (resent until answered), Input (each update, carrying the last
+  eight: losses don't matter; values quantised to bytes, mouse delta), Snapshot (20 Hz; per client: the last input
+  applied, the game state as compact JSON, entities split over packets under 1200 bytes, destroyed ids announced
+  for 20 snapshots), Bye; 10 s timeouts. Server: a client gets a player from NetworkSettings::playerPrefab (the host
+  too), Game::setInputSource routes behaviours under it to that client's InputMap (InputMap::applyRemote, one queued
+  input per update via Game's new tick hooks, the last held when none came); entities with Replicated (and players)
+  are sent with transform, visibility, behaviours' fields (compact JSON) and, for their first 40 snapshots, how to
+  make them (prefab and the ids of its entities in order). Client: its own entities get ids from 2^23 (Scene::
+  setNextId) so the server's fit below; replicated entities it hasn't got are instantiated with the server's ids
+  (Game::addEntities: started like spawns), not simulated (Game::setSimulated, subtrees too; bodies kinematic) and
+  smoothed toward the server's transforms; its own player is simulated (prediction) and snapped back past 1 m.
+  Game::setLocalPlayer makes the camera under it the active one. vkgame --host / --join (status in a corner), the
+  editor's Game > Host a multiplayer game, Replicated in Add component, Multiplayer settings in the scene inspector.
+  Tested with a server and a client game in one process over the loopback, and across two vkgame processes.
+  Scene format 29, module API 28. Not done: what the README lists (scene changes, history for late joiners,
+  replay of unacknowledged inputs, lag compensation, security), interest management (everything goes to everyone),
+  delta compression.

@@ -33,6 +33,19 @@ void InputMap::beginFrame(bool keyboard, bool mouse, ImVec2 mouseDelta) {
     }
 }
 
+void InputMap::applyRemote(const std::vector<float>& values, ImVec2 mouseDelta) {
+    for (size_t i = 0; i < actions_.size(); ++i) {
+        float v = i < values.size() ? values[i] : 0.f;
+        bool now = v > 0.5f;
+        if (now && !down_[i]) pressed_[i] = true;
+        if (!now && down_[i]) released_[i] = true;
+        down_[i] = now;
+        value_[i] = v;
+    }
+    mouseDelta_.x += mouseDelta.x;
+    mouseDelta_.y += mouseDelta.y;
+}
+
 void InputMap::endFixedStep() {
     pressed_.assign(actions_.size(), false);
     released_.assign(actions_.size(), false);

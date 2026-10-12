@@ -607,8 +607,28 @@ void Game::prepareContext(float dt) {
     ctx_.game_ = this;
 }
 
+const InputMap* Game::inputFor(const Entity& e) const {
+    for (const Entity* p = &e; p; p = scene_->find(p->parent)) {
+        auto it = inputSources_.find(p->id);
+        if (it != inputSources_.end()) return it->second;
+        if (p->parent == kNoEntity) break;
+    }
+    return &input_;
+}
+
+void Game::setInputSource(EntityId root, const InputMap* input) {
+    if (input) inputSources_[root] = input;
+    else inputSources_.erase(root);
+}
+
+void Game::setSimulated(EntityId id, bool simulated) {
+    if (simulated) notSimulated_.erase(id);
+    else notSimulated_.insert(id);
+}
+
 void Game::fixedUpdate(float dt) {
     PROFILE_SCOPE("Fixed update");
+    if (beforeTick_) beforeTick_();
     auto started = std::chrono::steady_clock::now();
     time_ += dt;
     ++tick_;
@@ -645,9 +665,12 @@ void Game::fixedUpdate(float dt) {
         PROFILE_SCOPE("Behaviours");
         for (size_t i = 0; i < scene_->entities.size(); ++i) {
             Entity& e = scene_->entities[i];
-            if (ctx_.isDestroyed(e.id)) continue;
-            for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->update(ctx_, e);
+            if (ctx_.isDestroyed(e.id) || (!notSimulated_.empty() && notSimulated_.count(e.id))) continue;
+            if (!inputSources_.empty()) ctx_.input_ = inputFor(e);   // (a remote player's entities: their input)
+            for (size_t b = 0; b < scene_->entities[i].behaviours.size(); ++b)
+                scene_->entities[i].behaviours[b]->update(ctx_, scene_->entities[i]);
         }
+        ctx_.input_ = &input_;
         flushQueues();
         runTimers();
     }
@@ -666,6 +689,7 @@ void Game::fixedUpdate(float dt) {
     }
     flushQueues();
     input_.endFixedStep();
+    if (afterTick_) afterTick_();
     applyRequests();
     float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count();
     updateMs_ = updateMs_ > 0.f ? updateMs_ * 0.9f + ms * 0.1f : ms;
@@ -912,7 +936,18 @@ std::vector<Mat4> Game::worldMatrices() const {
 
 bool Game::activeCamera(CameraView& out) const {
     if (!scene_) return false;
-    for (size_t i = 0; i < scene_->entities.size(); ++i) {
+    // (in a multiplayer game: the local player's own camera, if it has one)
+    size_t preferred = scene_->entities.size();
+    if (localPlayer_ != kNoEntity)
+        for (size_t i = 0; i < scene_->entities.size(); ++i) {
+            const Entity& e = scene_->entities[i];
+            if (e.camera && (e.id == localPlayer_ || scene_->isAncestor(localPlayer_, e.id))) {
+                preferred = i;
+                break;
+            }
+        }
+    for (size_t k = 0; k < scene_->entities.size(); ++k) {
+        size_t i = preferred < scene_->entities.size() ? preferred : k;
         const Entity& e = scene_->entities[i];
         if (!e.camera) continue;
         Mat4 world = scene_->worldMatrix(e.id);

@@ -23,6 +23,7 @@
 #include "scene/scene.h"
 #include "scene/scene_diff.h"
 #include "scene/terrain.h"
+#include "net/net_session.h"
 
 struct EditorCamera {
     Vec3 pos{0, 10, 42};
@@ -272,6 +273,8 @@ private:
     float snapMove_ = 0.5f, snapRotate_ = 15.f, snapScale_ = 0.1f;
 
     Game game_;
+    NetSession net_;                // (after game_: stopped before it goes) hosting while playing
+    bool hostMultiplayer_ = false;
     GameUI gameUi_;                 // the game's own interface, drawn over the viewport while playing
     bool uiWantsCursor_ = false;    // last frame's game UI had a menu up: keep the mouse pointer free
     Scene editScene_;   // the scene as it was when Play was pressed
