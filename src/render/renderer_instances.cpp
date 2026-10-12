@@ -111,6 +111,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     bool gpu = gpuCulling && gpuCulling_ && cullPipeline_;   // solid objects: culled by cull.comp, not here
     sceneBatches_.clear();
     transparentBatches_.clear();
+    insetBatches_.clear();
+    insetTransparentBatches_.clear();
     for (auto& b : shadowBatches_) b.clear();
     for (auto& b : shadowCutoutBatches_) b.clear();
     outlineBatches_.clear();
@@ -185,6 +187,37 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     }
     size_t outlined = 0;
     for (const DrawItem& o : items) outlined += o.outlined;
+    // The inset view (the editor's game view): culled here against its own camera, levels of detail from it too
+    std::vector<uint32_t> insetVisible, insetTransparent;
+    std::vector<int> insetLods(items.size(), 0);
+    const SceneRenderInfo* inset = info.inset && info.inset->viewportW >= 1.f && info.inset->viewportH >= 1.f ? info.inset : nullptr;
+    if (inset) {
+        Frustum f(inset->viewProj);
+        float tanInset = std::tan(inset->fovY * 0.5f);
+        for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
+            const DrawItem& o = items[i];
+            const Mesh& mesh = meshes_->get(o.mesh);
+            if (o.jointOffset < 0 && !f.visible(o.model, mesh.boundsMin, mesh.boundsMax)) continue;
+            (o.alphaMode == 2 ? insetTransparent : insetVisible).push_back(i);
+            if (!mesh.lods.empty() && o.jointOffset < 0) {
+                Vec3 c = transformPoint(o.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
+                float scale = std::max({length(transformDir(o.model, {1, 0, 0})), length(transformDir(o.model, {0, 1, 0})),
+                                        length(transformDir(o.model, {0, 0, 1}))});
+                insetLods[i] = chooseLod(length(mesh.boundsMax - mesh.boundsMin) * 0.5f * scale, length(c - inset->camPos), tanInset,
+                                         (int)mesh.lods.size());
+            }
+        }
+        std::stable_sort(insetVisible.begin(), insetVisible.end(), [&](uint32_t a, uint32_t b) {
+            VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
+            if (ta != tb) return ta < tb;
+            if (items[a].mesh != items[b].mesh) return items[a].mesh < items[b].mesh;
+            return insetLods[a] < insetLods[b];
+        });
+        std::sort(insetTransparent.begin(), insetTransparent.end(), [&](uint32_t a, uint32_t b) {
+            Vec3 da = centre(a) - inset->camPos, db = centre(b) - inset->camPos;
+            return dot(da, da) > dot(db, db);
+        });
+    }
 
     // ---- The instances: one per item, then the outlined ones again (in the outline colour); only the ones that
     // differ from what the store holds are uploaded
@@ -243,7 +276,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     }
 
     // ---- The index list: each batch's instances, by item
-    ensureIndexCapacity(visible.size() * (1 + kMaxLods) + transparent.size() + casterCount + outlined);
+    ensureIndexCapacity(visible.size() * (1 + kMaxLods) + transparent.size() + casterCount + outlined + insetVisible.size() +
+                        insetTransparent.size());
     auto* index = static_cast<uint32_t*>(instanceIndex_[frame_].mapped);
     uint32_t n = 0;
     auto append = [&](std::vector<Batch>& batches, uint32_t instance, int mesh, int lod, VkDescriptorSet set) {
@@ -263,6 +297,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
             if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], i, items[i].mesh, lods[i], plain);
             else append(shadowCutoutBatches_[shadowLayers[k]], i, items[i].mesh, lods[i], textureSet(items[i]));
         }
+    for (uint32_t i : insetVisible) append(insetBatches_, i, items[i].mesh, insetLods[i], textureSet(items[i]));
+    for (uint32_t i : insetTransparent) append(insetTransparentBatches_, i, items[i].mesh, insetLods[i], textureSet(items[i]));
     uint32_t outlineInstance = (uint32_t)items.size();
     for (const DrawItem& o : items)   // each outline is drawn on its own (stencil, then hull): no merging
         if (o.outlined) {

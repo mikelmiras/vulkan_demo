@@ -172,6 +172,13 @@ files outside it keep absolute paths.
 Without an argument both use the working directory. In the editor: File > Open project folder..., and
 File > Use this scene at startup sets the start scene.
 
+**File > New project** starts one from a template, in a folder you pick:
+
+- *Empty*: a sun, a ground and a camera.
+- *First person*: a PlayerController body with its camera at eye height, a few blocks and a ramp.
+- *Top-down*: a character seen from above that collects gems, moved by `scripts/TopDownPlayer.lua` (a Lua
+  behaviour to change: speed, turning, the camera following it), and a score on screen.
+
 The **Assets** panel (under the viewport; View > Assets) shows the project's folders, scenes, prefabs, models
 (OBJ / glTF), textures and sounds, and refreshes on its own:
 
@@ -189,7 +196,9 @@ animations, sounds, scene and sound fields of behaviours), so a file moved or re
 right-click an asset (or use the Inspector's buttons) to **rename or move** it (type a path to move it), drag it onto
 a folder (or onto Up) to move it, or **delete** it; the `.meta` goes along, and the references in the open scene, the
 project's other scenes and prefabs and `project.json` are updated. Renaming a script renames its behaviour type in
-the scenes too; renaming a prefab (Outliner > Prefabs) updates the behaviour fields that name it.
+the scenes too; renaming a prefab (Outliner > Prefabs) updates the behaviour fields that name it. Moves, renames and
+deletes are **undoable** (Ctrl+Z, in the same history as scene edits): a deleted file is kept, with its `.meta`, in
+a trash folder in the editor's user data until the editor closes, and comes back with the same id.
 
 Clicking an asset shows it in the **Inspector**: its path, size and id, which entities of the open scene use it,
 and its **import settings** (saved in its `.meta`; Apply reloads it in place, on screen right away):
@@ -230,6 +239,11 @@ still load.
 
 **Play** (Ctrl+P) copies the scene and runs the game on the copy; **Stop** throws the copy away and restores
 the scene exactly as it was, so anything changed while playing is temporary (and not undoable).
+
+**View > Game view** shows the game's camera in a window of its own, docked beside the scene view the first time
+(drag its tab anywhere): the viewport stays with your camera, gizmos and selection while the game plays next to it,
+and the game's mouse and UI go to the Game view. (It has no bloom or temporal AA of its own; with it shown,
+temporal AA is off.) `vkworld --play --game-view` starts that way.
 
 The demo scene is a tiny game: you are the **Player** (a capsule body with a PlayerController and a camera child).
 Walk with WASD / arrow keys or the left stick, look with the mouse (click the view to capture it, or hold the right
@@ -1019,7 +1033,7 @@ Includes are relative to `src/`.
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: device, swapchain, pipelines, frame (`renderer.cpp`); textures and materials (`renderer_textures.cpp`); culling, batching, skinning data (`renderer_instances.cpp`); HDR, bloom, tonemapping (`renderer_post.cpp`); scene -> draw list (`scene_draw.*`) |
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`), asset ids and import settings (`asset_db.*`) |
-| `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`); terrains (`terrain.*`) |
+| `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`); terrains (`terrain.*`); new projects from templates (`project_templates.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |

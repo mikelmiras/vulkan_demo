@@ -88,6 +88,10 @@ struct PlantSet {
 
 struct SceneRenderInfo {
     const std::vector<DrawItem>* items = nullptr;
+    // A second view of the same scene in its own rectangle (the editor's game view while playing): its camera and
+    // viewport fields are used; it shares this view's shadows (the sun's cascades follow this view's camera),
+    // shades with every light (not clustered) and gets no ambient occlusion; temporal anti-aliasing is off meanwhile
+    const SceneRenderInfo* inset = nullptr;
     const std::vector<PlantSet>* plants = nullptr;   // foliage (main view only: no shadows, not in probes)
     const std::vector<LightInfo>* lights = nullptr;   // no directional light: a default sun is used
     const std::vector<Mat4>* joints = nullptr;        // skinning matrices of every skinned item (see DrawItem)
@@ -448,6 +452,8 @@ private:
     MeshLod rangeOf(const Batch& b) const;   // the indices to draw for it
     void drawBatch(VkCommandBuffer cb, const Batch& b);
     std::vector<Batch> sceneBatches_, outlineBatches_, transparentBatches_;   // (transparent: back to front)
+    std::vector<Batch> insetBatches_, insetTransparentBatches_;              // the inset view's (culled on the CPU)
+    VkDeviceSize uboStride_ = 0;   // the frame UBO's two slots (this view, the inset), aligned
     std::vector<Batch> shadowBatches_[kShadowLayers];         // per shadow layer: solid casters ...
     std::vector<Batch> shadowCutoutBatches_[kShadowLayers];   // ... and ones with holes (cut-outs, see-through)
     Mat4 shadowViewProj_[kShadowLayers];

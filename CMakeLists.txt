@@ -102,6 +102,7 @@ set(ENGINE_SOURCES
   src/scene/behaviour.cpp
   src/scene/input_bindings.cpp
   src/scene/scene.cpp
+  src/scene/project_templates.cpp
   src/scene/terrain.cpp
   src/scene/serialization.cpp
   src/scene/prefab_sync.cpp
@@ -311,6 +312,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_rendering_assets.cpp
     tests/test_audio.cpp
     tests/test_project.cpp
+    tests/test_templates.cpp
     tests/test_module.cpp
     tests/test_scene_flow.cpp
     tests/test_ui.cpp

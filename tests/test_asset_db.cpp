@@ -164,6 +164,37 @@ TEST(assetdb_move_and_retarget) {
     CHECK(assetdb::pathOf(id).empty());
 }
 
+// Deleting with a copy kept (the editor's undo): put back with the same ids, a folder with everything in it
+TEST(assetdb_trash_and_restore) {
+    fs::path root = makeProject("adb_trash");
+    fs::path bin = test::tempPath("adb_trash_bin");
+    fs::remove_all(bin);
+    Done done;
+    assetdb::open(root, true);
+    std::string wall = assetdb::idOf(root / "textures" / "wall.png");
+    std::string ding = assetdb::idOf(root / "sounds" / "ding.wav");
+    std::string error;
+    fs::path keptFile, keptFolder;
+    REQUIRE(assetdb::trash(root / "sounds" / "ding.wav", bin, keptFile, error));
+    REQUIRE(assetdb::trash(root / "textures", bin, keptFolder, error));
+    CHECK(!fs::exists(root / "textures"));
+    CHECK(!fs::exists(root / "sounds" / "ding.wav.meta"));
+    CHECK(assetdb::pathOf(wall).empty());
+    CHECK(fs::exists(keptFolder / "wall.png.meta"));
+
+    REQUIRE(assetdb::restore(keptFolder, root / "textures", error));
+    REQUIRE(assetdb::restore(keptFile, root / "sounds" / "ding.wav", error));
+    CHECK(same(assetdb::pathOf(wall), root / "textures" / "wall.png"));
+    CHECK(same(assetdb::pathOf(ding), root / "sounds" / "ding.wav"));
+    CHECK(!fs::exists(keptFolder));   // (the copies go)
+    CHECK(!assetdb::restore(keptFile, root / "sounds" / "ding.wav", error));
+    // Not over a file that's there again
+    REQUIRE(assetdb::trash(root / "sounds" / "ding.wav", bin, keptFile, error));
+    test::writeFile(root / "sounds" / "ding.wav", "new");
+    CHECK(!assetdb::restore(keptFile, root / "sounds" / "ding.wav", error));
+    fs::remove_all(bin);
+}
+
 // Import settings: textures (size, filter, mipmaps) and OBJ models (fit, scale), reloaded in place
 TEST(assetdb_import_settings) {
     fs::path root = makeProject("adb_import");

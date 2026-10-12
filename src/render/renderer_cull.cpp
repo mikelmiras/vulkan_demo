@@ -372,6 +372,12 @@ void Renderer::recordHiz(VkCommandBuffer cb, const SceneRenderInfo& info) {
         hizValid_ = false;
         return;
     }
+    if (const SceneRenderInfo* in = info.inset;   // an inset over the view: its depth isn't this view's
+        in && in->viewportX < info.viewportX + info.viewportW && info.viewportX < in->viewportX + in->viewportW &&
+        in->viewportY < info.viewportY + info.viewportH && info.viewportY < in->viewportY + in->viewportH) {
+        hizValid_ = false;
+        return;
+    }
     if (hizWidth_ != (uint32_t)std::max(info.viewportW, 1.f) || hizHeight_ != (uint32_t)std::max(info.viewportH, 1.f)) {
         hizValid_ = false;   // (made for another size: ensureHiz remakes it before the next frame)
         return;

@@ -44,6 +44,11 @@ bool setImportSettings(const std::filesystem::path& file, const json::Value& set
 bool move(const std::filesystem::path& from, const std::filesystem::path& to, std::string& error);
 // Deletes a file (or a folder and everything in it) and its .meta(s)
 bool remove(const std::filesystem::path& file, std::string& error);
+// remove(), keeping a copy (with its .meta(s): the same ids) in a folder of its own under `bin`; `kept` is the copy
+// (the editor's undo for deleting). restore() puts it back where it was (and deletes the copy).
+bool trash(const std::filesystem::path& file, const std::filesystem::path& bin, std::filesystem::path& kept,
+           std::string& error);
+bool restore(const std::filesystem::path& kept, const std::filesystem::path& file, std::string& error);
 
 // References in the project's scene, prefab and project files to `from` (a file, or a folder: everything under
 // it) are pointed at `to` instead; returns how many references changed. (After a move: references are paths.)

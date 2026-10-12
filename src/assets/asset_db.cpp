@@ -270,6 +270,39 @@ bool remove(const fs::path& file, std::string& error) {
     return true;
 }
 
+bool trash(const fs::path& file, const fs::path& bin, fs::path& kept, std::string& error) {
+    std::error_code ec;
+    if (!fs::exists(file, ec)) { error = file.u8string() + " doesn't exist"; return false; }
+    fs::path dir = bin / newId();
+    fs::create_directories(dir, ec);
+    kept = dir / file.filename();
+    fs::copy(file, kept, fs::copy_options::recursive, ec);
+    if (!ec && fs::exists(metaPath(file))) fs::copy_file(metaPath(file), metaPath(kept), ec);
+    if (ec) {
+        error = "can't keep a copy of " + file.u8string() + ": " + ec.message();
+        fs::remove_all(dir, ec);
+        return false;
+    }
+    if (remove(file, error)) return true;
+    fs::remove_all(dir, ec);
+    return false;
+}
+
+bool restore(const fs::path& kept, const fs::path& file, std::string& error) {
+    std::error_code ec;
+    if (!fs::exists(kept, ec)) { error = "the copy of " + file.u8string() + " is gone"; return false; }
+    if (fs::exists(file, ec)) { error = file.u8string() + " already exists"; return false; }
+    fs::create_directories(file.parent_path(), ec);
+    fs::copy(kept, file, fs::copy_options::recursive, ec);
+    if (!ec && fs::exists(metaPath(kept))) fs::copy_file(metaPath(kept), metaPath(file), ec);
+    if (ec) { error = "can't put back " + file.u8string() + ": " + ec.message(); return false; }
+    fs::remove_all(kept.parent_path(), ec);
+    Db& d = db();
+    std::lock_guard<std::mutex> lock(d.m);
+    if (d.open) scanLocked(d);   // (its ids, and those of everything in it)
+    return true;
+}
+
 std::string retarget(const std::string& ref, const fs::path& from, const fs::path& to, bool* changed) {
     if (changed) *changed = false;
     std::string name = from.filename().u8string();

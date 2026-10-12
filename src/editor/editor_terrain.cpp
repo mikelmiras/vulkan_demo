@@ -238,7 +238,7 @@ bool Editor::handleTerrainTool(float dt) {
         step.selected = selected_;
         strokeBefore_.reset();
         undo_.push_back(std::move(step));
-        if (undo_.size() > 200) undo_.erase(undo_.begin());
+        if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
         redo_.clear();
         ++editVersion_;
     };

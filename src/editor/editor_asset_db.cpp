@@ -180,7 +180,7 @@ void Editor::renameScriptType(const std::string& from, const std::string& to) {
 // ---------------------------------------------------------------------------------------------
 // Moving, renaming, deleting
 // ---------------------------------------------------------------------------------------------
-bool Editor::moveAsset(const fs::path& from, const fs::path& to) {
+bool Editor::moveAsset(const fs::path& from, const fs::path& to, bool undoable) {
     if (playing()) { setStatus("Stop the game before moving files"); return false; }
     std::error_code ec;
     bool folder = fs::is_directory(from, ec);
@@ -195,21 +195,58 @@ bool Editor::moveAsset(const fs::path& from, const fs::path& to) {
     scanAssets();
     setStatus("Moved " + project::toStored(from.u8string()) + " to " + project::toStored(to.u8string()) +
               (refs ? ": " + std::to_string(refs) + " references updated in " + std::to_string(files.size()) + " files" : ""));
+    if (undoable) pushFileOp({from, to, {}});
     return true;
 }
 
-void Editor::deleteAsset(const fs::path& path) {
-    if (playing()) { setStatus("Stop the game before deleting files"); return; }
+bool Editor::deleteAsset(const fs::path& path, bool undoable) {
+    if (playing()) { setStatus("Stop the game before deleting files"); return false; }
     size_t users = assetUsers(path).size();
     bool script = path.extension() == ".lua" || fs::is_directory(path);
     std::string error;
-    if (!assetdb::remove(path, error)) { setStatus(error); return; }
+    if (trashDir_.empty()) {   // (one per editor: two editors open don't empty each other's)
+        char name[32];
+        std::snprintf(name, sizeof(name), "%llx",
+                      (unsigned long long)std::chrono::system_clock::now().time_since_epoch().count());
+        trashDir_ = editor_prefs::folder() / "Trash" / name;
+    }
+    fs::path kept;
+    if (!assetdb::trash(path, trashDir_, kept, error)) { setStatus(error); return false; }
     if (selectedAsset_ == path) selectedAsset_.clear();
     thumbnails_.erase(path.u8string());
     if (script) loadScripts();
     scanAssets();
     setStatus("Deleted " + project::toStored(path.u8string()) +
-              (users ? " (" + std::to_string(users) + " entities in this scene used it)" : ""));
+              (users ? " (" + std::to_string(users) + " entities in this scene used it)" : "") + " (Ctrl+Z puts it back)");
+    if (undoable) pushFileOp({path, {}, kept});
+    else lastKept_ = kept;
+    return true;
+}
+
+void Editor::pushFileOp(const FileOp& op) {
+    commitUndo();   // (scene edits before it: a step of their own)
+    UndoStep step;
+    step.file = op;
+    step.selected = selected_;
+    undo_.push_back(std::move(step));
+    if (undo_.size() > kMaxUndo) undo_.erase(undo_.begin());
+    redo_.clear();
+}
+
+bool Editor::reverseFileOp(FileOp& op, bool redo) {
+    if (op.kept.empty()) return redo ? moveAsset(op.from, op.to, false) : moveAsset(op.to, op.from, false);
+    if (redo) {   // delete it again (a new copy kept)
+        if (!deleteAsset(op.from, false)) return false;
+        op.kept = lastKept_;
+        return true;
+    }
+    if (playing()) return false;
+    std::string error;
+    if (!assetdb::restore(op.kept, op.from, error)) { setStatus("Can't undo: " + error); return false; }
+    if (op.from.extension() == ".lua" || fs::is_directory(op.from)) loadScripts();
+    scanAssets();
+    setStatus("Put back " + project::toStored(op.from.u8string()));
+    return true;
 }
 
 void Editor::drawAssetDialogs() {
@@ -242,7 +279,7 @@ void Editor::drawAssetDialogs() {
         ImGui::Text("Delete %s%s?", project::toStored(deleting_.u8string()).c_str(), folder ? " and everything in it" : "");
         size_t users = folder ? 0 : assetUsers(deleting_).size();
         if (users) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "%zu entities in this scene use it.", users);
-        ImGui::TextDisabled("This can't be undone.");
+        ImGui::TextDisabled("Undo (Ctrl+Z) puts it back while the editor stays open.");
         if (ImGui::Button("Delete", ImVec2(px(100.f), 0))) {
             deleteAsset(deleting_);
             ImGui::CloseCurrentPopup();

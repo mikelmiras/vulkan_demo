@@ -1,11 +1,12 @@
 // Vulkan World Editor: a small Vulkan 3D scene with a Blender-style editing UI.
 //
-//   vkworld [project folder | scene.vkw] [--play] [--select <entity>] [--stress] [--fullscreen]
+//   vkworld [project folder | scene.vkw] [--play [--game-view]] [--select <entity>] [--stress] [--fullscreen]
 //           [--screenshot out.png [--frames N]]
 //   vkworld <project folder> --export <folder> [--pack | --single-file]   (no window: exports the game and quits)
 //
 // The project is the folder given, else the working directory (its start scene opens if it has a project.json).
-// --play starts play mode right away; --select selects an entity by name; --stress opens the stress test scene;
+// --play starts play mode right away (--game-view: with the Game view window shown); --select selects an entity by
+// name; --stress opens the stress test scene;
 // --screenshot saves frame N (default 30) and quits.
 
 #include <cstdio>
@@ -31,9 +32,10 @@ int main(int argc, char** argv) {
     const char* selectName = nullptr;
     const char* exportDir = nullptr;
     ExportOptions exportOptions;
-    bool play = false, stress = false;
+    bool play = false, stress = false, gameView = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--play")) play = true;
+        else if (!std::strcmp(argv[i], "--game-view")) gameView = true;
         else if (!std::strcmp(argv[i], "--stress")) stress = true;
         else if (!std::strcmp(argv[i], "--select") && i + 1 < argc) selectName = argv[++i];
         else if (!std::strcmp(argv[i], "--export") && i + 1 < argc) exportDir = argv[++i];
@@ -78,6 +80,7 @@ int main(int argc, char** argv) {
     else if (project::exists(project::root())) editor.openProject(project::root());
     if (stress) editor.newStressScene();
     if (selectName && !editor.selectByName(selectName)) std::fprintf(stderr, "no entity named %s\n", selectName);
+    if (gameView) editor.setGameView(true);
     if (play) editor.play();
     if (!crash::previousReport().empty())
         editor.showStatus("The last session crashed. Its report: " + crash::previousReport().u8string());

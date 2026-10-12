@@ -1,5 +1,6 @@
 // Editor panels: menu bar, toolbar, status bar, help, dialogs and the input bindings window.
 #include "editor/editor.h"
+#include "scene/project_templates.h"
 #include "script/lua_debugger.h"
 #include "game/strings.h"
 
@@ -25,6 +26,22 @@ void Editor::drawMenuBar() {
     if (ImGui::BeginMenu("File")) {
         ImGui::BeginDisabled(playing());   // stop first: the scene on screen is the throwaway play copy
         ImGui::TextDisabled("Project: %s", project_.name.c_str());
+        if (ImGui::BeginMenu("New project")) {
+            for (int i = 0; i < (int)project_templates::Template::Count; ++i) {
+                auto t = (project_templates::Template)i;
+                bool chosen = ImGui::MenuItem((std::string(project_templates::name(t)) + "...").c_str());
+                tooltip(project_templates::description(t));
+                if (!chosen) continue;
+                std::filesystem::path dir = platform::openFolderDialog("New project: an empty folder");
+                ImGui::GetIO().ClearInputKeys();
+                ImGui::GetIO().ClearInputMouse();
+                std::string error;
+                if (dir.empty()) continue;
+                if (project_templates::create(dir, t, "", error)) openProject(dir);
+                else setStatus("Can't make the project: " + error);
+            }
+            ImGui::EndMenu();
+        }
         if (ImGui::MenuItem("Open project folder...")) {
             std::filesystem::path dir = platform::openFolderDialog("Open project folder");
             ImGui::GetIO().ClearInputKeys();
@@ -169,6 +186,10 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
         ImGui::MenuItem("Show contacts", nullptr, &showContacts_);
+        ImGui::MenuItem("Game view", nullptr, &showGameView_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("While playing: the game's camera in a window of its own (dock it beside the scene), the\n"
+                              "viewport staying with yours");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("While playing: where bodies touch (dots) and which way they push (lines)");
         ImGui::MenuItem("Profiler", "F3", &showProfiler_);
         if (renderer_ && ImGui::BeginMenu("Anti-aliasing")) {

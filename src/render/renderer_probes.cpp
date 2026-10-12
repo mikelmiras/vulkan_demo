@@ -46,6 +46,7 @@ bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, Ba
 
     for (int face = 0; face < 6; ++face) {
         SceneRenderInfo f = info;
+        f.inset = nullptr;
         f.camPos = probe.position;
         f.camForward = kFaceForward[face];
         f.fovY = 90.f * DEG2RAD;
@@ -110,7 +111,8 @@ bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, Ba
         VkDeviceSize offsets[2] = {0, 0};
         vkCmdBindVertexBuffers(cb, 0, 2, vbs, offsets);
         vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 0, nullptr);
+        const uint32_t slot = 0;
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
         VkDescriptorSet bound = VK_NULL_HANDLE;
         auto draw = [&](const Batch& b) {
             if (b.texture != bound) {

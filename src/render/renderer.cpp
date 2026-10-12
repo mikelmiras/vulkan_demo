@@ -585,7 +585,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     VkDescriptorSetLayoutBinding frameBindings[17] = {
-        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // joint matrices (and terrains' layers)
@@ -915,7 +915,7 @@ void Renderer::uploadMeshes() {
 void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
-    VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
+    VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9 * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 7 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -970,7 +970,13 @@ void Renderer::createResources(const MeshLibrary&) {
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     for (int i = 0; i < MAX_FRAMES; ++i) {
-        ubo_[i] = createBuffer(sizeof(FrameUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        if (!uboStride_) {   // (two slots: this view's, the inset's; each at an offset the device allows)
+            VkPhysicalDeviceProperties props;
+            vkGetPhysicalDeviceProperties(gpu_, &props);
+            VkDeviceSize align = std::max<VkDeviceSize>(props.limits.minUniformBufferOffsetAlignment, 16);
+            uboStride_ = (sizeof(FrameUBO) + align - 1) / align * align;
+        }
+        ubo_[i] = createBuffer(uboStride_ * 2, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
         VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dsai.descriptorPool = descPool_;
@@ -983,7 +989,7 @@ void Renderer::createResources(const MeshLibrary&) {
                                      {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
         w[0].dstSet = descSets_[i];
         w[0].descriptorCount = 1;
-        w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         w[0].pBufferInfo = &bi;
         VkDescriptorImageInfo cascadeInfo{shadowSampler_, cascades_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         VkDescriptorImageInfo spotInfo{shadowSampler_, atlas_.layers[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
@@ -1081,6 +1087,7 @@ void Renderer::initImGui() {
 // ---------------------------------------------------------------------------------------------
 
 void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui) {
+    const SceneRenderInfo* inset = info.inset && info.inset->viewportW >= 1.f && info.inset->viewportH >= 1.f ? info.inset : nullptr;
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
@@ -1098,7 +1105,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     VkDeviceSize vbOffsets[2] = {0, 0};
     vkCmdBindVertexBuffers(cb, 0, 2, vbs, vbOffsets);
     vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 0, nullptr);
+    const uint32_t mainSlot = 0;
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &mainSlot);
 
     recordInstanceUpload(cb);   // (what changed in the instances: before anything reads them)
     recordCulling(cb, info);    // (compute: before any rendering)
@@ -1225,6 +1233,52 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             draw(b);
         }
     }
+    // The inset view: the same scene from its camera (the frame UBO's second slot), in its rectangle
+    if (inset && info.items) {
+        float ix = std::clamp(inset->viewportX, 0.f, (float)extent_.width), iy = std::clamp(inset->viewportY, 0.f, (float)extent_.height);
+        float iw = std::min(inset->viewportW, (float)extent_.width - ix), ih = std::min(inset->viewportH, (float)extent_.height - iy);
+        if (iw >= 1.f && ih >= 1.f) {
+            const uint32_t insetSlot = (uint32_t)uboStride_;
+            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &insetSlot);
+            VkViewport viewport{ix, iy, iw, ih, 0.f, 1.f};
+            VkRect2D scissor{{(int32_t)ix, (int32_t)iy}, {(uint32_t)iw, (uint32_t)ih}};
+            vkCmdSetViewport(cb, 0, 1, &viewport);
+            vkCmdSetScissor(cb, 0, 1, &scissor);
+            VkClearAttachment clearDepth{dsAspect, 0, {}};   // (where it lies over the main view: its own depth)
+            clearDepth.clearValue.depthStencil = {1.f, 0};
+            VkClearRect clearRect{scissor, 0, 1};
+            vkCmdClearAttachments(cb, 1, &clearDepth, 1, &clearRect);
+            VkDescriptorSet bound = VK_NULL_HANDLE;
+            auto drawInset = [&](const Batch& b) {
+                if (b.texture != bound) {
+                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
+                    bound = b.texture;
+                }
+                drawBatch(cb, b);
+                stats_.drawCalls++;
+            };
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
+            for (const Batch& b : insetBatches_) drawInset(b);
+            drawPlants(cb, *inset);
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
+            vkCmdDraw(cb, 3, 1, 0, 0);
+            if (!insetTransparentBatches_.empty()) {
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline_);
+                bound = VK_NULL_HANDLE;
+                for (const Batch& b : insetTransparentBatches_) drawInset(b);
+            }
+            if (particleAlpha_) {
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAlphaPipeline_);
+                vkCmdDraw(cb, 6, particleAlpha_, 0, 0);
+            }
+            if (particleAdditive_) {
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAdditivePipeline_);
+                vkCmdDraw(cb, 6, particleAdditive_, 0, particleAlpha_);
+            }
+            const uint32_t mainSlot = 0;
+            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &mainSlot);
+        }
+    }
     vkCmdEndRendering(cb);
     if (aoSupported_) {   // the depth, for ambient occlusion and the occlusion culling pyramid
         imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
@@ -1235,7 +1289,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     }
 
     timestamp(cb, "Scene");
-    if (aa_ == Antialiasing::Temporal && info.items) {   // blended with the frames before (renderer_taa.cpp)
+    if (aa_ == Antialiasing::Temporal && info.items && !inset) {   // blended with the frames before (renderer_taa.cpp)
         recordTaa(cb, info);
         timestamp(cb, "Temporal AA");
     }
@@ -1402,11 +1456,26 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) VK_CHECK(r);
     VK_CHECK(vkResetFences(device_, 1, &inFlight_[frame_]));
 
+    // The inset view's frame data first (its lights go into the shared buffer: this view's, after, are the ones kept)
+    const SceneRenderInfo* inset = info.inset && info.inset->viewportW >= 1.f && info.inset->viewportH >= 1.f ? info.inset : nullptr;
+    FrameUBO u2{};
+    if (inset) {
+        fillFrameUBO(*inset, u2, false);
+        setProbeData(u2);
+    }
     FrameUBO u{};
     fillFrameUBO(info, u, true);
     setProbeData(u);
     uploadPlants(info);
-    if (aa_ == Antialiasing::Temporal) {   // a different sub-pixel offset every frame (Halton 2, 3: eight of them)
+    if (inset) {   // its shadows: this view's
+        std::memcpy(u2.shadowViewProj, u.shadowViewProj, sizeof(u.shadowViewProj));
+        std::memcpy(u2.shadowRect, u.shadowRect, sizeof(u.shadowRect));
+        std::memcpy(u2.cascadeSplits, u.cascadeSplits, sizeof(u.cascadeSplits));
+        u2.sunDir[3] = u.sunDir[3];
+        std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_, &u2, sizeof(u2));
+        taaHistory_ = false;   // (temporal AA is off while there's an inset: it reprojects with one camera)
+    }
+    if (aa_ == Antialiasing::Temporal && !inset) {   // a different sub-pixel offset every frame (Halton 2, 3: eight of them)
         auto halton = [](uint32_t i, uint32_t b) {
             float f = 1.f, r = 0.f;
             for (; i > 0; i /= b) {

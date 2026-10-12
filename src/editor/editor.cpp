@@ -25,10 +25,6 @@
 #include "platform/platform.h"
 #include "scene/serialization.h"
 
-namespace {
-constexpr size_t kMaxUndo = 200;
-}
-
 Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale, bool persistent)
     : meshes_(meshes), textures_(textures), audio_(audio), uiScale_(uiScale), scene_(buildDefaultScene()) {
     game_.setAudio(audio);
@@ -55,6 +51,10 @@ Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio
 }
 
 Editor::~Editor() {
+    if (!trashDir_.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(trashDir_, ec);
+    }
     if (!persistent_) return;
     if (currentPrefs() != savedPrefs_) editor_prefs::save(prefsFile_, currentPrefs());
     if (ImGui::GetCurrentContext() && ImGui::GetIO().IniFilename == layoutIni_.c_str()) {
@@ -90,11 +90,13 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     game_.input().setMouseCaptured(captured);
     game_.setRecordContacts(showContacts_);
     scripting::debugger::poll();   // (an attached editor's requests: breakpoints set while the game runs)
-    game_.frame(dt, !io.WantTextInput, captured || viewportHovered(), captured ? ImVec2(mdx, mdy) : io.MouseDelta);
+    bool gameMouse = gameViewShown() ? gameViewHovered_ : viewportHovered();   // (over whichever shows the game)
+    game_.frame(dt, !io.WantTextInput, captured || gameMouse, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
     net_.update(dt);
     uiWantsCursor_ = false;
     if (playing()) {   // the game's HUD and menus, over the viewport (last frame's layout)
-        gameUi_.begin(ImGui::GetBackgroundDrawList(), vx_, vy_, vw_, vh_, !captured && viewportHovered());
+        if (gameViewShown()) gameUi_.begin(ImGui::GetBackgroundDrawList(), gx_, gy_, gw_, gh_, !captured && gameViewHovered_);
+        else gameUi_.begin(ImGui::GetBackgroundDrawList(), vx_, vy_, vw_, vh_, !captured && viewportHovered());
         game_.drawUI(gameUi_);
         gameUi_.end();
         uiWantsCursor_ = gameUi_.wantsCursor();
@@ -145,6 +147,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawImportPopup();
     if (showInputBindings_) drawInputBindings();
     if (animGraphEntity_ != kNoEntity) drawAnimatorGraph();
+    drawGameView();
     if (showProfiler_) drawProfilerWindow(&showProfiler_, project::saveDir("Editor").parent_path() / "traces");
     drawAssetDialogs();
 
@@ -285,7 +288,52 @@ SceneRenderInfo Editor::renderInfo() const {
     info.viewportY = vy_;
     info.viewportW = vw_;
     info.viewportH = vh_;
+    CameraView gc;
+    if (gameViewShown() && game_.activeCamera(gc)) {   // the game's camera, into the Game view's rectangle
+        insetInfo_ = info;
+        insetInfo_.inset = nullptr;
+        insetInfo_.aspect = gw_ / gh_;
+        insetInfo_.fovY = gc.fovY;
+        insetInfo_.zNear = gc.zNear;
+        insetInfo_.zFar = gc.zFar;
+        insetInfo_.viewProj = perspective(gc.fovY, insetInfo_.aspect, gc.zNear, gc.zFar, true) * gc.view;
+        insetInfo_.camPos = gc.position;
+        insetInfo_.camForward = normalize(transformDir(inverseAffine(gc.view), {0, 0, -1}));
+        insetInfo_.viewportX = gx_;
+        insetInfo_.viewportY = gy_;
+        insetInfo_.viewportW = gw_;
+        insetInfo_.viewportH = gh_;
+        info.inset = &insetInfo_;
+    }
     return info;
+}
+
+// The Game view: a window with a see-through background, so the game drawn under it shows through; its rectangle (from the
+// last frame) is where the renderer draws the game's camera
+void Editor::drawGameView() {
+    if (!playing() || !showGameView_) {
+        gw_ = gh_ = 0.f;
+        gameViewHovered_ = false;
+        return;
+    }
+    ImGui::SetNextWindowSize(ImVec2(480.f, 300.f), ImGuiCond_FirstUseEver);   // (undocked; docked at first: above)
+    ImGui::SetNextWindowBgAlpha(0.f);   // (not NoBackground: docked, its node draws the colour it last had)
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));   // (the view fills it)
+    bool open = ImGui::Begin("Game", &showGameView_, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar();
+    if (open) {
+        ImVec2 at = ImGui::GetCursorScreenPos(), size = ImGui::GetContentRegionAvail();
+        gx_ = at.x;
+        gy_ = at.y;
+        gw_ = std::max(size.x, 0.f);
+        gh_ = std::max(size.y, 0.f);
+        ImGui::InvisibleButton("##game", ImVec2(std::max(size.x, 1.f), std::max(size.y, 1.f)));   // (it takes the mouse)
+        gameViewHovered_ = ImGui::IsItemHovered();
+    } else {
+        gw_ = gh_ = 0.f;
+        gameViewHovered_ = false;
+    }
+    ImGui::End();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -409,9 +457,21 @@ void Editor::drawDockspace(bool panels) {
         buildDefaultLayout(id);
         resetLayout_ = false;
     }
+    // The Game view, the first time it shows (nothing saved about it): docked beside the scene view, which keeps the
+    // dockspace's central node
+    if (ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(id); central && playing() && showGameView_ &&
+        !ImGui::FindWindowByName("Game") && !ImGui::FindWindowSettingsByID(ImHashStr("Game"))) {
+        ImGuiID right = ImGui::DockBuilderSplitNode(central->ID, ImGuiDir_Right, 0.45f, nullptr, nullptr);
+        ImGui::DockBuilderDockWindow("Game", right);
+        ImGui::DockBuilderFinish(id);
+    }
     // While playing maximised the panels aren't drawn: the dockspace is only kept alive, the view takes it all
     ImGuiDockNodeFlags dockFlags = ImGuiDockNodeFlags_PassthruCentralNode | ImGuiDockNodeFlags_NoDockingOverCentralNode;
+    // (a passthru dockspace paints WindowBg around the central node: not over the Game view's node)
+    bool clearBg = playing() && showGameView_;
+    if (clearBg) ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.f, 0.f, 0.f, 0.f));
     ImGui::DockSpace(id, ImVec2(0.f, 0.f), dockFlags | (panels ? 0 : ImGuiDockNodeFlags_KeepAliveOnly));
+    if (clearBg) ImGui::PopStyleColor();
     ImGui::End();
 
     vx_ = pos.x, vy_ = pos.y, vw_ = size.x, vh_ = size.y;
@@ -977,6 +1037,12 @@ void Editor::commitUndo() {
 void Editor::undo() {
     commitUndo();   // (an operation earlier this frame)
     if (undo_.empty() || playing()) return;
+    if (undo_.back().file.any()) {
+        UndoStep step = std::move(undo_.back());
+        undo_.pop_back();
+        if (reverseFileOp(step.file, false)) redo_.push_back(std::move(step));
+        return;
+    }
     Scene now = scene_;
     applyDelta(scene_, undo_.back().delta);
     redo_.push_back({diffScenes(now, scene_), selected_});
@@ -989,6 +1055,12 @@ void Editor::undo() {
 
 void Editor::redo() {
     if (redo_.empty() || playing()) return;
+    if (redo_.back().file.any()) {
+        UndoStep step = std::move(redo_.back());
+        redo_.pop_back();
+        if (reverseFileOp(step.file, true)) undo_.push_back(std::move(step));
+        return;
+    }
     Scene now = scene_;
     applyDelta(scene_, redo_.back().delta);
     undo_.push_back({diffScenes(now, scene_), selected_});

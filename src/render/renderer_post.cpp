@@ -239,6 +239,21 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}, {}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
+        if (const SceneRenderInfo* in = info.inset; in && in->viewportW >= 1.f && in->viewportH >= 1.f) {   // the inset's
+            float ix = std::clamp(in->viewportX, 0.f, (float)extent_.width), iy = std::clamp(in->viewportY, 0.f, (float)extent_.height);
+            float iw = std::min(in->viewportW, (float)extent_.width - ix), ih = std::min(in->viewportH, (float)extent_.height - iy);
+            if (iw >= 1.f && ih >= 1.f) {
+                VkViewport ivp{ix, iy, iw, ih, 0.f, 1.f};
+                VkRect2D isc{{(int32_t)ix, (int32_t)iy}, {(uint32_t)iw, (uint32_t)ih}};
+                vkCmdSetViewport(cb, 0, 1, &ivp);
+                vkCmdSetScissor(cb, 0, 1, &isc);
+                Push ip = p;   // (no AO or bloom: those passes only ran over this view's rectangle)
+                ip.a[1] = ip.a[2] = 0.f;
+                ip.a[0] = in->exposure;
+                vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &ip);
+                vkCmdDraw(cb, 3, 1, 0, 0);
+            }
+        }
     }
     vkCmdEndRendering(cb);
 }

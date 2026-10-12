@@ -60,6 +60,7 @@ public:
         uiTextures_ = lookup;
         gameUi_.setTextureLookup(std::move(lookup));
     }
+    void setGameView(bool shown) { showGameView_ = shown; }   // View > Game view
     bool selectByName(const std::string& names);   // "A" or "A,B,C" (A is the primary)
     void showStatus(const std::string& msg) { setStatus(msg); }   // (the status bar, for a while)
     // The renderer drawing the editor (for View > Anti-aliasing); the saved choice is applied to it
@@ -68,11 +69,20 @@ public:
 private:
     enum class Tool { Select, Move, Rotate, Scale, Terrain };
     enum class Nav { None, Fly, Orbit, Pan };
-    // An undo (or redo) step: how to get the scene back to how it was, and what was selected then
+    // A file operation in the asset browser, undoable: a move (or rename) `from` -> `to`, or a delete of `from`
+    // (`kept`: the copy kept to put back, in this session's trash folder)
+    struct FileOp {
+        std::filesystem::path from, to, kept;
+        bool any() const { return !from.empty(); }
+    };
+    // An undo (or redo) step: how to get the scene back to how it was, and what was selected then; or a file
+    // operation to reverse
     struct UndoStep {
         SceneDelta delta;
         EntityId selected = kNoEntity;
+        FileOp file;
     };
+    static constexpr size_t kMaxUndo = 200;
 
     // ---- Panels (editor_panels.cpp)
     void drawMenuBar();
@@ -137,7 +147,11 @@ private:
 
     // ---- Play mode: the scene is copied on Play and restored on Stop
     bool playing() const { return game_.running(); }
-    bool viewingGameCamera() const { return playing() && gameCameraActive_; }
+    bool viewingGameCamera() const { return playing() && gameCameraActive_ && !gameViewShown(); }
+    // The Game view (View > Game view): while playing, the game's camera in a window of its own (docked anywhere),
+    // the main viewport staying with the editor's camera
+    bool gameViewShown() const { return playing() && showGameView_ && gw_ >= 1.f && gh_ >= 1.f; }
+    void drawGameView();
     void startPlay();
     void stopPlay();
     void togglePause();
@@ -235,8 +249,13 @@ private:
     void drawAssetInspector();
     void drawAssetDialogs();
     void applyImportSettings();
-    bool moveAsset(const std::filesystem::path& from, const std::filesystem::path& to);   // a file or a folder
-    void deleteAsset(const std::filesystem::path& path);
+    // A file or a folder; `undoable`: a step on the undo stack (not when undoing or redoing one)
+    bool moveAsset(const std::filesystem::path& from, const std::filesystem::path& to, bool undoable = true);
+    bool deleteAsset(const std::filesystem::path& path, bool undoable = true);
+    bool reverseFileOp(FileOp& op, bool redo);   // undo (or redo) one
+    void pushFileOp(const FileOp& op);
+    std::filesystem::path trashDir_;   // deleted files kept for undo (emptied when the editor closes)
+    std::filesystem::path lastKept_;   // (deleteAsset's copy, when not pushed as a step)
     std::vector<EntityId> assetUsers(const std::filesystem::path& file);   // entities of the scene using it
     void retargetInMemory(const std::filesystem::path& from, const std::filesystem::path& to);
     int renamePrefabReferences(const std::string& from, const std::string& to);   // behaviour fields naming a prefab
@@ -333,6 +352,10 @@ private:
 
     bool showOutliner_ = true, showInspector_ = true, showHelp_ = false, showColliders_ = false, showProfiler_ = false;
     bool showContacts_ = false;   // View > Show contacts (while playing)
+    bool showGameView_ = false;
+    float gx_ = 0, gy_ = 0, gw_ = 0, gh_ = 0;   // the Game view's rectangle (last frame's)
+    bool gameViewHovered_ = false;
+    mutable SceneRenderInfo insetInfo_;          // (what renderInfo() points the renderer's inset at)
     bool openAddMenu_ = false, scrollToSelected_ = false;
     EntityId pendingDelete_ = kNoEntity, pendingDuplicate_ = kNoEntity, pendingFocus_ = kNoEntity;
     EntityId pendingReparent_ = kNoEntity, pendingParent_ = kNoEntity;   // drag & drop in the outliner

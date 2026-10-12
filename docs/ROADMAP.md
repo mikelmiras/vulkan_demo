@@ -485,7 +485,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 48 (done) | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
 | 49 (done) | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
 | 50 (done) | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
-| 51 | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
+| 51 (done) | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
 | 52 | Platform: Wayland, gamepad rumble and light bars, a mouse-free text-input keyboard for consoles-style UI, high-contrast / colour-blind UI options | X11 only; accessibility settings are missing |
 | 53 | Releases: versioned builds with symbols kept for crash reports (symbolicated stacks), an update check, packaging (AppImage, .dmg, installer) | Exports are folders; crash stacks from shipped builds are offsets |
 
@@ -633,4 +633,25 @@ Working list for turning the renderer demo into a small game engine. Each task i
   at the port (DebugAdapterServer). Tested with a TCP client on a thread: breakpoint, stack, locals, evaluate, two
   steps, a table, continue, disconnect. Not done: conditional breakpoints and logpoints, breaking on errors, setting
   variables, coroutines as threads, debugging scripts while the editor isn't playing (loads), profiling scripts.
+- Task 51: the renderer takes an optional second view (SceneRenderInfo::inset: a camera and a rectangle). The frame
+  UBO became a dynamic uniform buffer with two slots (each aligned to minUniformBufferOffsetAlignment); the inset's
+  instances are culled and LOD'd on the CPU into their own batches (after the main view's, in the same instance
+  buffer), drawn in the main pass after the main view with the second slot bound, its rectangle's depth cleared
+  first (vkCmdClearAttachments), then the sky, transparent batches and particles. It shares the main view's shadows
+  and light list (the 1024 lights nearest the main camera; the inset loops over all of them, no clusters) and gets a second
+  composite draw in its rectangle without AO or bloom; temporal AA is off while there's an inset (one camera's
+  reprojection), and the Hi-Z pyramid is skipped on frames where the inset overlaps the main view. Editor: View >
+  Game view (vkworld --game-view) is an ImGui window with a transparent background docked (the first time, nothing
+  saved about it) into a split of the dockspace's central node; while playing its content rectangle is the inset,
+  the viewport keeps the editor camera, and the game's mouse and UI go to it. The passthru dockspace's WindowBg is
+  made transparent while it shows (it paints around the central node). File operations: UndoStep carries a FileOp
+  (a move, or a delete with the copy kept); assetdb::trash copies the file or folder and its .meta(s) into
+  <user data>/vkworld/Editor/Trash/<session> before removing it, restore copies it back and rescans (same ids).
+  Undoing a move moves it back (references retargeted again); redo repeats either. The trash folder goes when the
+  editor closes. Templates: scene/project_templates writes project.json, scenes/main.vkw and, for top-down,
+  scripts/TopDownPlayer.lua (moveCharacter with gravity, the body turned towards the move, the camera kept at its
+  starting offset); File > New project > <template> picks a folder and opens it. Not done: the game view as its own
+  render target (an ImGui image: bloom, TAA, overlapping other windows), several game views (split-screen),
+  the game view while not playing, undo for a move of something since changed on disk, more templates (racing,
+  third person).
 
