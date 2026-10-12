@@ -1,11 +1,11 @@
 // Linux window backend: native Wayland (platform_linux.h). xdg-shell for the window, server-side decorations
 // (xdg-decoration) where the compositor offers them, xkbcommon for the keyboard, wayland-cursor for the pointer's
 // look, and a locked pointer with relative motion (pointer-constraints, relative-pointer) for mouse capture.
+#include "platform/wayland_api.h"   // (first: the libraries' functions are loaded at run time)
+
 #define VK_USE_PLATFORM_WAYLAND_KHR
 #include <vulkan/vulkan.h>
 #include <wayland-client.h>
-#include <wayland-cursor.h>
-#include <xkbcommon/xkbcommon.h>
 
 #include "pointer-constraints-unstable-v1-client-protocol.h"
 #include "relative-pointer-unstable-v1-client-protocol.h"
@@ -93,6 +93,7 @@ void showCursor(ImGuiMouseCursor which) {
         wl_pointer_set_cursor(g.pointer, g.enterSerial, nullptr, 0, 0);
         return;
     }
+    if (!api::cursorLoaded()) return;   // (no libwayland-cursor: the compositor's default pointer)
     if (!g.cursorTheme) {
         const char* size = std::getenv("XCURSOR_SIZE");
         g.cursorTheme = wl_cursor_theme_load(std::getenv("XCURSOR_THEME"), size ? std::atoi(size) : 24, g.shm);
@@ -375,6 +376,10 @@ bool wanted() {
 }
 
 bool createWindow(const char* title, uint32_t width, uint32_t height) {
+    if (!api::load()) {
+        std::fprintf(stderr, "Wayland: libwayland-client or libxkbcommon isn't installed; using X11\n");
+        return false;
+    }
     g.display = wl_display_connect(nullptr);
     if (!g.display) return false;
     g.registry = wl_display_get_registry(g.display);

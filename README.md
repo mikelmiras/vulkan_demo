@@ -18,6 +18,7 @@ Requires the [Vulkan SDK](https://vulkan.lunarg.com/) (sets `VULKAN_SDK`, provid
 
 Also needs libxcb (installed on any X11/XWayland desktop), and for native Wayland windows libwayland and
 libxkbcommon's headers (`sudo apt install libwayland-dev libxkbcommon-dev`; without them it builds for X11 only).
+The libraries themselves are loaded when the program starts, so a build runs on machines without them too (on X11).
 On a Wayland session the window is a native Wayland one when the compositor draws window decorations itself (KDE,
 sway, Hyprland, ...); elsewhere (GNOME) it goes through XWayland, which gets a title bar. `VKWORLD_PLATFORM=wayland`
 or `=x11` picks one.

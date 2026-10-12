@@ -660,8 +660,11 @@ Working list for turning the renderer demo into a small game engine. Each task i
   cursor themes, the cursor following ImGui's) and wl_keyboard (xkbcommon keymaps; ImGui keys from the level-0
   keysym through the XCB backend's table, text from xkb_state_key_get_utf8, the compositor's repeat rate applied
   to text here), pointer-constraints + relative-pointer for capture, xdg_toplevel fullscreen, VK_KHR_wayland_surface.
-  The protocols' client code is generated once (third_party/wayland-protocols), so building needs only libwayland-dev
-  and libxkbcommon-dev (CMake finds them; X11 only without). Policy: native on a Wayland session when the compositor
+  The protocols' client code is generated once (third_party/wayland-protocols, the core protocol's interfaces too,
+  hidden), and libwayland-client, libwayland-cursor and libxkbcommon are dlopen'ed (platform/wayland_api.h: their
+  function names become macros for the loaded pointers before wayland-client.h is included, so the protocol
+  headers' inline functions call through them): building needs only the headers, and a release built with them
+  still starts where they're missing (the first release workflow run showed it wouldn't otherwise). Policy: native on a Wayland session when the compositor
   offers server-side decorations, or there's no DISPLAY; else XWayland (VKWORLD_PLATFORM=wayland|x11 forces).
   Checked on a headless weston with lavapipe (vkgame and the editor, validation on; the fallback both ways); input
   wasn't exercised there (no input devices). Gamepads: rumble and light bars as platform::gamepadRumble /
