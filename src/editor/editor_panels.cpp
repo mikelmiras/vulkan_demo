@@ -1,5 +1,6 @@
 // Editor panels: menu bar, toolbar, status bar, help, dialogs and the input bindings window.
 #include "editor/editor.h"
+#include "script/lua_debugger.h"
 #include "game/strings.h"
 
 #include <cctype>
@@ -139,6 +140,18 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Capture mouse on click", nullptr, &captureOnClick_);
         ImGui::Separator();
         ImGui::MenuItem("Input bindings...", nullptr, &showInputBindings_);
+        bool debugging = scripting::debugger::listening();
+        if (ImGui::MenuItem("Lua debugger (port 4711)", nullptr, debugging)) {
+            if (debugging) {
+                scripting::debugger::stop();
+                setStatus("Lua debugger off");
+            } else {
+                std::string error;
+                if (scripting::debugger::listen(4711, error)) setStatus("Lua debugger: attach from VS Code (port 4711)");
+                else setStatus("Lua debugger: " + error);
+            }
+        }
+        tooltip("Breakpoints, stepping and watches in Lua scripts from VS Code (tools/vscode-vkworld-lua)");
         ImGui::Separator();
         bool building = moduleBuild_.valid();
         if (ImGui::MenuItem(project_.moduleBuild.empty() ? "Reload game module" : "Rebuild && reload game module",

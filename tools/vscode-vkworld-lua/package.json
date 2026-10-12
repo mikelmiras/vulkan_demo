@@ -1,0 +1,32 @@
+{
+  "name": "vkworld-lua",
+  "displayName": "vkworld Lua debugger",
+  "description": "Attach to a running vkworld game or editor and debug its Lua scripts",
+  "version": "0.1.0",
+  "publisher": "vkworld",
+  "engines": { "vscode": "^1.70.0" },
+  "categories": ["Debuggers"],
+  "main": "./extension.js",
+  "activationEvents": ["onDebugResolve:vkworld-lua"],
+  "contributes": {
+    "breakpoints": [{ "language": "lua" }],
+    "debuggers": [
+      {
+        "type": "vkworld-lua",
+        "label": "vkworld Lua",
+        "languages": ["lua"],
+        "configurationAttributes": {
+          "attach": {
+            "properties": {
+              "host": { "type": "string", "description": "The machine the game runs on", "default": "127.0.0.1" },
+              "port": { "type": "number", "description": "Its Lua debugger's port", "default": 4711 }
+            }
+          }
+        },
+        "initialConfigurations": [
+          { "type": "vkworld-lua", "request": "attach", "name": "Attach to vkworld", "host": "127.0.0.1", "port": 4711 }
+        ]
+      }
+    ]
+  }
+}

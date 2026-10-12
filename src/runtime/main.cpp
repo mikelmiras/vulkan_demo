@@ -2,6 +2,7 @@
 //
 //   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--aa msaa|taa|off]
 //          [--host [port] | --join address[:port]] [--screenshot out.png [--frames N]] [--trace out.json]
+//          [--lua-debug [port]]
 //          [--check]   (loads everything but opens no window: for testing an exported game anywhere)
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
@@ -11,12 +12,14 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 
 #include "app/application.h"
 #include "app/profiler_view.h"
 #include "core/crash.h"
+#include "script/lua_debugger.h"
 #include "physics/fracture.h"
 #include "physics/soft_body.h"
 #include "core/log.h"
@@ -114,6 +117,7 @@ int main(int argc, char** argv) {
     std::string aa;         // --aa msaa | taa | off: anti-aliasing (the renderer's default: MSAA)
     std::string host, join; // --host [port] / --join address[:port]: a multiplayer game (net/net_session.h)
     std::string trace;      // --trace out.json: every frame's profile, saved as a Chrome trace on exit
+    int luaDebugPort = 0;   // --lua-debug [port]: the Lua debugger listens there (script/lua_debugger.h)
     {
         int out = 1;
         for (int i = 1; i < argc; ++i) {
@@ -123,6 +127,8 @@ int main(int argc, char** argv) {
                 host = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? argv[++i] : "27015";
             else if (!std::strcmp(argv[i], "--join") && i + 1 < argc) join = argv[++i];
             else if (!std::strcmp(argv[i], "--check")) check = true;
+            else if (!std::strcmp(argv[i], "--lua-debug"))
+                luaDebugPort = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? std::atoi(argv[++i]) : 4711;
             else if (!std::strcmp(argv[i], "--trace") && i + 1 < argc) trace = argv[++i];
             else argv[out++] = argv[i];
         }
@@ -195,6 +201,10 @@ int main(int argc, char** argv) {
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
     if (!trace.empty()) profiler::startRecording();
+    if (luaDebugPort > 0) {
+        std::string error;
+        if (!scripting::debugger::listen((uint16_t)luaDebugPort, error)) logLine("lua debugger: %s", error.c_str());
+    }
     if (aa == "taa") app.renderer().setAntialiasing(Renderer::Antialiasing::Temporal);
     else if (aa == "off") app.renderer().setAntialiasing(Renderer::Antialiasing::Off);
     else if (aa == "msaa") app.renderer().setAntialiasing(Renderer::Antialiasing::Msaa);
@@ -263,6 +273,7 @@ int main(int argc, char** argv) {
             game.frame(dt, !io.WantTextInput, true, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
         }
         net.update(dt);   // (multiplayer: sends and receives after the game's updates)
+        scripting::debugger::poll();
 
         uint32_t w = 0, h = 0;
         app.windowSize(w, h);

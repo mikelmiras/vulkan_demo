@@ -1,4 +1,5 @@
 #include "script/lua_script.h"
+#include "script/lua_debugger.h"
 
 #include <algorithm>
 #include <cctype>
@@ -23,6 +24,10 @@
 #include "lualib.h"
 
 namespace fs = std::filesystem;
+
+namespace scripting {
+void refreshHook();
+}
 
 namespace {
 
@@ -145,12 +150,30 @@ int traceback(lua_State* L) {
     return 1;
 }
 
+// The time limit: the outermost Lua call's start, checked every few thousand instructions by the hook
+float g_timeLimit = 0.5f;
+int g_callDepth = 0;
+std::chrono::steady_clock::time_point g_callStart;
+
+void hook(lua_State* L, lua_Debug* ar) {
+    if (ar->event == LUA_HOOKLINE) {   // the debugger (time stopped there doesn't count)
+        double paused = scripting::debugger::onLine(L, ar);
+        if (paused > 0.0) g_callStart += std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(paused));
+        return;
+    }
+    if (g_timeLimit > 0.f && g_callDepth > 0 &&
+        std::chrono::duration<float>(std::chrono::steady_clock::now() - g_callStart).count() > g_timeLimit)
+        luaL_error(L, "ran for over %d ms: stopped (an endless loop?)", (int)(g_timeLimit * 1000.f));
+}
+
 // lua_pcall with a traceback; the function and its arguments are on the stack
 bool pcall(lua_State* L, int nargs, int nresults, std::string& error) {
     int base = lua_gettop(L) - nargs;
     lua_pushcfunction(L, traceback);
     lua_insert(L, base);
+    if (g_callDepth++ == 0) g_callStart = std::chrono::steady_clock::now();
     int r = lua_pcall(L, nargs, nresults, base);
+    --g_callDepth;
     lua_remove(L, base);
     if (r == LUA_OK) return true;
     const char* msg = lua_tostring(L, -1);
@@ -1305,6 +1328,7 @@ lua_State* state() {
     if (e.L) return e.L;
     lua_State* L = luaL_newstate();
     e.L = L;
+    scripting::refreshHook();
     // The safe libraries only: no io, os, debug or loading files
     const luaL_Reg libs[] = {{LUA_GNAME, luaopen_base},     {LUA_TABLIBNAME, luaopen_table},
                              {LUA_STRLIBNAME, luaopen_string}, {LUA_MATHLIBNAME, luaopen_math},
@@ -1771,5 +1795,17 @@ std::string templateSource(const std::string& typeName) {
            "end\n\n"
            "return " + typeName + "\n";
 }
+
+void setTimeLimit(float seconds) { g_timeLimit = std::max(seconds, 0.f); }
+float timeLimit() { return g_timeLimit; }
+
+// The hook: instruction counts for the time limit, and line events while the debugger wants them
+void refreshHook() {
+    lua_State* L = eng().L;
+    if (!L) return;
+    lua_sethook(L, hook, LUA_MASKCOUNT | (debugger::wantsLines() ? LUA_MASKLINE : 0), 10000);
+}
+
+lua_State* luaState() { return state(); }
 
 }  // namespace scripting

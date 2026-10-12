@@ -59,4 +59,9 @@ std::string templateSource(const std::string& typeName);
 // Drops every script type and the Lua state (tests; a new project does it itself)
 void reset();
 
+// CPU time limit: a callback (or a script loading) running longer than this is stopped with an error, like any
+// other script error (an endless loop doesn't hang the game). Seconds; 0: no limit. 0.5 s unless set.
+void setTimeLimit(float seconds);
+float timeLimit();
+
 }  // namespace scripting

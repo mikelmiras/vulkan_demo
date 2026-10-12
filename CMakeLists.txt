@@ -142,7 +142,9 @@ set(ENGINE_SOURCES
   src/app/application.cpp
   src/app/export.cpp
   src/script/lua_script.cpp
+  src/script/lua_debugger.cpp
   src/net/udp.cpp
+  src/net/tcp.cpp
   src/net/net_session.cpp
   ${LUA_SOURCES})
 if(WIN32)
@@ -326,7 +328,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_lod.cpp
     tests/test_ai.cpp
     tests/test_soft_fracture.cpp
-    tests/test_retarget.cpp)
+    tests/test_retarget.cpp
+    tests/test_lua_debugger.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

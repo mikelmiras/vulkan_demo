@@ -484,7 +484,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 47 (done) | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
 | 48 (done) | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
 | 49 (done) | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
-| 50 | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
+| 50 (done) | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
 | 51 | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
 | 52 | Platform: Wayland, gamepad rumble and light bars, a mouse-free text-input keyboard for consoles-style UI, high-contrast / colour-blind UI options | X11 only; accessibility settings are missing |
 | 53 | Releases: versioned builds with symbols kept for crash reports (symbolicated stacks), an update check, packaging (AppImage, .dmg, installer) | Exports are folders; crash stacks from shipped builds are offsets |
@@ -618,4 +618,19 @@ Working list for turning the renderer demo into a small game engine. Each task i
   (the hips) down by the lower shift, applied after posing and before IK. Module API 36. Not done: a bone-map editor
   (the automatic pairing only), retargeting with different rest poses (A-pose to T-pose), foot rotation to the
   ground's slope, retargeting root motion clips' curves separately, quantised key storage.
+- Task 50: net/tcp (non-blocking listening sockets and connections, POSIX and Winsock, TCP_NODELAY) under
+  script/lua_debugger: a Debug Adapter Protocol server (Content-Length framed JSON) answering initialize, attach /
+  launch, setBreakpoints, configurationDone, threads, pause, stackTrace, scopes (locals, upvalues), variables (tables
+  through registry references, dropped on resume), evaluate (an environment of the frame's upvalues then locals over
+  the globals; "return <expr>" first, the expression as a statement after), continue, next, stepIn, stepOut,
+  disconnect. One Lua hook serves both: an instruction count every 10000 for the time limit (the outermost
+  pcall's start; luaL_error past the limit) and line events only while a client has breakpoints, a step or a pause
+  (refreshHook resets the mask). A line event stops on a pause, a step's depth rule, or a breakpoint (a quick line
+  number test first, then the chunk name, matched against the editor's path relative to the project root or by a
+  folder-boundary suffix); stopped, it sends "stopped" and serves requests until told to go on (time stopped is
+  taken off the limit's clock). poll() each frame accepts one client and answers it while running. The editor's
+  Game menu and vkgame --lua-debug listen; tools/vscode-vkworld-lua is a VS Code extension that only points VS Code
+  at the port (DebugAdapterServer). Tested with a TCP client on a thread: breakpoint, stack, locals, evaluate, two
+  steps, a table, continue, disconnect. Not done: conditional breakpoints and logpoints, breaking on errors, setting
+  variables, coroutines as threads, debugging scripts while the editor isn't playing (loads), profiling scripts.
 

@@ -1,4 +1,5 @@
 #include "editor/editor.h"
+#include "script/lua_debugger.h"
 #include "physics/fracture.h"
 #include "physics/soft_body.h"
 #include "scene/stress_scene.h"
@@ -88,6 +89,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     platform::takeMouseDelta(mdx, mdy);
     game_.input().setMouseCaptured(captured);
     game_.setRecordContacts(showContacts_);
+    scripting::debugger::poll();   // (an attached editor's requests: breakpoints set while the game runs)
     game_.frame(dt, !io.WantTextInput, captured || viewportHovered(), captured ? ImVec2(mdx, mdy) : io.MouseDelta);
     net_.update(dt);
     uiWantsCursor_ = false;

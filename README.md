@@ -967,6 +967,16 @@ while it plays (new fields get their defaults). An error is reported with its fi
 the viewport and in the log; a script that fails to load keeps its previous version, and a callback that fails
 stops for that instance until the script is saved again. `vkgame --check` fails on script errors too.
 
+**Time limit**: a callback running for more than half a second (an endless loop, say) is stopped with an error,
+like any other script error, instead of hanging the game (`scripting::setTimeLimit(seconds)`; 0: none).
+
+**Debugging**: turn on Game > Lua debugger in the editor (or run `vkgame --lua-debug [port]`, 4711 by default) and
+attach from VS Code with the small extension in `tools/vscode-vkworld-lua` (its README says how to install it):
+breakpoints in `scripts/*.lua`, stepping over, in and out, pausing, the stack with each frame's locals and upvalues,
+tables to expand, watches and hovers (expressions evaluated in the frame). It speaks the Debug Adapter Protocol,
+so other editors with DAP support can attach too. While stopped, the game waits: its window doesn't redraw until
+you continue.
+
 ## Controls
 
 | Input                          | Action                                         |
