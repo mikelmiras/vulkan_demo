@@ -122,6 +122,13 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
                   {o.metallic, o.roughness, o.normalTexture >= 0 ? o.normalScale : 0.f, (float)o.alphaMode},
                   {o.emissive.x, o.emissive.y, o.emissive.z, o.alphaCutoff}};
         out[n].color[3] = o.alphaMode == 2 ? o.opacity : 1.f;
+        if (o.terrain) {   // (scene.frag's terrain mode: params.x = 2; w = -(its layers' matrix + 2), never skinned)
+            out[n].params[0] = 2.f;
+            out[n].params[1] = 1.f;
+            out[n].params[3] = -(float)(o.terrainLayers + 2);
+            out[n].material[2] = 0.f;
+            out[n].material[3] = 0.f;
+        }
         if (!batches.empty() && batches.back().mesh == o.mesh && batches.back().texture == set &&
             batches.back().first + batches.back().count == n)
             batches.back().count++;

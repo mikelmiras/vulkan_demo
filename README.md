@@ -325,6 +325,24 @@ rate: `Game::worldMatrices()` and the game camera blend by how far the frame is 
 The sample game's tentacles (`examples/sample_game/models/tentacle.gltf`) curl, and stretch towards the player
 when it comes close (its `Lurker` behaviour).
 
+## Terrain
+
+Add > Terrain makes a **terrain**: a ground of hills and valleys, 64 m across by default, centred on its entity
+(which can be moved, turned and scaled). Select it and pick the **Terrain** tool (toolbar, or T) to work on it with
+a brush (its circle follows the ground under the mouse):
+
+- **Raise** / **Lower** (Shift swaps them), **Smooth**, **Flatten** (to the height where the stroke starts, or one
+  typed in), and **Paint** a layer. Each stroke is one undo step.
+- Brush radius (metres) and strength are in the Inspector, with the terrain's *Detail* (64, 128 or 256 height
+  samples along each side; changing it keeps the shape), its *Width*, *Add hills* (random rolling hills) and
+  *Flatten all*.
+- **Layers**: four, each a texture (or none) times a tint, repeating every so many metres; the terrain starts as
+  grass, with rock, dirt and sand to paint. Drop a texture from the Assets panel onto a layer.
+
+A terrain collides as a height field (characters walk on it, things land on it, rays hit it; any Collider on the
+same entity is ignored), navigation bakes over it, and it's saved in the scene (compressed: a flat terrain is a few
+hundred bytes).
+
 ## Navigation
 
 Agents find their way around walls and up stairs on a **walkable grid** baked from the scene's static level
@@ -785,12 +803,12 @@ Includes are relative to `src/`.
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: device, swapchain, pipelines, frame (`renderer.cpp`); textures and materials (`renderer_textures.cpp`); culling, batching, skinning data (`renderer_instances.cpp`); HDR, bloom, tonemapping (`renderer_post.cpp`); scene -> draw list (`scene_draw.*`) |
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`), asset ids and import settings (`asset_db.*`) |
-| `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
+| `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`); terrains (`terrain.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
 | `src/script/`              | `lua_script.*`: Lua behaviours (the scripts/ folder, the Lua API, hot reload)   |
-| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_asset_db.cpp` asset inspector, moving / renaming assets, `editor_prefs.cpp` preferences saved per user |
+| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_asset_db.cpp` asset inspector, moving / renaming assets, `editor_terrain.cpp` terrain tool, `editor_prefs.cpp` preferences saved per user |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
 | `tools/`                   | `check_screenshot.py` (CI smoke test)                           |

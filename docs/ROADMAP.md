@@ -264,7 +264,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 32 (done) | Editor layout: Dear ImGui's docking branch (dockable, tear-off panels), the layout and editor preferences saved per user | Panels only resize; nothing about the editor's setup survives a restart |
 | 33 (done) | Scripting: Lua behaviours (vendored Lua, fields, the GameContext API, hot reload on save) alongside C++ modules | Every bit of game logic needs a C++ rebuild |
 | 34 (done) | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
-| 35 | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
+| 35 (done) | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
 | 36 | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
 | 37 | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
 | 38 | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
@@ -322,3 +322,20 @@ Working list for turning the renderer demo into a small game engine. Each task i
   has .meta files. Module API 23 (Texture gained fields). Not done: ids for project.json's own paths (they're
   rewritten on moves instead), reloading glTF models in place, import settings for glTF images, an undo for file
   operations, references from Lua source code (strings in scripts aren't rewritten).
+- Task 35: a Terrain component (scene/scene.h; scene/terrain.*): resolution (64 / 128 / 256 samples, powers of two
+  for Jolt), size, heights, RGBA8 layer weights, four layers (texture, tint, tiling per metre), plus runtime revision
+  / mesh fields. heightAt follows the mesh's and Jolt's triangulation (diagonal from (x, z) to (x + 1, z + 1));
+  raycast marches half cells and bisects; brushes raise / lower / smooth / flatten / paint with a smoothstep
+  falloff; addNoise is 5-octave value noise; resize resamples. Drawing: syncMeshes (editor and vkgame, before
+  collecting draw items) makes one mesh per terrain and rewrites its vertices in place after edits
+  (MeshLibrary::rewritten ranges, copied by Renderer::uploadMeshes; a duplicate gets its own mesh); the weights ride
+  in the skin weights; DrawItem.terrain uses the scene shader's terrain mode (params.x = 2): four sRGB layer textures
+  in the material set's slots, tints and tilings in a matrix in the joints buffer (now visible to the fragment
+  stage; params.w = -(offset + 2), so never skinned). Physics: a static HeightFieldShape per terrain (its revision
+  in the shape key), so characters, bodies, rays and the navigation bake (terrains kept in the NavLevel, content
+  hash in its hash) all see it. Scene format 25: heights as 16-bit steps between the lowest and highest, weights,
+  each LZ-compressed and base64. Editor: Add > Terrain, Add component > Terrain, the Terrain tool (T) with the brush
+  outline drawn on the ground, one undo step per stroke (the entity at the stroke's start), inspector (brush, detail,
+  width, hills, flatten, layers with texture drops), [terrain] in the outliner. Module API 24. Not done: holes,
+  level of detail (a 256 x 256 terrain is 130k triangles), splat maps finer than the height grid, more than four
+  layers, normal maps on layers, sculpting while playing, terrain from heightmap images.

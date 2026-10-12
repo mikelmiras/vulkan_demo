@@ -338,6 +338,10 @@ void Editor::drawComponents(Entity& e) {
             drawAnimatorInspector(e);
         }
     }
+    if (e.terrain) {
+        if (!componentHeader("Terrain", open)) { pushUndo(); e.terrain.reset(); }
+        else if (open) drawTerrainInspector(e);
+    }
     if (e.particleEmitter) {
         if (!componentHeader("Particle Emitter", open)) { pushUndo(); e.particleEmitter.reset(); }
         else if (open) {
@@ -672,6 +676,11 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Audio Source", nullptr, false, !e.audioSource)) { pushUndo(); e.audioSource = AudioSource{}; }
         if (ImGui::MenuItem("Animator", nullptr, false, !e.animator)) { pushUndo(); e.animator = Animator{}; }
         if (ImGui::MenuItem("Particle Emitter", nullptr, false, !e.particleEmitter)) { pushUndo(); e.particleEmitter = ParticleEmitter{}; }
+        if (ImGui::MenuItem("Terrain", nullptr, false, !e.terrain)) {
+            pushUndo();
+            e.terrain = Terrain{};
+            terrain::init(*e.terrain, 128, 64.f);
+        }
         if (ImGui::MenuItem("Rigid Body", nullptr, false, !e.rigidBody)) {
             pushUndo();
             e.rigidBody = RigidBody{};

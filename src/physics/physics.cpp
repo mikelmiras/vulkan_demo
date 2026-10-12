@@ -1,4 +1,5 @@
 #include "physics/physics.h"
+#include "scene/terrain.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,6 +22,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -499,6 +501,33 @@ struct Physics::Impl {
         return shape;
     }
 
+    // A terrain: a static height field (its grid, scaled with the entity)
+    bool createTerrain(Tracked& t, const Entity& e, const Placement& p, const ShapeKey& key) {
+        const Terrain& tr = *e.terrain;
+        float cell = terrain::cellSize(tr);
+        JPH::HeightFieldShapeSettings hs(tr.heights.data(),
+                                         JPH::Vec3(-tr.size * 0.5f * p.scale.x, 0.f, -tr.size * 0.5f * p.scale.z),
+                                         JPH::Vec3(cell * p.scale.x, p.scale.y, cell * p.scale.z), (JPH::uint32)tr.resolution);
+        hs.mBlockSize = 4;
+        auto r = hs.Create();
+        if (r.HasError()) return false;
+        JPH::BodyCreationSettings s(r.Get(), JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation),
+                                    JPH::EMotionType::Static, objectLayer(e.layer, false));
+        s.mUserData = e.id;
+        s.mFriction = 0.7f;
+        JPH::Body* body = bi().CreateBody(s);
+        if (!body) return false;
+        bi().AddBody(body->GetID(), JPH::EActivation::DontActivate);
+        ++added;
+        t = {};
+        t.id = body->GetID();
+        t.key = key;
+        t.layer = e.layer;
+        t.position = p.position;
+        t.rotation = p.rotation;
+        return true;
+    }
+
     bool create(Tracked& t, const Entity& e, const MeshLibrary& meshes, const Placement& p, const ShapeKey& key) {
         bool dynamic = key.dynamic;
         JPH::RefConst<JPH::Shape> shape = sharedShape(e, meshes, p, key);
@@ -596,6 +625,36 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
     // ---- What the scene looks like now: new, changed and moved bodies
     for (size_t i = 0; i < scene.entities.size(); ++i) {
         const Entity& e = scene.entities[i];
+        if (e.terrain && e.terrain->resolution >= 8 &&
+            e.terrain->heights.size() == (size_t)e.terrain->resolution * (size_t)e.terrain->resolution) {
+            // (a terrain collides as its height field; its Collider, if any, is ignored)
+            Placement p = place(worlds[i]);
+            ShapeKey key;
+            key.shape = 100;
+            key.mesh = -3;
+            uint64_t r = e.terrain->revision;   // (any change: a new revision; bytes stay exact in the key's floats)
+            const float values[9] = {p.scale.x, p.scale.y, p.scale.z, e.terrain->size, (float)e.terrain->resolution,
+                                     (float)(r & 255u), (float)((r >> 8) & 255u), (float)((r >> 16) & 255u),
+                                     (float)((r >> 24) & 255u)};
+            std::memcpy(key.values, values, sizeof(values));
+            auto it = im.bodies.find(e.id);
+            if (it != im.bodies.end() && (!(it->second.key == key) || !near(p.position, it->second.position, 1e-5f) ||
+                                          !near(p.rotation, it->second.rotation, 1e-6f))) {
+                im.remove(it->second);
+                im.bodies.erase(it);
+                it = im.bodies.end();
+            }
+            if (it != im.bodies.end()) {
+                it->second.seen = true;
+            } else {
+                Impl::Tracked t;
+                if (im.createTerrain(t, e, p, key)) {
+                    t.seen = true;
+                    im.bodies.emplace(e.id, t);
+                }
+            }
+            continue;
+        }
         if (!e.collider) continue;
         if (e.collider->shape == Collider::Shape::Mesh && !e.meshRenderer) continue;
         if (auto c = im.characters.find(e.id); c != im.characters.end()) {   // characters move themselves

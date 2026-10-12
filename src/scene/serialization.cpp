@@ -1,5 +1,6 @@
 #include "scene/serialization.h"
 #include "assets/asset_db.h"
+#include "scene/terrain.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 24;  // 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 25;  // 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -432,6 +433,26 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             }
         }
     }
+    if (e.terrain && e.terrain->resolution >= 2) {
+        const Terrain& t = *e.terrain;
+        json::Value& c = v.set("terrain", json::Value::object());
+        c.set("resolution", t.resolution);
+        c.set("size", t.size);
+        float lowest = 0.f, highest = 0.f;
+        std::string heights = terrain::encodeHeights(t, lowest, highest);
+        c.set("lowest", lowest);
+        c.set("highest", highest);
+        c.set("heights", heights);   // (16-bit steps from lowest to highest, compressed, base64)
+        c.set("weights", terrain::encodeWeights(t));
+        json::Value& layers = c.set("layers", json::Value::array());
+        for (const Terrain::Layer& l : t.layers) {
+            json::Value lv = json::Value::object();
+            if (l.texture >= 0 && l.texture < textures.count()) lv.set("texture", textures.name(l.texture));
+            lv.set("color", vec3(l.color));
+            lv.set("tiling", l.tiling);
+            layers.push(std::move(lv));
+        }
+    }
     if (e.particleEmitter) {
         const ParticleEmitter& p = *e.particleEmitter;
         json::Value& c = v.set("particles", json::Value::object());
@@ -678,6 +699,32 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             for (const auto& p : ps.members()) a.parameters.emplace_back(p.first, p.second.asFloat(0.f));
         e.animator = a;
     }
+    if (const json::Value& c = v["terrain"]; c.isObject()) {
+        Terrain t;
+        t.resolution = c["resolution"].asInt(0);
+        t.size = c["size"].asFloat(t.size);
+        if (t.resolution < 2 || t.resolution > 4096 ||
+            !terrain::decodeHeights(t, c["heights"].asString(), c["lowest"].asFloat(), c["highest"].asFloat()) ||
+            !terrain::decodeWeights(t, c["weights"].asString())) {
+            error = "entity '" + e.name + "': the terrain's data is damaged";
+            return false;
+        }
+        size_t k = 0;
+        for (const json::Value& lv : c["layers"].elements()) {
+            if (k >= (size_t)Terrain::kLayers) break;
+            Terrain::Layer& l = t.layers[k++];
+            const std::string& tex = lv["texture"].asString();
+            if (!tex.empty()) {
+                auto it = ids.textures.find(tex);
+                if (it == ids.textures.end()) { error = "entity '" + e.name + "': unknown texture '" + tex + "'"; return false; }
+                l.texture = it->second;
+            }
+            l.color = readVec3(lv["color"], l.color);
+            l.tiling = lv["tiling"].asFloat(l.tiling);
+        }
+        terrain::touch(t);
+        e.terrain = std::move(t);
+    }
     if (const json::Value& c = v["particles"]; c.isObject()) {
         ParticleEmitter p;
         p.rate = c["rate"].asFloat(p.rate);
@@ -798,6 +845,9 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
                 for (const AnimatorLayer& l : e.animator->layers)
                     if (!l.clip.empty()) usedClips.insert(l.clip);
             }
+            if (e.terrain)
+                for (const Terrain::Layer& l : e.terrain->layers)
+                    if (l.texture >= kBuiltinTextureCount) usedTextures.insert(l.texture);
             if (!e.meshRenderer) continue;
             if (e.meshRenderer->mesh >= (int)MeshKind::Count) usedMeshes.insert(e.meshRenderer->mesh);
             for (int t : {e.meshRenderer->texture, e.meshRenderer->metalRoughTexture, e.meshRenderer->normalTexture,

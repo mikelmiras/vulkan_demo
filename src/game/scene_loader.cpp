@@ -38,6 +38,10 @@ void remapEntity(Entity& e, const std::vector<int>& meshMap, const std::vector<i
         tex(m.normalTexture);
         tex(m.emissiveTexture);
     }
+    if (e.terrain) {
+        for (Terrain::Layer& l : e.terrain->layers) tex(l.texture);
+        e.terrain->mesh = -1;   // (made in the library it's drawn from)
+    }
     if (e.animator) {
         auto clip = [&](std::string& name) {
             auto it = clipMap.find(name);
@@ -102,7 +106,11 @@ void mergeSceneAssets(Scene& scene, const MeshLibrary& fromMeshes, const Texture
         int found = -1;
         for (int k = 0; k < textures.count() && found < 0 && !t.source.empty(); ++k)
             if (textures.get(k).source == t.source) found = k;
-        if (found < 0) found = addTexture(textures, t.name, t.source, t.width, t.height, t.rgba);
+        if (found < 0) {
+            found = addTexture(textures, t.name, t.source, t.width, t.height, t.rgba);
+            textures.textures[(size_t)found].nearest = t.nearest;   // (its import settings)
+            textures.textures[(size_t)found].mipmaps = t.mipmaps;
+        }
         texMap[(size_t)i] = found;
     }
     for (Entity& e : scene.entities) remapEntity(e, meshMap, texMap, clipMap);

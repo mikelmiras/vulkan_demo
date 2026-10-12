@@ -11,6 +11,31 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
     std::unordered_map<EntityId, std::unordered_map<std::string, EntityId>> skeletons;   // model root -> names
     for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i) {
         const Entity& e = scene.entities[i];
+        if (e.terrain && e.terrain->mesh >= 0 && (!meshes || e.terrain->mesh < meshes->count()) &&
+            scene.visibleInHierarchy(e.id)) {   // (its mesh comes from terrain::syncMeshes)
+            DrawItem d;
+            d.model = worlds[i];
+            d.mesh = e.terrain->mesh;
+            d.terrain = true;
+            d.roughness = 0.9f;
+            d.outlined = (e.id == outlined && outlined != kNoEntity) ||
+                         (alsoOutlined && std::find(alsoOutlined->begin(), alsoOutlined->end(), e.id) != alsoOutlined->end());
+            if (joints) {
+                Mat4 layers;
+                for (int k = 0; k < Terrain::kLayers; ++k) {
+                    const Terrain::Layer& l = e.terrain->layers[k];
+                    d.layerTextures[k] = l.texture;
+                    Vec3 tint = srgbToLinear(l.color);
+                    layers.m[k * 4 + 0] = tint.x;
+                    layers.m[k * 4 + 1] = tint.y;
+                    layers.m[k * 4 + 2] = tint.z;
+                    layers.m[k * 4 + 3] = l.tiling;
+                }
+                d.terrainLayers = (int)joints->size();
+                joints->push_back(layers);
+            }
+            items.push_back(d);
+        }
         if (!e.meshRenderer || !scene.visibleInHierarchy(e.id)) continue;
         DrawItem d;
         d.model = worlds[i];

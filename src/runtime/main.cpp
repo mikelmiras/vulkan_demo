@@ -23,6 +23,7 @@
 #include "game/game.h"
 #include "script/lua_script.h"
 #include "assets/asset_db.h"
+#include "scene/terrain.h"
 #include "game/module.h"
 #include "imgui.h"
 #include "platform/platform.h"
@@ -247,6 +248,7 @@ int main(int argc, char** argv) {
         PROFILE_SCOPE("Draw and render");   // (to the end of the frame)
         std::vector<Mat4> worlds = game.worldMatrices();
         std::vector<Mat4> joints;
+        terrain::syncMeshes(scene, meshes);
         std::vector<DrawItem> items = collectDrawItems(scene, worlds, kNoEntity, &joints, &meshes);
         std::vector<LightInfo> lights = collectLights(scene, worlds);
         std::vector<ParticleDraw> particles;

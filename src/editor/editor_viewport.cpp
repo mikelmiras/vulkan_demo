@@ -187,6 +187,12 @@ EntityId Editor::pickAt(ImVec2 mp) const {
         const Entity& e = scene_.entities[i];
         if (e.locked) continue;
         const Mat4& world = worlds_[i];
+        if (e.terrain && e.terrain->mesh >= 0 && e.terrain->mesh < meshes_.count() && scene_.visibleInHierarchy(e.id)) {
+            Mat4 inv = inverseAffine(world);
+            float t = intersectMesh(meshes_, e.terrain->mesh, transformPoint(inv, origin), transformDir(inv, dir));
+            if (t > 0.f && t < bestT) { bestT = t; best = e.id; }
+            continue;
+        }
         if (!e.meshRenderer) {
             Vec3 pos{world.m[12], world.m[13], world.m[14]};
             ImVec2 sp;
@@ -247,6 +253,8 @@ void Editor::handleShortcuts() {
     if (keyPressed(ImGuiKey_G) || keyPressed(ImGuiKey_W)) tool_ = Tool::Move;
     if (keyPressed(ImGuiKey_R) || keyPressed(ImGuiKey_E)) tool_ = Tool::Rotate;
     if (keyPressed(ImGuiKey_S)) tool_ = Tool::Scale;
+    if (keyPressed(ImGuiKey_T))
+        if (const Entity* e = selection(); e && e->terrain) tool_ = Tool::Terrain;
     if (keyPressed(ImGuiKey_L)) localSpace_ = !localSpace_;
     if (keyPressed(ImGuiKey_F) || keyPressed(ImGuiKey_KeypadDecimal)) focusSelected();
     if (keyPressed(ImGuiKey_X) || keyPressed(ImGuiKey_Delete)) deleteSelected();
@@ -260,7 +268,7 @@ void Editor::handleShortcuts() {
 // ---------------------------------------------------------------------------------------------
 void Editor::drawViewportOverlay() {
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
-    static const char* toolNames[] = {"Select", "Move", "Rotate", "Scale"};
+    static const char* toolNames[] = {"Select", "Move", "Rotate", "Scale", "Terrain"};
     char line[200];
     if (playing()) {
         const char* mouse = !gameCameraActive_         ? "  |  no camera in the scene: editor view"
@@ -297,7 +305,8 @@ void Editor::drawViewportOverlay() {
     }
     const Entity* e = scene_.find(selected_);
     if (e && !viewingGameCamera()) {
-        const char* kind = e->meshRenderer ? meshes_.name(e->meshRenderer->mesh) : e->camera ? "camera" : "empty";
+        const char* kind = e->meshRenderer ? meshes_.name(e->meshRenderer->mesh) : e->camera ? "camera"
+                           : e->terrain ? "terrain" : "empty";
         std::snprintf(line, sizeof(line), "%s  (%s)", e->name.c_str(), kind);
         p.y += ImGui::GetTextLineHeightWithSpacing();
         dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 120), line);

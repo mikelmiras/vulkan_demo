@@ -142,8 +142,9 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawAssetDialogs();
 
     handleNavigation(dt);
-    handleGizmo();
-    handlePicking();
+    bool brushing = handleTerrainTool(dt);
+    if (tool_ != Tool::Terrain) handleGizmo();
+    if (!brushing) handlePicking();
     handleViewportDrop();
     handleShortcuts();
     drawEntityIcons();
@@ -199,6 +200,7 @@ const Mat4& Editor::worldOf(EntityId id) const {
 
 void Editor::buildDrawItems() {
     PROFILE_SCOPE("Draw lists");
+    terrain::syncMeshes(scene_, meshes_);   // (terrains changed since: their meshes again)
     const Entity* previewed = playing() ? nullptr : scene_.find(animPreview_.entity);
     const AnimationClip* clip = previewed && previewed->animator ? meshes_.findAnimation(previewed->animator->clip) : nullptr;
     if (clip) {   // pose the clip just for drawing, then put the transforms back

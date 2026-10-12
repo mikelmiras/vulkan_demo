@@ -33,6 +33,10 @@ struct DrawItem {
     Vec3 emissive;              // linear, times its strength
     int alphaMode = 0;          // 0 opaque, 1 mask (cut out below alphaCutoff), 2 blend (see-through)
     float opacity = 1.f, alphaCutoff = 0.5f;
+    // A terrain (scene/terrain.h): its mesh's skin weights mix four layers, each a texture (sRGB) times a tint
+    bool terrain = false;
+    int layerTextures[4] = {-1, -1, -1, -1};
+    int terrainLayers = -1;     // its layers' tints and tilings (a matrix, column per layer) in SceneRenderInfo::joints
 };
 
 // One particle to draw: a camera-facing dot
@@ -210,6 +214,7 @@ private:
     RenderStats stats_;
     const MeshLibrary* meshes_ = nullptr;
     uint32_t uploadedMeshVersion_ = 0;
+    uint64_t uploadedRewriteSerial_ = 0;   // MeshLibrary::rewritten entries copied so far
     const TextureLibrary* textures_ = nullptr;
     std::vector<GpuTexture> gpuTextures_;   // same ids as the TextureLibrary
     GpuTexture whiteTexture_;               // for untextured draws
@@ -217,6 +222,7 @@ private:
     VkDescriptorSetLayout materialSetLayout_ = VK_NULL_HANDLE;
     VkDescriptorPool materialPool_ = VK_NULL_HANDLE;
     std::unordered_map<uint64_t, VkDescriptorSet> materialSets_;   // by the four texture ids
+    std::unordered_map<uint64_t, VkDescriptorSet> terrainSets_;    // terrains': four colour layers
     mutable std::unordered_map<int, VkDescriptorSet> uiSets_;      // texture id -> ImGui's set for it
     VkSampler sampler_ = VK_NULL_HANDLE;
     VkSampler nearestSampler_ = VK_NULL_HANDLE;   // textures imported with "filter": "nearest"

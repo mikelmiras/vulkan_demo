@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "assets/animation.h"
@@ -40,6 +42,10 @@ struct MeshLibrary {
     std::vector<Mesh> meshes;
     std::vector<AnimationClip> animations;   // imported with the models (never removed: indices stay valid)
     uint32_t version = 0;   // bumped whenever meshes are added (the renderer re-uploads)
+    // Vertices rewritten in place (terrains being sculpted): first vertex -> (count, serial). The renderer copies
+    // those with a serial newer than the last it saw (rewriteSerial is the latest).
+    std::unordered_map<uint32_t, std::pair<uint32_t, uint64_t>> rewritten;
+    uint64_t rewriteSerial = 0;
 
     int count() const { return (int)meshes.size(); }
     const Mesh& get(int id) const { return meshes[(size_t)id]; }

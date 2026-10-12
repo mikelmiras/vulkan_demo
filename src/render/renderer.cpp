@@ -562,7 +562,7 @@ void Renderer::createPipelines() {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
-        {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // joint matrices
+        {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // joint matrices (and terrains' layers)
         {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // particles
         {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // spot shadows
         {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // point shadows
@@ -841,6 +841,14 @@ void Renderer::uploadMeshes() {
         skin[i] = i < meshes_->skin.size() ? meshes_->skin[i] : SkinVertex{};
     std::memcpy(static_cast<uint32_t*>(indexBuffer_.mapped) + uploadedIndices_, meshes_->indices.data() + uploadedIndices_,
                 (ni - uploadedIndices_) * sizeof(uint32_t));
+    // Vertices rewritten in place since (a terrain being sculpted: frames in flight may see half of a stroke's step)
+    for (const auto& [first, entry] : meshes_->rewritten) {
+        if (entry.second <= uploadedRewriteSerial_ || first >= uploadedVertices_) continue;   // (new ones: copied above)
+        size_t count = std::min<size_t>(entry.first, uploadedVertices_ - first);
+        std::memcpy(verts + first, meshes_->vertices.data() + first, count * sizeof(Vertex));
+        for (size_t i = first; i < first + count; ++i) skin[i] = i < meshes_->skin.size() ? meshes_->skin[i] : SkinVertex{};
+    }
+    uploadedRewriteSerial_ = meshes_->rewriteSerial;
     uploadedVertices_ = nv;
     uploadedIndices_ = ni;
     uploadedMeshVersion_ = meshes_->version;

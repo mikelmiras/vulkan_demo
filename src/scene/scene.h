@@ -294,6 +294,28 @@ struct ParticleEmitter {
 };
 
 // Marks an entity as part of a copy ("instance") of a prefab
+// A heightmap ground (scene/terrain.h): a square grid of heights over size x size metres, centred on the entity (its
+// transform applies on top), with up to four painted layers (a texture and a tint each; weights per grid point). It
+// collides (a static height field: its Collider, if any, is ignored), navigation walks on it, and it's drawn like a
+// mesh. The editor sculpts and paints it with the Terrain tool.
+struct Terrain {
+    static constexpr int kLayers = 4;
+    struct Layer {
+        int texture = -1;          // id in the TextureLibrary (-1: just the tint)
+        Vec3 color{1, 1, 1};       // sRGB tint
+        float tiling = 0.25f;      // texture repeats per metre
+    };
+    int resolution = 0;            // height samples along each side: 64, 128 or 256 (0: not made yet)
+    float size = 64.f;             // metres along X and Z
+    std::vector<float> heights;    // resolution^2, row by row along +Z, metres above the entity
+    std::vector<uint8_t> weights;  // resolution^2 * 4: how much of each layer at each point (they add up to 255)
+    Layer layers[kLayers];
+    // Runtime: a new number after every change (redrawn, collision remade); not saved
+    uint64_t revision = 0;
+    int mesh = -1;                 // its mesh in the MeshLibrary, built by syncTerrainMeshes()
+    uint64_t meshRevision = 0;     // the revision that mesh shows
+};
+
 struct PrefabLink {
     uint32_t prefab = 0;           // Prefab::id
     EntityId source = kNoEntity;   // the entity in the prefab this one was copied from
@@ -351,6 +373,7 @@ struct Entity {
     std::optional<Skin> skin;
     std::optional<Animator> animator;
     std::optional<ParticleEmitter> particleEmitter;
+    std::optional<Terrain> terrain;
     std::optional<PrefabLink> prefab;
     // In an instance of a prefab that itself contains an instance of another prefab (or is a variant of one), the
     // link the prefab's entity has to that inner prefab. Inside a prefab's own entities, `prefab` is that link.

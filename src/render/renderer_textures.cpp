@@ -113,6 +113,7 @@ void Renderer::reuploadChangedTextures() {
     }
     vkResetDescriptorPool(device_, materialPool_, 0);   // material sets pointed at the old images: made again
     materialSets_.clear();
+    terrainSets_.clear();
 }
 
 void Renderer::uploadTextures(VkCommandBuffer frame) {
@@ -147,10 +148,13 @@ void Renderer::uploadTextures(VkCommandBuffer frame) {
 VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
     auto valid = [&](int id) { return id >= 0 && id < (int)gpuTextures_.size() ? id : -1; };
     int ids[4] = {valid(o.texture), valid(o.normalTexture), valid(o.metalRoughTexture), valid(o.emissiveTexture)};
+    if (o.terrain)   // (four colour layers: sRGB views, white where there's none)
+        for (int k = 0; k < 4; ++k) ids[k] = valid(o.layerTextures[k]);
     uint64_t key = 0;
     for (int id : ids) key = (key << 16) | (uint64_t)(uint16_t)(id + 1);
-    auto it = materialSets_.find(key);
-    if (it != materialSets_.end()) return it->second;
+    auto& cache = o.terrain ? terrainSets_ : materialSets_;
+    auto it = cache.find(key);
+    if (it != cache.end()) return it->second;
 
     VkDescriptorSet set;
     VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -167,6 +171,8 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
     };
     VkDescriptorImageInfo infos[4] = {pick(ids[0], true, whiteTexture_), pick(ids[1], false, flatNormal_),
                                       pick(ids[2], false, whiteTexture_), pick(ids[3], true, whiteTexture_)};
+    if (o.terrain)
+        for (int k = 0; k < 4; ++k) infos[k] = pick(ids[k], true, whiteTexture_);
     VkWriteDescriptorSet w[4];
     for (uint32_t i = 0; i < 4; ++i) {
         w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -177,7 +183,7 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
         w[i].pImageInfo = &infos[i];
     }
     vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
-    materialSets_.emplace(key, set);
+    cache.emplace(key, set);
     return set;
 }
 

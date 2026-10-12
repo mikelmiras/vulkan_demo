@@ -1,4 +1,5 @@
 #include "game/navigation.h"
+#include "scene/terrain.h"
 
 #include <algorithm>
 #include <chrono>
@@ -75,6 +76,12 @@ NavLevel prepareNavLevel(const Scene& scene, const MeshLibrary& meshes) {
         kept.transform = e.transform;
         kept.layer = e.layer;
         kept.navLink = e.navLink;
+        if (e.terrain) {   // (the ground itself)
+            kept.terrain = e.terrain;
+            kept.terrain->mesh = -1;
+            h.add(terrain::contentHash(*e.terrain));
+            for (float f : worlds[i].m) h.add(f);
+        }
         if (solid) {
             kept.collider = e.collider;
             if (e.collider->shape == Collider::Shape::Mesh) {   // the mesh is copied along

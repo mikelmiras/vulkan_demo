@@ -19,6 +19,7 @@ layout(location = 3) flat in vec4 vColor;
 layout(location = 4) flat in vec4 vParams;
 layout(location = 5) flat in vec4 vMaterial;
 layout(location = 6) flat in vec4 vEmissive;
+layout(location = 7) in vec4 vSplat;
 
 layout(location = 0) out vec4 outColor;
 
@@ -110,18 +111,33 @@ vec3 environment(vec3 r, float rough) {
     return mix(sharp, irradiance(r), clamp(rough * rough * 1.5, 0.0, 1.0));
 }
 
+// A terrain's colour: its four layers (the material set's four textures, sRGB) mixed by the vertex weights, each
+// tinted and tiled by a column of its layers' matrix (joints[-params.w - 2]; none: white, 4 m tiles)
+vec3 terrainColor() {
+    vec4 w = max(vSplat, vec4(0.0));
+    w /= max(w.x + w.y + w.z + w.w, 1e-4);
+    int at = int(-vParams.w + 0.5) - 2;
+    mat4 L = at >= 0 ? joints[at] : mat4(vec4(1.0, 1.0, 1.0, 0.25), vec4(1.0, 1.0, 1.0, 0.25), vec4(1.0, 1.0, 1.0, 0.25),
+                                         vec4(1.0, 1.0, 1.0, 0.25));
+    return w.x * texture(albedoMap, vUV * L[0].w).rgb * L[0].rgb + w.y * texture(normalMap, vUV * L[1].w).rgb * L[1].rgb +
+           w.z * texture(metalRoughMap, vUV * L[2].w).rgb * L[2].rgb + w.w * texture(emissiveMap, vUV * L[3].w).rgb * L[3].rgb;
+}
+
 void main() {
     vec3 base = vColor.rgb;
     float alpha = vColor.a;
-    if (vParams.z > 0.5) {
+    bool terrain = vParams.x > 1.5;
+    if (terrain) {
+        base = terrainColor();
+    } else if (vParams.z > 0.5) {
         vec4 t = texture(albedoMap, vUV);
         base *= t.rgb;
         alpha *= t.a;
     }
     int alphaMode = int(vMaterial.w + 0.5);
     if (alphaMode == 1 && alpha < vEmissive.w) discard;   // a hole in a cut-out
-    bool ground = vParams.x > 0.5;
-    vec4 mr = texture(metalRoughMap, vUV);
+    bool ground = vParams.x > 0.5 && !terrain;
+    vec4 mr = terrain ? vec4(1.0) : texture(metalRoughMap, vUV);
     float metallic = clamp(vMaterial.x * mr.b, 0.0, 1.0);
     float rough = clamp(vMaterial.y * mr.g, 0.02, 1.0);
 
@@ -180,7 +196,7 @@ void main() {
         color += shade(N, V, Lp, frame.pointColor[i].rgb * light, base, metallic, rough);
     }
 
-    color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;
+    if (!terrain) color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;
 
     float dist = length(frame.camPos.xyz - vWorldPos);
     float fog = 1.0 - exp(-pow(dist * frame.fogColor.w, 2.0));

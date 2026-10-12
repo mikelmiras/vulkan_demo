@@ -22,6 +22,7 @@
 #include "render/renderer.h"
 #include "scene/scene.h"
 #include "scene/scene_diff.h"
+#include "scene/terrain.h"
 
 struct EditorCamera {
     Vec3 pos{0, 10, 42};
@@ -61,7 +62,7 @@ public:
     bool selectByName(const std::string& names);   // "A" or "A,B,C" (A is the primary)
 
 private:
-    enum class Tool { Select, Move, Rotate, Scale };
+    enum class Tool { Select, Move, Rotate, Scale, Terrain };
     enum class Nav { None, Fly, Orbit, Pan };
     // An undo (or redo) step: how to get the scene back to how it was, and what was selected then
     struct UndoStep {
@@ -203,6 +204,12 @@ private:
     void loadGameModule();      // (re)loads project_.module, keeping every scene's behaviours across the swap
     void rebuildGameModule();   // runs project_.moduleBuild in the background, then reloads
     void pollGameModule();      // once per frame: a finished build, or a library rebuilt outside the editor
+    // ---- Terrains (scene/terrain.h, editor_terrain.cpp)
+    void addTerrain();
+    void drawTerrainInspector(Entity& e);
+    bool handleTerrainTool(float dt);   // true while the brush has the mouse
+    terrain::BrushSettings brush_;
+    std::optional<std::pair<size_t, Entity>> strokeBefore_;   // the terrain at the start of a brush stroke (undo)
     // ---- Asset database (assets/asset_db.h, editor_asset_db.cpp): moves and renames keep references working
     std::filesystem::path selectedAsset_;      // shown in the Inspector instead of the scene (cleared by picking an entity)
     std::filesystem::path settingsFor_;        // whose import settings are being edited

@@ -15,6 +15,7 @@ layout(location = 3) flat out vec4 vColor;
 layout(location = 4) flat out vec4 vParams;
 layout(location = 5) flat out vec4 vMaterial;
 layout(location = 6) flat out vec4 vEmissive;
+layout(location = 7) out vec4 vSplat;   // terrains: how much of each layer here (their skin weights)
 
 void main() {
     Instance inst = instances[gl_InstanceIndex];
@@ -27,5 +28,6 @@ void main() {
     vParams = inst.params;
     vMaterial = inst.material;
     vEmissive = inst.emissive;
+    vSplat = inWeights;
     gl_Position = frame.viewProj * world;
 }

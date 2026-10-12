@@ -99,6 +99,7 @@ set(ENGINE_SOURCES
   src/scene/behaviour.cpp
   src/scene/input_bindings.cpp
   src/scene/scene.cpp
+  src/scene/terrain.cpp
   src/scene/serialization.cpp
   src/scene/prefab_sync.cpp
   src/scene/scene_diff.cpp
@@ -194,6 +195,7 @@ add_executable(vkworld
   src/editor/editor_viewport.cpp
   src/editor/editor_assets.cpp
   src/editor/editor_asset_db.cpp
+  src/editor/editor_terrain.cpp
   src/editor/editor_prefs.cpp)
 target_link_libraries(vkworld PRIVATE engine)
 # For game modules built along with the engine: "{engineBuild}" in a project's moduleBuild command
@@ -272,6 +274,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_editor_prefs.cpp
     tests/test_scripting.cpp
     tests/test_asset_db.cpp
+    tests/test_terrain.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

@@ -182,6 +182,8 @@ void Editor::drawToolbar() {
     toolButton("Move", Tool::Move, "Translate gizmo (G)");
     toolButton("Rotate", Tool::Rotate, "Rotate gizmo (R)");
     toolButton("Scale", Tool::Scale, "Scale gizmo (S)");
+    if (const Entity* sel = selection(); sel && sel->terrain) toolButton("Terrain", Tool::Terrain, "Sculpt and paint the terrain (T)");
+    else if (tool_ == Tool::Terrain) tool_ = Tool::Move;
 
     verticalSeparator();
     if (ImGui::Button(localSpace_ ? "Local" : "World")) localSpace_ = !localSpace_;
@@ -344,6 +346,7 @@ void Editor::drawAddMenuItems() {
     ImGui::Separator();
     if (ImGui::MenuItem("Empty")) addEmpty();
     if (ImGui::MenuItem("Camera")) addCamera();
+    if (ImGui::MenuItem("Terrain")) addTerrain();
     if (ImGui::MenuItem("Point light")) addLight(Light::Type::Point);
     if (ImGui::MenuItem("Spot light")) addLight(Light::Type::Spot);
     if (ImGui::MenuItem("Directional light")) addLight(Light::Type::Directional);
