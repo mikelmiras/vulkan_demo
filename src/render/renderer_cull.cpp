@@ -146,6 +146,9 @@ void Renderer::recordCulling(VkCommandBuffer cb, const SceneRenderInfo& info) {
     } p;
     std::memcpy(p.planes, f.p, sizeof(p.planes));
     p.count = cullCount_[frame_];
+    // Earlier frames' draws read these buffers (the index list, the commands): their reads come before these writes
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, cullPipeline_);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, cullLayout_, 0, 1, &cullSets_[frame_], 0, nullptr);
     vkCmdPushConstants(cb, cullLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, 6 * 16 + 4, &p);
