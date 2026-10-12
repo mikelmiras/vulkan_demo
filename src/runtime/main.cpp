@@ -21,6 +21,7 @@
 #include "core/vfs.h"
 #include "assets/meshes.h"
 #include "game/game.h"
+#include "script/lua_script.h"
 #include "game/module.h"
 #include "imgui.h"
 #include "platform/platform.h"
@@ -127,6 +128,11 @@ int main(int argc, char** argv) {
         else std::fprintf(stderr, "warning: %s\n", error.c_str());
     }
 #endif
+    if (haveProject) {   // its Lua behaviours (scripts/), also before the scene
+        int scripts = scripting::loadProject(project::root());
+        if (scripts) std::printf("Lua scripts: %d behaviours\n", scripts);
+        for (const std::string& e : scripting::errors()) std::fprintf(stderr, "warning: script: %s\n", e.c_str());
+    }
     error.clear();
     if (check) {   // everything a player's machine needs to start the game, short of a GPU
         if (path.empty()) {
@@ -150,7 +156,8 @@ int main(int argc, char** argv) {
         std::printf("check: %s: %zu entities, %d behaviours, %zu meshes, %d textures, %s%s\n", path.c_str(),
                     checked.entities.size(), behaviours, (size_t)meshes.count(), textures.count(),
                     vfs::mounted() ? "from a pack" : "from files", missing ? ": MISSING CODE" : ": ok");
-        return missing ? 1 : 0;
+        for (const std::string& e : scripting::errors()) std::printf("check: script error: %s\n", e.c_str());
+        return missing || !scripting::errors().empty() ? 1 : 0;
     }
     if (stress) {
         scene = buildStressScene();
@@ -218,6 +225,7 @@ int main(int argc, char** argv) {
         float mdx = 0.f, mdy = 0.f;
         platform::takeMouseDelta(mdx, mdy);
         game.input().setMouseCaptured(captured);
+        scripting::poll();   // (scripts edited on disk while it runs: reloaded, keeping their state)
         {
             PROFILE_SCOPE("Game");
             game.frame(dt, !io.WantTextInput, true, captured ? ImVec2(mdx, mdy) : io.MouseDelta);

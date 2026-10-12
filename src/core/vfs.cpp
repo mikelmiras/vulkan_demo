@@ -2,6 +2,7 @@
 
 #include "core/compress.h"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <mutex>
@@ -143,6 +144,36 @@ bool exists(const fs::path& path) {
     }
     std::error_code ec;
     return fs::is_regular_file(path, ec);
+}
+
+std::vector<fs::path> list(const fs::path& dir, const std::string& extension) {
+    auto matches = [&](const std::string& name) {
+        return name.size() >= extension.size() && name.compare(name.size() - extension.size(), extension.size(), extension) == 0;
+    };
+    std::vector<std::string> rel;   // inside `dir`, generic
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_pack) {
+            std::string prefix = inPack(*g_pack, dir);
+            if (!prefix.empty() || dir.empty() || key(dir) == ".") {
+                if (!prefix.empty() && prefix != ".") prefix += '/';
+                else prefix.clear();
+                for (const auto& [name, entry] : g_pack->entries)
+                    if (name.compare(0, prefix.size(), prefix) == 0 && matches(name)) rel.push_back(name.substr(prefix.size()));
+            }
+        }
+    }
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        std::string name = it->path().lexically_relative(dir).generic_u8string();
+        if (matches(name)) rel.push_back(name);
+    }
+    std::sort(rel.begin(), rel.end());
+    rel.erase(std::unique(rel.begin(), rel.end()), rel.end());
+    std::vector<fs::path> out;
+    for (const std::string& r : rel) out.push_back(dir / fs::u8path(r));
+    return out;
 }
 
 bool writePack(const fs::path& outPath, const std::vector<std::pair<std::string, fs::path>>& files, bool append,

@@ -9,6 +9,10 @@
 #include <vulkan/vulkan.h>
 
 #include "platform/platform.h"
+#include <spawn.h>
+#include <sys/wait.h>
+#include <thread>
+#include <crt_externs.h>   // (_NSGetEnviron: `environ` isn't there for a dynamic library)
 
 #include <mach-o/dyld.h>
 
@@ -256,6 +260,17 @@ std::filesystem::path openFolderDialog(const char* title) {
         if (r != NSModalResponseOK || !panel.URL) return {};
         return std::filesystem::u8path(panel.URL.fileSystemRepresentation);
     }
+}
+
+static const char* const kOpener = "open";
+
+bool openWithSystem(const std::filesystem::path& file) {
+    std::string path = file.u8string();
+    char* argv[] = {const_cast<char*>(kOpener), const_cast<char*>(path.c_str()), nullptr};
+    pid_t pid = 0;
+    if (posix_spawnp(&pid, kOpener, nullptr, nullptr, argv, *_NSGetEnviron()) != 0) return false;
+    std::thread([pid] { waitpid(pid, nullptr, 0); }).detach();   // (reaped when it's done)
+    return true;
 }
 
 std::filesystem::path executablePath() {

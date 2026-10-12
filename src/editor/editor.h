@@ -85,7 +85,7 @@ private:
     void drawImportPopup();
     void drawInputBindings();
     // ---- Project and assets (editor_assets.cpp)
-    enum class AssetKind { Folder, Scene, Prefab, Model, Texture, Sound, Other };
+    enum class AssetKind { Folder, Scene, Prefab, Model, Texture, Sound, Script, Other };
     struct AssetEntry {
         std::string name;
         std::filesystem::path path;   // absolute
@@ -203,6 +203,11 @@ private:
     void loadGameModule();      // (re)loads project_.module, keeping every scene's behaviours across the swap
     void rebuildGameModule();   // runs project_.moduleBuild in the background, then reloads
     void pollGameModule();      // once per frame: a finished build, or a library rebuilt outside the editor
+    // ---- Lua scripts (script/lua_script.h): the project's scripts/ folder, reloaded when a file changes
+    void loadScripts();         // (on opening a project, before its scenes)
+    void pollScripts();         // once per frame
+    void newScript();           // scripts/NewScriptN.lua from a template
+    size_t scriptErrorsShown_ = 0;
     template <class F> void forEachHeldScene(F&& f);   // the scene, the play copy, undo/redo snapshots
 
     // ---- Undo: steps are diffs (scene/scene_diff.h), so they stay small in big scenes. Operations call pushUndo()

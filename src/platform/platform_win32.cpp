@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <shlobj.h>
+#include <shellapi.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 
@@ -341,6 +342,11 @@ std::filesystem::path openFolderDialog(const char* title) {
     bool ok = SHGetPathFromIDListW(item, path) != FALSE;
     CoTaskMemFree(item);
     return ok ? std::filesystem::path(path) : std::filesystem::path();
+}
+
+bool openWithSystem(const std::filesystem::path& file) {
+    HINSTANCE r = ShellExecuteW(g_hwnd, L"open", file.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    return (INT_PTR)r > 32;
 }
 
 std::filesystem::path executablePath() {

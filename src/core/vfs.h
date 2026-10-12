@@ -19,6 +19,9 @@ bool mounted();
 
 bool read(const std::filesystem::path& path, std::string& out);   // the whole file
 bool exists(const std::filesystem::path& path);                   // a file (in the pack or on the disk)
+// The files under the folder `dir` (and its subfolders) whose names end with `extension` (".lua"; "" for all), from
+// the pack and the disk, sorted, each once. Paths are `dir` / the file's path inside it.
+std::vector<std::filesystem::path> list(const std::filesystem::path& dir, const std::string& extension = "");
 
 // Writing packs: files (path in the pack, path on the disk) into `out`, or appended to the end of `out` (an
 // executable) when `append`; each file compressed when that makes it worth it (unless !compress)

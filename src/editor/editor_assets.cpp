@@ -8,8 +8,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 
 #include "app/export.h"
+#include "script/lua_script.h"
 #include "editor/editor_ui.h"
 #include "platform/platform.h"
 #include "scene/serialization.h"
@@ -23,14 +25,14 @@ constexpr const char* kAssetPayload = "VKW_ASSET";   // an absolute path, NUL te
 double now() { return ImGui::GetTime(); }
 
 const char* kindLabel(int kind) {
-    static const char* labels[] = {"folder", "scene", "prefab", "model", "texture", "sound", "file"};
+    static const char* labels[] = {"folder", "scene", "prefab", "model", "texture", "sound", "script", "file"};
     return labels[kind];
 }
 
 ImVec4 kindColor(int kind) {
     static const ImVec4 colors[] = {{0.85f, 0.75f, 0.45f, 1}, {0.55f, 0.85f, 0.55f, 1}, {0.55f, 0.75f, 1.f, 1},
                                     {0.95f, 0.6f, 0.4f, 1},   {0.85f, 0.55f, 0.9f, 1},  {0.5f, 0.85f, 0.85f, 1},
-                                    {0.6f, 0.6f, 0.6f, 1}};
+                                    {0.95f, 0.85f, 0.5f, 1},  {0.6f, 0.6f, 0.6f, 1}};
     return colors[kind];
 }
 
@@ -73,6 +75,13 @@ void drawAssetIcon(ImDrawList* dl, int kind, ImVec2 o, float s, ImU32 col) {
             dl->AddRectFilled(P(x, 0.5f - hgt), P(x + 0.05f, 0.5f + hgt), col, s * 0.02f);
         }
         break;
+    case 6:   // script: a page of code
+        dl->AddRect(P(0.22f, 0.12f), P(0.78f, 0.88f), col, s * 0.04f, 0, t);
+        for (int i = 0; i < 5; ++i) {
+            float indent = (i == 1 || i == 2) ? 0.1f : 0.f, w = 0.18f + 0.06f * (float)((i * 7) % 4);
+            dl->AddLine(P(0.32f + indent, 0.26f + i * 0.12f), P(0.32f + indent + w, 0.26f + i * 0.12f), col, t);
+        }
+        break;
     default:   // an image not shown yet, or anything else: a page
         dl->AddRect(P(0.22f, 0.12f), P(0.78f, 0.88f), col, s * 0.04f, 0, t);
         break;
@@ -91,6 +100,7 @@ Editor::AssetKind Editor::assetKind(const fs::path& path) {
     if (ext == ".obj" || ext == ".gltf" || ext == ".glb") return AssetKind::Model;
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") return AssetKind::Texture;
     if (ext == ".wav" || ext == ".mp3" || ext == ".flac") return AssetKind::Sound;
+    if (ext == ".lua") return AssetKind::Script;
     return AssetKind::Other;
 }
 
@@ -112,6 +122,7 @@ void Editor::openProject(const fs::path& dir) {
     }
     project_ = settings;
     editor_prefs::addRecent(recentProjects_, project::root().u8string());
+    loadScripts();
     bool sameModule = module_.loaded() && !project_.module.empty() && !module_.changedOnDisk() &&
                       module_.library() == GameModule::libraryPath(fs::u8path(project::resolve(project_.module)));
     if (!sameModule) loadGameModule();   // (the editor may have loaded it already, for the starting project)
@@ -285,6 +296,9 @@ void Editor::drawAssetBrowser() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Refresh")) scanAssets();
     ImGui::SameLine();
+    if (ImGui::SmallButton("New script")) newScript();
+    editor_ui::tooltip("A Lua behaviour in scripts/, from a template");
+    ImGui::SameLine();
     ImGui::TextDisabled("| double-click to open, drag onto the viewport or the Inspector");
 
     ImGui::BeginChild("##asset-grid");
@@ -390,8 +404,62 @@ void Editor::openAsset(const AssetEntry& a) {
                 if (!audio_->play(a.path.u8string(), p)) setStatus("Can't play: " + audio_->error());
             }
             break;
+        case AssetKind::Script:   // in the system's editor for .lua files; saving it reloads the script
+            if (!platform::openWithSystem(a.path)) setStatus("Can't open " + a.path.u8string() + " (no program for it?)");
+            break;
         case AssetKind::Other: break;
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Lua scripts
+// ---------------------------------------------------------------------------------------------
+void Editor::loadScripts() {
+    if (playing()) stopPlay();
+    std::vector<std::string> types;   // the old project's script behaviours: kept as their fields
+    for (const BehaviourType& t : behaviourTypes())
+        if (t.module == "lua") types.push_back(t.name);
+    forEachHeldScene([&](Scene& s) { detachBehaviours(s, types); });
+    int n = scripting::loadProject(project::root());
+    forEachHeldScene([&](Scene& s) { reattachBehaviours(s); });
+    scriptErrorsShown_ = scripting::errors().size();
+    if (n) std::printf("[scripts] %d Lua behaviours\n", n);
+    if (!scripting::errors().empty()) setStatus("Script error: " + scripting::errors().front());
+}
+
+void Editor::pollScripts() {
+    std::vector<std::string> loaded = scripting::poll();
+    std::vector<std::string> errors = scripting::errors();
+    if (!loaded.empty()) {
+        forEachHeldScene([&](Scene& s) { reattachBehaviours(s); });   // (new scripts: their behaviours come back)
+        std::string names;
+        for (const std::string& n : loaded) names += (names.empty() ? "" : ", ") + n;
+        setStatus("Reloaded script" + std::string(loaded.size() > 1 ? "s " : " ") + names +
+                  (playing() ? " (running instances keep their state)" : ""));
+    }
+    if (errors.size() > scriptErrorsShown_ || (!loaded.empty() && !errors.empty()))
+        setStatus("Script error: " + errors.back());
+    scriptErrorsShown_ = errors.size();
+}
+
+void Editor::newScript() {
+    fs::path dir = project::root() / "scripts";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    std::string name;
+    for (int i = 1; i < 1000; ++i) {
+        name = "NewScript" + (i > 1 ? std::to_string(i) : std::string());
+        if (!fs::exists(dir / (name + ".lua"), ec) && !createBehaviour(name)) break;
+    }
+    fs::path file = dir / (name + ".lua");
+    std::ofstream out(file, std::ios::binary);
+    out << scripting::templateSource(name);
+    out.close();
+    if (!out) { setStatus("Can't write " + file.u8string()); return; }
+    scripting::poll(true);
+    assetDir_ = dir;
+    scanAssets();
+    setStatus("Created scripts/" + name + ".lua (rename the file to rename the behaviour; double-click to edit)");
 }
 
 // ---------------------------------------------------------------------------------------------

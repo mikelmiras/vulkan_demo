@@ -33,6 +33,8 @@ std::filesystem::path tempPath(const std::string& file) {
 }
 
 void writeFile(const std::filesystem::path& path, const std::string& text) {
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
     std::ofstream f(path, std::ios::binary);
     f << text;
 }

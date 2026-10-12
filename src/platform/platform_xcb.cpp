@@ -4,6 +4,10 @@
 #include <vulkan/vulkan.h>
 
 #include "platform/platform.h"
+#include <spawn.h>
+#include <sys/wait.h>
+#include <thread>
+extern char** environ;
 
 #include <fcntl.h>
 #include <linux/joystick.h>
@@ -324,6 +328,17 @@ std::filesystem::path openFolderDialog(const char* title) {
         return out;
     }
     return {};
+}
+
+static const char* const kOpener = "xdg-open";
+
+bool openWithSystem(const std::filesystem::path& file) {
+    std::string path = file.u8string();
+    char* argv[] = {const_cast<char*>(kOpener), const_cast<char*>(path.c_str()), nullptr};
+    pid_t pid = 0;
+    if (posix_spawnp(&pid, kOpener, nullptr, nullptr, argv, environ) != 0) return false;
+    std::thread([pid] { waitpid(pid, nullptr, 0); }).detach();   // (reaped when it's done)
+    return true;
 }
 
 std::filesystem::path executablePath() {

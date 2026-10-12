@@ -15,6 +15,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <memory>
 #include <string>
@@ -31,6 +32,7 @@ class GameUI;        // game/ui.h
 // prefab's, a scene file (stored relative to the project), a sound (a built-in clip or a file), an animation clip,
 // an input action.
 enum class FieldRef { Entity, Prefab, Scene, Sound, AnimationClip, InputAction };
+const char* fieldRefName(FieldRef kind);   // "entity", "prefab", "scene", "sound", "clip", "action"
 
 // Visits a behaviour's parameters by name: the same fields() function drives the inspector UI, saving and loading.
 // Names are camelCase keys ("moveSpeed"); the inspector shows them as "Move speed".
@@ -146,7 +148,7 @@ private:
 };
 
 // ---- Registry: behaviour types by name (for the inspector's "Add component" menu and for loading scenes)
-using BehaviourFactory = std::unique_ptr<Behaviour> (*)();
+using BehaviourFactory = std::function<std::unique_ptr<Behaviour>()>;   // (a lambda that may hold state: Lua scripts)
 struct BehaviourType {
     std::string name;
     std::string description;
@@ -154,7 +156,10 @@ struct BehaviourType {
     std::string module;   // the game module that registered it ("" for the engine's own)
 };
 
+// (The registry is safe to use from several threads: scenes load on workers while the main thread may register.)
 void registerBehaviourType(const char* name, const char* description, BehaviourFactory create);
+// The module that registered a type ("" for the engine's own, "lua" for scripts); false if there's no such type
+bool behaviourTypeModule(const std::string& name, std::string& module);
 // Removes every type a module registered; built-in types it had replaced come back
 void unregisterModuleBehaviours(const std::string& module);
 // Types registered while this is set belong to that module (GameModule sets it around the module's register call)

@@ -680,13 +680,20 @@ void Editor::drawComponents(Entity& e) {
             e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
         }
         ImGui::SeparatorText("Behaviours");
-        for (const BehaviourType& t : behaviourTypes()) {
-            if (ImGui::MenuItem(t.name.c_str())) {
-                pushUndo();
-                e.behaviours.emplace_back(t.create());
+        bool scripts = false;
+        for (int pass = 0; pass < 2; ++pass)   // C++ ones, then the project's Lua scripts
+            for (const BehaviourType& t : behaviourTypes()) {
+                if ((t.module == "lua") != (pass == 1)) continue;
+                if (pass == 1 && !scripts) {
+                    ImGui::SeparatorText("Scripts");
+                    scripts = true;
+                }
+                if (ImGui::MenuItem(t.name.c_str())) {
+                    pushUndo();
+                    e.behaviours.emplace_back(t.create());
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", t.description.c_str());
             }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s", t.description.c_str());
-        }
         ImGui::EndPopup();
     }
 }

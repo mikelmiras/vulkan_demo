@@ -525,6 +525,10 @@ struct Physics::Impl {
             s.mMassPropertiesOverride.mMass = std::fmax(rb.mass, 0.001f);
             if (rb.lockRotation)
                 s.mAllowedDOFs = JPH::EAllowedDOFs::TranslationX | JPH::EAllowedDOFs::TranslationY | JPH::EAllowedDOFs::TranslationZ;
+        } else {   // (motion properties for becoming kinematic: given, as mesh shapes have no mass to compute)
+            s.mOverrideMassProperties = JPH::EOverrideMassProperties::MassAndInertiaProvided;
+            s.mMassPropertiesOverride.mMass = 1.f;
+            s.mMassPropertiesOverride.mInertia = JPH::Mat44::sIdentity();
         }
         JPH::Body* body = bi().CreateBody(s);
         if (!body) return false;   // out of bodies

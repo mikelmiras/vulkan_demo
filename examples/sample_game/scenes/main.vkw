@@ -156,6 +156,11 @@
           "action": "pause",
           "title": "{@game.paused}",
           "slot": "quicksave"
+        },
+        {
+          "type": "RunTimer",
+          "size": 40,
+          "textColor": [1, 1, 1]
         }
       ]
     },
@@ -622,7 +627,16 @@
         "shape": "box",
         "center": [0, 0, 0],
         "size": [1, 1, 1]
-      }
+      },
+      "behaviours": [
+        {
+          "type": "Sentry",
+          "player": "Player",
+          "alertRadius": 6,
+          "alertColor": [1, 0.25, 0.2],
+          "pulseSpeed": 6
+        }
+      ]
     },
     {
       "id": 26,
@@ -662,7 +676,16 @@
         "shape": "box",
         "center": [0, 0, 0],
         "size": [1, 1, 1]
-      }
+      },
+      "behaviours": [
+        {
+          "type": "Sentry",
+          "player": "Player",
+          "alertRadius": 6,
+          "alertColor": [1, 0.25, 0.2],
+          "pulseSpeed": 6
+        }
+      ]
     },
     {
       "id": 28,

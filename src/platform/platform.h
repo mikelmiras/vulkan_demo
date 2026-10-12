@@ -51,6 +51,8 @@ void imguiShutdown();
 // Returns an empty path when cancelled or when no dialog is available (Linux without zenity/kdialog).
 std::filesystem::path openFileDialog(const char* title, const char* extension);
 std::filesystem::path openFolderDialog(const char* title);   // empty when cancelled / unavailable
+// Opens a file in the program the system uses for it (xdg-open, ShellExecute, open); false if that can't start
+bool openWithSystem(const std::filesystem::path& file);
 
 std::filesystem::path executableDir();
 std::filesystem::path executablePath();   // empty if unknown

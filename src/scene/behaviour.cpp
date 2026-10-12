@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 #include <type_traits>
 
 namespace {
@@ -11,7 +12,13 @@ std::string& registeringModule() {
     return module;
 }
 
+std::recursive_mutex& registryMutex() {   // (recursive: registerBuiltinBehaviours() registers from inside)
+    static std::recursive_mutex m;
+    return m;
+}
+
 std::vector<BehaviourType>& registry() {
+    std::lock_guard<std::recursive_mutex> lock(registryMutex());
     static std::vector<BehaviourType> types;
     static bool builtinsDone = false;
     if (!builtinsDone) {   // explicit, not static-initialiser registration: the linker drops unreferenced objects
@@ -25,7 +32,20 @@ std::vector<BehaviourType>& registry() {
 
 Behaviour::~Behaviour() = default;
 
+const char* fieldRefName(FieldRef kind) {
+    switch (kind) {
+    case FieldRef::Entity: return "entity";
+    case FieldRef::Prefab: return "prefab";
+    case FieldRef::Scene: return "scene";
+    case FieldRef::Sound: return "sound";
+    case FieldRef::AnimationClip: return "clip";
+    case FieldRef::InputAction: return "action";
+    }
+    return "";
+}
+
 void registerBehaviourType(const char* name, const char* description, BehaviourFactory create) {
+    std::lock_guard<std::recursive_mutex> lock(registryMutex());
     std::vector<BehaviourType>& types = registry();
     for (BehaviourType& t : types)
         if (t.name == name) {   // re-registering replaces (lets a game override a built-in)
@@ -42,6 +62,7 @@ void setRegisteringModule(const std::string& module) {
 
 void unregisterModuleBehaviours(const std::string& module) {
     if (module.empty()) return;
+    std::lock_guard<std::recursive_mutex> lock(registryMutex());
     std::vector<BehaviourType>& types = registry();
     types.erase(std::remove_if(types.begin(), types.end(), [&](const BehaviourType& t) { return t.module == module; }),
                 types.end());
@@ -54,9 +75,23 @@ void unregisterModuleBehaviours(const std::string& module) {
 const std::vector<BehaviourType>& behaviourTypes() { return registry(); }
 
 std::unique_ptr<Behaviour> createBehaviour(const std::string& typeName) {
+    BehaviourFactory create;
+    {
+        std::lock_guard<std::recursive_mutex> lock(registryMutex());
+        for (const BehaviourType& t : registry())
+            if (t.name == typeName) create = t.create;
+    }
+    return create ? create() : nullptr;
+}
+
+bool behaviourTypeModule(const std::string& name, std::string& module) {
+    std::lock_guard<std::recursive_mutex> lock(registryMutex());
     for (const BehaviourType& t : registry())
-        if (t.name == typeName) return t.create();
-    return nullptr;
+        if (t.name == name) {
+            module = t.module;
+            return true;
+        }
+    return false;
 }
 
 namespace {

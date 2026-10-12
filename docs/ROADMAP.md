@@ -262,7 +262,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | # | Task | Why |
 |---|------|-----|
 | 32 (done) | Editor layout: Dear ImGui's docking branch (dockable, tear-off panels), the layout and editor preferences saved per user | Panels only resize; nothing about the editor's setup survives a restart |
-| 33 | Scripting: Lua behaviours (vendored Lua, fields, the GameContext API, hot reload on save) alongside C++ modules | Every bit of game logic needs a C++ rebuild |
+| 33 (done) | Scripting: Lua behaviours (vendored Lua, fields, the GameContext API, hot reload on save) alongside C++ modules | Every bit of game logic needs a C++ rebuild |
 | 34 | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
 | 35 | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
 | 36 | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
@@ -286,3 +286,21 @@ Working list for turning the renderer demo into a small game engine. Each task i
   the defaults. Not done: panels torn off into their own OS windows (Dear ImGui's multi-viewports: our XCB
   backend has no platform-window support and the renderer draws one swapchain), more than one game view or a
   docked game view, per-project layouts.
+- Task 33: third_party/lua is Lua 5.4.7 (lua.org tarball, sha256 9fbf5e28...; without lua.c / luac.c), compiled into
+  the engine as C++ (errors unwind as exceptions), without the os / io / debug / package libraries. script/lua_script:
+  one lua_State (main thread); every scripts/**.lua (not scripts/lib/, which require() loads) registers a behaviour
+  type under the module tag "lua" (BehaviourFactory is now a std::function, the registry is mutex-guarded:
+  module API 22). LuaBehaviour keeps its field values in C++ (declared by the script; scenes, undo and loading
+  threads see only those) and makes its instance table on start(): fields are pushed in, read back after every
+  callback (the inspector shows live values; edits go in before the next one). Reloads refill the class table in
+  place, so running instances keep their members and get the new functions; a failed load keeps the previous
+  version; a failed callback stops that instance until the script's next version. Bindings: entity handles
+  (userdata with an id, looked up through the GameContext on each access), game / input / ui tables, vec3 in a Lua
+  prelude, game.state, timers holding registry refs. vfs::list (pack + disk) finds scripts in exports; the editor
+  loads them with the project and polls twice a second (status bar messages), Assets > New script, double-click
+  opens the system editor (platform::openWithSystem); vkgame loads, polls, and --check fails on script errors. The
+  sample game has Sentry, RunTimer and scripts/lib/format.lua. Not done: a debugger / breakpoints, coroutine waits
+  inside callbacks (game.after covers timing), Lua access to every component (only transform, colour, velocity,
+  tags...), state() for members that aren't fields, sandboxing CPU time (an endless loop hangs the game).
+  Also: static bodies now get their (unused) mass properties given, not computed: a Debug build's Jolt asserted on
+  mesh shapes, found by an ASan + Debug run of the tests (clean otherwise).

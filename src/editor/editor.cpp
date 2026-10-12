@@ -45,6 +45,7 @@ Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio
     if (project::exists(project::root())) project::load(project::root(), project_, error);
     else project_.name = project::root().filename().u8string();
     if (!project_.module.empty()) loadGameModule();
+    loadScripts();
 }
 
 Editor::~Editor() {
@@ -92,6 +93,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     keyTakenByBindings_ = false;
     if (audio_ && !playing()) audio_->update();   // (while playing, the game does it)
     pollGameModule();
+    pollScripts();
     if (playing() && game_.quitRequested()) stopPlay();   // the game asked to quit: back to editing
     frameSelected_ = selected_;
     frameEntity_.reset();

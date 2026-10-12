@@ -74,6 +74,11 @@ add_custom_command(
   DEPENDS ${CMAKE_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf ${CMAKE_SOURCE_DIR}/cmake/embed_file.cmake
   COMMENT "Embedding the default game font")
 
+# Lua 5.4.7, compiled as C++ so its errors unwind as exceptions through our code (no warnings from it)
+# (without the libraries scripts don't get: os, io, debug, package loading, and linit's luaL_openlibs)
+file(GLOB LUA_SOURCES ${CMAKE_SOURCE_DIR}/third_party/lua/src/*.c)
+list(FILTER LUA_SOURCES EXCLUDE REGEX "/(loslib|liolib|loadlib|ldblib|linit)\\.c$")
+set_source_files_properties(${LUA_SOURCES} PROPERTIES LANGUAGE CXX COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>")
 set(ENGINE_SOURCES
   ${DEFAULT_FONT_SOURCE}
   src/game/fonts.cpp
@@ -117,7 +122,9 @@ set(ENGINE_SOURCES
   src/render/renderer_shadows.cpp
   src/render/scene_draw.cpp
   src/app/application.cpp
-  src/app/export.cpp)
+  src/app/export.cpp
+  src/script/lua_script.cpp
+  ${LUA_SOURCES})
 if(WIN32)
   list(APPEND ENGINE_SOURCES src/platform/platform_win32.cpp)
 elseif(APPLE)
@@ -135,7 +142,7 @@ function(vkworld_engine_target name type)
   target_include_directories(${name} PUBLIC ${CMAKE_SOURCE_DIR}/src)
   # Vendored single-header libraries (implementations compiled in assets/): stb_image v2.30, cgltf v1.14
   target_include_directories(${name} PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb ${CMAKE_SOURCE_DIR}/third_party/cgltf
-                                             ${CMAKE_SOURCE_DIR}/third_party/miniaudio)
+                                             ${CMAKE_SOURCE_DIR}/third_party/miniaudio ${CMAKE_SOURCE_DIR}/third_party/lua/src)
   target_link_libraries(${name} PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
   # The ImGui objects go into the engine (PRIVATE: users get them through it, not a second copy); its headers are public
   target_link_libraries(${name} PRIVATE imgui Jolt)
@@ -261,6 +268,7 @@ if(VKWORLD_BUILD_TESTS)
   add_executable(engine_tests
     tests/test_main.cpp
     tests/test_editor_prefs.cpp
+    tests/test_scripting.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

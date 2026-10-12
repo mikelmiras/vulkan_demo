@@ -68,6 +68,10 @@ public:
         return number(key);
     }
     bool has(const std::string& key) const { return values_.count(key) > 0; }
+    const json::Value* get(const std::string& key) const {   // the value whatever its type (nullptr: none)
+        auto it = values_.find(key);
+        return it == values_.end() ? nullptr : &it->second;
+    }
     // "Score: {score}" -> "Score: 12": {key} becomes the value (whole numbers without decimals; unknown keys: "")
     std::string format(const std::string& text) const;
     void erase(const std::string& key) { values_.erase(key); }

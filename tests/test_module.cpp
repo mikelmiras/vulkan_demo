@@ -1,5 +1,6 @@
 // game/module: loading a project's code, playing with it, and swapping it while scenes hold its behaviours
 #include "test.h"
+#include "script/lua_script.h"
 
 #include "core/json.h"
 #include "core/project.h"
@@ -25,6 +26,7 @@ bool loadSampleScene(Scene& s) {
     MeshLibrary lib = buildMeshLibrary();
     std::string error;
     project::setRoot(fs::u8path(VKWORLD_SAMPLE_GAME));
+    scripting::loadProject(fs::u8path(VKWORLD_SAMPLE_GAME));   // (its Lua behaviours, as the editor and vkgame do)
     bool ok = loadScene((fs::u8path(VKWORLD_SAMPLE_GAME) / "scenes" / "main.vkw").u8string(), s, lib, textures(), error);
     project::setRoot(fs::current_path());
     if (!ok) std::printf("    %s\n", error.c_str());

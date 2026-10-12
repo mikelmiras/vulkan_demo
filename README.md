@@ -3,6 +3,7 @@
 A small Vulkan 1.3 3D scene with a Blender-style editing UI, in C++17.
 
 - Runs on **Linux** (X11 / XWayland, via raw XCB), **Windows** (Win32) and **macOS** (Cocoa + MoltenVK). No GLFW/SDL needed.
+- Scripting: [Lua](https://www.lua.org) 5.4.7 (`third_party/lua`, MIT)
 - UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b (docking branch) + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo);
   images: [stb_image](https://github.com/nothings/stb) v2.30; glTF: [cgltf](https://github.com/jkuhlmann/cgltf) v1.14;
   audio: [miniaudio](https://miniaud.io) v0.11.21.
@@ -650,6 +651,77 @@ it was saved and shown as *code not loaded*; it does nothing when played, and co
 A module must be built with the same compiler and engine headers as the programs that load it (they share the
 engine library: `libengine.so` / `engine.dll` / `libengine.dylib`).
 
+### Lua scripting
+
+Behaviours can also be written in **Lua** (5.4, built into the engine): no compiler, and they reload while the game
+runs. Every `.lua` file under a project's `scripts/` folder is a behaviour type named after the file
+(`scripts/Sentry.lua` is `Sentry`), listed under *Scripts* in the inspector's Add component menu and saved in
+scenes like the C++ ones. Assets > New script makes one from a template; double-clicking a script opens it in the
+system's editor for `.lua` files. The sample game has two (`Sentry`, `RunTimer`) and a helper in `scripts/lib/`.
+
+```lua
+-- scripts/Door.lua
+local Door = {
+    description = "Opens when the player comes near",
+    fields = {                                     -- edited in the inspector, saved in scenes
+        {"openHeight", 3, min = 0, max = 10},       -- number (int = true: whole numbers; speed = drag speed)
+        {"player", "Player", ref = "entity"},       -- string (ref: entity, prefab, scene, sound, clip, action)
+        {"mode", "slide", options = {"slide", "swing"}},
+        {"locked", false},                          -- boolean
+        {"offset", vec3(0, 1, 0)},                  -- vector
+    },
+}
+
+function Door:start()
+    self.closed = self.entity.position             -- fields are members of self; so is anything else you add
+end
+
+function Door:update(dt)
+    local player = game.find(self.player)
+    local near = player and vec3.distance(player.worldPosition, self.closed) < 4
+    local target = near and not self.locked and self.closed + vec3(0, self.openHeight, 0) or self.closed
+    self.entity.position = vec3.lerp(self.entity.position, target, math.min(1, dt * 3))
+end
+
+return Door
+```
+
+Callbacks, all optional: `start()`, `update(dt)` (fixed step), `onTriggerEnter(other)`, `onTriggerExit(other)`,
+`onMessage(msg)` (`msg.name`, `msg.from`, `msg.value`, `msg.text`), `onAnimationEvent(name)`, `drawUI(ui)`.
+
+- **Entities** (`self.entity`, `game.find(...)`, ...): `id`, `name`, `exists`, `position` / `rotation` (degrees) /
+  `scale` (local), `worldPosition`, `forward` / `right` / `up`, `visible`, `layer`, `tags`, `parent`, `velocity`
+  (rigid bodies), `color` (mesh renderers); vectors are copies: change one and assign it back. Methods:
+  `hasTag`, `addTag`, `removeTag`, `destroy`, `send(name, value, text)`, `moveCharacter(delta)` (returns
+  `grounded`, `hitWall`, ...), `lookAt(point)`, `emitParticles(n)`, `playSound(clip, volume)`, `setRagdoll(limp)`,
+  `script("Type")` (another Lua behaviour's `self`), `getField("Type", "name")` / `setField("Type", "name", v)`
+  (any behaviour's fields, C++ ones too).
+- **`game`**: `time()`, `dt()`, `find(name or id)`, `findWithTag(tag)`, `spawn(prefab, pos, forward, parent)`,
+  `destroy(e)`, `log(...)` (and `print`), `raycast(origin, dir, maxDistance, ignore, layers)` (a hit: `entity`,
+  `point`, `normal`, `distance`), `overlapSphere(center, radius, layers)`, `findPath(from, to)`,
+  `after(seconds, fn)` / `every(seconds, fn)` / `cancel(id)`, `send(e, name, value, text)`, `sendToTag`,
+  `broadcast`, `playSound(clip, pos, volume)`, `playSound2D`, `playMusic(clip, fade, volume)`, `stopMusic`,
+  `setBusVolume`, `duck`, `text(key)`, `format(text)`, `setLanguage`, `language()`, `loadScene(path)`,
+  `scenePath()`, `quit()`, `saveGame(slot)`, `loadGame(slot)`, `hasSaveGame(slot)`, `setPaused(b)`, `paused()`,
+  and `game.state.key` (numbers, strings and booleans that survive scene changes and go in save games).
+- **`input`**: `down(action)`, `pressed`, `released`, `pressedThisFrame` (for `drawUI`), `value`,
+  `axis(negative, positive)`, `mouseDelta()` (returns x, y).
+- **`ui`** (in `drawUI`): `width()`, `height()`, `text(x, y, text, size, color, align, font)`, `textWidth`,
+  `rect(x, y, w, h, color, rounding)`, `border`, `bar(x, y, w, h, fraction, fill, back)`, `image(texture, x, y, w, h)`,
+  `button(x, y, w, h, label, size)` (true when clicked), `hovered(...)`, `showCursor()`; colours are
+  `color(r, g, b, a)`, `{r, g, b, a}` or a vec3.
+- **`vec3(x, y, z)`**: `+ - * /` (by numbers or per component), `==`, `v:length()`, `v:normalized()`, `v:copy()`,
+  `vec3.dot`, `vec3.cross`, `vec3.lerp`, `vec3.distance`.
+- **`require("lib.name")`** loads `scripts/lib/name.lua` (helpers shared by scripts; files in `lib/` aren't
+  behaviours). The standard `string`, `table`, `math`, `utf8` and `coroutine` libraries are there; `io`, `os` and
+  loading files aren't.
+
+**Hot reload**: saving a script reloads it, in the editor and in `vkgame` (when the files are on disk, not packed):
+running instances keep their members and use the new functions from their next callback, so a game can be changed
+while it plays (new fields get their defaults). An error is reported with its file and line, in the status bar or
+the viewport and in the log; a script that fails to load keeps its previous version, and a callback that fails
+stops for that instance until the script is saved again. `vkgame --check` fails on script errors too.
+
 ## Controls
 
 | Input                          | Action                                         |
@@ -696,6 +768,7 @@ Includes are relative to `src/`.
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
+| `src/script/`              | `lua_script.*`: Lua behaviours (the scripts/ folder, the Lua API, hot reload)   |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_prefs.cpp` preferences saved per user |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
