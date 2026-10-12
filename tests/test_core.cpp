@@ -67,6 +67,12 @@ TEST(vecmath_inverse_affine) {
     for (int i = 0; i < 16; ++i) CHECK_NEAR(id.m[i], (i % 5 == 0) ? 1.f : 0.f, 1e-5);
 }
 
+TEST(vecmath_inverse_projection) {
+    Mat4 vp = perspective(1.f, 1.6f, 0.1f, 500.f, true) * lookAt({3, 4, 5}, {0, 1, 0}, {0, 1, 0});
+    Mat4 id = inverse(vp) * vp;
+    for (int i = 0; i < 16; ++i) CHECK_NEAR(id.m[i], (i % 5 == 0) ? 1.f : 0.f, 1e-4);
+}
+
 // The frame profiler: nested scopes per frame, summarised as a tree; nothing outside frames or off the frame thread
 TEST(profiler_scopes) {
     { PROFILE_SCOPE("Ignored"); }   // no frame yet

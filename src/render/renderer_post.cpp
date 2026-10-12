@@ -9,7 +9,7 @@
 
 using namespace render_detail;
 
-VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format, bool additive) {
+VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format, bool additive, VkPipelineLayout layout) {
     VkShaderModule vs = loadShader("post.vert.spv"), fs = loadShader(fragShader);
     VkPipelineShaderStageCreateInfo stages[2] = {
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
@@ -60,7 +60,7 @@ VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format,
     ci.pDepthStencilState = &ds;
     ci.pColorBlendState = &cb;
     ci.pDynamicState = &dy;
-    ci.layout = postLayout_;
+    ci.layout = layout ? layout : postLayout_;
     VkPipeline pipeline;
     VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
     vkDestroyShaderModule(device_, vs, nullptr);
@@ -69,7 +69,8 @@ VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format,
 }
 
 void Renderer::createPostImages() {
-    hdr_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+    hdr_ = createImage(hdrFormat_,
+                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                        VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
     uint32_t w = std::max(extent_.width / 2, 1u), h = std::max(extent_.height / 2, 1u);
     bloomMips_ = 1;
@@ -124,9 +125,11 @@ void Renderer::createPostImages() {
         wa.pImageInfo = &depthInfo;
         vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
     }
+    if (aa_ == Antialiasing::Temporal) createTaaImages();
 }
 
 void Renderer::destroyPostImages() {
+    destroyTaaImages();
     for (uint32_t m = 0; m < bloomMips_; ++m) vkDestroyImageView(device_, bloomViews_[m], nullptr);
     bloomMips_ = 0;
     if (bloom_.image) destroyImage(bloom_);

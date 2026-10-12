@@ -201,6 +201,14 @@ void Renderer::pickDevice() {
     VkFormatProperties dfp;
     vkGetPhysicalDeviceFormatProperties(gpu_, depthFormat_, &dfp);
     aoSupported_ = (dfp.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT) != 0;
+    maxSamples_ = samples_;
+    // VKWORLD_AA=taa / msaa / off: the anti-aliasing to start with (programs can change it later)
+    if (const char* aa = std::getenv("VKWORLD_AA")) {
+        std::string want = aa;
+        if (want == "taa" && aoSupported_) aa_ = Antialiasing::Temporal;
+        else if (want == "off") aa_ = Antialiasing::Off;
+    }
+    if (aa_ != Antialiasing::Msaa) samples_ = VK_SAMPLE_COUNT_1_BIT;
 }
 
 void Renderer::createDevice() {
@@ -594,18 +602,6 @@ void Renderer::createPipelines() {
     plci.pPushConstantRanges = &shadowLayer;
     VK_CHECK(vkCreatePipelineLayout(device_, &plci, nullptr, &pipelineLayout_));
 
-    // Lit scene objects: depth tested, no stencil
-    scenePipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_BACK_BIT,
-                                     false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
-    // See-through objects: depth-tested, but not hiding what's drawn after them
-    transparentPipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
-                                           false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, true});
-    // Selected object's full silhouette into stencil (ignores depth so occluded parts are marked too)
-    stencilPipeline_ = createPipeline({"scene.vert.spv", "outline.frag.spv", false, false, false, VK_CULL_MODE_NONE,
-                                       true, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_REPLACE, 0xff});
-    // Hull extruded in screen space, drawn only outside the silhouette -> outline visible through walls
-    outlinePipeline_ = createPipeline({"outline.vert.spv", "outline.frag.spv", false, false, true, VK_CULL_MODE_NONE,
-                                       true, VK_COMPARE_OP_NOT_EQUAL, VK_STENCIL_OP_KEEP, 0, 2});
     // Depth from the sun's point of view (no fragment shader)
     shadowPipeline_ = createPipeline({"shadow.vert.spv", nullptr, true, true, false, VK_CULL_MODE_NONE, false,
                                       VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, false, true, 0b101});   // (no normals)
@@ -629,15 +625,45 @@ void Renderer::createPipelines() {
     pl.pushConstantRangeCount = 1;
     pl.pPushConstantRanges = &pcr;
     VK_CHECK(vkCreatePipelineLayout(device_, &pl, nullptr, &postLayout_));
+    // The temporal anti-aliasing pass: the same images, more push constants (a matrix)
+    VkPushConstantRange taaRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 96};
+    pl.pPushConstantRanges = &taaRange;
+    VK_CHECK(vkCreatePipelineLayout(device_, &pl, nullptr, &taaLayout_));
+    taaPipeline_ = createPostPipeline("taa.frag.spv", hdrFormat_, false, taaLayout_);
     bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
+    createSampledPipelines();
+}
+
+// The pipelines drawing into the scene's (maybe multisampled) targets, and the AO pass reading its depth
+void Renderer::createSampledPipelines() {
+    // Lit scene objects: depth tested, no stencil
+    scenePipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_BACK_BIT,
+                                     false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    // See-through objects: depth-tested, but not hiding what's drawn after them
+    transparentPipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
+                                           false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, true});
+    // Selected object's full silhouette into stencil (ignores depth so occluded parts are marked too)
+    stencilPipeline_ = createPipeline({"scene.vert.spv", "outline.frag.spv", false, false, false, VK_CULL_MODE_NONE,
+                                       true, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_REPLACE, 0xff});
+    // Hull extruded in screen space, drawn only outside the silhouette -> outline visible through walls
+    outlinePipeline_ = createPipeline({"outline.vert.spv", "outline.frag.spv", false, false, true, VK_CULL_MODE_NONE,
+                                       true, VK_COMPARE_OP_NOT_EQUAL, VK_STENCIL_OP_KEEP, 0, 2});
     if (aoSupported_)
         aoPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "ssao_ms.frag.spv" : "ssao.frag.spv",
                                          VK_FORMAT_R8_UNORM, false);
     particleAlphaPipeline_ = createParticlePipeline(false);
     particleAdditivePipeline_ = createParticlePipeline(true);
     skyPipeline_ = createSkyPipeline();
+}
+
+void Renderer::destroySampledPipelines() {
+    for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_,
+                          &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_}) {
+        if (*p) vkDestroyPipeline(device_, *p, nullptr);
+        *p = VK_NULL_HANDLE;
+    }
 }
 
 VkPipeline Renderer::createSkyPipeline() {
@@ -879,12 +905,12 @@ void Renderer::createResources(const MeshLibrary&) {
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &materialPool_));
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
-    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * (2 * kMaxBloomMips + 3)};
-    dpci.maxSets = 2 * kMaxBloomMips + 3;
+    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * (2 * kMaxBloomMips + 5)};
+    dpci.maxSets = 2 * kMaxBloomMips + 5;   // (+2: the temporal pass's two directions)
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &postSize;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &postPool_));
-    std::vector<VkDescriptorSetLayout> postLayouts(2 * kMaxBloomMips + 3, postSetLayout_);
+    std::vector<VkDescriptorSetLayout> postLayouts(2 * kMaxBloomMips + 5, postSetLayout_);
     std::vector<VkDescriptorSet> postSets(postLayouts.size());
     VkDescriptorSetAllocateInfo pai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     pai.descriptorPool = postPool_;
@@ -894,6 +920,8 @@ void Renderer::createResources(const MeshLibrary&) {
     prefilterSet_ = postSets[0];
     compositeSet_ = postSets[1];
     aoSet_ = postSets[2 + 2 * kMaxBloomMips];
+    taaSets_[0] = postSets[3 + 2 * kMaxBloomMips];
+    taaSets_[1] = postSets[4 + 2 * kMaxBloomMips];
     for (uint32_t m = 0; m < kMaxBloomMips; ++m) {
         downSets_[m] = postSets[2 + m];
         upSets_[m] = postSets[2 + kMaxBloomMips + m];
@@ -1159,6 +1187,10 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_ACCESS_SHADER_READ_BIT);
 
     timestamp(cb, "Scene");
+    if (aa_ == Antialiasing::Temporal && info.items) {   // blended with the frames before (renderer_taa.cpp)
+        recordTaa(cb, info);
+        timestamp(cb, "Temporal AA");
+    }
     // ---- Bloom and the composite onto the swapchain image
     recordPost(cb, imageIndex, info);
     timestamp(cb, "AO, bloom, composite");
@@ -1302,6 +1334,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     PROFILE_SCOPE("Render (CPU)");
     if (resized_) recreateSwapchain();
     if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
+    if (info.antialiasing >= 0 && info.antialiasing != (int)aa_) setAntialiasing((Antialiasing)info.antialiasing);
     reuploadChangedTextures();   // (before any of this frame's material sets are made: it may remake them all)
     uploadEnvironment(info.environment);
     updateProbes(info);
@@ -1328,6 +1361,29 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     FrameUBO u{};
     fillFrameUBO(info, u, true);
     setProbeData(u);
+    if (aa_ == Antialiasing::Temporal) {   // a different sub-pixel offset every frame (Halton 2, 3: eight of them)
+        auto halton = [](uint32_t i, uint32_t b) {
+            float f = 1.f, r = 0.f;
+            for (; i > 0; i /= b) {
+                f /= (float)b;
+                r += f * (float)(i % b);
+            }
+            return r;
+        };
+        jitterIndex_ = jitterIndex_ % 8 + 1;
+        float vw = std::max(info.viewportW, 1.f), vh = std::max(info.viewportH, 1.f);
+        Mat4 jitter;
+        jitter.m[12] = (halton(jitterIndex_, 2) - 0.5f) * 2.f / vw;
+        jitter.m[13] = (halton(jitterIndex_, 3) - 0.5f) * 2.f / vh;
+        u.viewProj = jitter * info.viewProj;
+        // From this frame's clip space to last frame's: where each pixel was. Both without the jitter, so a still
+        // view finds its history exactly at the same pixel (no blur creeping in from resampling)
+        taaReproject_ = prevViewProj_ * inverse(info.viewProj);
+        float viewport[4] = {info.viewportX, info.viewportY, info.viewportW, info.viewportH};
+        if (std::memcmp(viewport, taaViewport_, sizeof(viewport)) != 0) taaHistory_ = false;   // (moved or resized)
+        std::memcpy(taaViewport_, viewport, sizeof(viewport));
+        prevViewProj_ = info.viewProj;
+    }
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
     {
         PROFILE_SCOPE("Instances");
@@ -1378,10 +1434,11 @@ void Renderer::shutdown() {
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
-    for (VkPipeline p : {scenePipeline_, transparentPipeline_, stencilPipeline_, outlinePipeline_, shadowPipeline_, shadowCutoutPipeline_, aoPipeline_, bloomDownPipeline_,
-                         bloomUpPipeline_, compositePipeline_, particleAlphaPipeline_, particleAdditivePipeline_,
-                         skyPipeline_})
+    destroySampledPipelines();
+    for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
+                         taaPipeline_})
         vkDestroyPipeline(device_, p, nullptr);
+    vkDestroyPipelineLayout(device_, taaLayout_, nullptr);
     destroyPostImages();
     vkDestroyPipelineLayout(device_, postLayout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, postSetLayout_, nullptr);

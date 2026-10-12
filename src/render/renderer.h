@@ -89,6 +89,7 @@ struct SceneRenderInfo {
     const Environment* environment = nullptr;
     float skyIntensity = 1.f, skyRotation = 0.f;   // brightness, turn around the vertical (radians)
     const std::vector<ProbeInfo>* probes = nullptr;   // the four nearest the camera are used
+    int antialiasing = -1;   // a Renderer::Antialiasing to switch to (-1: keep the current one)
     float viewportX = 0, viewportY = 0, viewportW = 0, viewportH = 0;   // in window pixels
 };
 
@@ -102,6 +103,13 @@ struct RenderStats {
 
 class Renderer {
 public:
+    // Edges: 4x MSAA (the default), temporal (jittered frames blended over time: softer, cheaper on detailed
+    // scenes, handles shader aliasing too; needs a depth buffer it can read) or none
+    enum class Antialiasing { Msaa, Temporal, Off };
+    void setAntialiasing(Antialiasing mode);   // (rebuilds what depends on it: waits for the GPU)
+    Antialiasing antialiasing() const { return aa_; }
+    bool supports(Antialiasing mode) const;
+
     // The platform window must exist (platform::createWindow) before init().
     // The libraries must outlive the renderer; meshes and textures added to them later are uploaded automatically.
     void init(uint32_t width, uint32_t height, const MeshLibrary& meshes, const TextureLibrary& textures);
@@ -174,6 +182,24 @@ private:
     void writeEnvironmentDescriptors();
     void uploadEnvironment(const Environment* env);   // (when it's another one: waits for the GPU)
     void fillFrameUBO(const SceneRenderInfo& info, render_detail::FrameUBO& u, bool shadows);
+    // Anti-aliasing (renderer_taa.cpp): the pipelines that depend on the sample count, and the temporal pass
+    void createSampledPipelines();
+    void destroySampledPipelines();
+    void createTaaImages();    // (with the post images, when temporal)
+    void destroyTaaImages();
+    void recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info);
+    Antialiasing aa_ = Antialiasing::Msaa;
+    VkSampleCountFlagBits maxSamples_ = VK_SAMPLE_COUNT_1_BIT;
+    Image taa_[2];                 // the blended result, alternately written and read back as history
+    VkDescriptorSet taaSets_[2] = {};
+    VkPipelineLayout taaLayout_ = VK_NULL_HANDLE;
+    VkPipeline taaPipeline_ = VK_NULL_HANDLE;
+    uint32_t taaIndex_ = 0;        // written this frame
+    bool taaHistory_ = false;      // the other one holds last frame's
+    bool taaFresh_ = false;        // just made: not yet in a readable layout
+    uint32_t jitterIndex_ = 0;
+    Mat4 prevViewProj_, taaReproject_;
+    float taaViewport_[4] = {};
     // Reflection probes (renderer_probes.cpp): baked on first sight, the nearest four bound (set 0, bindings 9-12)
     struct BakedProbe {
         uint64_t key = 0;
@@ -356,7 +382,8 @@ private:
     VkDescriptorSet prefilterSet_ = VK_NULL_HANDLE, compositeSet_ = VK_NULL_HANDLE;
     VkDescriptorSet downSets_[kMaxBloomMips] = {}, upSets_[kMaxBloomMips] = {};
     VkPipeline bloomDownPipeline_ = VK_NULL_HANDLE, bloomUpPipeline_ = VK_NULL_HANDLE, compositePipeline_ = VK_NULL_HANDLE;
-    VkPipeline createPostPipeline(const char* fragShader, VkFormat format, bool additive);
+    VkPipeline createPostPipeline(const char* fragShader, VkFormat format, bool additive,
+                                  VkPipelineLayout layout = VK_NULL_HANDLE);   // (null: postLayout_)
     void createPostImages();    // window-sized: made again when the swapchain is
     void destroyPostImages();
     void recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info);

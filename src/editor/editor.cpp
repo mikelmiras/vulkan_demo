@@ -172,6 +172,11 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     buildDrawItems();
 }
 
+void Editor::setRenderer(Renderer* renderer) {
+    renderer_ = renderer;
+    if (renderer_ && antialiasing_ >= 0) renderer_->setAntialiasing((Renderer::Antialiasing)antialiasing_);
+}
+
 void Editor::updateView() {
     worlds_ = playing() ? game_.worldMatrices() : scene_.worldMatrices();
     CameraView gc;
@@ -431,6 +436,7 @@ void Editor::applyPrefs(const EditorPrefs& p) {
     previewParticles_on_ = p.previewParticles;
     cam_.speed = p.cameraSpeed;
     cam_.fovY = p.cameraFov * DEG2RAD;
+    antialiasing_ = p.antialiasing;
     maximizeOnPlay_ = p.maximizeOnPlay;
     captureOnClick_ = p.captureOnClick;
     recentProjects_ = p.recentProjects;
@@ -447,6 +453,7 @@ EditorPrefs Editor::currentPrefs() const {
     p.previewParticles = previewParticles_on_;
     p.cameraSpeed = cam_.speed;
     p.cameraFov = std::round(cam_.fovY / DEG2RAD * 10.f) / 10.f;
+    p.antialiasing = antialiasing_;
     p.maximizeOnPlay = maximizeOnPlay_;
     p.captureOnClick = captureOnClick_;
     p.recentProjects = recentProjects_;

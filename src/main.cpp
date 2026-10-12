@@ -69,6 +69,7 @@ int main(int argc, char** argv) {
     // (screenshot runs always start from the default layout and preferences, and leave the saved ones alone)
     Editor editor(meshes, textures, &audio, app.uiScale(), options.screenshotPath.empty());
     editor.setUiTextures(app.uiTextures(textures));
+    editor.setRenderer(&app.renderer());
     if (projectArg) editor.openProject(scenePath);
     else if (scenePath) editor.openScene(scenePath);
     else if (project::exists(project::root())) editor.openProject(project::root());

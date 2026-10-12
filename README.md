@@ -286,7 +286,11 @@ dropping on the right.
   soft threshold) makes bright parts glow, and the final pass applies exposure and the Khronos **PBR Neutral**
   tonemapper (colours below about 0.8 come out as they are). Sky colour, fog, ambient, exposure and bloom are
   per-scene settings (Inspector, with nothing selected).
-- 4x MSAA, distance fog, the selection outline (kept out of tonemapping), and a little dithering against banding.
+- **Anti-aliasing**: 4x MSAA by default; or **temporal** (each frame drawn with a different sub-pixel offset and
+  blended with the frames before, found where they were through the depth and clamped to the colours around each
+  pixel so moving things don't smear): it also smooths shading and thin lines. View > Anti-aliasing in the editor
+  (remembered), `vkgame --aa msaa|taa|off`, or `VKWORLD_AA=taa` for either.
+- Distance fog, the selection outline (kept out of tonemapping), and a little dithering against banding.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
   (joint matrices in a storage buffer, up to 4 joints per vertex) in every pass, shadows and outline included.
 - **Batching**: objects outside the camera's (or, for the shadow pass, the sun's) frustum are culled; the rest are

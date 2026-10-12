@@ -17,6 +17,7 @@ struct EditorPrefs {
     bool showOutliner = true, showInspector = true, showAssets = true, showColliders = false, showProfiler = false;
     bool previewParticles = true;
     float cameraSpeed = 12.f, cameraFov = 60.f;   // fly speed (units/s), degrees
+    int antialiasing = -1;   // Renderer::Antialiasing (-1: the renderer's default)
     // Play
     bool maximizeOnPlay = false, captureOnClick = true;
     std::vector<std::string> recentProjects;   // folders, newest first

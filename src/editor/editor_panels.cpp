@@ -146,6 +146,21 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
         ImGui::MenuItem("Profiler", "F3", &showProfiler_);
+        if (renderer_ && ImGui::BeginMenu("Anti-aliasing")) {
+            const char* names[] = {"MSAA (4x)", "Temporal", "Off"};
+            const char* tips[] = {"Smooth edges from four samples per pixel", "Jittered frames blended over time: "
+                                  "also smooths shading and thin lines; softer, and can trail behind fast motion",
+                                  "Jagged edges, fastest"};
+            for (int i = 0; i < 3; ++i) {
+                auto mode = (Renderer::Antialiasing)i;
+                if (ImGui::MenuItem(names[i], nullptr, renderer_->antialiasing() == mode, renderer_->supports(mode))) {
+                    renderer_->setAntialiasing(mode);
+                    antialiasing_ = i;
+                }
+                tooltip(tips[i]);
+            }
+            ImGui::EndMenu();
+        }
         if (ImGui::MenuItem("Reset layout")) {   // the panels back where they started (and shown)
             resetLayout_ = true;
             showOutliner_ = showInspector_ = showAssets_ = true;

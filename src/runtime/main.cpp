@@ -1,6 +1,7 @@
 // The standalone game: plays a scene without the editor.
 //
-//   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--screenshot out.png [--frames N]]
+//   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--aa msaa|taa|off]
+//          [--screenshot out.png [--frames N]]
 //          [--check]   (loads everything but opens no window: for testing an exported game anywhere)
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
@@ -105,10 +106,12 @@ int main(int argc, char** argv) {
         std::printf("Playing from a pack\n");
     std::string language;   // --language es: play in another language (strings/es.json) than the project's
     bool check = false;     // --check: load the game (pack, project, module, start scene) without a window, and exit
+    std::string aa;         // --aa msaa | taa | off: anti-aliasing (the renderer's default: MSAA)
     {
         int out = 1;
         for (int i = 1; i < argc; ++i) {
             if (!std::strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
+            else if (!std::strcmp(argv[i], "--aa") && i + 1 < argc) aa = argv[++i];
             else if (!std::strcmp(argv[i], "--check")) check = true;
             else argv[out++] = argv[i];
         }
@@ -178,6 +181,9 @@ int main(int argc, char** argv) {
 
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
+    if (aa == "taa") app.renderer().setAntialiasing(Renderer::Antialiasing::Temporal);
+    else if (aa == "off") app.renderer().setAntialiasing(Renderer::Antialiasing::Off);
+    else if (aa == "msaa") app.renderer().setAntialiasing(Renderer::Antialiasing::Msaa);
     if (!settings.icon.empty()) {   // the project's icon on the window (and the task bar / Dock)
         TextureLibrary icon;
         std::string iconError;

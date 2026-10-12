@@ -60,6 +60,8 @@ public:
         gameUi_.setTextureLookup(std::move(lookup));
     }
     bool selectByName(const std::string& names);   // "A" or "A,B,C" (A is the primary)
+    // The renderer drawing the editor (for View > Anti-aliasing); the saved choice is applied to it
+    void setRenderer(Renderer* renderer);
 
 private:
     enum class Tool { Select, Move, Rotate, Scale, Terrain };
@@ -170,6 +172,8 @@ private:
     EditorPrefs savedPrefs_;      // as last written
     float prefsTimer_ = 0.f;
     std::vector<std::string> recentProjects_;   // File > Recent projects (newest first)
+    Renderer* renderer_ = nullptr;
+    int antialiasing_ = -1;   // the one picked in View > Anti-aliasing (Renderer::Antialiasing; -1: the default)
     void select(EntityId id);
     void addObject(int mesh);
     void addEmpty();

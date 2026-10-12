@@ -359,3 +359,12 @@ Working list for turning the renderer demo into a small game engine. Each task i
   the first probe whose box holds the point (box-projected lookups), fading to the sky over the last metre.
   Editor: Add > Reflection probe, Add component, the box drawn when selected, Bake. Not done: baking in the
   background, shadows in probe views, probes blending with each other, saving bakes with the scene.
+- Task 36, temporal anti-aliasing: Renderer::setAntialiasing (Msaa / Temporal / Off; VKWORLD_AA, vkgame --aa, the
+  editor's View menu saved in its prefs) rebuilds what depends on the sample count (createSampledPipelines: scene,
+  transparent, outline, sky, particles, AO; the targets through recreateSwapchain). Temporal: the frame UBO's
+  viewProj gets a Halton(2, 3) sub-pixel offset (eight); taa.frag (after the scene pass) reprojects each pixel through
+  the depth with last frame's unjittered matrix (so a still view samples its history exactly), clamps the history to
+  the 3x3 neighbourhood in a compressed range, blends 90 %, into one of two ping-pong images (the other is the
+  history), copied back into the HDR image for bloom and the composite. History resets with the viewport, size or
+  mode. Needs a sampleable depth buffer (like AO). vecmath gained a general inverse. Not done: motion vectors (moving
+  objects rely on the clamp), sharpening, TAA in probe bakes.
