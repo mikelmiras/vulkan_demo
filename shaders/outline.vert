@@ -11,7 +11,7 @@ layout(location = 4) in vec4 inWeights;
 layout(location = 3) flat out vec4 vColor;
 
 void main() {
-    Instance inst = instances[gl_InstanceIndex];
+    Instance inst = instances[instanceIndex[gl_InstanceIndex]];
     vColor = inst.color;
     mat4 model = SKINNED_MODEL(inst);
     vec4 world = model * vec4(inPos, 1.0);

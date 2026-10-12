@@ -265,7 +265,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 33 (done) | Scripting: Lua behaviours (vendored Lua, fields, the GameContext API, hot reload on save) alongside C++ modules | Every bit of game logic needs a C++ rebuild |
 | 34 (done) | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
 | 35 (done) | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
-| 36 (in progress) | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
+| 36 (done) | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
 | 37 | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
 | 38 | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
 | 39 | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
@@ -368,3 +368,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
   history), copied back into the HDR image for bloom and the composite. History resets with the viewport, size or
   mode. Needs a sampleable depth buffer (like AO). vecmath gained a general inverse. Not done: motion vectors (moving
   objects rely on the clamp), sharpening, TAA in probe bakes.
+- Task 36, GPU culling: prepareInstances writes the main pass's solid objects unculled (batched as before) with each
+  one's world box (centre, half extents; the batch in w) and a VkDrawIndexedIndirectCommand per batch with no
+  instances; cull.comp (64 per group) runs the CPU's box-vs-plane test and appends visible ones (atomicAdd on the
+  batch's instanceCount) to an instance-index buffer (set 0, binding 13) the vertex shaders now read through
+  (instances[instanceIndex[gl_InstanceIndex]]; the identity elsewhere: shadows, outlines, see-through, probe views).
+  Scene batches draw with vkCmdDrawIndexedIndirect; visible counts and triangles come back from the commands after
+  the frame's fence (a frame or two late in the stats). VKWORLD_GPU_CULLING=0: the CPU path. Same picture either way
+  (checked on the stress scene: only stats text differs, and two pixels where draw order changed). Not done:
+  persistent GPU scene data (instances are still written by the CPU every frame, which is most of the cost), shadow
+  passes on the GPU, occlusion culling, multi-draw indirect.

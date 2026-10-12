@@ -566,7 +566,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[13] = {
+    VkDescriptorSetLayoutBinding frameBindings[14] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -580,9 +580,10 @@ void Renderer::createPipelines() {
         {10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // instance indices (GPU culling)
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 13;
+    dslci.bindingCount = 14;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -891,7 +892,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9 * MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
@@ -985,6 +986,7 @@ void Renderer::createResources(const MeshLibrary&) {
         }
     }
 
+    createCulling();
     for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) {
         ensureInstanceCapacity(1024);
         SceneRenderInfo none;
@@ -1071,6 +1073,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 0, nullptr);
 
+    recordCulling(cb, info);   // (compute: before any rendering)
+
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
     timestamp(cb, "Shadows");
@@ -1143,11 +1147,22 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         };
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-        for (const Batch& b : sceneBatches_) {
-            draw(b);
+        for (size_t i = 0; i < sceneBatches_.size(); ++i) {
+            const Batch& b = sceneBatches_[i];
+            if (gpuCulled_) {   // as many instances as the culling pass found visible
+                if (b.texture != boundTexture) {
+                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
+                    boundTexture = b.texture;
+                }
+                vkCmdDrawIndexedIndirect(cb, cullCommands_[frame_].buffer, i * sizeof(VkDrawIndexedIndirectCommand), 1,
+                                         sizeof(VkDrawIndexedIndirectCommand));
+            } else {
+                draw(b);
+                stats_.triangles += meshes_->get(b.mesh).indexCount / 3 * b.count;
+            }
             stats_.drawCalls++;
-            stats_.triangles += meshes_->get(b.mesh).indexCount / 3 * b.count;
         }
+        if (gpuCulled_) stats_.triangles += gpuTriangles_;   // (a frame or two old)
 
         // The sky, wherever nothing was drawn
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
@@ -1344,6 +1359,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
     }
     readGpuTimes();   // that frame's pass times
+    readCullStats();   // ... and what its culling pass let through
     writeProbeDescriptors();   // (its set is free now)
     for (Buffer& b : retired_[frame_]) destroyBuffer(b);   // staging for uploads that frame made: done now
     retired_[frame_].clear();
@@ -1456,6 +1472,7 @@ void Renderer::shutdown() {
     vkDestroySampler(device_, nearestSampler_, nullptr);
     destroyEnvironmentResources();
     destroyProbes();
+    destroyCulling();
     vkDestroySampler(device_, shadowSampler_, nullptr);
     destroyShadowArray(cascades_);
     destroyShadowArray(spotShadows_);

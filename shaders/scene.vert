@@ -18,7 +18,7 @@ layout(location = 6) flat out vec4 vEmissive;
 layout(location = 7) out vec4 vSplat;   // terrains: how much of each layer here (their skin weights)
 
 void main() {
-    Instance inst = instances[gl_InstanceIndex];
+    Instance inst = instances[instanceIndex[gl_InstanceIndex]];
     mat4 model = SKINNED_MODEL(inst);
     vec4 world = model * vec4(inPos, 1.0);
     vWorldPos = world.xyz;

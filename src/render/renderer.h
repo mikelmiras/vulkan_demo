@@ -182,6 +182,24 @@ private:
     void writeEnvironmentDescriptors();
     void uploadEnvironment(const Environment* env);   // (when it's another one: waits for the GPU)
     void fillFrameUBO(const SceneRenderInfo& info, render_detail::FrameUBO& u, bool shadows);
+    // GPU culling (renderer_cull.cpp): the main pass's solid objects culled by a compute shader into indirect draws
+    bool gpuCulling_ = true;          // (VKWORLD_GPU_CULLING=0: on the CPU, as before)
+    bool gpuCulled_ = false;          // this frame's scene batches are drawn indirectly
+    uint32_t cullCount_[MAX_FRAMES] = {}, cullBatches_[MAX_FRAMES] = {};   // what each frame slot's pass culled
+    Buffer cullBounds_[MAX_FRAMES], cullCommands_[MAX_FRAMES], instanceIndex_[MAX_FRAMES];
+    VkDescriptorSetLayout cullSetLayout_ = VK_NULL_HANDLE;
+    VkPipelineLayout cullLayout_ = VK_NULL_HANDLE;
+    VkPipeline cullPipeline_ = VK_NULL_HANDLE;
+    VkDescriptorPool cullPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet cullSets_[MAX_FRAMES] = {};
+    uint32_t gpuVisible_ = 0, gpuTriangles_ = 0;   // from a frame before (read back after its fence)
+    void createCulling();
+    void destroyCulling();
+    void writeCullSet();   // this frame's: its bounds, commands and instance indices
+    void ensureCullCapacity(size_t objects, size_t batches);
+    void prepareGpuCulling(const std::vector<DrawItem>& items, const std::vector<uint32_t>& visible);
+    void recordCulling(VkCommandBuffer cb, const SceneRenderInfo& info);
+    void readCullStats();
     // Anti-aliasing (renderer_taa.cpp): the pipelines that depend on the sample count, and the temporal pass
     void createSampledPipelines();
     void destroySampledPipelines();
@@ -226,7 +244,7 @@ private:
     void endOneTimeCommands(VkCommandBuffer cb);
     void createShadowResources();   // the samplers (and the shadow maps)
     // Culls and batches the draw items into this frame's instance buffer (after its fence has been waited on)
-    void prepareInstances(const SceneRenderInfo& info);
+    void prepareInstances(const SceneRenderInfo& info, bool gpuCulling = true);
     void ensureInstanceCapacity(size_t count);
     void uploadJoints(const SceneRenderInfo& info);   // this frame's joint matrices into its storage buffer
     void uploadParticles(const SceneRenderInfo& info);   // sorted: see-through ones back to front, then additive

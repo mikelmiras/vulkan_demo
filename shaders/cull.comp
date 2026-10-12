@@ -1,0 +1,39 @@
+#version 450
+// GPU culling: one invocation per solid object of the main pass. Each that's (partly) inside the view frustum gets the
+// next slot of its batch's indirect draw (instanceCount, counted up) and its instance number written there, so the
+// draw reads only the visible ones (instances[instanceIndex[gl_InstanceIndex]]).
+
+layout(local_size_x = 64) in;
+
+struct Bounds {
+    vec4 centre;   // world-space centre of its box; w: its batch (the bits of a uint)
+    vec4 extent;   // world-space half extents; w > 0: never culled (skinned: it goes where its skeleton takes it)
+};
+layout(std430, set = 0, binding = 0) readonly buffer BoundsBuffer { Bounds bounds[]; };
+struct DrawCommand {   // VkDrawIndexedIndirectCommand
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+};
+layout(std430, set = 0, binding = 1) buffer Commands { DrawCommand commands[]; };
+layout(std430, set = 0, binding = 2) writeonly buffer Indices { uint instanceIndex[]; };
+layout(push_constant) uniform Push {
+    vec4 planes[6];   // the frustum, inside where dot(n, p) + d >= 0 (not normalised)
+    uint count;       // objects (bounds[i] is instance i)
+} pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.count) return;
+    Bounds b = bounds[i];
+    if (b.extent.w <= 0.0)
+        for (int k = 0; k < 6; ++k) {
+            vec4 p = pc.planes[k];
+            if (dot(p.xyz, b.centre.xyz) + p.w + dot(abs(p.xyz), b.extent.xyz) < 0.0) return;   // all outside this one
+        }
+    uint batch = floatBitsToUint(b.centre.w);
+    uint slot = atomicAdd(commands[batch].instanceCount, 1u);
+    instanceIndex[commands[batch].firstInstance + slot] = i;
+}

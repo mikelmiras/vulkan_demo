@@ -16,7 +16,7 @@ layout(push_constant) uniform Shadow {
 } shadow;
 
 void main() {
-    Instance inst = instances[gl_InstanceIndex];
+    Instance inst = instances[instanceIndex[gl_InstanceIndex]];
     vUV = inUV * inst.params.y;
     vCutout = vec4(inst.color.a, inst.params.z, inst.material.w, inst.emissive.w);
     gl_Position = frame.shadowViewProj[shadow.layer] * SKINNED_MODEL(inst) * vec4(inPos, 1.0);

@@ -82,6 +82,10 @@ struct Instance {
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
     Instance instances[];
 };
+// Which instance each drawn one is: the identity, except in the main pass's GPU-culled batches (cull.comp)
+layout(std430, set = 0, binding = 13) readonly buffer InstanceIndices {
+    uint instanceIndex[];
+};
 layout(std430, set = 0, binding = 3) readonly buffer Joints {
     mat4 joints[];
 };

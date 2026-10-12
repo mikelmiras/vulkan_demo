@@ -293,8 +293,10 @@ dropping on the right.
 - Distance fog, the selection outline (kept out of tonemapping), and a little dithering against banding.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
   (joint matrices in a storage buffer, up to 4 joints per vertex) in every pass, shadows and outline included.
-- **Batching**: objects outside the camera's (or, for the shadow pass, the sun's) frustum are culled; the rest are
-  drawn instanced, one draw call per mesh + texture, with per-object data in a storage buffer.
+- **Batching and culling**: objects are drawn instanced, one draw call per mesh + material, with per-object data
+  in a storage buffer. The main pass's solid objects are culled on the GPU: a compute shader tests each against the
+  view frustum and counts the visible ones into each batch's indirect draw (`VKWORLD_GPU_CULLING=0` does it on the
+  CPU instead); see-through ones (sorted) and the shadow passes are culled on the CPU.
 
 ## Animation
 

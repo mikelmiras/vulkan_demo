@@ -17,14 +17,23 @@ void Renderer::ensureInstanceCapacity(size_t count) {
     while (capacity < count) capacity *= 2;
     buf = createBuffer(capacity * sizeof(InstanceData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     buf.size = capacity * sizeof(InstanceData);
-    VkDescriptorBufferInfo bi{buf.buffer, 0, VK_WHOLE_SIZE};
-    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-    w.dstSet = descSets_[frame_];
-    w.dstBinding = 2;
-    w.descriptorCount = 1;
-    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    w.pBufferInfo = &bi;
-    vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+    // ... and which instance each drawn one is (as many: the identity unless GPU culling compacts a batch)
+    Buffer& idx = instanceIndex_[frame_];
+    if (idx.buffer) destroyBuffer(idx);
+    idx = createBuffer(capacity * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    idx.size = capacity * sizeof(uint32_t);
+    VkDescriptorBufferInfo infos[2] = {{buf.buffer, 0, VK_WHOLE_SIZE}, {idx.buffer, 0, VK_WHOLE_SIZE}};
+    VkWriteDescriptorSet w[2];
+    for (int i = 0; i < 2; ++i) {
+        w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w[i].dstSet = descSets_[frame_];
+        w[i].dstBinding = i == 0 ? 2 : 13;
+        w[i].descriptorCount = 1;
+        w[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        w[i].pBufferInfo = &infos[i];
+    }
+    vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+    writeCullSet();
 }
 
 void Renderer::uploadJoints(const SceneRenderInfo& info) {
@@ -49,7 +58,10 @@ void Renderer::uploadJoints(const SceneRenderInfo& info) {
     if (count) std::memcpy(buf.mapped, info.joints->data(), count * sizeof(Mat4));
 }
 
-void Renderer::prepareInstances(const SceneRenderInfo& info) {
+void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
+    gpuCulled_ = false;
+    cullBatches_[frame_] = 0;
+    bool gpu = gpuCulling && gpuCulling_ && cullPipeline_;   // solid objects: culled by cull.comp, not here
     sceneBatches_.clear();
     transparentBatches_.clear();
     for (auto& b : shadowBatches_) b.clear();
@@ -77,7 +89,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
         const Mesh& mesh = meshes_->get(o.mesh);
         // Skinned meshes can move anywhere their skeleton takes them: never culled
         bool skinned = o.jointOffset >= 0;
-        if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) (o.alphaMode == 2 ? transparent : visible).push_back(i);
+        if (gpu && o.alphaMode != 2) visible.push_back(i);
+        else if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) (o.alphaMode == 2 ? transparent : visible).push_back(i);
         else stats_.culled++;
         for (size_t k = 0; k < shadowViews.size(); ++k)   // each shadow camera: what it sees
             if (skinned || shadowViews[k].visible(o.model, mesh.boundsMin, mesh.boundsMax)) casters[k].push_back(i);
@@ -152,6 +165,13 @@ void Renderer::prepareInstances(const SceneRenderInfo& info) {
         }
     stats_.objects = (uint32_t)(visible.size() + transparent.size());
     stats_.shadowCasters = (uint32_t)casterCount;
+    auto* index = static_cast<uint32_t*>(instanceIndex_[frame_].mapped);
+    for (uint32_t k = 0; k < n; ++k) index[k] = k;   // (the identity: cull.comp rewrites the culled batches' part)
+    if (gpu && !visible.empty()) {
+        prepareGpuCulling(items, visible);
+        stats_.objects = gpuVisible_ + (uint32_t)transparent.size();   // (as a frame or two ago)
+        stats_.culled += (uint32_t)visible.size() > gpuVisible_ ? (uint32_t)visible.size() - gpuVisible_ : 0;
+    }
 }
 
 void Renderer::uploadParticles(const SceneRenderInfo& info) {

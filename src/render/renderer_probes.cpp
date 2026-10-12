@@ -59,7 +59,7 @@ bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, Ba
         FrameUBO u{};
         fillFrameUBO(f, u, false);   // (no shadows, no probes: their maps follow the main camera)
         std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
-        prepareInstances(f);
+        prepareInstances(f, false);   // (culled on the CPU: these draws aren't indirect)
         uploadJoints(f);
 
         VkCommandBuffer cb = beginOneTimeCommands();
