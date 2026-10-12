@@ -406,6 +406,9 @@ int main(int argc, char** argv) {
             others.push_back(v);
         }
         if (!others.empty()) info.views = &others;
+        // HDR output: the player's setting (or VKWORLD_HDR=1), where the display takes it (screenshots: SDR)
+        if (options.screenshotPath.empty())
+            app.renderer().setHdrOutput(game.state().flag("settings.hdr") || (std::getenv("VKWORLD_HDR") && std::string(std::getenv("VKWORLD_HDR")) == "1"));
         app.endFrame(info);
     }
     game.stop();

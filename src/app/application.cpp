@@ -3,6 +3,7 @@
 #include "game/fonts.h"
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -25,15 +26,11 @@ double nowSeconds() {
     return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
-void setupImGuiStyle(float scale) {
-    ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;   // (the editor keeps its panel layout in a file of its own: editor_prefs.h)
-    for (const auto& font : platform::uiFontCandidates()) {
-        std::error_code ec;
-        if (std::filesystem::exists(font, ec) && io.Fonts->AddFontFromFileTTF(font.u8string().c_str(), 16.f * scale))
-            break;
-    }
-
+// The look, at a scale (sizes and fonts: the window's in physical pixels on HiDPI displays). Again whenever the
+// display's scale changes (a window moved to another monitor): fonts are drawn at the size asked for (ImGui 1.92)
+void applyStyle(float scale) {
+    ImGuiStyle fresh;
+    ImGui::GetStyle() = fresh;
     ImGui::StyleColorsDark();
     ImGuiStyle& s = ImGui::GetStyle();
     s.WindowRounding = 0.f;
@@ -45,6 +42,17 @@ void setupImGuiStyle(float scale) {
     s.ItemSpacing = ImVec2(7, 5);
     s.Colors[ImGuiCol_WindowBg].w = 0.96f;
     if (scale > 1.f) s.ScaleAllSizes(scale);
+    s.FontScaleDpi = scale;
+}
+
+void setupImGuiStyle(float scale) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;   // (the editor keeps its panel layout in a file of its own: editor_prefs.h)
+    for (const auto& font : platform::uiFontCandidates()) {
+        std::error_code ec;
+        if (std::filesystem::exists(font, ec) && io.Fonts->AddFontFromFileTTF(font.u8string().c_str(), 16.f)) break;
+    }
+    applyStyle(scale);
 }
 
 }  // namespace
@@ -104,6 +112,10 @@ bool Application::beginFrame(float& dt) {
         if (quit_ || platform::closeRequested()) return false;
         platform::pollEvents();
         platform::windowSize(width_, height_);
+        if (float scale = std::max(platform::dpiScale(), 1.f); std::fabs(scale - uiScale_) > 0.01f) {   // (another monitor)
+            uiScale_ = scale;
+            applyStyle(scale);
+        }
         renderer_.resize(width_, height_);
 
         double now = nowSeconds();

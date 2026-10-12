@@ -6,10 +6,14 @@
 layout(set = 0, binding = 0) uniform sampler2D hdr;
 layout(set = 0, binding = 1) uniform sampler2D bloom;
 layout(set = 0, binding = 2) uniform sampler2D ao;   // ambient occlusion, half size (when a.z = 1)
+layout(set = 0, binding = 3) uniform sampler2D uiLayer;   // the UI, drawn apart (when b.w = 1): premultiplied, sRGB
 layout(push_constant) uniform Post {
     vec4 a;   // x = exposure, y = bloom strength, z = 1: apply ambient occlusion
-    vec4 b;   // rgb = outline colour (sRGB)
-    vec4 c;   // x = colour-blindness filter: 0 none, 1 protanopia, 2 deuteranopia, 3 tritanopia
+    vec4 b;   // rgb = outline colour (sRGB), w = 1: blend the UI layer in
+    vec4 c;   // x = colour-blindness filter: 0 none, 1 protanopia, 2 deuteranopia, 3 tritanopia;
+              // y = output: 0 SDR (gamma-encoded), 1 HDR10 (PQ, Rec.2020), 2 scRGB (linear, 1 = 80 nits);
+              // z = the display's peak, w = paper white (nits; HDR)
+    vec4 d;   // with the UI layer (drawn over the whole picture): the scene's rectangle (x, y, w, h pixels)
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -43,12 +47,22 @@ vec3 daltonize(vec3 rgb, int mode) {
     return clamp(rgb + shift, 0.0, 1.0);
 }
 
+// HDR10's encoding (render/display.cpp has the reference): nits -> PQ
+vec3 pq(vec3 nits) {
+    const float m1 = 2610.0 / 16384.0, m2 = 2523.0 / 4096.0 * 128.0, c1 = 3424.0 / 4096.0, c2 = 2413.0 / 4096.0 * 32.0,
+                c3 = 2392.0 / 4096.0 * 32.0;
+    vec3 y = pow(clamp(nits / 10000.0, 0.0, 1.0), vec3(m1));
+    return pow((c1 + c2 * y) / (1.0 + c3 * y), vec3(m2));
+}
+
 void main() {
     ivec2 px = ivec2(gl_FragCoord.xy);
     vec4 h = texelFetch(hdr, px, 0);
     float outline = clamp(h.a - 1.0, 0.0, 1.0);   // (partly, on anti-aliased edges)
     vec3 scene = outline < 0.999 ? (h.rgb - outline * pc.b.rgb) / (1.0 - outline) : vec3(0.0);
     vec2 uv = (vec2(px) + 0.5) / vec2(textureSize(hdr, 0));
+    bool outside = pc.b.w > 0.5 && (gl_FragCoord.x < pc.d.x || gl_FragCoord.y < pc.d.y || gl_FragCoord.x > pc.d.x + pc.d.z ||
+                                    gl_FragCoord.y > pc.d.y + pc.d.w);   // (around the scene: its clear colour, as it is)
     if (pc.a.z > 0.5) {   // a little blur over the half-size occlusion: four bilinear taps
         vec2 t = 1.0 / vec2(textureSize(ao, 0));
         float occ = texture(ao, uv + vec2(-0.5, -0.5) * t).r + texture(ao, uv + vec2(0.5, -0.5) * t).r +
@@ -56,9 +70,43 @@ void main() {
         scene *= occ * 0.25;
     }
     vec3 c = (max(scene, vec3(0.0)) + texture(bloom, uv).rgb * pc.a.y) * pc.a.x;
+    int output_ = int(pc.c.y + 0.5);
+    if (outside) {
+        vec3 clear = h.rgb;   // (linear sky)
+        vec4 ui = texelFetch(uiLayer, px, 0);
+        if (output_ != 0) {
+            vec3 uiLinear = ui.a > 0.0 ? pow(ui.rgb / ui.a, vec3(2.2)) * ui.a : vec3(0.0);
+            vec3 nits = (clear * (1.0 - ui.a) + uiLinear) * pc.c.w;
+            const mat3 m = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880, 0.0433, 0.0114, 0.8956);
+            outColor = output_ == 1 ? vec4(pq(m * nits), 1.0) : vec4(nits / 80.0, 1.0);
+        } else {
+            outColor = vec4(pow(clear, vec3(1.0 / 2.2)) * (1.0 - ui.a) + ui.rgb, 1.0);
+        }
+        return;
+    }
+    if (output_ != 0) {   // HDR: highlights kept up to the display's peak, the UI at paper white, in linear light
+        float peak = max(pc.c.z / pc.c.w, 1.0);   // (in paper whites)
+        vec3 t = pbrNeutral(c / peak) * peak;
+        t = mix(t, pow(pc.b.rgb, vec3(2.2)), outline);
+        vec4 ui = pc.b.w > 0.5 ? texelFetch(uiLayer, px, 0) : vec4(0.0);
+        vec3 uiLinear = ui.a > 0.0 ? pow(ui.rgb / ui.a, vec3(2.2)) * ui.a : vec3(0.0);
+        vec3 nits = (t * (1.0 - ui.a) + uiLinear) * pc.c.w;
+        if (output_ == 1) {
+            const mat3 to2020 = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880, 0.0433, 0.0114, 0.8956);
+            outColor = vec4(pq(to2020 * nits), 1.0);
+        } else {
+            outColor = vec4(nits / 80.0, 1.0);
+        }
+        return;
+    }
     c = pow(clamp(pbrNeutral(c), 0.0, 1.0), vec3(1.0 / 2.2));
     if (pc.c.x > 0.5) c = daltonize(c, int(pc.c.x + 0.5));
     c = mix(c, pc.b.rgb, outline);
     float noise = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
-    outColor = vec4(c + noise / 255.0, 1.0);
+    c += noise / 255.0;
+    if (pc.b.w > 0.5) {   // (the UI layer: over the picture, as ImGui would have blended it)
+        vec4 ui = texelFetch(uiLayer, px, 0);
+        c = c * (1.0 - ui.a) + ui.rgb;
+    }
+    outColor = vec4(c, 1.0);
 }

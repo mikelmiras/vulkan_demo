@@ -145,6 +145,22 @@ void Renderer::createPostImages() {
         vkUpdateDescriptorSets(device_, 2, w2, 0, nullptr);
     }
     writeSsrBinding();
+    // The UI layer (HDR output: the UI drawn apart, blended in by the composite): the composite's binding 3 (the HDR
+    // image when there's none: something valid to bind)
+    uiLayerFresh_ = uiLayered_;
+    if (uiLayered_)
+        uiLayer_ = createImage(sdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                               VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    {
+        VkDescriptorImageInfo layer{postSampler_, uiLayer_.image ? uiLayer_.view : hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet w3{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w3.dstSet = compositeSet_;
+        w3.dstBinding = 3;
+        w3.descriptorCount = 1;
+        w3.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w3.pImageInfo = &layer;
+        vkUpdateDescriptorSets(device_, 1, &w3, 0, nullptr);
+    }
 }
 
 // The scene's view of the last frame's picture (set 0, binding 18), in every frame's set
@@ -165,6 +181,7 @@ void Renderer::writeSsrBinding() {
 
 void Renderer::destroyPostImages() {
     if (prevColor_.image) destroyImage(prevColor_);
+    if (uiLayer_.image) destroyImage(uiLayer_);
     destroyTaaImages(taa_);
     for (ViewImage& v : viewImages_) destroyTaaImages(v.taa);   // (sized like the targets: remade when next drawn)
     for (uint32_t m = 0; m < bloomMips_; ++m) vkDestroyImageView(device_, bloomViews_[m], nullptr);
@@ -179,7 +196,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     struct Push {
-        float a[4], b[4], c[4];
+        float a[4], b[4], c[4], d[4];
     };
     mipBarrier(cb, hdr_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                VK_ACCESS_SHADER_READ_BIT);
@@ -217,7 +234,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         // Down: the HDR image (bright parts only) into level 0, then each level into the next smaller one
         for (uint32_t m = 0; m < bloomMips_; ++m) {
             VkExtent2D src = m == 0 ? extent_ : bloomSizes_[m - 1];
-            Push p{{1.f / (float)src.width, 1.f / (float)src.height, m == 0 ? 1.f : 0.f, info.bloomThreshold}, {}, {}};
+            Push p{{1.f / (float)src.width, 1.f / (float)src.height, m == 0 ? 1.f : 0.f, info.bloomThreshold}, {}, {}, {}};
             pass(bloomViews_[m], bloomSizes_[m], bloomDownPipeline_, m == 0 ? prefilterSet_ : downSets_[m], p, false);
             mipBarrier(cb, bloom_.image, m, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                        fragStage, VK_ACCESS_SHADER_READ_BIT);
@@ -227,7 +244,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
             mipBarrier(cb, bloom_.image, m, 1, readable, target, fragStage, VK_ACCESS_SHADER_READ_BIT, colorStage,
                        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
             VkExtent2D src = bloomSizes_[m + 1];
-            Push p{{1.f / (float)src.width, 1.f / (float)src.height, 1.f, 0.f}, {}, {}};
+            Push p{{1.f / (float)src.width, 1.f / (float)src.height, 1.f, 0.f}, {}, {}, {}};
             pass(bloomViews_[m], bloomSizes_[m], bloomUpPipeline_, upSets_[m], p, true);
             mipBarrier(cb, bloom_.image, m, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                        fragStage, VK_ACCESS_SHADER_READ_BIT);
@@ -244,7 +261,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                ao ? colorStage : fragStage, ao ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
     if (ao) {
         float tanY = std::tan(info.fovY * 0.5f), tanX = tanY * (vw / vh);
-        Push p{{tanX, tanY, info.zNear, info.zFar}, {info.aoRadius, info.aoStrength, vx, vy}, {vw, vh, 0.f, 0.f}};
+        Push p{{tanX, tanY, info.zNear, info.zFar}, {info.aoRadius, info.aoStrength, vx, vy}, {vw, vh, 0.f, 0.f}, {}};
         pass(ao_.view, aoSize_, aoPipeline_, aoSet_, p, false);
         mipBarrier(cb, ao_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                    VK_ACCESS_SHADER_READ_BIT);
@@ -268,15 +285,23 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     ri.colorAttachmentCount = 1;
     ri.pColorAttachments = &att;
     vkCmdBeginRendering(cb, &ri);
-    if (info.items && vw >= 1.f && vh >= 1.f) {
+    // (with the UI in its own layer: over the whole picture, where the UI is blended in too)
+    const bool layered = view < 0 && uiLayered_;
+    if ((info.items && vw >= 1.f && vh >= 1.f) || layered) {
         VkViewport vp{vx, vy, vw, vh, 0.f, 1.f};
         VkRect2D sc{{(int32_t)vx, (int32_t)vy}, {(uint32_t)vw, (uint32_t)vh}};
+        if (layered) {
+            vp = {0.f, 0.f, (float)extent_.width, (float)extent_.height, 0.f, 1.f};
+            sc = {{0, 0}, extent_};
+        }
         vkCmdSetViewport(cb, 0, 1, &vp);
         vkCmdSetScissor(cb, 0, 1, &sc);
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline_);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, view >= 0 ? compositeViewPipeline_ : compositePipeline_);
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &compositeSet_, 0, nullptr);
+        float output = view >= 0 ? 0.f : output_ == display::Output::Hdr10 ? 1.f : output_ == display::Output::ScRgb ? 2.f : 0.f;
         Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, ao ? 1.f : 0.f, 0.f},
-               {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}, {(float)info.colorFilter, 0.f, 0.f, 0.f}};
+               {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, layered ? 1.f : 0.f},
+               {(float)info.colorFilter, output, hdrPeak_, hdrPaperWhite_}, {vx, vy, vw, vh}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
     }
@@ -286,7 +311,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     if (view < 0 && info.reflections && info.items && ssrCapturePipeline_ && vw >= 1.f && vh >= 1.f) {
         imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target, fragStage,
                      VK_ACCESS_SHADER_READ_BIT, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-        Push p{{info.zNear, info.zFar, 0.f, 0.f}, {}, {}};
+        Push p{{info.zNear, info.zFar, 0.f, 0.f}, {}, {}, {}};
         pass(prevColor_.view, extent_, ssrCapturePipeline_, ssrSet_, p, false);
         imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, target, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);

@@ -21,7 +21,8 @@ libxkbcommon's headers (`sudo apt install libwayland-dev libxkbcommon-dev`; with
 The libraries themselves are loaded when the program starts, so a build runs on machines without them too (on X11).
 On a Wayland session the window is a native Wayland one when the compositor draws window decorations itself (KDE,
 sway, Hyprland, ...); elsewhere (GNOME) it goes through XWayland, which gets a title bar. `VKWORLD_PLATFORM=wayland`
-or `=x11` picks one.
+or `=x11` picks one. On HiDPI displays a native Wayland window is drawn in physical pixels (fractional scales too:
+125 %, 150 %), as on Windows, and the UI follows the scale, also when the window moves to another display.
 
 ```sh
 cmake -S . -B build
@@ -345,6 +346,11 @@ dropping on the right.
   under 0.55) reflect what's on screen: each pixel's reflected ray is marched through the last frame's picture and
   distances, and what it meets is blended over the probe or sky reflection, fading at the picture's edges and with
   roughness. What's off screen or hidden falls back to the probes and the sky.
+- **HDR output** (View > HDR output, `VKWORLD_HDR=1`, or a game's `settings.hdr`): on a display (and driver) that
+  takes it, the picture goes out as HDR10 (PQ, Rec.2020 primaries; else scRGB): highlights keep their brightness up
+  to the display's peak (`VKWORLD_HDR_PEAK`, 1000 nits) instead of rolling off at white, and the UI sits at paper
+  white (`VKWORLD_HDR_PAPER_WHITE`, 200 nits) — it's drawn into a layer of its own and blended in by the composite,
+  in linear light. Screenshots are SDR. (`VKWORLD_UI_LAYER=1` uses the layered UI on an SDR display: a check.)
 - **Texture streaming**: textures go to the GPU at most 256 pixels across at first; the scene shader reports, per
   texture, the finest mip level the screen needs (one pixel in sixteen, by its footprint), and the finer levels are
   uploaded when something needs them, a few megabytes a frame. Under a budget (512 MB; `VKWORLD_TEXTURE_BUDGET=<MB>`)

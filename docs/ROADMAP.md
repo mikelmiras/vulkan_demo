@@ -719,7 +719,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 54 (done) | Editor game view as its own render target (an ImGui image: bloom, temporal AA, any window layout), split-screen local multiplayer (several cameras, one pad each) | The game view shares the scene view's pass; local co-op isn't possible |
 | 55 (done) | Global illumination: dynamic diffuse GI from a probe grid updated over frames (DDGI-style), screen-space reflections | Indirect light only comes from baked reflection probes and an ambient term |
 | 56 (done) | Texture streaming: mips loaded on demand under a memory budget, residency feedback from the GPU | Every texture is fully resident; big projects run out of memory |
-| 57 | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
+| 57 (done) | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
 | 58 | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
 | 59 | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
 | 60 | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
@@ -795,4 +795,26 @@ Working list for turning the renderer demo into a small game engine. Each task i
   stays at its 256 level (blurred) with a 1 MB budget; validation clean. Not done: loading levels from disk (the
   CPU keeps every image whole), compressed formats (BC / ASTC) and their transcoding, sparse residency (images are
   remade, not grown in place), the device's own memory budget (VK_EXT_memory_budget), streaming meshes.
+- Task 57: HiDPI on Wayland (platform_wayland.cpp): the window's buffer is in physical pixels, shown at its logical
+  size through wp_viewporter (so the buffer can be any size: set_buffer_scale's divisibility rule can't break while
+  the swapchain catches up), the scale from wp_fractional_scale_v1's preferred scale, else the largest integer scale
+  of the outputs the surface entered (the outputs' own before it's on one); pointer positions are multiplied by it,
+  the cursor theme is loaded at the next whole scale with its surface's buffer scale; dpiScale() reports it. Windows
+  updates its scale on WM_DPICHANGED. Application re-applies the style when the scale changes (fonts at their base
+  size with FontScaleDpi: ImGui 1.92 draws them at any size; ScaleAllSizes on a fresh style), the editor follows
+  (setUiScale). Checked on a headless weston at --scale=2: a 2560 x 1440 picture of a 1280 x 720 window, the UI at
+  twice the size and laid out for it. HDR (render/display: format choice, PQ and Rec.709 -> 2020 references,
+  tested): VK_EXT_swapchain_colorspace when the loader has it; setHdrOutput remakes the swapchain with HDR10
+  (A2B10G10R10 + ST2084) or scRGB (RGBA16F + extended sRGB linear) if offered; the composite pipeline is remade
+  for the new format; ImGui stays on the SDR format (its pipeline is the UI layer's), drawing into uiLayer_
+  (cleared transparent: ImGui's blending leaves it premultiplied) before the composite, which then covers the
+  whole picture (the scene's rectangle is pushed: around it, the cleared sky): HDR keeps highlights to peak / paper
+  white (PBR Neutral on the scaled colour), blends the UI in linear light at paper white, then PQ in Rec.2020 or
+  scRGB / 80. Extra views composite in SDR into sdrFormat_ images (their own pipeline). Post push constants grew to
+  64 bytes, post sets to four images. Checked: the UI layer on an SDR display (VKWORLD_UI_LAYER=1) against the usual
+  path (the editor's pictures differ in 0.03 % of pixels; vkgame within its run-to-run noise), validation clean;
+  HDR itself only by its reference math and a run asking for it on a display without it (lavapipe offers no HDR
+  colour space). Not done: reading the display's real peak (DXGI on Windows, EDID), HDR metadata
+  (VK_EXT_hdr_metadata), the colour-blindness filter in HDR, HDR screenshots, a calibration screen, HiDPI on X11
+  (Xft.dpi / XSETTINGS), per-monitor scale on macOS (one pixel per point there).
 

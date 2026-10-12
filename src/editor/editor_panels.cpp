@@ -251,6 +251,12 @@ void Editor::drawMenuBar() {
             }
             ImGui::EndMenu();
         }
+        if (renderer_) {   // (where the display takes it: HDR10 or scRGB, the UI at paper white)
+            bool hdr = renderer_->hdrActive();
+            if (ImGui::MenuItem("HDR output", nullptr, &hdr, renderer_->hdrSupported())) renderer_->setHdrOutput(hdr);
+            tooltip(renderer_->hdrSupported() ? "Bright highlights on an HDR display (VKWORLD_HDR_PEAK, VKWORLD_HDR_PAPER_WHITE)"
+                                              : "This display (or its driver) doesn't offer HDR");
+        }
         if (ImGui::MenuItem("Reset layout")) {   // the panels back where they started (and shown)
             resetLayout_ = true;
             showOutliner_ = showInspector_ = showAssets_ = true;

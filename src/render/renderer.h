@@ -11,6 +11,7 @@
 
 #include "assets/meshes.h"
 #include "render/environment.h"
+#include "render/display.h"
 #include "render/texture_streaming.h"
 #include "assets/textures.h"
 #include "core/vecmath.h"
@@ -168,6 +169,13 @@ public:
     // (resizing waits for the GPU), drawn by the next render(). 0 if the view number or size can't be.
     static constexpr int kMaxViews = 4;
     ImTextureID viewTexture(int view, uint32_t width, uint32_t height);
+
+    // HDR output (render/display.h): on a display that takes it, HDR10 (else scRGB); the scene's highlights are kept
+    // up to the display's peak (VKWORLD_HDR_PEAK nits, 1000) with UI and paper white at VKWORLD_HDR_PAPER_WHITE
+    // (200). The UI is drawn into a layer of its own then, blended in by the composite. Screenshots are SDR.
+    void setHdrOutput(bool on);
+    bool hdrSupported() const { return display::hdrAvailable(surfaceFormats_); }
+    bool hdrActive() const { return output_ != display::Output::Sdr; }
 
 private:
     static constexpr int MAX_FRAMES = 2;
@@ -577,6 +585,18 @@ private:
     Vec3 ssrCamPos_, ssrCamForward_;
     float ssrViewport_[4] = {};
     void writeSsrBinding();
+    // The display (createSwapchain): the 8-bit format the UI and extra views are drawn in, what's presented
+    std::vector<VkSurfaceFormatKHR> surfaceFormats_;
+    VkFormat sdrFormat_ = VK_FORMAT_UNDEFINED;
+    VkColorSpaceKHR swapColorSpace_ = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    display::Output output_ = display::Output::Sdr;
+    bool hdrWanted_ = false;
+    bool uiLayered_ = false;        // the UI is drawn into uiLayer_ and blended in by the composite (HDR, or the test switch)
+    bool uiLayerForced_ = false;    // (VKWORLD_UI_LAYER=1: the layered path on an SDR display, to test it)
+    float hdrPeak_ = 1000.f, hdrPaperWhite_ = 200.f;
+    Image uiLayer_;
+    bool uiLayerFresh_ = false;
+    VkPipeline compositeViewPipeline_ = VK_NULL_HANDLE;   // (into the extra views' images: sdrFormat_)
     uint32_t bloomMips_ = 0;
     VkImageView bloomViews_[kMaxBloomMips] = {};
     VkExtent2D bloomSizes_[kMaxBloomMips] = {};

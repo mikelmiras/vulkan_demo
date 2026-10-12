@@ -1,13 +1,17 @@
 // Linux window backend: native Wayland (platform_linux.h). xdg-shell for the window, server-side decorations
 // (xdg-decoration) where the compositor offers them, xkbcommon for the keyboard, wayland-cursor for the pointer's
-// look, and a locked pointer with relative motion (pointer-constraints, relative-pointer) for mouse capture.
+// look, and a locked pointer with relative motion (pointer-constraints, relative-pointer) for mouse capture. HiDPI: the
+// window is drawn in physical pixels (like Windows), its scale from wp_fractional_scale_v1 where the compositor has it
+// (else the outputs it's on), shown at its logical size through wp_viewporter; the UI scales with dpiScale().
 #include "platform/wayland_api.h"   // (first: the libraries' functions are loaded at run time)
 
 #define VK_USE_PLATFORM_WAYLAND_KHR
 #include <vulkan/vulkan.h>
 #include <wayland-client.h>
 
+#include "fractional-scale-v1-client-protocol.h"
 #include "pointer-constraints-unstable-v1-client-protocol.h"
+#include "viewporter-client-protocol.h"
 #include "relative-pointer-unstable-v1-client-protocol.h"
 #include "xdg-decoration-unstable-v1-client-protocol.h"
 #include "xdg-shell-client-protocol.h"
@@ -26,7 +30,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <cmath>
 #include <string>
+#include <vector>
 
 #include "imgui.h"
 
@@ -46,18 +53,32 @@ struct State {
     zxdg_decoration_manager_v1* decorationManager = nullptr;
     zwp_relative_pointer_manager_v1* relativeManager = nullptr;
     zwp_pointer_constraints_v1* constraints = nullptr;
+    wp_viewporter* viewporter = nullptr;
+    wp_fractional_scale_manager_v1* fractionalManager = nullptr;
+    struct Output {
+        wl_output* output;
+        uint32_t name;
+        int scale;
+    };
+    std::vector<Output> outputs;
+    std::vector<wl_output*> on;          // the outputs the window is on
 
     wl_surface* surface = nullptr;
     xdg_surface* xdgSurface = nullptr;
     xdg_toplevel* toplevel = nullptr;
     zxdg_toplevel_decoration_v1* decoration = nullptr;
+    wp_viewport* viewport = nullptr;
+    wp_fractional_scale_v1* fractional = nullptr;
     bool configured = false, closeRequested = false, fullscreen = false;
-    uint32_t width = 0, height = 0;
+    uint32_t width = 0, height = 0;      // logical (surface) size
+    double scale = 1.0;                  // physical pixels per logical one (with a viewport; else 1)
+    bool fractionalScale = false;        // (the compositor says it: outputs' integer scales aren't used)
 
     // Pointer
     uint32_t enterSerial = 0;
     bool pointerInside = false;
     wl_cursor_theme* cursorTheme = nullptr;
+    int cursorScale = 1;
     wl_surface* cursorSurface = nullptr;
     ImGuiMouseCursor cursorShown = ImGuiMouseCursor_COUNT;
     bool captured = false;
@@ -77,6 +98,52 @@ struct State {
 };
 State g;
 
+// ---------------------------------------------------------------------------------------------
+// Scale (HiDPI)
+// ---------------------------------------------------------------------------------------------
+uint32_t toPixels(uint32_t logical) { return (uint32_t)std::max<long>(std::lround(logical * g.scale), 1); }
+
+// The buffer (any size: physical pixels) shown at the window's logical size
+void applyViewport() {
+    if (g.viewport && g.width && g.height) wp_viewport_set_destination(g.viewport, (int32_t)g.width, (int32_t)g.height);
+}
+
+// Without a fractional scale from the compositor: the largest integer scale of the outputs the window is on
+void outputsChanged() {
+    if (g.fractionalScale || !g.viewport) return;
+    int s = 1;
+    for (wl_output* o : g.on)
+        for (const State::Output& out : g.outputs)
+            if (out.output == o) s = std::max(s, out.scale);
+    g.scale = s;
+}
+
+void outputGeometry(void*, wl_output*, int32_t, int32_t, int32_t, int32_t, int32_t, const char*, const char*, int32_t) {}
+void outputMode(void*, wl_output*, uint32_t, int32_t, int32_t, int32_t) {}
+void outputDone(void*, wl_output*) {}
+void outputScale(void*, wl_output* o, int32_t factor) {
+    for (State::Output& out : g.outputs)
+        if (out.output == o) out.scale = std::max(factor, 1);
+    outputsChanged();
+}
+const wl_output_listener kOutput = {outputGeometry, outputMode, outputDone, outputScale};
+
+void surfaceEnter(void*, wl_surface*, wl_output* o) {
+    g.on.push_back(o);
+    outputsChanged();
+}
+void surfaceLeave(void*, wl_surface*, wl_output* o) {
+    g.on.erase(std::remove(g.on.begin(), g.on.end(), o), g.on.end());
+    outputsChanged();
+}
+const wl_surface_listener kSurface = {surfaceEnter, surfaceLeave};
+
+void preferredScale(void*, wp_fractional_scale_v1*, uint32_t scale120) {
+    g.fractionalScale = true;
+    g.scale = std::max(scale120, 30u) / 120.0;
+}
+const wp_fractional_scale_v1_listener kFractional = {preferredScale};
+
 double now() {
     using namespace std::chrono;
     return duration<double>(steady_clock::now().time_since_epoch()).count();
@@ -94,11 +161,17 @@ void showCursor(ImGuiMouseCursor which) {
         return;
     }
     if (!api::cursorLoaded()) return;   // (no libwayland-cursor: the compositor's default pointer)
+    int cursorScale = std::max(1, (int)std::ceil(g.scale - 0.01));   // (drawn at the next whole scale up)
+    if (g.cursorTheme && cursorScale != g.cursorScale) {
+        wl_cursor_theme_destroy(g.cursorTheme);
+        g.cursorTheme = nullptr;
+    }
     if (!g.cursorTheme) {
         const char* size = std::getenv("XCURSOR_SIZE");
-        g.cursorTheme = wl_cursor_theme_load(std::getenv("XCURSOR_THEME"), size ? std::atoi(size) : 24, g.shm);
+        g.cursorTheme = wl_cursor_theme_load(std::getenv("XCURSOR_THEME"), (size ? std::atoi(size) : 24) * cursorScale, g.shm);
         if (!g.cursorTheme) return;
-        g.cursorSurface = wl_compositor_create_surface(g.compositor);
+        g.cursorScale = cursorScale;
+        if (!g.cursorSurface) g.cursorSurface = wl_compositor_create_surface(g.compositor);
     }
     static const char* const names[ImGuiMouseCursor_COUNT][3] = {
         {"default", "left_ptr", nullptr},              // Arrow
@@ -122,7 +195,9 @@ void showCursor(ImGuiMouseCursor which) {
     wl_cursor_image* image = cursor->images[0];
     wl_buffer* buffer = wl_cursor_image_get_buffer(image);
     if (!buffer) return;
-    wl_pointer_set_cursor(g.pointer, g.enterSerial, g.cursorSurface, (int32_t)image->hotspot_x, (int32_t)image->hotspot_y);
+    wl_pointer_set_cursor(g.pointer, g.enterSerial, g.cursorSurface, (int32_t)image->hotspot_x / g.cursorScale,
+                          (int32_t)image->hotspot_y / g.cursorScale);
+    wl_surface_set_buffer_scale(g.cursorSurface, g.cursorScale);
     wl_surface_attach(g.cursorSurface, buffer, 0, 0);
     wl_surface_damage(g.cursorSurface, 0, 0, (int32_t)image->width, (int32_t)image->height);
     wl_surface_commit(g.cursorSurface);
@@ -132,14 +207,16 @@ void pointerEnter(void*, wl_pointer*, uint32_t serial, wl_surface*, wl_fixed_t x
     g.enterSerial = serial;
     g.pointerInside = true;
     showCursor(g.imguiReady ? ImGui::GetMouseCursor() : ImGuiMouseCursor_Arrow);
-    if (g.imguiReady) ImGui::GetIO().AddMousePosEvent((float)wl_fixed_to_double(x), (float)wl_fixed_to_double(y));
+    if (g.imguiReady)
+        ImGui::GetIO().AddMousePosEvent((float)(wl_fixed_to_double(x) * g.scale), (float)(wl_fixed_to_double(y) * g.scale));
 }
 void pointerLeave(void*, wl_pointer*, uint32_t, wl_surface*) {
     g.pointerInside = false;
     if (g.imguiReady) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 }
 void pointerMotion(void*, wl_pointer*, uint32_t, wl_fixed_t x, wl_fixed_t y) {
-    if (g.imguiReady && !g.captured) ImGui::GetIO().AddMousePosEvent((float)wl_fixed_to_double(x), (float)wl_fixed_to_double(y));
+    if (g.imguiReady && !g.captured)   // (in pixels, as the window is drawn)
+        ImGui::GetIO().AddMousePosEvent((float)(wl_fixed_to_double(x) * g.scale), (float)(wl_fixed_to_double(y) * g.scale));
 }
 void pointerButton(void*, wl_pointer*, uint32_t, uint32_t, uint32_t button, uint32_t state) {
     if (!g.imguiReady) return;
@@ -300,6 +377,7 @@ void toplevelConfigure(void*, xdg_toplevel*, int32_t width, int32_t height, wl_a
     if (width > 0 && height > 0) {   // (0: ours to choose; keep it)
         g.width = (uint32_t)width;
         g.height = (uint32_t)height;
+        applyViewport();
     }
     bool fullscreen = false;
     for (uint32_t* s = (uint32_t*)states->data; (char*)s < (char*)states->data + states->size; ++s)
@@ -331,15 +409,34 @@ void registryGlobal(void*, wl_registry* registry, uint32_t name, const char* int
         g.relativeManager = (zwp_relative_pointer_manager_v1*)bind(&zwp_relative_pointer_manager_v1_interface, 1);
     } else if (!std::strcmp(interface, zwp_pointer_constraints_v1_interface.name)) {
         g.constraints = (zwp_pointer_constraints_v1*)bind(&zwp_pointer_constraints_v1_interface, 1);
+    } else if (!std::strcmp(interface, wp_viewporter_interface.name)) {
+        g.viewporter = (wp_viewporter*)bind(&wp_viewporter_interface, 1);
+    } else if (!std::strcmp(interface, wp_fractional_scale_manager_v1_interface.name)) {
+        g.fractionalManager = (wp_fractional_scale_manager_v1*)bind(&wp_fractional_scale_manager_v1_interface, 1);
+    } else if (!std::strcmp(interface, wl_output_interface.name) && version >= 2) {
+        auto* o = (wl_output*)bind(&wl_output_interface, 2);
+        g.outputs.push_back({o, name, 1});
+        wl_output_add_listener(o, &kOutput, nullptr);
     }
 }
-void registryGlobalRemove(void*, wl_registry*, uint32_t) {}
+void registryGlobalRemove(void*, wl_registry*, uint32_t name) {
+    for (size_t i = 0; i < g.outputs.size(); ++i)
+        if (g.outputs[i].name == name) {
+            g.on.erase(std::remove(g.on.begin(), g.on.end(), g.outputs[i].output), g.on.end());
+            wl_output_destroy(g.outputs[i].output);
+            g.outputs.erase(g.outputs.begin() + (long)i);
+            outputsChanged();
+            break;
+        }
+}
 const wl_registry_listener kRegistry = {registryGlobal, registryGlobalRemove};
 
 void disconnect() {
     if (g.relative) zwp_relative_pointer_v1_destroy(g.relative);
     if (g.locked) zwp_locked_pointer_v1_destroy(g.locked);
     if (g.decoration) zxdg_toplevel_decoration_v1_destroy(g.decoration);
+    if (g.fractional) wp_fractional_scale_v1_destroy(g.fractional);
+    if (g.viewport) wp_viewport_destroy(g.viewport);
     if (g.toplevel) xdg_toplevel_destroy(g.toplevel);
     if (g.xdgSurface) xdg_surface_destroy(g.xdgSurface);
     if (g.surface) wl_surface_destroy(g.surface);
@@ -351,6 +448,9 @@ void disconnect() {
     if (g.keymap) xkb_keymap_unref(g.keymap);
     if (g.xkb) xkb_context_unref(g.xkb);
     if (g.constraints) zwp_pointer_constraints_v1_destroy(g.constraints);
+    if (g.fractionalManager) wp_fractional_scale_manager_v1_destroy(g.fractionalManager);
+    if (g.viewporter) wp_viewporter_destroy(g.viewporter);
+    for (State::Output& o : g.outputs) wl_output_destroy(o.output);
     if (g.relativeManager) zwp_relative_pointer_manager_v1_destroy(g.relativeManager);
     if (g.decorationManager) zxdg_decoration_manager_v1_destroy(g.decorationManager);
     if (g.wmBase) xdg_wm_base_destroy(g.wmBase);
@@ -404,6 +504,15 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
     g.width = width;
     g.height = height;
     g.surface = wl_compositor_create_surface(g.compositor);
+    wl_surface_add_listener(g.surface, &kSurface, nullptr);
+    if (g.viewporter) {   // (HiDPI: the buffer in pixels, shown at the logical size)
+        g.viewport = wp_viewporter_get_viewport(g.viewporter, g.surface);
+        if (g.fractionalManager) {
+            g.fractional = wp_fractional_scale_manager_v1_get_fractional_scale(g.fractionalManager, g.surface);
+            wp_fractional_scale_v1_add_listener(g.fractional, &kFractional, nullptr);
+        }
+        applyViewport();
+    }
     g.xdgSurface = xdg_wm_base_get_xdg_surface(g.wmBase, g.surface);
     xdg_surface_add_listener(g.xdgSurface, &kXdgSurface, nullptr);
     g.toplevel = xdg_surface_get_toplevel(g.xdgSurface);
@@ -422,7 +531,9 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
         disconnect();
         return false;
     }
-    std::fprintf(stderr, "Wayland: native window%s\n", g.decoration ? " (server-side decorations)" : "");
+    if (g.viewport && !g.fractionalScale && g.on.empty())   // (not on an output until it's drawn: start with theirs)
+        for (const State::Output& out : g.outputs) g.scale = std::max(g.scale, (double)out.scale);
+    std::fprintf(stderr, "Wayland: native window%s, scale %.2f\n", g.decoration ? " (server-side decorations)" : "", g.scale);
     return true;
 }
 
@@ -447,9 +558,9 @@ void pollEvents() {
 
 bool closeRequested() { return g.closeRequested; }
 
-void windowSize(uint32_t& width, uint32_t& height) {
-    width = g.width;
-    height = g.height;
+void windowSize(uint32_t& width, uint32_t& height) {   // (physical pixels)
+    width = g.width ? toPixels(g.width) : 0;
+    height = g.height ? toPixels(g.height) : 0;
 }
 
 void setCursorCaptured(bool captured) {
@@ -494,7 +605,7 @@ bool isFullscreen() { return g.fullscreen; }
 
 void setWindowIcon(const uint8_t*, uint32_t, uint32_t) {}   // (Wayland: the desktop entry's, by app id)
 
-float dpiScale() { return 1.f; }   // (one pixel per point, as on X11: the compositor scales on HiDPI outputs)
+float dpiScale() { return (float)g.scale; }   // (the window is in physical pixels: the UI scales up with this)
 
 const char* vulkanSurfaceExtension() { return VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME; }
 
@@ -517,7 +628,9 @@ void imguiInit() {
 
 void imguiNewFrame(float deltaTime) {
     ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2((float)g.width, (float)g.height);
+    uint32_t w = 0, h = 0;
+    windowSize(w, h);
+    io.DisplaySize = ImVec2((float)w, (float)h);
     io.DeltaTime = deltaTime > 0.f ? deltaTime : 1.f / 60.f;
     ImGuiMouseCursor want = io.MouseDrawCursor ? ImGuiMouseCursor_None : ImGui::GetMouseCursor();
     if (want != g.cursorShown && !g.captured) showCursor(want);

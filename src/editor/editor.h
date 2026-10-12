@@ -146,6 +146,12 @@ private:
     void buildDrawItems();
     float aspect() const { return vh_ > 0.f ? vw_ / vh_ : 1.f; }
     float px(float v) const { return v * uiScale_; }
+
+public:
+    float uiScale() const { return uiScale_; }
+    void setUiScale(float scale) { uiScale_ = scale; }   // (the display's changed: Application's uiScale())
+
+private:
     // World matrices of what's on screen: the animated play pose while playing, else the edit pose
     const std::vector<Mat4>& worlds() const { return worlds_; }
     const Mat4& worldOf(EntityId id) const;

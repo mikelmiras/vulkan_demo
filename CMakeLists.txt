@@ -169,6 +169,7 @@ set(ENGINE_SOURCES
   src/render/renderer_views.cpp
   src/render/renderer_gi.cpp
   src/render/texture_streaming.cpp
+  src/render/display.cpp
   src/app/application.cpp
   src/app/export.cpp
   src/app/updates.cpp
@@ -370,6 +371,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_project.cpp
     tests/test_templates.cpp
     tests/test_streaming.cpp
+    tests/test_display.cpp
     tests/test_module.cpp
     tests/test_scene_flow.cpp
     tests/test_ui.cpp

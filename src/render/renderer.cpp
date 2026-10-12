@@ -55,6 +55,9 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     height_ = height;
     meshes_ = &meshes;
     textures_ = &textures;
+    if (const char* v = std::getenv("VKWORLD_UI_LAYER"); v && !std::strcmp(v, "1")) uiLayerForced_ = true;
+    if (const char* v = std::getenv("VKWORLD_HDR_PEAK"); v && std::atof(v) > 0) hdrPeak_ = (float)std::atof(v);
+    if (const char* v = std::getenv("VKWORLD_HDR_PAPER_WHITE"); v && std::atof(v) > 0) hdrPaperWhite_ = (float)std::atof(v);
 
     createInstance();
     surface_ = platform::createVulkanSurface(instance_);
@@ -86,6 +89,15 @@ void Renderer::createInstance() {
     }
 
     std::vector<const char*> exts = {VK_KHR_SURFACE_EXTENSION_NAME, platform::vulkanSurfaceExtension()};
+    {   // HDR colour spaces on the surface, where the loader has them
+        uint32_t n = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &n, nullptr);
+        std::vector<VkExtensionProperties> props(n);
+        vkEnumerateInstanceExtensionProperties(nullptr, &n, props.data());
+        for (const auto& p : props)
+            if (!std::strcmp(p.extensionName, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME))
+                exts.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+    }
     std::vector<const char*> layers;
     if (validation) {
         exts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -357,19 +369,17 @@ void Renderer::createSwapchain() {
     VkSurfaceCapabilitiesKHR caps;
     VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu_, surface_, &caps));
 
-    if (swapFormat_ == VK_FORMAT_UNDEFINED) {
-        // UNORM target: shaders output gamma-encoded colour, which keeps ImGui's sRGB colours correct.
+    {   // UNORM target: shaders output gamma-encoded colour, which keeps ImGui's sRGB colours correct; or HDR
         uint32_t count = 0;
         vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &count, nullptr);
-        std::vector<VkSurfaceFormatKHR> formats(count);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &count, formats.data());
-        swapFormat_ = formats[0].format;
-        for (const auto& f : formats)
-            if ((f.format == VK_FORMAT_B8G8R8A8_UNORM || f.format == VK_FORMAT_R8G8B8A8_UNORM) &&
-                f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-                swapFormat_ = f.format;
-                break;
-            }
+        surfaceFormats_.resize(count);
+        vkGetPhysicalDeviceSurfaceFormatsKHR(gpu_, surface_, &count, surfaceFormats_.data());
+        if (sdrFormat_ == VK_FORMAT_UNDEFINED) sdrFormat_ = display::choose(surfaceFormats_, false).format.format;
+        display::Choice c = display::choose(surfaceFormats_, hdrWanted_ && screenshotPath_.empty());
+        swapFormat_ = c.format.format;
+        swapColorSpace_ = c.format.colorSpace;
+        output_ = c.output;
+        uiLayered_ = output_ != display::Output::Sdr || uiLayerForced_;
     }
 
     if (caps.currentExtent.width != UINT32_MAX) {
@@ -387,10 +397,10 @@ void Renderer::createSwapchain() {
     ci.surface = surface_;
     ci.minImageCount = imageCount;
     ci.imageFormat = swapFormat_;
-    ci.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    ci.imageColorSpace = swapColorSpace_;
     ci.imageExtent = extent_;
     ci.imageArrayLayers = 1;
-    canReadSwapchain_ = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
+    canReadSwapchain_ = (caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0 && output_ == display::Output::Sdr;
     ci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (canReadSwapchain_ ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
     ci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ci.preTransform = caps.currentTransform;
@@ -435,9 +445,20 @@ void Renderer::recreateSwapchain() {
     ssrValid_ = false;   // (the picture is remade)
     destroySwapchainResources();
     destroyPostImages();
+    VkFormat before = swapFormat_;
     createSwapchain();
+    if (swapFormat_ != before && compositePipeline_) {   // (HDR on or off: the composite writes another format)
+        vkDestroyPipeline(device_, compositePipeline_, nullptr);
+        compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
+    }
     createPostImages();
     resized_ = false;
+}
+
+void Renderer::setHdrOutput(bool on) {
+    if (on == hdrWanted_) return;
+    hdrWanted_ = on;
+    resized_ = true;   // (the swapchain is made again after this frame)
 }
 
 void Renderer::resize(uint32_t width, uint32_t height) {
@@ -639,15 +660,16 @@ void Renderer::createPipelines() {
                                             false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, false, true, 0b101});
 
     // Post-processing: one or two images to read, parameters in push constants
-    VkDescriptorSetLayoutBinding postBindings[3] = {
+    VkDescriptorSetLayoutBinding postBindings[4] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: AO)
+        {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: the UI layer)
     };
-    dslci.bindingCount = 3;
+    dslci.bindingCount = 4;
     dslci.pBindings = postBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &postSetLayout_));
-    VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 48};
+    VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 64};
     VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     pl.setLayoutCount = 1;
     pl.pSetLayouts = &postSetLayout_;
@@ -662,6 +684,7 @@ void Renderer::createPipelines() {
     bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
+    compositeViewPipeline_ = createPostPipeline("composite.frag.spv", sdrFormat_, false);
     createSampledPipelines();
 }
 
@@ -941,7 +964,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
     const uint32_t postSetCount = 2 * kMaxBloomMips + 6 + 2 * kMaxViews;   // (+2 per view: the temporal pass's two directions)
-    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * postSetCount};
+    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &postSize;
@@ -1097,7 +1120,7 @@ void Renderer::initImGui() {
     info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;   // UI is drawn on the resolved swapchain image
     info.PipelineInfoMain.PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &swapFormat_;
+    info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &sdrFormat_;   // (the UI layer's too)
     info.CheckVkResultFn = checkVk;
     ImGui_ImplVulkan_Init(&info);
     imguiInitialized_ = true;
@@ -1112,6 +1135,11 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
     uploadTextures(cb);   // new ones, a few megabytes a frame (until then they're drawn plain)
+    if (uiLayerFresh_ && uiLayer_.image) {   // (the UI layer, just made: readable before it's drawn this frame)
+        imageBarrier(cb, uiLayer_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    }
+    uiLayerFresh_ = false;
     if (prevColorFresh_) {   // (reflections' picture, just made: readable, even before there's one)
         imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
@@ -1296,15 +1324,37 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         recordTaa(cb, info, taa_);
         timestamp(cb, "Temporal AA");
     }
+    // ---- The UI in a layer of its own (HDR output): blended in by the composite, in linear light
+    if (uiLayered_) {
+        imageBarrier(cb, uiLayer_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        VkRenderingAttachmentInfo layer{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        layer.imageView = uiLayer_.view;
+        layer.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        layer.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;   // (transparent: premultiplied, as ImGui's blending leaves it)
+        layer.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingInfo lri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        lri.renderArea = {{0, 0}, extent_};
+        lri.layerCount = 1;
+        lri.colorAttachmentCount = 1;
+        lri.pColorAttachments = &layer;
+        vkCmdBeginRendering(cb, &lri);
+        if (ui) ImGui_ImplVulkan_RenderDrawData(ui, cb);
+        vkCmdEndRendering(cb);
+        imageBarrier(cb, uiLayer_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    }
+
     // ---- Bloom and the composite onto the swapchain image
     recordPost(cb, imageIndex, info);
     timestamp(cb, "AO, bloom, composite");
 
-    // ---- Pass 3: ImGui directly on the swapchain image
+    // ---- Pass 3: ImGui directly on the swapchain image (unless it's in the layer)
     imageBarrier(cb, swapImages_[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, colorStage,
                  VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-    if (ui) {
+    if (ui && !uiLayered_) {
         VkRenderingAttachmentInfo uiColor{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         uiColor.imageView = swapViews_[imageIndex];
         uiColor.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -1566,6 +1616,7 @@ void Renderer::shutdown() {
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     destroySampledPipelines();
     for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
+                         compositeViewPipeline_,
                          taaPipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, taaLayout_, nullptr);

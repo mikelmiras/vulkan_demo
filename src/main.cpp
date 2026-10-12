@@ -78,6 +78,8 @@ int main(int argc, char** argv) {
     Editor editor(meshes, textures, &audio, app.uiScale(), options.screenshotPath.empty());
     editor.setUiTextures(app.uiTextures(textures));
     editor.setRenderer(&app.renderer());
+    if (const char* hdr = std::getenv("VKWORLD_HDR"); hdr && !std::strcmp(hdr, "1") && options.screenshotPath.empty())
+        app.renderer().setHdrOutput(true);   // (where the display takes it; View > HDR output)
     if (projectArg) editor.openProject(scenePath);
     else if (scenePath) editor.openScene(scenePath);
     else if (project::exists(project::root())) editor.openProject(project::root());
@@ -90,6 +92,7 @@ int main(int argc, char** argv) {
 
     float dt = 0.f;
     while (!editor.quitRequested() && app.beginFrame(dt)) {
+        if (editor.uiScale() != app.uiScale()) editor.setUiScale(app.uiScale());   // (moved to another display)
         editor.frame(dt, app.renderer().gpuName(), app.renderer().stats());
         app.endFrame(editor.renderInfo());
     }

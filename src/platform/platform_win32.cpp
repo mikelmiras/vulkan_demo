@@ -95,7 +95,8 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             return 0;
         case WM_DPICHANGED: {
-            // Follow the suggested size when moved to a monitor with a different DPI
+            // Follow the suggested size when moved to a monitor with a different DPI (the UI rescales to it)
+            g_dpiScale = (float)HIWORD(wParam) / 96.f;
             const RECT* r = (const RECT*)lParam;
             SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
