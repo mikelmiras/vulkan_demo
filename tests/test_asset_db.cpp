@@ -28,6 +28,9 @@ fs::path makeProject(const char* name) {
     return root;
 }
 
+// The same file, however it's spelled (macOS's temp folder is behind a symlink; Windows has short names)
+bool same(const fs::path& a, const fs::path& b) { return fs::weakly_canonical(a) == fs::weakly_canonical(b); }
+
 struct Done {
     ~Done() {
         assetdb::close();
@@ -66,7 +69,7 @@ TEST(assetdb_ids) {
     CHECK(assetdb::idOfStored("Hum").empty());   // a built-in
     CHECK(assetdb::idOf(root / "textures").empty());   // folders have none
     CHECK(assetdb::idOf(test::tempPath("elsewhere.png")).empty());
-    CHECK(assetdb::pathOf(id) == root / "textures" / "wall.png");
+    CHECK(same(assetdb::pathOf(id), root / "textures" / "wall.png"));
     // Read back from the .meta files
     assetdb::open(root, false);
     CHECK(assetdb::idOf(root / "textures" / "wall.png") == id);
@@ -133,7 +136,7 @@ TEST(assetdb_move_and_retarget) {
 
     REQUIRE(assetdb::move(root / "textures", root / "art" / "textures", error));
     CHECK(fs::exists(root / "art" / "textures" / "wall.png.meta"));
-    CHECK(assetdb::pathOf(id) == root / "art" / "textures" / "wall.png");
+    CHECK(same(assetdb::pathOf(id), root / "art" / "textures" / "wall.png"));
     std::vector<fs::path> files;
     int refs = assetdb::retargetProjectFiles(root / "textures", root / "art" / "textures", &files);
     CHECK(refs == 1);
@@ -152,8 +155,9 @@ TEST(assetdb_move_and_retarget) {
 
     // One reference at a time: relative stays relative, absolute stays absolute, fragments are kept
     CHECK(assetdb::retarget("models/block.obj#2", root / "models", root / "geo") == "geo/block.obj#2");
-    CHECK(assetdb::retarget((root / "models" / "block.obj").u8string(), root / "models" / "block.obj", root / "b.obj") ==
-          (root / "b.obj").generic_u8string());
+    CHECK(same(fs::u8path(assetdb::retarget((root / "models" / "block.obj").u8string(), root / "models" / "block.obj",
+                                            root / "b.obj")),
+               root / "b.obj"));
     CHECK(assetdb::retarget("models2/block.obj", root / "models", root / "geo") == "models2/block.obj");
     REQUIRE(assetdb::remove(root / "art", error));
     CHECK(!fs::exists(root / "art"));
@@ -196,7 +200,7 @@ TEST(assetdb_import_settings) {
     REQUIRE(reloadMesh(lib, m, error) == m);
     CHECK(lib.count() == count);
     CHECK_NEAR(lib.get(m).boundsMax.x - lib.get(m).boundsMin.x, 2.f, 1e-4);   // 4 units, times 0.5
-    CHECK(lib.get(m).source == obj.u8string());
+    CHECK(same(fs::u8path(lib.get(m).source), obj));
     CHECK(reloadMesh(lib, (int)MeshKind::Cube, error) < 0);
 
     assetdb::open(root, false);

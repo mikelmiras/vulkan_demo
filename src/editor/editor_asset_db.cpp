@@ -260,11 +260,13 @@ void Editor::applyImportSettings() {
     std::string error;
     if (!assetdb::setImportSettings(selectedAsset_, editedSettings_, error)) { setStatus(error); return; }
     int reloaded = 0;
-    std::string abs = selectedAsset_.u8string();
+    auto isIt = [&](const std::string& source) {   // (that file itself, not a "#part" of it)
+        return !source.empty() && source.find('#') == std::string::npos && names(source, selectedAsset_);
+    };
     for (int i = 0; i < textures_.count(); ++i)
-        if (textures_.get(i).source == abs) reloaded += reloadTexture(textures_, i, error) >= 0;
+        if (isIt(textures_.get(i).source)) reloaded += reloadTexture(textures_, i, error) >= 0;
     for (int i = (int)MeshKind::Count; i < meshes_.count(); ++i)
-        if (meshes_.get(i).source == abs) reloaded += reloadMesh(meshes_, i, error) >= 0;
+        if (isIt(meshes_.get(i).source)) reloaded += reloadMesh(meshes_, i, error) >= 0;
     if (audio_) audio_->forgetImportSettings();
     setStatus("Import settings saved" + (reloaded ? " and " + std::to_string(reloaded) + " assets reloaded" : std::string()) +
               (error.empty() ? "" : " (" + error + ")"));
