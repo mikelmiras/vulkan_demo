@@ -165,6 +165,20 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         tooltip("How much corners, creases and the ground under things darken (screen-space; 0: off)");
         ImGui::SliderFloat("Occlusion radius", &r.aoRadius, 0.05f, 4.f, "%.2f m");
         track();
+        ImGui::Checkbox("Global illumination", &r.gi);
+        track();
+        tooltip("Light bouncing off surfaces (a coloured wall lights what's near it), from a grid of probes around the "
+                "camera redrawn a few each frame: it follows moving lights and things with a lag. Costs some frame time.");
+        if (r.gi) {
+            ImGui::SliderFloat("GI probe spacing", &r.giSpacing, 0.5f, 16.f, "%.1f m");
+            track();
+            tooltip("Between the probes (8 x 4 x 8 of them): closer is more detailed, over less of the world");
+            ImGui::SliderFloat("GI intensity", &r.giIntensity, 0.f, 3.f, "%.2f");
+            track();
+        }
+        ImGui::Checkbox("Screen-space reflections", &r.reflections);
+        track();
+        tooltip("Smooth surfaces reflect what's on screen (else only reflection probes and the sky)");
         // The sky image: a panorama that's the sky, the ambient light and what shiny things reflect
         ImGui::InputText("Sky image", &r.skyImage);
         track();

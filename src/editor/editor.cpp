@@ -277,6 +277,10 @@ SceneRenderInfo Editor::renderInfo() const {
     info.bloomThreshold = r.bloomThreshold;
     info.aoStrength = r.aoStrength;
     info.aoRadius = r.aoRadius;
+    info.gi = r.gi;
+    info.giSpacing = r.giSpacing;
+    info.giIntensity = r.giIntensity;
+    info.reflections = r.reflections;
     if (playing()) info.colorFilter = game_.colorFilter();   // (the player's setting, as the game will look)
     if (!r.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
         std::string skyError;

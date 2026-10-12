@@ -20,6 +20,10 @@ layout(set = 0, binding = 9) uniform sampler2D probe0;         // reflection pro
 layout(set = 0, binding = 10) uniform sampler2D probe1;
 layout(set = 0, binding = 11) uniform sampler2D probe2;
 layout(set = 0, binding = 12) uniform sampler2D probe3;
+// Dynamic GI probes (renderer_gi.cpp): per slot, position (w = 1: drawn), then nine spherical harmonics
+layout(std430, set = 0, binding = 17) readonly buffer GiProbes { vec4 giProbes[]; };
+// Screen-space reflections: the last frame's picture (rgb) and each pixel's distance along its view (a)
+layout(set = 0, binding = 18) uniform sampler2D lastFrame;
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (white if none)
 layout(set = 1, binding = 1) uniform sampler2D normalMap;      // tangent space (flat if none)
 layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness, b = metallic (white if none)
@@ -173,6 +177,46 @@ vec3 probeIrradiance(int i, vec3 n) {
     return max(e, vec3(0.0)) / kPi;
 }
 
+// Global illumination: the eight grid probes around this point (nudged off the surface), blended by distance and
+// by how much each faces the surface; `weight` says how much of them there is (0: none drawn here yet)
+vec3 giIrradiance(vec3 n, out float weight) {
+    weight = 0.0;
+    float s = frame.giOrigin.w;
+    if (s <= 0.0) return vec3(0.0);
+    ivec3 dims = ivec3(frame.giDims.xyz);
+    vec3 g = (vWorldPos + n * (0.25 * s) - frame.giOrigin.xyz) / s;
+    ivec3 base = ivec3(floor(g));
+    if (any(lessThan(base, ivec3(0))) || any(greaterThanEqual(base + 1, dims))) return vec3(0.0);
+    vec3 f = g - vec3(base);
+    vec3 d = normalize(n);
+    vec3 sum = vec3(0.0);
+    float total = 0.0;
+    for (int i = 0; i < 8; ++i) {
+        ivec3 o = ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1);
+        ivec3 cell = ivec3(frame.giCell.xyz) + base + o;
+        ivec3 wrapped = ((cell % dims) + dims) % dims;
+        int slot = (wrapped.x * dims.y + wrapped.y) * dims.z + wrapped.z, at = slot * 10;
+        vec4 pos = giProbes[at];
+        vec3 expected = vec3(cell) * s;
+        if (pos.w < 0.5 || distance(pos.xyz, expected) > 0.01 * s) continue;   // (not drawn for this cell yet)
+        vec3 t = mix(1.0 - f, f, vec3(o));
+        float w = t.x * t.y * t.z;
+        vec3 toProbe = normalize(pos.xyz - vWorldPos + d * 1e-4);
+        float facing = (dot(toProbe, d) + 1.0) * 0.5;
+        w *= facing * facing + 0.05;   // (probes behind the surface count little)
+        vec3 e = giProbes[at + 1].rgb * 0.282095 + giProbes[at + 2].rgb * (0.488603 * d.y) +
+                 giProbes[at + 3].rgb * (0.488603 * d.z) + giProbes[at + 4].rgb * (0.488603 * d.x) +
+                 giProbes[at + 5].rgb * (1.092548 * d.x * d.y) + giProbes[at + 6].rgb * (1.092548 * d.y * d.z) +
+                 giProbes[at + 7].rgb * (0.315392 * (3.0 * d.z * d.z - 1.0)) +
+                 giProbes[at + 8].rgb * (1.092548 * d.x * d.z) + giProbes[at + 9].rgb * (0.546274 * (d.x * d.x - d.y * d.y));
+        sum += max(e, vec3(0.0)) / kPi * w;
+        total += w;
+    }
+    if (total <= 1e-4) return vec3(0.0);
+    weight = clamp(total * 4.0, 0.0, 1.0);   // (fades out where only stray probes count)
+    return sum / total * frame.giDims.w;
+}
+
 vec3 skyIrradianceAt(vec3 n) {
     if (frame.envParams.x > 0.5) return skyIrradiance(n) * frame.ambient.rgb;
     vec3 above = mix(frame.fogColor.rgb, frame.zenith.rgb, 0.6), below = frame.ground.rgb;
@@ -183,6 +227,9 @@ vec3 irradiance(vec3 n) {
     float w;
     int p = probeAt(w);
     vec3 sky = skyIrradianceAt(n);
+    float gw;
+    vec3 gi = giIrradiance(n, gw);   // (light from the sky and bounced, where the grid has it)
+    sky = mix(sky, gi * frame.ambient.rgb, gw);
     return p < 0 ? sky : mix(sky, probeIrradiance(p, n) * frame.ambient.rgb, w);
 }
 vec3 skyEnvironment(vec3 r, float rough) {
@@ -190,11 +237,54 @@ vec3 skyEnvironment(vec3 r, float rough) {
     vec3 sharp = skyColor(r, false) * frame.ambient.rgb;
     return mix(sharp, skyIrradianceAt(r), clamp(rough * rough * 1.5, 0.0, 1.0));
 }
+// Screen-space reflection: marches along r through the last frame's picture (each point placed with its camera)
+// until it passes just behind what was drawn there; rgb = what it hit, a = how much to trust it (0: nothing)
+vec4 screenReflection(vec3 r) {
+    vec2 size = vec2(textureSize(lastFrame, 0));
+    vec3 start = vWorldPos + r * 0.05;
+    float t = 0.1, step = 0.12, last = 0.0;
+    const float maxDistance = 40.0;
+    for (int i = 0; i < 40 && t < maxDistance; ++i) {
+        vec3 p = start + r * t;
+        vec4 clip = frame.prevViewProj * vec4(p, 1.0);
+        if (clip.w <= 1e-4) break;
+        vec2 ndc = clip.xy / clip.w;
+        if (abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0) break;   // (off the picture)
+        vec2 uv = (frame.prevViewport.xy + (ndc * 0.5 + 0.5) * frame.prevViewport.zw) / size;
+        float sceneZ = textureLod(lastFrame, uv, 0.0).a;
+        float rayZ = dot(p - frame.prevCamPos.xyz, frame.prevCamForward.xyz);
+        // (behind it by less than a step, or a little more: thin things aren't missed between two samples)
+        if (rayZ > sceneZ && rayZ < sceneZ + max(0.25 + t * 0.04, step * 1.5)) {
+            float lo = last, hi = t;   // (the crossing, closer)
+            for (int k = 0; k < 5; ++k) {
+                float mid = 0.5 * (lo + hi);
+                vec3 q = start + r * mid;
+                vec4 c = frame.prevViewProj * vec4(q, 1.0);
+                vec2 u = (frame.prevViewport.xy + (c.xy / c.w * 0.5 + 0.5) * frame.prevViewport.zw) / size;
+                if (dot(q - frame.prevCamPos.xyz, frame.prevCamForward.xyz) > textureLod(lastFrame, u, 0.0).a) hi = mid;
+                else lo = mid;
+                uv = u;
+            }
+            vec2 edge = smoothstep(vec2(1.0), vec2(0.85), abs(ndc));   // (fades out at the picture's edges)
+            return vec4(textureLod(lastFrame, uv, 0.0).rgb, edge.x * edge.y * (1.0 - t / maxDistance));
+        }
+        last = t;
+        t += step;
+        step *= 1.12;
+    }
+    return vec4(0.0);
+}
+
 vec3 environment(vec3 r, float rough) {
     float w;
     int p = probeAt(w);
     vec3 sky = skyEnvironment(r, rough);
-    return p < 0 ? sky : mix(sky, probeReflection(p, r, rough) * frame.ambient.rgb, w);
+    vec3 env = p < 0 ? sky : mix(sky, probeReflection(p, r, rough) * frame.ambient.rgb, w);
+    if (frame.prevCamPos.w > 0.5 && rough < 0.55) {   // smooth enough: what's on screen, where the ray finds it
+        vec4 s = screenReflection(normalize(r));
+        env = mix(env, s.rgb, s.a * (1.0 - rough / 0.55));
+    }
+    return env;
 }
 
 // A terrain's colour: its four layers (the material set's four textures, sRGB) mixed by the vertex weights, each

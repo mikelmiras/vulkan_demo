@@ -368,6 +368,10 @@ int main(int argc, char** argv) {
         info.bloomThreshold = scene.render.bloomThreshold;
         info.aoStrength = scene.render.aoStrength;
         info.aoRadius = scene.render.aoRadius;
+        info.gi = scene.render.gi;
+        info.giSpacing = scene.render.giSpacing;
+        info.giIntensity = scene.render.giIntensity;
+        info.reflections = scene.render.reflections;
         info.colorFilter = game.colorFilter();
         if (!scene.render.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
             std::string skyError;

@@ -50,6 +50,14 @@ struct FrameUBO {
     float probeMax[4][4];     // w = 1: box projection
     float probeSh[4][9][4];   // its irradiance
     float time[4];            // x = seconds since the renderer started (wind)
+    float giOrigin[4];        // the GI grid: xyz = its first probe, w = spacing (0: no GI)
+    float giDims[4];          // probes along x, y, z; w = intensity
+    float giCell[4];          // xyz = the world cell of its first probe (slots wrap around: renderer_gi.cpp)
+    // Screen-space reflections: the last frame's camera (its picture is binding 18)
+    Mat4 prevViewProj;
+    float prevCamPos[4];      // w = 1: reflections on (only this view's: the picture is its own)
+    float prevCamForward[4];
+    float prevViewport[4];    // the last frame's scene rectangle in its picture (pixels)
 };
 
 // A point or spot light (set 0, binding 14)

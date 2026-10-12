@@ -126,9 +126,45 @@ void Renderer::createPostImages() {
         vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
     }
     if (aa_ == Antialiasing::Temporal) createTaaImages(taa_);
+    // Reflections' picture of the last frame, and the capture's inputs (the depth, this frame's picture)
+    prevColor_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                             VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    prevColorFresh_ = true;
+    if (aoSupported_) {
+        VkDescriptorImageInfo infos[2] = {{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
+                                          {postSampler_, hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+        VkWriteDescriptorSet w2[2];
+        for (uint32_t i = 0; i < 2; ++i) {
+            w2[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w2[i].dstSet = ssrSet_;
+            w2[i].dstBinding = i;
+            w2[i].descriptorCount = 1;
+            w2[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w2[i].pImageInfo = &infos[i];
+        }
+        vkUpdateDescriptorSets(device_, 2, w2, 0, nullptr);
+    }
+    writeSsrBinding();
+}
+
+// The scene's view of the last frame's picture (set 0, binding 18), in every frame's set
+void Renderer::writeSsrBinding() {
+    if (!prevColor_.image) return;
+    for (VkDescriptorSet set : descSets_) {
+        if (!set) continue;   // (not made yet: createResources writes it once they are)
+        VkDescriptorImageInfo info{postSampler_, prevColor_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w.dstSet = set;
+        w.dstBinding = 18;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w.pImageInfo = &info;
+        vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+    }
 }
 
 void Renderer::destroyPostImages() {
+    if (prevColor_.image) destroyImage(prevColor_);
     destroyTaaImages(taa_);
     for (ViewImage& v : viewImages_) destroyTaaImages(v.taa);   // (sized like the targets: remade when next drawn)
     for (uint32_t m = 0; m < bloomMips_; ++m) vkDestroyImageView(device_, bloomViews_[m], nullptr);
@@ -245,4 +281,14 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         vkCmdDraw(cb, 3, 1, 0, 0);
     }
     vkCmdEndRendering(cb);
+
+    // Reflections next frame: this picture and its distances (the main view's only)
+    if (view < 0 && info.reflections && info.items && ssrCapturePipeline_ && vw >= 1.f && vh >= 1.f) {
+        imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target, fragStage,
+                     VK_ACCESS_SHADER_READ_BIT, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        Push p{{info.zNear, info.zFar, 0.f, 0.f}, {}, {}};
+        pass(prevColor_.view, extent_, ssrCapturePipeline_, ssrSet_, p, false);
+        imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, target, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
+    }
 }

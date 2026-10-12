@@ -662,6 +662,12 @@ struct RenderSettings {
     std::string skyImage;
     float skyIntensity = 1.f;         // its brightness
     float skyRotation = 0.f;          // turned around the vertical, degrees
+    // Global illumination: light bouncing off surfaces, from a grid of probes around the camera that are redrawn a
+    // few each frame (so it follows moving lights and objects, with a lag)
+    bool gi = false;
+    float giSpacing = 3.f;            // between the probes, m (the grid covers 8 x 4 x 8 of them)
+    float giIntensity = 1.f;          // how strong the bounced light is
+    bool reflections = false;         // screen-space reflections on smooth surfaces (else probes and the sky only)
 };
 
 // A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.

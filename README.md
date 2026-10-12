@@ -334,6 +334,17 @@ dropping on the right.
   resized, or on Bake in its Inspector), and that picture is prefiltered like a sky image; surfaces inside the box
   reflect it (lined up with the walls of a box-shaped room with *Box projection*) and get their ambient light from
   it, blending into the sky over the last metre inside its edges. The four probes nearest the camera are used.
+- **Global illumination** (Scene look > Global illumination; off by default): light bounces off surfaces, so a red
+  wall tints the floor beside it and shadows aren't flat. A grid of 8 x 4 x 8 light probes follows the camera
+  (*GI probe spacing* apart); each frame two of them (the nearest new ones first, then the longest unchanged) draw the
+  lit scene around them into six small faces, turned into spherical harmonics on the GPU, and surfaces take their
+  ambient light from the eight probes around them. The probes are lit by the grid too, so light bounces again each
+  time they're redrawn; moving lights and objects show with a lag of a few seconds. *GI intensity* scales it.
+  Limits: light can leak through thin walls (no visibility test per probe); probes inside walls see darkness.
+- **Screen-space reflections** (Scene look > Screen-space reflections; off by default): smooth surfaces (roughness
+  under 0.55) reflect what's on screen: each pixel's reflected ray is marched through the last frame's picture and
+  distances, and what it meets is blended over the probe or sky reflection, fading at the picture's edges and with
+  roughness. What's off screen or hidden falls back to the probes and the sky.
 - **Transparency** (glTF alpha modes): cut-out materials (Mask) have holes wherever their texture's alpha is below a
   cutoff (the built-in Grate texture has them); see-through ones (Blend) are drawn after everything solid, sorted
   back to front, with their opacity.

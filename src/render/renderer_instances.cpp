@@ -115,6 +115,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         viewBatches_[v].clear();
         viewTransparent_[v].clear();
     }
+    for (auto& b : giBatches_) b.clear();
     for (auto& b : shadowBatches_) b.clear();
     for (auto& b : shadowCutoutBatches_) b.clear();
     outlineBatches_.clear();
@@ -228,6 +229,28 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         viewIndices += viewVisible[v].size() + viewTransparent[v].size();
     }
 
+    // The GI probes drawn this frame (renderer_gi.cpp): solid things near each, at their coarsest level of detail
+    std::vector<std::vector<uint32_t>> giVisible((size_t)giCount_);
+    for (int n = 0; n < giCount_; ++n) {
+        const float reach = std::max(info.giSpacing, 0.25f) * 8.f;
+        for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
+            const DrawItem& o = items[i];
+            if (o.alphaMode == 2) continue;
+            const Mesh& mesh = meshes_->get(o.mesh);
+            Vec3 c = transformPoint(o.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
+            float scale = std::max({length(transformDir(o.model, {1, 0, 0})), length(transformDir(o.model, {0, 1, 0})),
+                                    length(transformDir(o.model, {0, 0, 1}))});
+            float radius = length(mesh.boundsMax - mesh.boundsMin) * 0.5f * scale;
+            if (length(c - giDrawPos_[n]) - radius < reach) giVisible[(size_t)n].push_back(i);
+        }
+        std::stable_sort(giVisible[(size_t)n].begin(), giVisible[(size_t)n].end(), [&](uint32_t a, uint32_t b) {
+            VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
+            if (ta != tb) return ta < tb;
+            return items[a].mesh < items[b].mesh;
+        });
+        viewIndices += giVisible[(size_t)n].size();
+    }
+
     // ---- The instances: one per item, then the outlined ones again (in the outline colour); only the ones that
     // differ from what the store holds are uploaded
     const size_t total = items.size() + outlined;
@@ -304,6 +327,11 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         for (uint32_t i : casters[k]) {
             if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], i, items[i].mesh, lods[i], plain);
             else append(shadowCutoutBatches_[shadowLayers[k]], i, items[i].mesh, lods[i], textureSet(items[i]));
+        }
+    for (int g = 0; g < giCount_; ++g)
+        for (uint32_t i : giVisible[(size_t)g]) {
+            int coarsest = items[i].jointOffset < 0 ? (int)meshes_->get(items[i].mesh).lods.size() : 0;
+            append(giBatches_[g], i, items[i].mesh, coarsest, textureSet(items[i]));
         }
     for (size_t v = 0; v < viewCount; ++v) {
         for (uint32_t i : viewVisible[v]) append(viewBatches_[v], i, items[i].mesh, viewLods[v][i], textureSet(items[i]));

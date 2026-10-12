@@ -109,6 +109,10 @@ struct SceneRenderInfo {
     float aspect = 16.f / 9.f;
     float fogDensity = 0.006f, ambient = 0.45f, exposure = 1.f, bloomStrength = 0.06f, bloomThreshold = 1.f;
     float aoStrength = 0.6f, aoRadius = 0.6f;   // ambient occlusion (screen space): how dark, how far (m); 0: off
+    // Global illumination (RenderSettings::gi): a probe grid around this view's camera, a few redrawn per frame
+    bool gi = false;
+    float giSpacing = 3.f, giIntensity = 1.f;
+    bool reflections = false;   // screen-space reflections (from the last frame's picture)
     // A colour-blindness filter over the picture (the player's settings.colorBlind, Game::colorFilter()): 0 none,
     // 1 protanopia, 2 deuteranopia, 3 tritanopia. Daltonized: what that eye can't tell apart is moved into
     // differences it can see.
@@ -479,6 +483,44 @@ private:
     ViewImage viewImages_[kMaxViews];
     void destroyViewImage(ViewImage& v);
     void recordView(VkCommandBuffer cb, int view, const SceneRenderInfo& info);
+
+    // Dynamic GI (renderer_gi.cpp): a grid of probes around the camera, their slots wrapping around as it moves (a
+    // probe keeps its slot while it stays in the grid); a few redrawn each frame (six small faces into an atlas)
+    // and projected onto spherical harmonics by gi_project.comp into giProbes_ (set 0, binding 17)
+    static constexpr int kGiX = 8, kGiY = 4, kGiZ = 8, kGiProbes = kGiX * kGiY * kGiZ;
+    static constexpr int kGiPerFrame = 2, kGiFace = 32;
+    static constexpr int kUboSlots = 1 + kMaxViews + 6 * kGiPerFrame;   // this view, the extra views, probe faces
+    struct GiSlot {
+        int cell[3] = {0, 0, 0};   // the world cell it holds
+        bool made = false;         // drawn at least once for that cell
+        uint64_t drawn = 0;        // the frame it was last drawn
+    };
+    GiSlot giSlots_[kGiProbes];
+    Buffer giProbes_;                  // per slot: position (w = 1: made), then nine SH coefficients (vec4 each)
+    Buffer giDispatch_[MAX_FRAMES];    // gi_project.comp's parameters
+    Image giAtlas_, giAtlasMsaa_, giDepth_;
+    VkDescriptorSetLayout giSetLayout_ = VK_NULL_HANDLE;
+    VkPipelineLayout giLayout_ = VK_NULL_HANDLE;
+    VkPipeline giPipeline_ = VK_NULL_HANDLE;
+    VkDescriptorPool giPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet giSets_[MAX_FRAMES] = {};
+    int giCount_ = 0;                  // probes drawn this frame
+    int giDrawSlot_[kGiPerFrame] = {};
+    Vec3 giDrawPos_[kGiPerFrame];
+    std::vector<Batch> giBatches_[kGiPerFrame];
+    uint64_t giFrame_ = 0;
+    bool giOn_ = false;                // (this frame)
+    VkSampleCountFlagBits giSamples_ = VK_SAMPLE_COUNT_1_BIT;   // (the atlas's, remade when MSAA changes)
+    void createGi();
+    void destroyGi();
+    // Before this view's frame data (their lights are written to the shared buffer first, this view's last): the
+    // grid around its camera, which probes to draw, their faces' frame data. finishGi() then gives `u` the grid and
+    // the faces `u`'s shadows and lights, into the UBO's slots.
+    void planGi(const SceneRenderInfo& info);
+    void finishGi(render_detail::FrameUBO& u);
+    std::vector<uint8_t> giFaces_;     // (the faces' FrameUBOs, finished by finishGi; bytes: the type is internal)
+    float giGrid_[3][4] = {};          // (this frame's giOrigin, giDims, giCell)
+    void recordGi(VkCommandBuffer cb, const SceneRenderInfo& info);
     std::vector<Batch> shadowBatches_[kShadowLayers];         // per shadow layer: solid casters ...
     std::vector<Batch> shadowCutoutBatches_[kShadowLayers];   // ... and ones with holes (cut-outs, see-through)
     Mat4 shadowViewProj_[kShadowLayers];
@@ -503,6 +545,17 @@ private:
     bool aoSupported_ = false;                       // the depth format can be sampled
     VkDescriptorSet aoSet_ = VK_NULL_HANDLE;
     VkPipeline aoPipeline_ = VK_NULL_HANDLE;
+    // Screen-space reflections: this frame's picture and distances captured after the post passes (prevColor_, set
+    // 0 binding 18), for scene.frag's rays next frame; the camera it was taken with
+    Image prevColor_;
+    bool prevColorFresh_ = false;   // (made: readable before anything samples it)
+    VkDescriptorSet ssrSet_ = VK_NULL_HANDLE;
+    VkPipeline ssrCapturePipeline_ = VK_NULL_HANDLE;
+    bool ssrValid_ = false;         // last frame was captured (reflections on, the same picture size)
+    Mat4 ssrViewProj_;
+    Vec3 ssrCamPos_, ssrCamForward_;
+    float ssrViewport_[4] = {};
+    void writeSsrBinding();
     uint32_t bloomMips_ = 0;
     VkImageView bloomViews_[kMaxBloomMips] = {};
     VkExtent2D bloomSizes_[kMaxBloomMips] = {};

@@ -4,6 +4,7 @@
 #include "assets/gltf.h"
 #include "core/json.h"
 #include "core/png.h"
+#include "scene/scene_diff.h"
 #include "scene/serialization.h"
 
 namespace {
@@ -184,6 +185,10 @@ TEST(materials_and_render_settings_saved) {
     s.render.bloomStrength = 0.2f;
     s.render.sky = {0.1f, 0.2f, 0.3f};
     s.render.fogDensity = 0.01f;
+    s.render.gi = true;
+    s.render.giSpacing = 2.5f;
+    s.render.giIntensity = 1.4f;
+    s.render.reflections = true;
     std::string error;
     auto path = test::tempPath("materials.vkw").string();
     REQUIRE(saveScene(path, s, meshes, textures(), error));
@@ -202,6 +207,13 @@ TEST(materials_and_render_settings_saved) {
     CHECK_NEAR(loaded.render.bloomStrength, 0.2, 1e-6);
     CHECK_NEAR(loaded.render.fogDensity, 0.01, 1e-6);
     CHECK_VEC(loaded.render.sky, test::v3(0.1f, 0.2f, 0.3f), 1e-6f);
+    CHECK(loaded.render.gi && loaded.render.reflections);
+    CHECK_NEAR(loaded.render.giSpacing, 2.5, 1e-6);
+    CHECK_NEAR(loaded.render.giIntensity, 1.4, 1e-6);
+    CHECK(sameRenderSettings(loaded.render, s.render));
+    Scene off;
+    CHECK(!off.render.gi && !off.render.reflections);   // (off unless asked for)
+    CHECK(!sameRenderSettings(off.render, s.render));
     // A plain one keeps the defaults (and doesn't write them)
     MeshRenderer plain;
     CHECK_NEAR(plain.metallic, 0.0, 0.0);

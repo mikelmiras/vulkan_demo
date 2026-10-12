@@ -717,7 +717,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | # | Task | Why |
 |---|------|-----|
 | 54 (done) | Editor game view as its own render target (an ImGui image: bloom, temporal AA, any window layout), split-screen local multiplayer (several cameras, one pad each) | The game view shares the scene view's pass; local co-op isn't possible |
-| 55 | Global illumination: dynamic diffuse GI from a probe grid updated over frames (DDGI-style), screen-space reflections | Indirect light only comes from baked reflection probes and an ambient term |
+| 55 (done) | Global illumination: dynamic diffuse GI from a probe grid updated over frames (DDGI-style), screen-space reflections | Indirect light only comes from baked reflection probes and an ambient term |
 | 56 | Texture streaming: mips loaded on demand under a memory budget, residency feedback from the GPU | Every texture is fully resident; big projects run out of memory |
 | 57 | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
 | 58 | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
@@ -750,4 +750,31 @@ Working list for turning the renderer demo into a small game engine. Each task i
   player, shadows per view (far-apart players share player 1's cascades), view images smaller than the targets'
   history (each view's TAA history is screen-sized), split screen in the editor's Game view, picture-in-picture
   layouts other than halves and quarters.
+- Task 55: GI (renderer_gi.cpp): an 8 x 4 x 8 probe lattice RenderSettings::giSpacing apart around the camera; a
+  slot per probe, the cell's coordinates modulo the grid size, so moving keeps the probes that stay in it; GiSlot
+  remembers the cell it holds and when it was drawn. planGi (before the main view's frame data: the faces' fills
+  write the light buffer, the main view's last) picks two probes a frame (new ones nearest first, else the oldest
+  weighted by distance) and fills their six faces' frame data (90-degree cameras, unclustered lights); finishGi gives
+  the faces the main view's shadows, light count and grid fields and puts them in UBO slots after the views'.
+  recordGi draws them (scenePipeline_ and the sky, CPU-culled within eight spacings at the coarsest LOD, MSAA
+  matching the pipelines) into a 192 x 64 atlas, then gi_project.comp (a workgroup per probe) sums each texel's
+  colour times the nine SH basis functions times its cube-texel solid angle (1 / |d|^3 for d through the face,
+  normalised to 4 pi), times each band's cosine factor (environment.cpp's convention), into the slot in a storage
+  buffer (set 0, binding 17), new probes taking the result whole and redrawn ones half. scene.frag's
+  giIrradiance: the eight probes around the point (nudged a quarter spacing along the normal), trilinear weights
+  times ((facing + 1) / 2)^2 + 0.05, only probes drawn for their current cell; it replaces the sky irradiance
+  (times the ambient strength and GI intensity) where it has weight, reflection probes still mixing over it. The
+  faces sample the grid too, so light bounces on every redraw. Screen-space reflections: after the post passes the
+  main view's picture and linear depth go into prevColor_ (ssr_capture.frag, MSAA variant; set 0 binding 18) and
+  its camera into next frame's UBO (prevViewProj, position, forward, viewport; w = 1 only for the main view);
+  scene.frag's environment() marches the reflected ray (40 growing steps from 0.12 m, out to 40 m) placing points
+  with the last frame's camera, a hit when it's behind the stored depth by less than max(0.25 m + 4 % of the
+  distance, 1.5 steps) (thinner and grazing rays streaked), refined by five bisections, faded at the picture's
+  edges, with distance and roughness (none past 0.55). Also fixed: extra views kept their own light count while
+  reading the main view's list. Checked: a red wall and a white slab with GI off and on (the floor near the camera
+  and the torus's shadow lit by the probes, measured), a mirror slab reflecting the bricks and the wall, validation
+  with synchronisation checks in every AA mode, the editor's game view. Not done: probe visibility (leaks through
+  walls; DDGI's depth moments), relocating probes out of geometry, GI from emissive surfaces beyond what probes see,
+  probes for the extra views' cameras, reflections in extra views and probe faces, hierarchical tracing (Hi-Z) for
+  SSR, temporal accumulation and denoising of reflections, rough reflections from screen space.
 

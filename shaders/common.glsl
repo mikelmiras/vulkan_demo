@@ -26,6 +26,13 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 probeMax[4];     // w = 1: box projection
     vec4 probeSh[4 * 9];  // its irradiance (nine per probe)
     vec4 time;            // x = seconds (for wind)
+    vec4 giOrigin;        // the GI grid (renderer_gi.cpp): xyz = its first probe, w = spacing (0: no GI)
+    vec4 giDims;          // probes along x, y, z; w = intensity
+    vec4 giCell;          // xyz = the world cell of its first probe (slots wrap around)
+    mat4 prevViewProj;    // screen-space reflections: the last frame's camera (its picture: binding 18)
+    vec4 prevCamPos;      // w = 1: reflections on
+    vec4 prevCamForward;
+    vec4 prevViewport;    // the last frame's scene rectangle in its picture (pixels)
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness

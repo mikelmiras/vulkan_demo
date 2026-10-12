@@ -430,6 +430,7 @@ void Renderer::destroySwapchainResources() {
 
 void Renderer::recreateSwapchain() {
     vkDeviceWaitIdle(device_);
+    ssrValid_ = false;   // (the picture is remade)
     destroySwapchainResources();
     destroyPostImages();
     createSwapchain();
@@ -584,7 +585,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[17] = {
+    VkDescriptorSetLayoutBinding frameBindings[19] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -602,9 +603,11 @@ void Renderer::createPipelines() {
         {14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // point and spot lights
         {15, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // their clusters
         {16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},     // foliage instances
+        {17, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // GI probes (renderer_gi.cpp)
+        {18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // last frame (reflections)
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 17;
+    dslci.bindingCount = 19;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -676,16 +679,19 @@ void Renderer::createSampledPipelines() {
     // Hull extruded in screen space, drawn only outside the silhouette -> outline visible through walls
     outlinePipeline_ = createPipeline({"outline.vert.spv", "outline.frag.spv", false, false, true, VK_CULL_MODE_NONE,
                                        true, VK_COMPARE_OP_NOT_EQUAL, VK_STENCIL_OP_KEEP, 0, 2});
-    if (aoSupported_)
+    if (aoSupported_) {
         aoPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "ssao_ms.frag.spv" : "ssao.frag.spv",
                                          VK_FORMAT_R8_UNORM, false);
+        ssrCapturePipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "ssr_capture_ms.frag.spv" : "ssr_capture.frag.spv",
+                                                 hdrFormat_, false);
+    }
     particleAlphaPipeline_ = createParticlePipeline(false);
     particleAdditivePipeline_ = createParticlePipeline(true);
     skyPipeline_ = createSkyPipeline();
 }
 
 void Renderer::destroySampledPipelines() {
-    for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_,
+    for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &ssrCapturePipeline_,
                           &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_}) {
         if (*p) vkDestroyPipeline(device_, *p, nullptr);
         *p = VK_NULL_HANDLE;
@@ -916,8 +922,8 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9 * MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 7 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10 * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 8 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
@@ -931,7 +937,7 @@ void Renderer::createResources(const MeshLibrary&) {
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &materialPool_));
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
-    const uint32_t postSetCount = 2 * kMaxBloomMips + 5 + 2 * kMaxViews;   // (+2 per view: the temporal pass's two directions)
+    const uint32_t postSetCount = 2 * kMaxBloomMips + 6 + 2 * kMaxViews;   // (+2 per view: the temporal pass's two directions)
     VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
@@ -951,6 +957,7 @@ void Renderer::createResources(const MeshLibrary&) {
     taa_.sets[1] = postSets[4 + 2 * kMaxBloomMips];
     for (int v = 0; v < kMaxViews; ++v)   // (the extra views' temporal passes)
         for (int k = 0; k < 2; ++k) viewImages_[v].taa.sets[k] = postSets[5 + 2 * kMaxBloomMips + 2 * v + k];
+    ssrSet_ = postSets[5 + 2 * kMaxBloomMips + 2 * kMaxViews];
     for (uint32_t m = 0; m < kMaxBloomMips; ++m) {
         downSets_[m] = postSets[2 + m];
         upSets_[m] = postSets[2 + kMaxBloomMips + m];
@@ -979,7 +986,7 @@ void Renderer::createResources(const MeshLibrary&) {
             VkDeviceSize align = std::max<VkDeviceSize>(props.limits.minUniformBufferOffsetAlignment, 16);
             uboStride_ = (sizeof(FrameUBO) + align - 1) / align * align;
         }
-        ubo_[i] = createBuffer(uboStride_ * (1 + kMaxViews), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+        ubo_[i] = createBuffer(uboStride_ * kUboSlots, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
         VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dsai.descriptorPool = descPool_;
@@ -1022,6 +1029,8 @@ void Renderer::createResources(const MeshLibrary&) {
 
     createCulling();
     createLightBuffers();
+    createGi();
+    writeSsrBinding();
     ensureInstanceStore(1024);
     for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) {
         ensureIndexCapacity(1024);
@@ -1094,6 +1103,11 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
     uploadTextures(cb);   // new ones, a few megabytes a frame (until then they're drawn plain)
+    if (prevColorFresh_) {   // (reflections' picture, just made: readable, even before there's one)
+        imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        prevColorFresh_ = false;
+    }
     for (ViewImage& v : viewImages_) {   // extra views' images made since the last frame: readable (black) from now
         if (!v.fresh) continue;
         imageBarrier(cb, v.image.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -1128,6 +1142,9 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
     timestamp(cb, "Shadows");
+
+    // ---- Global illumination: the probes due this frame, drawn and projected
+    recordGi(cb, info);
 
     // ---- The extra views, each whole into its own image (they use the same targets, before this view does)
     if (info.items && info.views)
@@ -1441,12 +1458,29 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         fillFrameUBO((*info.views)[v], viewUbos[v], false);
         setProbeData(viewUbos[v]);
     }
+    planGi(info);   // (probes' faces: before this view too)
     FrameUBO u{};
     fillFrameUBO(info, u, true);
     setProbeData(u);
+    finishGi(u);
+    if (info.reflections && ssrValid_) {   // the last frame's camera, for rays into its picture
+        u.prevViewProj = ssrViewProj_;
+        u.prevCamPos[0] = ssrCamPos_.x, u.prevCamPos[1] = ssrCamPos_.y, u.prevCamPos[2] = ssrCamPos_.z, u.prevCamPos[3] = 1.f;
+        u.prevCamForward[0] = ssrCamForward_.x, u.prevCamForward[1] = ssrCamForward_.y, u.prevCamForward[2] = ssrCamForward_.z;
+        std::memcpy(u.prevViewport, ssrViewport_, sizeof(ssrViewport_));
+    }
+    ssrValid_ = info.reflections && info.items && ssrCapturePipeline_;   // (this frame's picture is captured)
+    ssrViewProj_ = info.viewProj;
+    ssrCamPos_ = info.camPos;
+    ssrCamForward_ = info.camForward;
+    ssrViewport_[0] = info.viewportX, ssrViewport_[1] = info.viewportY, ssrViewport_[2] = info.viewportW, ssrViewport_[3] = info.viewportH;
     uploadPlants(info);
     for (size_t v = 0; v < viewCount; ++v) {
         FrameUBO& uv = viewUbos[v];
+        uv.ambient[3] = u.ambient[3];   // (the lights buffer holds this view's)
+        std::memcpy(uv.giOrigin, u.giOrigin, sizeof(u.giOrigin));
+        std::memcpy(uv.giDims, u.giDims, sizeof(u.giDims));
+        std::memcpy(uv.giCell, u.giCell, sizeof(u.giCell));
         std::memcpy(uv.shadowViewProj, u.shadowViewProj, sizeof(u.shadowViewProj));
         std::memcpy(uv.shadowRect, u.shadowRect, sizeof(u.shadowRect));
         std::memcpy(uv.cascadeSplits, u.cascadeSplits, sizeof(u.cascadeSplits));
@@ -1509,6 +1543,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
 void Renderer::shutdown() {
     vkDeviceWaitIdle(device_);
     for (ViewImage& v : viewImages_) destroyViewImage(v);   // (their textures: before the ImGui backend goes)
+    destroyGi();
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);

@@ -227,7 +227,8 @@ bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
     return eq(a.sky, b.sky) && eq(a.zenith, b.zenith) && eq(a.ground, b.ground) && a.fogDensity == b.fogDensity && a.ambient == b.ambient && a.exposure == b.exposure &&
            a.bloomStrength == b.bloomStrength && a.bloomThreshold == b.bloomThreshold && a.aoStrength == b.aoStrength &&
            a.aoRadius == b.aoRadius && a.skyImage == b.skyImage && a.skyIntensity == b.skyIntensity &&
-           a.skyRotation == b.skyRotation;
+           a.skyRotation == b.skyRotation && a.gi == b.gi && a.giSpacing == b.giSpacing && a.giIntensity == b.giIntensity &&
+           a.reflections == b.reflections;
 }
 
 bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b) {
