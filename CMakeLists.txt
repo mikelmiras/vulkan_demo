@@ -34,7 +34,7 @@ foreach(src ${SHADER_SOURCES})
 endforeach()
 add_custom_target(shaders ALL DEPENDS ${SPIRV_OUTPUTS})
 
-# Vendored third-party UI libraries (Dear ImGui v1.92.9b, ImGuizmo), compiled into the engine library: there must be
+# Vendored third-party UI libraries (Dear ImGui v1.92.9b-docking, ImGuizmo), compiled into the engine library: there must be
 # one ImGui context for the engine, the programs and game modules
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/third_party/imgui)
 set(IMGUIZMO_DIR ${CMAKE_SOURCE_DIR}/third_party/ImGuizmo/src)
@@ -184,7 +184,8 @@ add_executable(vkworld
   src/editor/editor_animation.cpp
   src/editor/editor_inspector.cpp
   src/editor/editor_viewport.cpp
-  src/editor/editor_assets.cpp)
+  src/editor/editor_assets.cpp
+  src/editor/editor_prefs.cpp)
 target_link_libraries(vkworld PRIVATE engine)
 # For game modules built along with the engine: "{engineBuild}" in a project's moduleBuild command
 target_compile_definitions(vkworld PRIVATE VKWORLD_BUILD_DIR="${CMAKE_BINARY_DIR}")
@@ -259,6 +260,8 @@ if(VKWORLD_BUILD_TESTS)
   enable_testing()
   add_executable(engine_tests
     tests/test_main.cpp
+    tests/test_editor_prefs.cpp
+    src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp
     tests/test_scene.cpp

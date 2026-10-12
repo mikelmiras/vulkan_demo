@@ -66,7 +66,8 @@ int main(int argc, char** argv) {
     bool projectArg = scenePath && std::filesystem::is_directory(scenePath, ec);
     if (projectArg) project::setRoot(scenePath);
     logfile::open(project::saveDir("Editor").parent_path() / "editor.log");
-    Editor editor(meshes, textures, &audio, app.uiScale());
+    // (screenshot runs always start from the default layout and preferences, and leave the saved ones alone)
+    Editor editor(meshes, textures, &audio, app.uiScale(), options.screenshotPath.empty());
     editor.setUiTextures(app.uiTextures(textures));
     if (projectArg) editor.openProject(scenePath);
     else if (scenePath) editor.openScene(scenePath);

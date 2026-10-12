@@ -25,11 +25,11 @@ void Editor::track() {
 // Inspector
 // ---------------------------------------------------------------------------------------------
 void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats) {
-    ImGuiIO& io = ImGui::GetIO();
-    float w = io.DisplaySize.x - vx_ - vw_;
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - w, topH_));
-    ImGui::SetNextWindowSize(ImVec2(w, io.DisplaySize.y - topH_ - statusH_));
-    ImGui::Begin("Inspector", nullptr, kPanelFlags);
+    ImGui::SetNextWindowSize(ImVec2(px(340.f), px(500.f)), ImGuiCond_FirstUseEver);
+    if (!editor_ui::beginPanel("Inspector", &showInspector_)) {
+        ImGui::End();
+        return;
+    }
     ImGui::PushItemWidth(-px(110.f));
     if (playing()) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Playing: changes are lost on Stop");
 

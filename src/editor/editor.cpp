@@ -10,6 +10,7 @@
 #include <filesystem>
 
 #include "ImGuizmo.h"
+#include "imgui_internal.h"   // (DockBuilder: the default layout)
 #include "app/profiler_view.h"
 #include "core/log.h"
 #include "core/profiler.h"
@@ -23,14 +24,36 @@ namespace {
 constexpr size_t kMaxUndo = 200;
 }
 
-Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale)
+Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale, bool persistent)
     : meshes_(meshes), textures_(textures), audio_(audio), uiScale_(uiScale), scene_(buildDefaultScene()) {
     game_.setAudio(audio);
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    persistent_ = persistent;
+    if (persistent_) {
+        prefsFile_ = editor_prefs::folder() / "editor_prefs.json";
+        EditorPrefs p;
+        if (editor_prefs::load(prefsFile_, p)) applyPrefs(p);
+        savedPrefs_ = currentPrefs();
+        layoutIni_ = (editor_prefs::folder() / "editor_layout.ini").u8string();
+        std::error_code ec;
+        std::filesystem::create_directories(editor_prefs::folder(), ec);
+        ImGui::GetIO().IniFilename = layoutIni_.c_str();
+        ImGui::LoadIniSettingsFromDisk(layoutIni_.c_str());
+    }
     assetDir_ = project::root();
     std::string error;
     if (project::exists(project::root())) project::load(project::root(), project_, error);
     else project_.name = project::root().filename().u8string();
     if (!project_.module.empty()) loadGameModule();
+}
+
+Editor::~Editor() {
+    if (!persistent_) return;
+    if (currentPrefs() != savedPrefs_) editor_prefs::save(prefsFile_, currentPrefs());
+    if (ImGui::GetCurrentContext() && ImGui::GetIO().IniFilename == layoutIni_.c_str()) {
+        ImGui::SaveIniSettingsToDisk(layoutIni_.c_str());
+        ImGui::GetIO().IniFilename = nullptr;   // (the string goes with us)
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -89,47 +112,29 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     // so it stays underneath every panel.
     ImGuizmo::BeginFrame();
 
-    // Layout: menu bar + toolbar on top, status bar at the bottom, panels left/right, viewport in the middle
+    // Layout: menu bar + toolbar on top, status bar at the bottom, the panels docked around the viewport between them
     const ImGuiStyle& style = ImGui::GetStyle();
     float menuH = ImGui::GetFrameHeight();
     float toolbarH = ImGui::GetFrameHeight() + style.WindowPadding.y * 2.f;
     topH_ = menuH + toolbarH;
     statusH_ = ImGui::GetTextLineHeight() + style.WindowPadding.y * 2.f;
     bool panels = !(playing() && maximizeOnPlay_);
-    // (panel sizes: dragged by their edges, in unscaled units; kept so the viewport has some room)
-    if (outlinerW_ <= 0.f) outlinerW_ = 250.f, inspectorW_ = 340.f, assetsPanelH_ = 160.f;
-    float minView = px(200.f);
-    float leftW = panels && showOutliner_ ? std::clamp(px(outlinerW_), px(140.f), std::max(io.DisplaySize.x * 0.45f, px(140.f))) : 0.f;
-    float rightW = panels && showInspector_ ? std::clamp(px(inspectorW_), px(220.f), std::max(io.DisplaySize.x * 0.5f, px(220.f))) : 0.f;
-    if (io.DisplaySize.x - leftW - rightW < minView) {   // a small window: the panels give way
-        float over = minView - (io.DisplaySize.x - leftW - rightW);
-        float l = std::min(over * 0.5f, std::max(leftW - px(140.f), 0.f));
-        leftW -= l;
-        rightW = std::max(rightW - (over - l), 0.f);
-    }
-    vx_ = leftW;
-    vy_ = topH_;
-    vw_ = std::max(io.DisplaySize.x - leftW - rightW, 1.f);
-    assetsH_ = panels && showAssets_ ? std::clamp(px(assetsPanelH_), px(70.f), std::max(io.DisplaySize.y * 0.6f, px(70.f))) : 0.f;
-    vh_ = std::max(io.DisplaySize.y - topH_ - statusH_ - assetsH_, 1.f);
+    drawDockspace(panels);
+    savePrefsIfChanged(dt);
     updateView();
 
     drawMenuBar();
     drawToolbar();
-    if (leftW > 0.f) drawOutliner();
-    if (rightW > 0.f) drawInspector(gpuName, stats);
+    if (panels && showOutliner_) drawOutliner();
+    if (panels && showInspector_) drawInspector(gpuName, stats);
     drawStatusBar(stats);
     if (showHelp_) drawHelp();
-    if (assetsH_ > 0.f) drawAssetBrowser();
+    if (panels && showAssets_) drawAssetBrowser();
     drawAddPopup();
     drawImportPopup();
     if (showInputBindings_) drawInputBindings();
     if (animGraphEntity_ != kNoEntity) drawAnimatorGraph();
     if (showProfiler_) drawProfilerWindow(&showProfiler_);
-    // Splitters on the panels' inner edges: drag to resize
-    if (leftW > 0.f) drawSplitter("##split-left", ImVec2(vx_ - px(3.f), vy_), ImVec2(px(6.f), io.DisplaySize.y - vy_ - statusH_), false, outlinerW_, 1.f);
-    if (rightW > 0.f) drawSplitter("##split-right", ImVec2(vx_ + vw_ - px(3.f), vy_), ImVec2(px(6.f), io.DisplaySize.y - vy_ - statusH_), false, inspectorW_, -1.f);
-    if (assetsH_ > 0.f) drawSplitter("##split-assets", ImVec2(vx_, vy_ + vh_ - px(3.f)), ImVec2(vw_, px(6.f)), true, assetsPanelH_, -1.f);
 
     handleNavigation(dt);
     handleGizmo();
@@ -343,29 +348,99 @@ void Editor::makePrefabVariant(int index) {
 }
 
 // A thin handle over a panel's edge: dragging it changes `size` (unscaled units) by the mouse movement times `sign`
-void Editor::drawSplitter(const char* id, ImVec2 pos, ImVec2 size, bool horizontal, float& value, float sign) {
+// ---------------------------------------------------------------------------------------------
+// Layout and preferences
+// ---------------------------------------------------------------------------------------------
+void Editor::drawDockspace(bool panels) {
+    ImGuiIO& io = ImGui::GetIO();
+    ImVec2 pos(0.f, topH_), size(io.DisplaySize.x, std::max(io.DisplaySize.y - topH_ - statusH_, 1.f));
     ImGui::SetNextWindowPos(pos);
     ImGui::SetNextWindowSize(size);
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoSavedSettings |
-                             ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(1.f, 1.f));
-    ImGui::Begin(id, nullptr, flags);
-    ImGui::InvisibleButton("##handle", size);
-    bool hot = ImGui::IsItemHovered() || ImGui::IsItemActive();
-    if (hot) ImGui::SetMouseCursor(horizontal ? ImGuiMouseCursor_ResizeNS : ImGuiMouseCursor_ResizeEW);
-    if (ImGui::IsItemActive()) {
-        ImVec2 d = ImGui::GetIO().MouseDelta;
-        value += (horizontal ? d.y : d.x) * sign / std::max(uiScale_, 0.01f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.f);
+    // A window under everything else, holding the dockspace; the central node is left see-through: the 3D view
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                             ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                             ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground |
+                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse;
+    ImGui::Begin("##dock-host", nullptr, flags);
+    ImGui::PopStyleVar(3);
+    ImGuiID id = ImGui::GetID("##editor-dockspace");
+    if (resetLayout_ || !ImGui::DockBuilderGetNode(id)) {   // first run (no saved layout) or View > Reset layout
+        buildDefaultLayout(id);
+        resetLayout_ = false;
     }
-    if (hot) {   // a highlight line along the edge
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        ImVec2 c(pos.x + size.x * 0.5f, pos.y + size.y * 0.5f);
-        if (horizontal) dl->AddLine(ImVec2(pos.x, c.y), ImVec2(pos.x + size.x, c.y), IM_COL32(90, 150, 230, 255), 2.f);
-        else dl->AddLine(ImVec2(c.x, pos.y), ImVec2(c.x, pos.y + size.y), IM_COL32(90, 150, 230, 255), 2.f);
-    }
+    // While playing maximised the panels aren't drawn: the dockspace is only kept alive, the view takes it all
+    ImGuiDockNodeFlags dockFlags = ImGuiDockNodeFlags_PassthruCentralNode | ImGuiDockNodeFlags_NoDockingOverCentralNode;
+    ImGui::DockSpace(id, ImVec2(0.f, 0.f), dockFlags | (panels ? 0 : ImGuiDockNodeFlags_KeepAliveOnly));
     ImGui::End();
-    ImGui::PopStyleVar(2);
+
+    vx_ = pos.x, vy_ = pos.y, vw_ = size.x, vh_ = size.y;
+    if (ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(id); panels && central && central->IsVisible) {
+        vx_ = central->Pos.x, vy_ = central->Pos.y;
+        vw_ = std::max(central->Size.x, 1.f), vh_ = std::max(central->Size.y, 1.f);
+    }
+}
+
+void Editor::buildDefaultLayout(ImGuiID dockspace) {
+    // Outliner on the left, Inspector on the right, Assets under the view
+    ImGuiIO& io = ImGui::GetIO();
+    ImVec2 size(std::max(io.DisplaySize.x, 1.f), std::max(io.DisplaySize.y - topH_ - statusH_, 1.f));
+    ImGui::DockBuilderRemoveNode(dockspace);
+    ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspace, size);
+    ImGuiID center = dockspace;
+    float leftW = std::clamp(px(250.f), size.x * 0.1f, size.x * 0.35f);
+    float rightW = std::clamp(px(340.f), size.x * 0.1f, size.x * 0.4f);
+    float assetsH = std::clamp(px(160.f), size.y * 0.1f, size.y * 0.4f);
+    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, leftW / size.x, nullptr, &center);
+    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, rightW / std::max(size.x - leftW, 1.f), nullptr,
+                                                &center);
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, assetsH / size.y, nullptr, &center);
+    ImGui::DockBuilderDockWindow("Outliner", left);
+    ImGui::DockBuilderDockWindow("Inspector", right);
+    ImGui::DockBuilderDockWindow("Assets", bottom);
+    ImGui::DockBuilderFinish(dockspace);
+}
+
+void Editor::applyPrefs(const EditorPrefs& p) {
+    tool_ = (Tool)p.tool;
+    localSpace_ = p.localSpace;
+    snap_ = p.snap;
+    snapMove_ = p.snapMove, snapRotate_ = p.snapRotate, snapScale_ = p.snapScale;
+    showOutliner_ = p.showOutliner, showInspector_ = p.showInspector, showAssets_ = p.showAssets;
+    showColliders_ = p.showColliders, showProfiler_ = p.showProfiler;
+    previewParticles_on_ = p.previewParticles;
+    cam_.speed = p.cameraSpeed;
+    cam_.fovY = p.cameraFov * DEG2RAD;
+    maximizeOnPlay_ = p.maximizeOnPlay;
+    captureOnClick_ = p.captureOnClick;
+    recentProjects_ = p.recentProjects;
+}
+
+EditorPrefs Editor::currentPrefs() const {
+    EditorPrefs p;
+    p.tool = (int)tool_;
+    p.localSpace = localSpace_;
+    p.snap = snap_;
+    p.snapMove = snapMove_, p.snapRotate = snapRotate_, p.snapScale = snapScale_;
+    p.showOutliner = showOutliner_, p.showInspector = showInspector_, p.showAssets = showAssets_;
+    p.showColliders = showColliders_, p.showProfiler = showProfiler_;
+    p.previewParticles = previewParticles_on_;
+    p.cameraSpeed = cam_.speed;
+    p.cameraFov = std::round(cam_.fovY / DEG2RAD * 10.f) / 10.f;
+    p.maximizeOnPlay = maximizeOnPlay_;
+    p.captureOnClick = captureOnClick_;
+    p.recentProjects = recentProjects_;
+    return p;
+}
+
+void Editor::savePrefsIfChanged(float dt) {
+    if (!persistent_ || (prefsTimer_ += dt) < 2.f) return;   // (checked every couple of seconds)
+    prefsTimer_ = 0.f;
+    EditorPrefs p = currentPrefs();
+    if (p != savedPrefs_ && editor_prefs::save(prefsFile_, p)) savedPrefs_ = p;
 }
 
 void Editor::selectAllRoots() {

@@ -19,11 +19,11 @@ using namespace editor_ui;
 // Outliner: the entity tree. Drag an entity onto another to parent it, onto the empty area to unparent.
 // ---------------------------------------------------------------------------------------------
 void Editor::drawOutliner() {
-    ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(0, topH_));
-    ImGui::SetNextWindowSize(ImVec2(vx_, io.DisplaySize.y - topH_ - statusH_));
-    ImGui::Begin("Outliner", nullptr, kPanelFlags);
-    if (!ImGui::BeginTabBar("##outliner-tabs")) { ImGui::End(); return; }
+    ImGui::SetNextWindowSize(ImVec2(px(250.f), px(500.f)), ImGuiCond_FirstUseEver);
+    if (!editor_ui::beginPanel("Outliner", &showOutliner_) || !ImGui::BeginTabBar("##outliner-tabs")) {
+        ImGui::End();
+        return;
+    }
     if (ImGui::BeginTabItem("Prefabs", nullptr, showPrefabsTab_ ? ImGuiTabItemFlags_SetSelected : 0)) {
         drawPrefabs();
         ImGui::EndTabItem();

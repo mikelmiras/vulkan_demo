@@ -16,6 +16,7 @@
 #include "assets/meshes.h"
 #include "app/export.h"
 #include "core/project.h"
+#include "editor/editor_prefs.h"
 #include "game/game.h"
 #include "game/module.h"
 #include "render/renderer.h"
@@ -40,7 +41,9 @@ struct EditorCamera {
 class Editor {
 public:
     // meshes: imports are appended to it. uiScale: DPI scale for fixed pixel sizes (1.0 at 96 DPI).
-    Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale);
+    // persistent: keep the panel layout and preferences between sessions (off for screenshots: always the defaults).
+    Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale, bool persistent = false);
+    ~Editor();
 
     // Builds the UI and handles viewport input. Call between ImGui::NewFrame() and ImGui::Render().
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
@@ -152,8 +155,20 @@ private:
     void autosave();
     void recoverAutosave();
     bool unsaved() const { return editVersion_ != savedVersion_; }
-    void drawSplitter(const char* id, ImVec2 pos, ImVec2 size, bool horizontal, float& value, float sign);
-    float outlinerW_ = 0.f, inspectorW_ = 0.f, assetsPanelH_ = 0.f;   // panel sizes (unscaled; 0: defaults)
+    // Layout: the panels dock around the viewport (the dockspace's central node); Dear ImGui keeps where they are in
+    // editor_layout.ini, the rest of the editor's settings are in editor_prefs.json (editor_prefs.h)
+    void drawDockspace(bool panels);   // sets vx_ .. vh_ to the central node
+    void buildDefaultLayout(ImGuiID dockspace);
+    void applyPrefs(const EditorPrefs& p);
+    EditorPrefs currentPrefs() const;
+    void savePrefsIfChanged(float dt);
+    bool persistent_ = false;     // reads and writes the layout and preferences (not in screenshot runs)
+    bool resetLayout_ = false;    // View > Reset layout: rebuilt next frame
+    std::string layoutIni_;       // (io.IniFilename points into it)
+    std::filesystem::path prefsFile_;
+    EditorPrefs savedPrefs_;      // as last written
+    float prefsTimer_ = 0.f;
+    std::vector<std::string> recentProjects_;   // File > Recent projects (newest first)
     void select(EntityId id);
     void addObject(int mesh);
     void addEmpty();
@@ -284,7 +299,6 @@ private:
     std::unordered_map<std::string, int> thumbnails_;   // image path -> its thumbnail in the texture library (-1: failed)
     ImTextureID thumbnail(const AssetEntry& a, int& budget, float& aspect);   // aspect: width / height
     double assetsScannedAt_ = -1.0;
-    float assetsH_ = 0.f;                 // layout: height of the browser panel
     bool openImport_ = false;
     std::string importPath_, importError_;
     std::future<int> moduleBuild_;        // the running build command's exit code

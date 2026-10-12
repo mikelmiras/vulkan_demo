@@ -6,15 +6,28 @@
 #include <string>
 
 #include "imgui.h"
+#include "imgui_internal.h"   // (ImGuiDockNodeFlags_NoCloseButton)
+#include "misc/cpp/imgui_stdlib.h"
 #include "scene/behaviour.h"
 
 namespace editor_ui {
 
-constexpr ImGuiWindowFlags kPanelFlags =
-    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
-constexpr ImGuiWindowFlags kBarFlags = kPanelFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoScrollbar |
-                                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBringToFrontOnFocus;
+// The docked panels (Outliner, Inspector, Assets): moved, resized and docked freely, remembered in the layout
+constexpr ImGuiWindowFlags kPanelFlags = ImGuiWindowFlags_NoCollapse;
+// The bars along the top and bottom: fixed
+constexpr ImGuiWindowFlags kBarFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar |
+                                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                                       ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoDocking;
 constexpr const char* kEntityPayload = "VKW_ENTITY";
+
+// Begin() for a docked panel: closed from its tab (no second close button on the dock node)
+inline bool beginPanel(const char* name, bool* open) {
+    ImGuiWindowClass panel;
+    panel.DockNodeFlagsOverrideSet = ImGuiDockNodeFlags_NoCloseButton;
+    ImGui::SetNextWindowClass(&panel);
+    return ImGui::Begin(name, open, kPanelFlags);
+}
 
 inline void verticalSeparator() {
     ImGui::SameLine();

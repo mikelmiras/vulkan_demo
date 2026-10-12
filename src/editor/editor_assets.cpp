@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "app/export.h"
+#include "editor/editor_ui.h"
 #include "platform/platform.h"
 #include "scene/serialization.h"
 
@@ -110,6 +111,7 @@ void Editor::openProject(const fs::path& dir) {
         if (!project::save(dir, settings, error)) { setStatus(error); return; }
     }
     project_ = settings;
+    editor_prefs::addRecent(recentProjects_, project::root().u8string());
     bool sameModule = module_.loaded() && !project_.module.empty() && !module_.changedOnDisk() &&
                       module_.library() == GameModule::libraryPath(fs::u8path(project::resolve(project_.module)));
     if (!sameModule) loadGameModule();   // (the editor may have loaded it already, for the starting project)
@@ -263,15 +265,13 @@ void Editor::scanAssets() {
 
 void Editor::drawAssetBrowser() {
     if (assetsScannedAt_ < 0.0 || now() - assetsScannedAt_ > 2.0) scanAssets();   // picks up new files on its own
-    ImGui::SetNextWindowPos(ImVec2(vx_, vy_ + vh_));
-    ImGui::SetNextWindowSize(ImVec2(vw_, assetsH_));
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar;
-    ImGui::Begin("##assets", nullptr, flags);
+    ImGui::SetNextWindowSize(ImVec2(px(700.f), px(180.f)), ImGuiCond_FirstUseEver);
+    if (!editor_ui::beginPanel("Assets", &showAssets_)) {
+        ImGui::End();
+        return;
+    }
 
     // Header: where we are in the project
-    ImGui::TextColored(kindColor(0), "Assets");
-    ImGui::SameLine();
     fs::path rel = assetDir_.lexically_relative(project::root());
     bool atRoot = rel.empty() || rel == ".";
     ImGui::BeginDisabled(atRoot);

@@ -30,6 +30,18 @@ void Editor::drawMenuBar() {
             ImGui::GetIO().ClearInputMouse();
             if (!dir.empty()) openProject(dir);
         }
+        if (ImGui::BeginMenu("Recent projects", recentProjects_.size() > 1)) {
+            std::string open;
+            for (const std::string& dir : recentProjects_)
+                if (ImGui::MenuItem(dir.c_str(), nullptr, dir == project::root().u8string())) open = dir;
+            ImGui::EndMenu();
+            std::error_code ec;
+            if (!open.empty() && std::filesystem::is_directory(std::filesystem::u8path(open), ec)) openProject(std::filesystem::u8path(open));
+            else if (!open.empty()) {
+                recentProjects_.erase(std::remove(recentProjects_.begin(), recentProjects_.end(), open), recentProjects_.end());
+                setStatus("Not there any more: " + open);
+            }
+        }
         if (ImGui::BeginMenu("Export game", project::exists(project::root()))) {
             const char* labels[3] = {"As a folder of files...", "With its data packed (game.pak)...",
                                      "As a single file..."};
@@ -134,6 +146,10 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
         ImGui::MenuItem("Profiler", "F3", &showProfiler_);
+        if (ImGui::MenuItem("Reset layout")) {   // the panels back where they started (and shown)
+            resetLayout_ = true;
+            showOutliner_ = showInspector_ = showAssets_ = true;
+        }
         if (ImGui::MenuItem("Show navigation", nullptr, &showNavigation_) && showNavigation_) bakeNavigationPreview();
         ImGui::MenuItem("Preview particles", nullptr, &previewParticles_on_);
         ImGui::Separator();

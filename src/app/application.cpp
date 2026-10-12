@@ -26,7 +26,7 @@ double nowSeconds() {
 
 void setupImGuiStyle(float scale) {
     ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;   // fixed layout, nothing worth persisting
+    io.IniFilename = nullptr;   // (the editor keeps its panel layout in a file of its own: editor_prefs.h)
     for (const auto& font : platform::uiFontCandidates()) {
         std::error_code ec;
         if (std::filesystem::exists(font, ec) && io.Fonts->AddFontFromFileTTF(font.u8string().c_str(), 16.f * scale))

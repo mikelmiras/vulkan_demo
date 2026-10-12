@@ -3,7 +3,7 @@
 A small Vulkan 1.3 3D scene with a Blender-style editing UI, in C++17.
 
 - Runs on **Linux** (X11 / XWayland, via raw XCB), **Windows** (Win32) and **macOS** (Cocoa + MoltenVK). No GLFW/SDL needed.
-- UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo);
+- UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b (docking branch) + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo);
   images: [stb_image](https://github.com/nothings/stb) v2.30; glTF: [cgltf](https://github.com/jkuhlmann/cgltf) v1.14;
   audio: [miniaudio](https://miniaud.io) v0.11.21.
   All vendored in `third_party/` and compiled into the binary.
@@ -142,6 +142,15 @@ e.g. Visual Studio's default Debug configuration). Messages go to the console.
   "Add component", remove with the x on their header), editor camera and renderer stats.
 - **Viewport**: selected object gets an orange outline (visible through other objects) plus the gizmo.
   The cube in the top-right corner snaps/rotates the view.
+- **Docking**: the Outliner, Inspector, Assets, Profiler and other windows dock around the viewport. Drag a
+  panel by its tab to move it to another side, stack it with another panel as a tab, or pull it out as a
+  floating window; drag the edges between panels to resize them. Close a panel from its tab, and bring it back
+  from the View menu. View > Reset layout puts everything back where it started.
+- **Saved per user**: the panel layout (`editor_layout.ini`) and the editor's preferences (`editor_prefs.json`:
+  tool, snapping, which panels and overlays are shown, fly speed, field of view, play options and recent
+  projects) are kept in the user's data folder next to `editor.log` (`~/.local/share/vkworld/Editor` on Linux,
+  `%APPDATA%\vkworld\Editor` on Windows, `~/Library/Application Support/vkworld/Editor` on macOS). File > Recent
+  projects reopens a project. Screenshot runs (`--screenshot`) always use the defaults and change nothing.
 
 ## Projects and the asset browser
 
@@ -165,8 +174,7 @@ The **Assets** panel (under the viewport; View > Assets) shows the project's fol
   under the mouse; a sound becomes that object's Audio Source.
 - **Drag onto the Inspector**: textures onto Mesh Renderer > Texture, sounds onto Audio Source > Clip file.
 
-Images in the browser show as thumbnails; other kinds of file get an icon. Panels resize by dragging their inner
-edges. Selecting several objects: Ctrl+click in the viewport or the outliner (Shift+click in the outliner selects a
+Images in the browser show as thumbnails; other kinds of file get an icon. Selecting several objects: Ctrl+click in the viewport or the outliner (Shift+click in the outliner selects a
 range, Ctrl+A every top-level object); the gizmo then moves, turns or scales them together around the first one,
 and Delete / Duplicate apply to all of them.
 
@@ -688,7 +696,7 @@ Includes are relative to `src/`.
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
-| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export |
+| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_prefs.cpp` preferences saved per user |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
 | `tools/`                   | `check_screenshot.py` (CI smoke test)                           |

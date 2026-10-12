@@ -257,11 +257,11 @@ Working list for turning the renderer demo into a small game engine. Each task i
   game executables delay-load vulkan-1.dll on MSVC. The sample game has an icon. Not done: code signing /
   notarisation, Windows icons for vkgame itself, installers.
 
-## Round 4 (next)
+## Round 4 (in progress)
 
 | # | Task | Why |
 |---|------|-----|
-| 32 | Editor layout: Dear ImGui's docking branch (dockable, tear-off panels), the layout and editor preferences saved per user | Panels only resize; nothing about the editor's setup survives a restart |
+| 32 (done) | Editor layout: Dear ImGui's docking branch (dockable, tear-off panels), the layout and editor preferences saved per user | Panels only resize; nothing about the editor's setup survives a restart |
 | 33 | Scripting: Lua behaviours (vendored Lua, fields, the GameContext API, hot reload on save) alongside C++ modules | Every bit of game logic needs a C++ rebuild |
 | 34 | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
 | 35 | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
@@ -273,3 +273,16 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 41 | Reliability: crash reports (stack traces into the log), chrome://tracing export of profiles, a performance regression check in CI | Crashes leave little to go on; performance drifts unnoticed |
 | 42 | Audio: sound occlusion by geometry, HRTF for headphones, a settings screen with saved volumes, music stingers / layers | Sounds come through walls; volume settings don't persist |
 
+### Round 4 notes
+- Task 32: third_party/imgui is now the v1.92.9b-docking release (the same version, plus docking; the vendored copy
+  was checked to match upstream exactly before the swap). The editor turns on ImGuiConfigFlags_DockingEnable and
+  draws a dockspace between the toolbar and the status bar (a background host window; passthru central node, kept
+  free of panels); the viewport rectangle is the central node's. The default layout (Outliner left, Inspector
+  right, Assets below) is built with DockBuilder when there's no saved one, or after View > Reset layout. Panels
+  close from their tab (editor_ui::beginPanel: no second close button on the node). Maximise-on-play keeps the
+  dockspace alive without drawing it. Layout: Dear ImGui's ini at <user data>/vkworld/Editor/editor_layout.ini;
+  preferences: editor/editor_prefs (EditorPrefs, JSON, checked every 2 s and on exit, written through a temp file;
+  bad values fall back to defaults) with File > Recent projects. Screenshot runs leave both alone and start from
+  the defaults. Not done: panels torn off into their own OS windows (Dear ImGui's multi-viewports: our XCB
+  backend has no platform-window support and the renderer draws one swapchain), more than one game view or a
+  docked game view, per-project layouts.
