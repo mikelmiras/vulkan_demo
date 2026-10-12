@@ -41,6 +41,8 @@ struct FrameUBO {
     float camForward[4];      // w = tan(fovY / 2)
     float cascadeSplits[4];   // far end of each cascade, metres along the view
     float zenith[4], ground[4];   // sky colours (linear)
+    float envParams[4];       // the sky image: x = 1 if there is one, y = brightness, z = turn (radians)
+    float sh[9][4];           // its irradiance (spherical harmonics, rgb)
 };
 
 struct InstanceData {

@@ -50,6 +50,15 @@ bool eq(const AudioSource& a, const AudioSource& b) {
 bool eq(const ReverbZone& a, const ReverbZone& b) {
     return a.radius == b.radius && a.blend == b.blend && a.wet == b.wet && a.roomSize == b.roomSize && a.damping == b.damping;
 }
+// (any change to the heights or paint gives a terrain a new revision: no need to compare them)
+bool eq(const Terrain& a, const Terrain& b) {
+    if (a.revision != b.revision || a.resolution != b.resolution || a.size != b.size) return false;
+    for (int k = 0; k < Terrain::kLayers; ++k)
+        if (a.layers[k].texture != b.layers[k].texture || !eq(a.layers[k].color, b.layers[k].color) ||
+            a.layers[k].tiling != b.layers[k].tiling)
+            return false;
+    return true;
+}
 bool eq(const ParticleEmitter& a, const ParticleEmitter& b) {
     return a.rate == b.rate && a.burst == b.burst && a.playOnStart == b.playOnStart && a.duration == b.duration &&
            a.lifetime == b.lifetime && a.lifetimeRandom == b.lifetimeRandom && a.speed == b.speed &&
@@ -129,7 +138,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
     if (!eq(a.meshRenderer, b.meshRenderer) || !eq(a.camera, b.camera) || !eq(a.collider, b.collider) ||
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
         !eq(a.prefab, b.prefab) || !eq(a.nestedPrefab, b.nestedPrefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
-        !eq(a.particleEmitter, b.particleEmitter))
+        !eq(a.particleEmitter, b.particleEmitter) || !eq(a.terrain, b.terrain))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;
     for (size_t i = 0; i < a.behaviours.size(); ++i) {
@@ -154,7 +163,8 @@ bool sameInputActions(const std::vector<InputAction>& a, const std::vector<Input
 bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
     return eq(a.sky, b.sky) && eq(a.zenith, b.zenith) && eq(a.ground, b.ground) && a.fogDensity == b.fogDensity && a.ambient == b.ambient && a.exposure == b.exposure &&
            a.bloomStrength == b.bloomStrength && a.bloomThreshold == b.bloomThreshold && a.aoStrength == b.aoStrength &&
-           a.aoRadius == b.aoRadius;
+           a.aoRadius == b.aoRadius && a.skyImage == b.skyImage && a.skyIntensity == b.skyIntensity &&
+           a.skyRotation == b.skyRotation;
 }
 
 bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b) {

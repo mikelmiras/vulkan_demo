@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "assets/meshes.h"
+#include "render/environment.h"
 #include "assets/textures.h"
 #include "core/vecmath.h"
 
@@ -76,6 +77,9 @@ struct SceneRenderInfo {
     float fogDensity = 0.006f, ambient = 0.45f, exposure = 1.f, bloomStrength = 0.06f, bloomThreshold = 1.f;
     float aoStrength = 0.6f, aoRadius = 0.6f;   // ambient occlusion (screen space): how dark, how far (m); 0: off
     float zNear = 0.1f, zFar = 2000.f;          // the camera's clip planes (to read depth back as distance)
+    // A sky image (render/environment.h): drawn as the sky, lighting and reflected (null: the colours above)
+    const Environment* environment = nullptr;
+    float skyIntensity = 1.f, skyRotation = 0.f;   // brightness, turn around the vertical (radians)
     float viewportX = 0, viewportY = 0, viewportW = 0, viewportH = 0;   // in window pixels
 };
 
@@ -153,7 +157,13 @@ private:
         uint32_t revision = 0;                   // the Texture's when uploaded (a newer one: uploaded again)
         bool nearest = false;                    // sampled with nearestSampler_
     };
-    void reuploadChangedTextures();   // textures reloaded in place (TextureLibrary revisions): waits for the GPU
+    void reuploadChangedTextures();
+    // The sky image (renderer_environment.cpp)
+    Image createFloatImage(const std::vector<const Environment::Level*>& levels);
+    void createEnvironmentResources();
+    void destroyEnvironmentResources();
+    void writeEnvironmentDescriptors();
+    void uploadEnvironment(const Environment* env);   // (when it's another one: waits for the GPU)   // textures reloaded in place (TextureLibrary revisions): waits for the GPU
     // Set 1 for a draw: albedo, normal, metal/rough and emissive maps (defaults where it has none), made on first use
     VkDescriptorSet materialSet(const DrawItem& item);
     // Records the upload into `frame` when given (its staging buffer retired with that frame), else uploads now
@@ -225,7 +235,11 @@ private:
     std::unordered_map<uint64_t, VkDescriptorSet> terrainSets_;    // terrains': four colour layers
     mutable std::unordered_map<int, VkDescriptorSet> uiSets_;      // texture id -> ImGui's set for it
     VkSampler sampler_ = VK_NULL_HANDLE;
-    VkSampler nearestSampler_ = VK_NULL_HANDLE;   // textures imported with "filter": "nearest"
+    VkSampler nearestSampler_ = VK_NULL_HANDLE;
+    Image envSky_, envRadiance_;
+    VkSampler envSampler_ = VK_NULL_HANDLE;
+    uint32_t envId_ = 0;
+    float envSh_[9][3] = {};   // textures imported with "filter": "nearest"
     float maxAnisotropy_ = 1.f;             // 1 = anisotropic filtering not available
 
     static constexpr uint32_t kCascadeSize = 2048, kSpotShadowSize = 1024, kCascades = 4, kSpotShadows = 4;

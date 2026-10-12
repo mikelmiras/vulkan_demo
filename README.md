@@ -269,6 +269,11 @@ dropping on the right.
   depth, at half resolution; strength and radius in the scene's look settings).
 - **Sky**: a gradient from the horizon (also the fog colour) to the zenith, the ground below, and the sun's disc
   and glow. It also lights the scene: ambient light and reflections come from it (blurrier on rougher surfaces).
+- **Sky images**: a scene can use a panorama instead (Scene look > Sky image: an equirectangular image, twice as
+  wide as high, ideally an `.hdr`; with a brightness and a turn). It's drawn as the sky, and it lights the scene:
+  matte surfaces get its light from all around (spherical harmonics), shiny ones reflect it, sharp on smooth
+  surfaces and blurred like their highlights on rough ones (six levels prefiltered with the GGX lobe when it's
+  loaded). The sun is still the scene's directional light; the fog keeps the horizon colour.
 - **Transparency** (glTF alpha modes): cut-out materials (Mask) have holes wherever their texture's alpha is below a
   cutoff (the built-in Grate texture has them); see-through ones (Blend) are drawn after everything solid, sorted
   back to front, with their opacity.

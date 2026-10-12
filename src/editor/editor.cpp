@@ -10,6 +10,7 @@
 #include <filesystem>
 
 #include "ImGuizmo.h"
+#include "render/environment.h"
 #include "assets/asset_db.h"
 #include "imgui_internal.h"   // (DockBuilder: the default layout)
 #include "app/profiler_view.h"
@@ -251,6 +252,12 @@ SceneRenderInfo Editor::renderInfo() const {
     info.bloomThreshold = r.bloomThreshold;
     info.aoStrength = r.aoStrength;
     info.aoRadius = r.aoRadius;
+    if (!r.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
+        std::string skyError;
+        info.environment = environment::load(project::resolve(r.skyImage), skyError);
+    }
+    info.skyIntensity = r.skyIntensity;
+    info.skyRotation = r.skyRotation * DEG2RAD;
     info.zNear = viewNear_;
     info.zFar = viewFar_;
     info.viewProj = viewProj_;

@@ -1,6 +1,7 @@
 // Editor inspector: the selection's components and behaviours, the scene's look, renderer info.
 #include "editor/editor.h"
 #include "assets/asset_db.h"
+#include "render/environment.h"
 
 #include <cctype>
 #include <cfloat>
@@ -164,6 +165,37 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         tooltip("How much corners, creases and the ground under things darken (screen-space; 0: off)");
         ImGui::SliderFloat("Occlusion radius", &r.aoRadius, 0.05f, 4.f, "%.2f m");
         track();
+        // The sky image: a panorama that's the sky, the ambient light and what shiny things reflect
+        ImGui::InputText("Sky image", &r.skyImage);
+        track();
+        if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Texture, dropped)) {
+            pushUndo();
+            r.skyImage = project::toStored(dropped.u8string());
+        }
+        tooltip("A panorama (equirectangular: twice as wide as high), best an .hdr: drop one from the Assets panel");
+        if (ImGui::SmallButton("Browse##sky")) {
+            std::filesystem::path path = platform::openFileDialog("Sky image", "hdr,png,jpg,jpeg");
+            ImGui::GetIO().ClearInputKeys();
+            ImGui::GetIO().ClearInputMouse();
+            if (!path.empty()) {
+                pushUndo();
+                r.skyImage = project::toStored(path.u8string());
+            }
+        }
+        if (!r.skyImage.empty()) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Remove##sky")) {
+                pushUndo();
+                r.skyImage.clear();
+            }
+            std::string error;
+            if (!environment::load(project::resolve(r.skyImage), error))
+                ImGui::TextColored(ImVec4(1.f, 0.5f, 0.4f, 1.f), "%s", error.c_str());
+            ImGui::SliderFloat("Sky brightness", &r.skyIntensity, 0.f, 4.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Sky turn", &r.skyRotation, -180.f, 180.f, "%.0f deg");
+            track();
+        }
 
         drawLayerSettings();
 

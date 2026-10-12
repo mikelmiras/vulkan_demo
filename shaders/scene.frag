@@ -103,10 +103,12 @@ vec3 envBRDF(vec3 f0, float rough, float NdotV) {
 // Image-based lighting from the sky: what a surface facing `n` gathers from all around (diffuse), and the sky
 // reflected along `r`, blurrier the rougher the surface
 vec3 irradiance(vec3 n) {
+    if (frame.envParams.x > 0.5) return skyIrradiance(n) * frame.ambient.rgb;
     vec3 above = mix(frame.fogColor.rgb, frame.zenith.rgb, 0.6), below = frame.ground.rgb;
     return mix(below, above, n.y * 0.5 + 0.5) * frame.ambient.rgb;
 }
 vec3 environment(vec3 r, float rough) {
+    if (frame.envParams.x > 0.5) return skyReflection(r, rough) * frame.ambient.rgb;
     vec3 sharp = skyColor(r, false) * frame.ambient.rgb;
     return mix(sharp, irradiance(r), clamp(rough * rough * 1.5, 0.0, 1.0));
 }

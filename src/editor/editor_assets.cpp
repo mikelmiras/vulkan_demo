@@ -99,7 +99,8 @@ Editor::AssetKind Editor::assetKind(const fs::path& path) {
     if (ext == ".vkw") return AssetKind::Scene;
     if (ext == ".prefab") return AssetKind::Prefab;
     if (ext == ".obj" || ext == ".gltf" || ext == ".glb") return AssetKind::Model;
-    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") return AssetKind::Texture;
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" || ext == ".hdr")
+        return AssetKind::Texture;
     if (ext == ".wav" || ext == ".mp3" || ext == ".flac") return AssetKind::Sound;
     if (ext == ".lua") return AssetKind::Script;
     return AssetKind::Other;

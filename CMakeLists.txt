@@ -123,6 +123,8 @@ set(ENGINE_SOURCES
   src/render/renderer_post.cpp
   src/render/renderer_shadows.cpp
   src/render/scene_draw.cpp
+  src/render/environment.cpp
+  src/render/renderer_environment.cpp
   src/app/application.cpp
   src/app/export.cpp
   src/script/lua_script.cpp
@@ -275,6 +277,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_scripting.cpp
     tests/test_asset_db.cpp
     tests/test_terrain.cpp
+    tests/test_environment.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

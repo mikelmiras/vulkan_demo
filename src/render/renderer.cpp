@@ -558,7 +558,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[7] = {
+    VkDescriptorSetLayoutBinding frameBindings[9] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -566,9 +566,11 @@ void Renderer::createPipelines() {
         {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // particles
         {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // spot shadows
         {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // point shadows
+        {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the sky image
+        {8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // its radiance
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 7;
+    dslci.bindingCount = 9;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -858,7 +860,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 5 * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -959,6 +961,7 @@ void Renderer::createResources(const MeshLibrary&) {
     }
     frame_ = 0;
 
+    createEnvironmentResources();
     const uint8_t white[4] = {255, 255, 255, 255};
     whiteTexture_ = createTexture(white, 1, 1);
     const uint8_t flat[4] = {128, 128, 255, 255};
@@ -1233,6 +1236,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (resized_) recreateSwapchain();
     if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
     reuploadChangedTextures();   // (before any of this frame's material sets are made: it may remake them all)
+    uploadEnvironment(info.environment);
 
     {
         PROFILE_SCOPE("Wait for the GPU");
@@ -1287,6 +1291,8 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
     set4(u.zenith, srgbToLinear(info.zenith), 0.f);
     set4(u.ground, srgbToLinear(info.ground), 0.f);
+    set4(u.envParams, {envId_ != 0 ? 1.f : 0.f, info.skyIntensity, info.skyRotation}, 0.f);
+    for (int k = 0; k < 9; ++k) set4(u.sh[k], {envSh_[k][0], envSh_[k][1], envSh_[k][2]}, 0.f);
     {   // the camera's axes, for billboards and the sky (no roll: up is as close to the world's up as possible)
         Vec3 f = normalize(info.camForward);
         Vec3 right = std::fabs(f.y) > 0.999f ? Vec3{1, 0, 0} : normalize(cross(f, {0, 1, 0}));
@@ -1377,6 +1383,7 @@ void Renderer::shutdown() {
     vkDestroyDescriptorSetLayout(device_, materialSetLayout_, nullptr);
     vkDestroySampler(device_, sampler_, nullptr);
     vkDestroySampler(device_, nearestSampler_, nullptr);
+    destroyEnvironmentResources();
     vkDestroySampler(device_, shadowSampler_, nullptr);
     destroyShadowArray(cascades_);
     destroyShadowArray(spotShadows_);

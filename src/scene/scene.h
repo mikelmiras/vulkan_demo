@@ -431,6 +431,11 @@ struct RenderSettings {
     float bloomThreshold = 1.f;       // brightness (linear) where the glow starts
     float aoStrength = 0.6f;          // ambient occlusion: how much nooks and contact spots darken (0: off)
     float aoRadius = 0.6f;            // ... over how far, m
+    // A sky image (an equirectangular panorama: .hdr, or an ordinary image): drawn as the sky, it also lights the
+    // scene and is reflected (render/environment.h); the colours above then only colour the fog. "": none.
+    std::string skyImage;
+    float skyIntensity = 1.f;         // its brightness
+    float skyRotation = 0.f;          // turned around the vertical, degrees
 };
 
 // A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.

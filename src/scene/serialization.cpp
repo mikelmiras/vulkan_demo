@@ -1000,6 +1000,12 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
         rv.set("bloomThreshold", r.bloomThreshold);
         rv.set("aoStrength", r.aoStrength);
         rv.set("aoRadius", r.aoRadius);
+        if (!r.skyImage.empty()) {
+            rv.set("skyImage", r.skyImage);
+            if (std::string id = assetdb::idOfStored(r.skyImage); !id.empty()) rv.set("skyImageId", id);
+            rv.set("skyIntensity", r.skyIntensity);
+            rv.set("skyRotation", r.skyRotation);
+        }
     }
     {
         const NavigationSettings& n = scene.navigation;
@@ -1086,6 +1092,9 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
         r.bloomThreshold = rv["bloomThreshold"].asFloat(r.bloomThreshold);
         r.aoStrength = rv["aoStrength"].asFloat(r.aoStrength);
         r.aoRadius = rv["aoRadius"].asFloat(r.aoRadius);
+        r.skyImage = assetdb::heal(rv["skyImage"].asString(), rv["skyImageId"].asString());
+        r.skyIntensity = rv["skyIntensity"].asFloat(r.skyIntensity);
+        r.skyRotation = rv["skyRotation"].asFloat(r.skyRotation);
     }
     if (const json::Value& lv = doc["settings"]["layers"]; lv.isObject()) {
         LayerSettings& l = result.layers;

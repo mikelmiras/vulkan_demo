@@ -265,7 +265,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 33 (done) | Scripting: Lua behaviours (vendored Lua, fields, the GameContext API, hot reload on save) alongside C++ modules | Every bit of game logic needs a C++ rebuild |
 | 34 (done) | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
 | 35 (done) | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
-| 36 | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
+| 36 (in progress) | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
 | 37 | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
 | 38 | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
 | 39 | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
@@ -339,3 +339,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
   width, hills, flatten, layers with texture drops), [terrain] in the outliner. Module API 24. Not done: holes,
   level of detail (a 256 x 256 terrain is 130k triangles), splat maps finer than the height grid, more than four
   layers, normal maps on layers, sculpting while playing, terrain from heightmap images.
+- Task 36, sky images: render/environment (stb_image now with HDR; .hdr as floats, others as sRGB) keeps the sky
+  (at most 2048 wide), radiance at 256 x 128 plus five halving levels prefiltered on the CPU with a GGX lobe (N = V =
+  R; level k is roughness k / 5; threads over rows; from 128 x 64 / 64 x 32 copies) and the irradiance as nine
+  spherical-harmonic coefficients (cosine-convolved), cached by path. The renderer uploads them as RGBA16F (set 0,
+  bindings 7 and 8; a 1x1 black stand-in otherwise) and the SH in the frame UBO; common.glsl's skyColor,
+  skyIrradiance and skyReflection use them (turned around Y by the scene's sky turn). RenderSettings skyImage
+  (with an asset id), skyIntensity, skyRotation; Scene look UI with drop, browse, errors. Also: the editor's undo
+  now sees terrain changes made from the Inspector (sameEntity compared everything but terrains). Seen on the way:
+  stb_image decodes uncompressed (flat) .hdr scanlines wrongly here (every other row black); run-length encoded ones,
+  what tools write, are fine.

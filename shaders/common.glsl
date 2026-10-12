@@ -21,10 +21,40 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 cascadeSplits;   // far end of each sun shadow cascade, metres along the view
     vec4 zenith;          // sky overhead (linear)
     vec4 ground;          // below the horizon (linear)
+    vec4 envParams;       // a sky image: x = 1 if there is one, y = brightness, z = turn around the vertical
+    vec4 sh[9];           // its irradiance as spherical harmonics (rgb)
 } frame;
 
-// The sky in a direction: horizon (the fog colour) to zenith above, to ground below; with the sun, its disc and glow
+// The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness
+layout(set = 0, binding = 7) uniform sampler2D skyImage;
+layout(set = 0, binding = 8) uniform sampler2D skyRadiance;
+const float kPi = 3.14159265;
+const float kRadianceLevels = 6.0;
+
+vec3 skyImageDir(vec3 d) {   // (turned with the sky)
+    float c = cos(frame.envParams.z), s = sin(frame.envParams.z);
+    return vec3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z);
+}
+vec2 equirect(vec3 d) { return vec2(atan(d.x, -d.z) / (2.0 * kPi) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / kPi); }
+
+// Light a matte surface facing `n` gets from the sky image (divided by pi: times the albedo, it's what it reflects)
+vec3 skyIrradiance(vec3 n) {
+    vec3 d = skyImageDir(normalize(n));
+    vec3 e = frame.sh[0].rgb * 0.282095 + frame.sh[1].rgb * (0.488603 * d.y) + frame.sh[2].rgb * (0.488603 * d.z) +
+             frame.sh[3].rgb * (0.488603 * d.x) + frame.sh[4].rgb * (1.092548 * d.x * d.y) +
+             frame.sh[5].rgb * (1.092548 * d.y * d.z) + frame.sh[6].rgb * (0.315392 * (3.0 * d.z * d.z - 1.0)) +
+             frame.sh[7].rgb * (1.092548 * d.x * d.z) + frame.sh[8].rgb * (0.546274 * (d.x * d.x - d.y * d.y));
+    return max(e, vec3(0.0)) / kPi * frame.envParams.y;
+}
+// The sky image reflected along `r` by a surface this rough
+vec3 skyReflection(vec3 r, float rough) {
+    return textureLod(skyRadiance, equirect(skyImageDir(r)), rough * (kRadianceLevels - 1.0)).rgb * frame.envParams.y;
+}
+
+// The sky in a direction: the sky image if there is one; else horizon (the fog colour) to zenith above, to ground
+// below, with the sun's disc and glow if asked
 vec3 skyColor(vec3 dir, bool withSun) {
+    if (frame.envParams.x > 0.5) return textureLod(skyImage, equirect(skyImageDir(normalize(dir))), 0.0).rgb * frame.envParams.y;
     vec3 horizon = frame.fogColor.rgb;
     vec3 c = dir.y >= 0.0 ? mix(horizon, frame.zenith.rgb, pow(clamp(dir.y, 0.0, 1.0), 0.6))
                           : mix(horizon, frame.ground.rgb, pow(clamp(-dir.y * 4.0, 0.0, 1.0), 0.5));

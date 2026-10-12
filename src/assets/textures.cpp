@@ -9,7 +9,6 @@
 #include "assets/gltf.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-#define STBI_NO_HDR
 #define STBI_NO_PIC
 #define STBI_NO_PNM
 #if defined(__GNUC__) || defined(__clang__)

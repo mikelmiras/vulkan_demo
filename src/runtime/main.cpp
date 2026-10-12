@@ -24,6 +24,7 @@
 #include "script/lua_script.h"
 #include "assets/asset_db.h"
 #include "scene/terrain.h"
+#include "render/environment.h"
 #include "game/module.h"
 #include "imgui.h"
 #include "platform/platform.h"
@@ -270,6 +271,12 @@ int main(int argc, char** argv) {
         info.bloomThreshold = scene.render.bloomThreshold;
         info.aoStrength = scene.render.aoStrength;
         info.aoRadius = scene.render.aoRadius;
+        if (!scene.render.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
+            std::string skyError;
+            info.environment = environment::load(project::resolve(scene.render.skyImage), skyError);
+        }
+        info.skyIntensity = scene.render.skyIntensity;
+        info.skyRotation = scene.render.skyRotation * DEG2RAD;
         info.zNear = cam.zNear;
         info.zFar = cam.zFar;
         info.camForward = normalize(transformDir(inverseAffine(cam.view), {0, 0, -1}));
