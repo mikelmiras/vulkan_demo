@@ -54,7 +54,7 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVKWORLD_STANDALONE_GAMES=ON
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        run: cmake --build build --config Release --parallel 4   # (a bare --parallel is make -j with no limit: out of memory)
 
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
