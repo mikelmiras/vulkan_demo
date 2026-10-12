@@ -16,6 +16,7 @@
 #include "audio/audio.h"
 #include "core/json.h"
 #include "core/vecmath.h"
+#include "game/behaviour_tree.h"
 #include "game/input.h"
 #include "game/navigation.h"
 #include "game/scene_loader.h"
@@ -158,6 +159,10 @@ public:
     // Sounds (no-ops without an audio engine): a clip name or file, at a place in the world or in stereo
     void playSound(const std::string& clip, Vec3 position, float volume = 1.f);
     void playSound2D(const std::string& clip, float volume = 1.f);
+    // A noise AI brains can hear (without a sound: footsteps, a thrown stone); playSound makes one too
+    void makeNoise(Vec3 position, float loudness = 1.f, EntityId source = kNoEntity);
+    // An AI brain's blackboard (nullptr: no AIBrain on it)
+    json::Value* blackboard(EntityId id);
     // Music: one track, streamed and looping on the music bus, cross-fading from the one before
     void playMusic(const std::string& clip, float fadeSeconds = 1.f, float volume = 1.f);
     void stopMusic(float fadeSeconds = 1.f);
@@ -402,6 +407,10 @@ private:
     Vec3 listener_;
     bool haveListener_ = false;
     std::map<std::string, json::Value> settings_;
+    std::unordered_map<EntityId, ai::BrainState> brains_;   // AI brains' memory (game/behaviour_tree.h)
+    std::vector<ai::Noise> noises_;                          // heard by them (the last two seconds)
+    uint64_t noiseSerial_ = 0;
+    void updateBrains();
     float settingsSaveIn_ = -1.f;   // (>= 0: changed, saved when it runs out)
     void loadSettings();
     void putSettings();               // into the game state (at start, and over a loaded save game's)

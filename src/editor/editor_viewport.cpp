@@ -420,6 +420,32 @@ void Editor::drawColliders() {
         }
         dl->PopClipRect();
     }
+    if (const Entity* e = scene_.find(selected_); e && e->brain && e->brain->sightRange > 0.f) {   // its sight
+        ImDrawList* dl = ImGui::GetBackgroundDrawList();
+        dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
+        const Mat4& m = worldOf(e->id);
+        Vec3 eye = Vec3{m.m[12], m.m[13], m.m[14]} + Vec3{0.f, e->brain->eyeHeight, 0.f};
+        Vec3 f = transformDir(m, {0, 0, -1});
+        f.y = 0.f;
+        f = length(f) > 1e-4f ? normalize(f) : Vec3{0, 0, -1};
+        float half = std::min(e->brain->sightAngle, 359.f) * 0.5f * DEG2RAD, r = e->brain->sightRange;
+        ImU32 col = IM_COL32(255, 200, 80, 200);
+        const int n = 24;
+        ImVec2 prev, first, centre;
+        bool havePrev = false, haveCentre = worldToScreen(eye, centre);
+        for (int k = 0; k <= n; ++k) {   // the arc at its range, and its two edges from the eyes
+            float a = -half + 2.f * half * (float)k / (float)n, c = std::cos(a), s = std::sin(a);
+            Vec3 d{f.x * c - f.z * s, 0.f, f.x * s + f.z * c};
+            ImVec2 p;
+            bool ok = worldToScreen(eye + d * r, p);
+            if (ok && havePrev) dl->AddLine(prev, p, col, px(1.2f));
+            if (ok && haveCentre && (k == 0 || k == n)) dl->AddLine(centre, p, col, px(1.2f));
+            if (k == 0) first = p;
+            prev = p;
+            havePrev = ok;
+        }
+        dl->PopClipRect();
+    }
     if (const Entity* e = scene_.find(selected_); e && e->vehicle) {   // the selected vehicle's wheels
         ImDrawList* dl = ImGui::GetBackgroundDrawList();
         dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);

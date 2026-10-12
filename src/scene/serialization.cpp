@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 33;  // 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 34;  // 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -498,6 +498,32 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
                 c.set("foliageDensity", terrain::encodeBytes(t.foliageDensity));
         }
     }
+    if (e.brain) {
+        const AIBrain& b = *e.brain;
+        json::Value& c = v.set("brain", json::Value::object());
+        json::Value& nodes = c.set("nodes", json::Value::array());
+        for (const AIBrain::Node& n : b.nodes) {
+            json::Value nv = json::Value::object();
+            nv.set("type", n.type);
+            if (!n.name.empty()) nv.set("name", n.name);
+            if (!n.children.empty()) {
+                json::Value& kids = nv.set("children", json::Value::array());
+                for (int k : n.children) kids.push(k);
+            }
+            if (!n.key.empty()) nv.set("key", n.key);
+            if (!n.text.empty()) nv.set("text", n.text);
+            if (n.number != 0.f) nv.set("number", n.number);
+            if (n.number2 != 0.f) nv.set("number2", n.number2);
+            nodes.push(std::move(nv));
+        }
+        c.set("blackboard", b.blackboard.isObject() ? b.blackboard : json::Value::object());
+        c.set("perceives", b.perceives);
+        c.set("sightRange", b.sightRange);
+        c.set("sightAngle", b.sightAngle);
+        c.set("eyeHeight", b.eyeHeight);
+        c.set("hearingRange", b.hearingRange);
+        c.set("memory", b.memory);
+    }
     if (e.vehicle) {
         const Vehicle& ve = *e.vehicle;
         json::Value& c = v.set("vehicle", json::Value::object());
@@ -873,6 +899,34 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         }
         terrain::touch(t);
         e.terrain = std::move(t);
+    }
+    if (const json::Value& c = v["brain"]; c.isObject()) {
+        AIBrain b;
+        for (const json::Value& nv : c["nodes"].elements()) {
+            AIBrain::Node n;
+            n.type = nv["type"].asString();
+            n.name = nv["name"].asString();
+            for (const json::Value& k : nv["children"].elements()) n.children.push_back(k.asInt(-1));
+            n.key = nv["key"].asString();
+            n.text = nv["text"].asString();
+            n.number = nv["number"].asFloat(0.f);
+            n.number2 = nv["number2"].asFloat(0.f);
+            b.nodes.push_back(n);
+        }
+        for (const AIBrain::Node& n : b.nodes)   // (a damaged file mustn't make a tree that points nowhere)
+            for (int k : n.children)
+                if (k <= 0 || k >= (int)b.nodes.size()) {
+                    error = "entity '" + e.name + "': its AI brain's tree is damaged";
+                    return false;
+                }
+        if (c["blackboard"].isObject()) b.blackboard = c["blackboard"];
+        b.perceives = c["perceives"].asString();
+        b.sightRange = c["sightRange"].asFloat(b.sightRange);
+        b.sightAngle = c["sightAngle"].asFloat(b.sightAngle);
+        b.eyeHeight = c["eyeHeight"].asFloat(b.eyeHeight);
+        b.hearingRange = c["hearingRange"].asFloat(b.hearingRange);
+        b.memory = c["memory"].asFloat(b.memory);
+        e.brain = std::move(b);
     }
     if (const json::Value& c = v["vehicle"]; c.isObject()) {
         Vehicle ve;

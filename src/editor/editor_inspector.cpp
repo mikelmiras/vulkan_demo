@@ -422,6 +422,10 @@ void Editor::drawComponents(Entity& e) {
         if (!componentHeader("Terrain", open)) { pushUndo(); e.terrain.reset(); }
         else if (open) drawTerrainInspector(e);
     }
+    if (e.brain) {
+        if (!componentHeader("AI Brain", open)) { pushUndo(); e.brain.reset(); }
+        else if (open) drawBrainInspector(e);
+    }
     if (e.particleEmitter) {
         if (!componentHeader("Particle Emitter", open)) { pushUndo(); e.particleEmitter.reset(); }
         else if (open) {
@@ -846,6 +850,10 @@ void Editor::drawComponents(Entity& e) {
             e.joint = Joint{};
             if (!e.rigidBody) e.rigidBody = RigidBody{};
             if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
+        }
+        if (ImGui::MenuItem("AI Brain", nullptr, false, !e.brain)) {
+            pushUndo();
+            e.brain = AIBrain{};
         }
         if (ImGui::MenuItem("Vehicle", nullptr, false, !e.vehicle)) {
             // A car: four wheels at the corners of its collider (the front two steer, the back two drive)

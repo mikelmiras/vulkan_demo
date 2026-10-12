@@ -220,6 +220,7 @@ private:
     // ---- Terrains (scene/terrain.h, editor_terrain.cpp)
     void addTerrain();
     void drawTerrainInspector(Entity& e);
+    void drawBrainInspector(Entity& e);   // (editor_ai.cpp)
     bool handleTerrainTool(float dt);   // true while the brush has the mouse
     terrain::BrushSettings brush_;
     std::optional<std::pair<size_t, Entity>> strokeBefore_;   // the terrain at the start of a brush stroke (undo)

@@ -113,6 +113,7 @@ set(ENGINE_SOURCES
   src/game/input.cpp
   src/game/game.cpp
   src/game/builtin_behaviours.cpp
+  src/game/behaviour_tree.cpp
   src/game/module.cpp
   src/game/ui.cpp
   src/game/ui_layout.cpp
@@ -210,6 +211,7 @@ add_executable(vkworld
   src/editor/editor_assets.cpp
   src/editor/editor_asset_db.cpp
   src/editor/editor_terrain.cpp
+  src/editor/editor_ai.cpp
   src/editor/editor_ui_layout.cpp
   src/editor/editor_prefs.cpp)
 target_link_libraries(vkworld PRIVATE engine)
@@ -318,7 +320,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_vehicles.cpp
     tests/test_reliability.cpp
     tests/test_lights.cpp
-    tests/test_lod.cpp)
+    tests/test_lod.cpp
+    tests/test_ai.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

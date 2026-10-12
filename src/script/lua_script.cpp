@@ -796,6 +796,40 @@ int eStopLayer(lua_State* L) {
     checkAnimator(L, e).stopLayer(luaL_checkstring(L, 2));
     return 0;
 }
+// e:blackboard(key): an AI brain's value (positions as vec3); e:setBlackboard(key, value): number, boolean, text
+// or vec3 (nil removes it)
+int eBlackboard(lua_State* L) {
+    Entity& e = checkEntity(L, 1);
+    if (!e.brain) return luaL_error(L, "'%s' has no AI brain", e.name.c_str());
+    const json::Value& v = e.brain->blackboard[luaL_checkstring(L, 2)];
+    if (v.isArray() && v.size() == 3) pushVec3(L, {v[0].asFloat(), v[1].asFloat(), v[2].asFloat()});
+    else pushJson(L, v.isNull() ? nullptr : &v);
+    return 1;
+}
+int eSetBlackboard(lua_State* L) {
+    Entity& e = checkEntity(L, 1);
+    if (!e.brain) return luaL_error(L, "'%s' has no AI brain", e.name.c_str());
+    std::string key = luaL_checkstring(L, 2);
+    json::Value& board = e.brain->blackboard;
+    if (lua_isnoneornil(L, 3)) {
+        auto& m = board.members();
+        m.erase(std::remove_if(m.begin(), m.end(), [&](const auto& kv) { return kv.first == key; }), m.end());
+    } else if (lua_isboolean(L, 3)) {
+        board.set(key, json::Value((bool)lua_toboolean(L, 3)));
+    } else if (lua_type(L, 3) == LUA_TNUMBER) {
+        board.set(key, json::Value(lua_tonumber(L, 3)));
+    } else if (lua_istable(L, 3)) {
+        Vec3 p = toVec3(L, 3);
+        json::Value a = json::Value::array();
+        a.push(p.x);
+        a.push(p.y);
+        a.push(p.z);
+        board.set(key, a);
+    } else {
+        board.set(key, json::Value(std::string(luaL_checkstring(L, 3))));
+    }
+    return 0;
+}
 int eSetIK(lua_State* L) {   // e:setIK(chain, point, weight): true if the animator has that chain
     Entity& e = checkEntity(L, 1);
     lua_pushboolean(L, checkAnimator(L, e).setIK(luaL_checkstring(L, 2), toVec3(L, 3), (float)luaL_optnumber(L, 4, 1.0)));
@@ -1315,7 +1349,7 @@ lua_State* state() {
                                 {"script", eScript},           {"getField", eGetField},
                                 {"setField", eSetField},       {"setAnimParameter", eSetAnimParameter},
                                 {"playAnimation", ePlayAnimation}, {"playLayer", ePlayLayer},
-                                {"stopLayer", eStopLayer},     {"setIK", eSetIK},
+                                {"stopLayer", eStopLayer},     {"setIK", eSetIK}, {"blackboard", eBlackboard}, {"setBlackboard", eSetBlackboard},
                                 {nullptr, nullptr}};
     setFunctions(L, methods);
     lua_setfield(L, -2, "methods");

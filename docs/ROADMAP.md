@@ -480,7 +480,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 43 (done) | Lighting at scale: clustered forward lighting (hundreds of point / spot lights), a shadow atlas for point and spot lights, light cookies | Light counts are capped and only a few lights cast shadows |
 | 44 (done) | GPU-driven rendering: persistent instance data on the GPU (only changes uploaded), Hi-Z occlusion culling, mesh LODs chosen on the GPU | The CPU still writes every instance every frame; hidden objects behind walls are drawn |
 | 45 (done) | Terrain and vegetation: terrain LOD, holes, heightmap import, instanced grass and foliage painted with a brush (wind, distance fade) | 256 x 256 terrains are 130k triangles; there's nothing to fill them with |
-| 46 | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
+| 46 (done) | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
 | 47 | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
 | 48 | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
 | 49 | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
@@ -546,4 +546,18 @@ Working list for turning the renderer demo into a small game engine. Each task i
   Module API 32. Not done: geomorphing between levels (they pop), holes in shadows, foliage shadows and LODs,
   billboards for far foliage, foliage collision, painting foliage density finer than the height grid, terrain
   streaming / multiple terrains stitched.
+- Task 46: an AIBrain component (scene format 34): a flat node list (nodes[0] the root; type, name, children,
+  key / text / number / number2 whose meaning game/behaviour_tree's nodeTypes() table gives, also used by the
+  Inspector), a json::Value blackboard (saved values: the starting ones) and perception settings. Game keeps an
+  ai::BrainState per brain (per node: the running child, timers, counts, a walking path) and ticks each brain
+  before the behaviours: perceive() (the nearest tagged entity in range and cone, a ray from the eyes ignoring
+  itself and hits on the target or under it; noises newer than the last one heard, by serial, within range times
+  loudness) then the tree. Selectors are reactive (they reset an interrupted lower child), sequences keep their
+  place but re-check earlier condition children; Repeat runs its child again on the next update. MoveTo / Flee /
+  Patrol walk like NavAgent (paths every half second, moveCharacter, turning), without its hops and spacing.
+  Noises come from ctx.playSound (with or without audio) and ctx.makeNoise, kept two seconds. Editor: the tree in
+  the Inspector (status colours while playing), Add component, the sight cone drawn when selected. Lua:
+  e:blackboard / e:setBlackboard. Module API 33. Not done: a graphical node editor, subtrees shared between
+  brains, utility scoring, squads / shared blackboards, perception of non-tagged things, hearing blocked by walls,
+  off-mesh link hops and agent avoidance in tree movement.
 

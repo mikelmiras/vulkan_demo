@@ -279,6 +279,7 @@ void Game::updateNavObstacles() {
 }
 
 void GameContext::playSound(const std::string& clip, Vec3 position, float volume) {
+    makeNoise(position, volume);   // (heard by AI brains, with or without an audio engine)
     if (!audio_) return;
     AudioEngine::PlayParams p;
     p.volume = volume;
@@ -316,6 +317,15 @@ void GameContext::setBusVolume(const std::string& bus, float volume) {
 
 void GameContext::duck(const std::string& bus, float volume, float seconds) {
     if (audio_) audio_->duck(audioBusFromName(bus), volume, seconds);
+}
+
+void GameContext::makeNoise(Vec3 position, float loudness, EntityId source) {
+    game_->noises_.push_back({position, loudness, time_, source, ++game_->noiseSerial_});
+}
+
+json::Value* GameContext::blackboard(EntityId id) {
+    Entity* e = find(id);
+    return e && e->brain ? &e->brain->blackboard : nullptr;
 }
 
 void GameContext::playSound2D(const std::string& clip, float volume) {
@@ -385,8 +395,28 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     applyRequests();   // a scene may move on right away (a splash screen, say)
 }
 
+// AI brains: what each perceives, then a tick of its tree (before the behaviours: they see this update's decisions)
+void Game::updateBrains() {
+    PROFILE_SCOPE("AI");
+    noises_.erase(std::remove_if(noises_.begin(), noises_.end(), [&](const ai::Noise& n) { return time_ - n.time > 2.f; }),
+                  noises_.end());
+    for (size_t i = 0; i < scene_->entities.size(); ++i) {
+        Entity& e = scene_->entities[i];
+        if (!e.brain || ctx_.isDestroyed(e.id) || !scene_->visibleInHierarchy(e.id) ||
+            (!notSimulated_.empty() && notSimulated_.count(e.id)))
+            continue;
+        EntityId id = e.id;
+        ai::BrainState& state = brains_[id];
+        ai::perceive(ctx_, e, *e.brain, state, noises_);
+        ai::tick(ctx_, e, *e.brain, state);
+        if (!scene_->find(id)) brains_.erase(id);
+    }
+}
+
 void Game::begin(bool fresh, bool keepPhysics) {
     if (!keepPhysics) physics_.clear();
+    brains_.clear();
+    noises_.clear();
     particles_.clear();
     prevWorlds_.clear();
     prevIds_.clear();
@@ -775,6 +805,7 @@ void Game::fixedUpdate(float dt) {
                 e = scene_->find(ev.entity);   // (a behaviour may have spawned: the vector may have moved)
                 if (!e) break;
             }
+    updateBrains();
     {
         PROFILE_SCOPE("Behaviours");
         for (size_t i = 0; i < scene_->entities.size(); ++i) {

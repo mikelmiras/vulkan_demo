@@ -9,6 +9,7 @@
 
 #include "assets/meshes.h"
 #include "assets/textures.h"
+#include "core/json.h"
 #include "core/vecmath.h"
 #include "scene/behaviour.h"
 #include "scene/input_bindings.h"
@@ -363,6 +364,29 @@ struct ParticleEmitter {
 // Marks an entity as part of a copy ("instance") of a prefab
 // Shared with the players of a multiplayer game (net/net_session.h): the server sends where it is (and whether it's
 // visible, and with `fields` its behaviours' fields) to every client, which shows it there instead of simulating it
+// An AI: a behaviour tree run every update (game/behaviour_tree.h), a blackboard of values it (and game code)
+// reads and writes, and perception (what it sees and hears, written to the blackboard)
+struct AIBrain {
+    struct Node {
+        std::string type = "Sequence";   // see ai::nodeTypes(): Selector, Sequence, MoveTo, Wait, CanSee...
+        std::string name;                // shown in the editor ("" : the type)
+        std::vector<int> children;       // indices into nodes
+        std::string key, text;           // what they mean depends on the type (a blackboard key, a target...)
+        float number = 0.f, number2 = 0.f;
+    };
+    std::vector<Node> nodes;          // nodes[0]: the root
+    json::Value blackboard = json::Value::object();   // its starting values (while playing: the live ones)
+    // Perception: entities with this tag are noticed within sight (a cone along -Z, from the eyes, unless
+    // something solid is in the way) and their sounds within hearing
+    std::string perceives = "Player";
+    float sightRange = 15.f, sightAngle = 120.f;   // metres, degrees (the whole cone)
+    float eyeHeight = 1.6f;
+    float hearingRange = 20.f;                     // metres (louder sounds carry further)
+    float memory = 5.f;                            // seconds a target out of sight is still remembered
+    std::vector<int8_t> status;                    // runtime: each node's last result (-1 not run, 0 success,
+                                                   // 1 failure, 2 running), for the editor
+};
+
 struct Replicated {
     bool fields = true;
 };
@@ -520,6 +544,7 @@ struct Entity {
     std::optional<UIElement> ui;
     std::optional<Replicated> replicated;
     std::optional<Vehicle> vehicle;
+    std::optional<AIBrain> brain;
     std::optional<PrefabLink> prefab;
     // In an instance of a prefab that itself contains an instance of another prefab (or is a variant of one), the
     // link the prefab's entity has to that inner prefab. Inside a prefab's own entities, `prefab` is that link.

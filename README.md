@@ -425,6 +425,31 @@ Scenes with NavAgents or links bake on a worker thread as they start. For big le
 the bake next to the scene (`level.vkw.nav`, exported with the game): it's loaded instead of baking for as long as
 the level's static colliders, links and settings stay the same.
 
+## AI
+
+An **AI Brain** component (Add component > AI Brain) gives an entity a behaviour tree, a blackboard and
+perception. *Start a guard tree* in its Inspector makes one that chases what it sees, goes to look where it heard
+something, and otherwise patrols (set its waypoints: entity names, comma separated).
+
+- **The tree** is edited in the Inspector (add, delete, reorder nodes; each node's parameters are labelled with what
+  they mean). Every update it's run from the root and each node answers success, failure or running. Composites:
+  **Selector** (the first child that doesn't fail; earlier ones are checked again every update, so a
+  higher-priority branch takes over at once), **Sequence** (children in order while they succeed; its conditions are
+  checked again while an action runs), **Parallel**, **Random**. Decorators: **Inverter**, **Succeeder**,
+  **Repeat**, **UntilFail**, **Cooldown**, **Timeout**. Conditions: **Has**, **Compare** (a blackboard value),
+  **CanSee**, **Heard**, **Near**, **Chance**. Actions: **MoveTo** and **Flee** (walking over the scene's
+  navigation), **Patrol**, **Wait**, **LookAt**, **Set** / **Clear** (blackboard values), **Message**, **Sound**,
+  **Animate** (an animator parameter), **Log**. While playing, the Inspector colours each node by its last answer.
+- **Targets**: a node's target names a blackboard value holding an entity's name or a position, or else is an
+  entity's name itself.
+- **Perception**: entities with the tag it notices (Player by default) are seen within its sight range and angle
+  (from its eyes, along -Z; the cone is drawn when it's selected) unless something solid is in the way, and heard
+  within its hearing range when they play a sound (`ctx.playSound`) or make a noise (`ctx.makeNoise(position,
+  loudness)`). It writes `seeing`, `target`, `targetPosition`, `lastSeen`, `noise` and `heardTime` to the
+  blackboard, and forgets a target out of sight after its memory time.
+- **The blackboard** starts with the values set in the Inspector; game code reads and writes it with
+  `ctx.blackboard(id)`, Lua with `e:blackboard(key)` / `e:setBlackboard(key, value)`.
+
 ## Particles
 
 A **Particle Emitter** component sends out camera-facing dots: a rate per second and/or bursts, lifetime, speed,

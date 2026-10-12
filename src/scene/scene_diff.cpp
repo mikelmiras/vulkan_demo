@@ -52,6 +52,18 @@ bool eq(const AudioSource& a, const AudioSource& b) {
 bool eq(const ReverbZone& a, const ReverbZone& b) {
     return a.radius == b.radius && a.blend == b.blend && a.wet == b.wet && a.roomSize == b.roomSize && a.damping == b.damping;
 }
+bool eq(const AIBrain& a, const AIBrain& b) {
+    if (a.nodes.size() != b.nodes.size()) return false;
+    for (size_t i = 0; i < a.nodes.size(); ++i) {
+        const AIBrain::Node &x = a.nodes[i], &y = b.nodes[i];
+        if (x.type != y.type || x.name != y.name || x.children != y.children || x.key != y.key || x.text != y.text ||
+            x.number != y.number || x.number2 != y.number2)
+            return false;
+    }
+    return json::write(a.blackboard) == json::write(b.blackboard) && a.perceives == b.perceives &&
+           a.sightRange == b.sightRange && a.sightAngle == b.sightAngle && a.eyeHeight == b.eyeHeight &&
+           a.hearingRange == b.hearingRange && a.memory == b.memory;
+}
 bool eq(const Vehicle& a, const Vehicle& b) {
     if (a.wheels.size() != b.wheels.size()) return false;
     for (size_t i = 0; i < a.wheels.size(); ++i) {
@@ -176,7 +188,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
         !eq(a.prefab, b.prefab) || !eq(a.nestedPrefab, b.nestedPrefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter) || !eq(a.terrain, b.terrain) ||
-        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.ui, b.ui) || !eq(a.vehicle, b.vehicle) ||
+        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.ui, b.ui) || !eq(a.vehicle, b.vehicle) || !eq(a.brain, b.brain) ||
         a.replicated.has_value() != b.replicated.has_value() || (a.replicated && a.replicated->fields != b.replicated->fields))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;
