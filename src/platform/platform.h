@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace platform {
@@ -27,6 +28,11 @@ bool cursorCaptured();
 void takeMouseDelta(float& dx, float& dy);   // movement since the previous call while captured, in pixels; else 0
 
 void setFullscreen(bool fullscreen);
+// The window's icon (title bar, task bar, dock): RGBA8 pixels, rows top to bottom
+void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height);
+// Windows: makes `ico` (an .ico file's bytes) the icon of the executable `exe` (Explorer, the task bar), as its icon
+// resources. Elsewhere: false (executables there have no icons of their own).
+bool setExecutableIcon(const std::filesystem::path& exe, const std::string& ico, std::string& error);
 bool isFullscreen();
 
 // Content scale of the window's monitor (1.0 = 96 DPI on Windows, always 1.0 on X11)

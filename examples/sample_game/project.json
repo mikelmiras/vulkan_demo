@@ -4,5 +4,6 @@
   "name": "Sample Game",
   "startScene": "scenes/main.vkw",
   "module": "bin/sample_game",
+  "icon": "icon.png",
   "moduleBuild": "cmake --build {engineBuild} --target sample_game"
 }

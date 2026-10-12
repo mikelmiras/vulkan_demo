@@ -1,6 +1,8 @@
 #include "app/export.h"
 
 #include <algorithm>
+#include <cstring>
+#include <iterator>
 #include <cctype>
 #include <fstream>
 #include <set>
@@ -10,6 +12,7 @@
 #include "core/project.h"
 #include "core/vfs.h"
 #include "game/module.h"
+#include "platform/platform.h"
 
 namespace fs = std::filesystem;
 
@@ -169,6 +172,30 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
                     fs::perm_options::add, ec);
 #endif
 
+    // The icon (a PNG): Windows puts it in the executable (before any pack goes on the end of it), macOS in the bundle
+    std::string iconPng;
+    if (!settings.icon.empty()) {
+        std::ifstream in(fs::u8path(project::resolve(settings.icon)), std::ios::binary);
+        iconPng.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        uint32_t iw = 0, ih = 0;
+        if (!pngSize(iconPng, iw, ih)) {
+            result.warnings.push_back("the icon must be a PNG: " + settings.icon);
+            iconPng.clear();
+        }
+    }
+#if defined(_WIN32)
+    if (!iconPng.empty()) {
+        std::string iconError;
+        if (!platform::setExecutableIcon(result.executable, makeIco(iconPng), iconError)) result.warnings.push_back(iconError);
+    }
+#elif defined(__APPLE__)
+    if (!iconPng.empty()) {
+        fs::path resources = out / (name + ".app") / "Contents" / "Resources";
+        fs::create_directories(resources, ec);
+        std::ofstream(resources / "icon.icns", std::ios::binary) << makeIcns(iconPng);
+    }
+#endif
+
     // The data: the shaders and the project's files (not its code; the module's library goes on the disk, where it
     // can be loaded from, unless the game is standalone)
     std::vector<std::pair<std::string, fs::path>> data;
@@ -220,6 +247,7 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
                  "  <key>CFBundleExecutable</key><string>" << name << "</string>\n"
                  "  <key>CFBundleIdentifier</key><string>org.vkworld.game." << lower(name) << "</string>\n"
                  "  <key>CFBundlePackageType</key><string>APPL</string>\n"
+              << (iconPng.empty() ? "" : "  <key>CFBundleIconFile</key><string>icon</string>\n") <<
                  "  <key>NSHighResolutionCapable</key><true/>\n"
                  "</dict></plist>\n";
     }
@@ -240,3 +268,46 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
 }
 
 }  // namespace
+
+bool pngSize(const std::string& png, uint32_t& width, uint32_t& height) {
+    static const unsigned char sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (png.size() < 24 || std::memcmp(png.data(), sig, 8) != 0 || png.compare(12, 4, "IHDR") != 0) return false;
+    auto be32 = [&](size_t at) {
+        return ((uint32_t)(uint8_t)png[at] << 24) | ((uint32_t)(uint8_t)png[at + 1] << 16) |
+               ((uint32_t)(uint8_t)png[at + 2] << 8) | (uint8_t)png[at + 3];
+    };
+    width = be32(16);
+    height = be32(20);
+    return width > 0 && height > 0;
+}
+
+std::string makeIco(const std::string& png) {
+    uint32_t w = 0, h = 0;
+    if (!pngSize(png, w, h)) return {};
+    std::string out;
+    auto u8 = [&](uint32_t v) { out += (char)(v & 0xFF); };
+    auto u16 = [&](uint32_t v) { u8(v); u8(v >> 8); };
+    auto u32 = [&](uint32_t v) { u16(v); u16(v >> 16); };
+    u16(0); u16(1); u16(1);                                 // an icon, one image
+    u8(w >= 256 ? 0 : w); u8(h >= 256 ? 0 : h); u8(0); u8(0);  // (0 means 256 or more)
+    u16(1); u16(32); u32((uint32_t)png.size()); u32(6 + 16);
+    return out + png;
+}
+
+std::string makeIcns(const std::string& png) {
+    uint32_t w = 0, h = 0;
+    if (!pngSize(png, w, h)) return {};
+    // The type says the size it stands for; the nearest one at or above the image's (macOS scales it)
+    const std::pair<uint32_t, const char*> types[] = {{16, "icp4"}, {32, "icp5"}, {64, "icp6"}, {128, "ic07"},
+                                                      {256, "ic08"}, {512, "ic09"}, {1024, "ic10"}};
+    const char* type = "ic10";
+    for (const auto& t : types)
+        if (std::max(w, h) <= t.first) { type = t.second; break; }
+    std::string out;
+    auto be32 = [&](uint32_t v) { for (int s = 24; s >= 0; s -= 8) out += (char)((v >> s) & 0xFF); };
+    out += "icns";
+    be32((uint32_t)(8 + 8 + png.size()));
+    out += type;
+    be32((uint32_t)(8 + png.size()));
+    return out + png;
+}

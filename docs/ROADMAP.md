@@ -146,7 +146,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 28 (done) | Editor: multi-selection with group transforms, nested prefabs / prefab variants, asset thumbnails, dockable panels | One entity at a time; prefabs can't contain prefabs; fixed panel layout |
 | 29 (done) | Profiling and diagnostics: a frame profiler (CPU scopes per system, GPU timestamps) in the editor and as an overlay, log to file, crash-safe editor autosave | Performance work relies on engine_bench; a crash loses unsaved edits |
 | 30 (done) | Text and localisation: UTF-8 text with font assets at several sizes, string tables per language, the game's UI and HudText using them | GameUI has one built-in font, ASCII only |
-| 31 | Shipping polish: window / executable icons (Windows resources, macOS icns), compressed packs, a Windows / macOS export smoke test in CI | Left over from task 16; exports are only run-tested on Linux |
+| 31 (done) | Shipping polish: window / executable icons (Windows resources, macOS icns), compressed packs, a Windows / macOS export smoke test in CI | Left over from task 16; exports are only run-tested on Linux |
 
 ### Round 3 notes
 - Task 21: SceneLoader::start(path, physics) also makes the Physics world on the worker (Jolt init is call_once);
@@ -247,4 +247,13 @@ Working list for turning the renderer demo into a small game engine. Each task i
   --language; editor Game > Language. HudText (font field), HudBar and PauseMenu translate; the sample game has
   en / es tables and translated HUD texts. Module API 21. Not done: right-to-left and complex shaping (no
   HarfBuzz), plural rules, a string editor in the editor, fonts for the editor's own UI.
+- Task 31: platform::setWindowIcon (X11 _NET_WM_ICON, Win32 CreateIconIndirect + WM_SETICON, macOS Dock image),
+  vkgame sets the project icon. Exports: pngSize / makeIco / makeIcns (PNG-in-ICO, PNG-in-ICNS with the type by
+  size); Windows writes the icon into the copied executable (UpdateResource, RT_ICON + RT_GROUP_ICON 1) before a
+  pack is appended; macOS writes Contents/Resources/icon.icns + CFBundleIconFile. core/compress: an LZ4-block
+  codec; packs are VKWPAK02 (a stored size per file; compressed when it saves 5 %), VKWPAK01 still mounts. vkgame
+  --check loads pack, project, module and start scene without a window (exit 1 on failure or missing behaviour
+  code); CI exports single-file and packed on all three OSes and runs --check from an unrelated folder; standalone
+  game executables delay-load vulkan-1.dll on MSVC. The sample game has an icon. Not done: code signing /
+  notarisation, Windows icons for vkgame itself, installers.
 

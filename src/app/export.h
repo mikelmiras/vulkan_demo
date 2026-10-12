@@ -30,6 +30,12 @@ struct ExportResult {
     std::vector<std::string> warnings;  // e.g. assets outside the project that the game won't have
 };
 
+// Icons: a PNG's size (false if it isn't a PNG), and the PNG wrapped as a Windows .ico or a macOS .icns (both
+// formats hold PNG images as they are)
+bool pngSize(const std::string& png, uint32_t& width, uint32_t& height);
+std::string makeIco(const std::string& png);
+std::string makeIcns(const std::string& png);
+
 // `runtimeDir`: where vkgame, the engine library and the shaders are (the editor's own folder, normally)
 bool exportGame(const std::filesystem::path& projectDir, const std::filesystem::path& outDir,
                 const std::filesystem::path& runtimeDir, ExportResult& result, std::string& error,

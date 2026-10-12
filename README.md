@@ -75,9 +75,16 @@ Configure with `-DVKWORLD_STANDALONE_GAMES=ON` and each game module is also buil
 it's there: no engine or module library to ship, so a single-file export is the whole game in one file.
 
 Source code, build files and hidden files stay behind; scenes that use files from outside the project get a
-warning (the game won't have them). With an `"icon"` (a PNG) in `project.json`, Linux exports get a `.desktop`
-entry; on macOS the game is wrapped in an `.app` bundle. Players need a Vulkan driver (and X11 / XWayland on
-Linux); everything else is inside. An export is for the platform it's made on: export on each OS you ship for.
+warning (the game won't have them). Packs are compressed (an LZ4-style codec, file by file, where it pays: scenes,
+models and shaders shrink, images and sounds are stored as they are).
+
+With an `"icon"` (a PNG) in `project.json`, the game shows it on its window; Windows exports get it as the
+executable's icon, macOS ones in the `.app` bundle, Linux ones in a `.desktop` entry. Players need a Vulkan driver
+(and X11 / XWayland on Linux); everything else is inside. An export is for the platform it's made on: export on
+each OS you ship for.
+
+`"Sample Game" --check` loads an exported game (pack, project, game code, start scene) without opening a window
+and reports what it found: CI runs it on every export, on Linux, Windows and macOS.
 
 ### Tests
 

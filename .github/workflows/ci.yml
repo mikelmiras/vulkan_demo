@@ -59,6 +59,24 @@ jobs:
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
 
+      # Every platform: export the sample (one file, and a game + pack), then load each exported game from a folder
+      # with nothing of the project in it: pack, project, module code and start scene, everything but a GPU
+      - name: Export check
+        shell: bash
+        run: |
+          cd build
+          VKWORLD=./vkworld; [ -f Release/vkworld.exe ] && VKWORLD=Release/vkworld.exe
+          "$VKWORLD" ../examples/sample_game --export single --single-file
+          "$VKWORLD" ../examples/sample_game --export packed --pack
+          mkdir -p elsewhere && cd elsewhere
+          for dir in single packed; do
+            game="../$dir/Sample Game"
+            [ -f "$game.exe" ] && game="$game.exe"
+            [ -d "$game.app" ] && game="$game.app/Contents/MacOS/Sample Game"
+            "$game" --check
+          done
+          if [ "$RUNNER_OS" = "macOS" ]; then test -f "../single/Sample Game.app/Contents/Resources/icon.icns"; fi
+
       - name: Show DLL dependencies (Windows, after a failure)
         if: runner.os == 'Windows' && failure()
         shell: pwsh
@@ -81,9 +99,8 @@ jobs:
           XVFB="xvfb-run -a -s '-screen 0 1280x720x24'"
           eval $XVFB ./vkgame --screenshot smoke-game.png --frames 30
           eval $XVFB ./vkworld --stress --play --screenshot smoke-editor.png --frames 20
-          ./vkworld ../examples/sample_game --export single --single-file   # one file: standalone build + its data
-          ./vkworld ../examples/sample_game --export packed --pack
-          mkdir elsewhere && cd elsewhere   # (run from a folder with nothing of the project in it)
+          # (the exports from the step before: run them for real)
+          cd elsewhere
           eval $XVFB "'../single/Sample Game'" --screenshot ../smoke-single.png --frames 30
           eval $XVFB "'../packed/Sample Game'" --screenshot ../smoke-packed.png --frames 30
           cd ..

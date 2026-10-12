@@ -1,6 +1,7 @@
 // The standalone game: plays a scene without the editor.
 //
 //   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--screenshot out.png [--frames N]]
+//          [--check]   (loads everything but opens no window: for testing an exported game anywhere)
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
 // directory or the executable's folder), then scene.vkw in those folders, and falls back to the built-in demo. The mouse is captured for the game: Esc releases it, a click takes it back.
@@ -99,10 +100,12 @@ int main(int argc, char** argv) {
         vfs::mount(platform::executableDir() / "game.pak", platform::executableDir()))
         std::printf("Playing from a pack\n");
     std::string language;   // --language es: play in another language (strings/es.json) than the project's
+    bool check = false;     // --check: load the game (pack, project, module, start scene) without a window, and exit
     {
         int out = 1;
         for (int i = 1; i < argc; ++i) {
             if (!std::strcmp(argv[i], "--language") && i + 1 < argc) language = argv[++i];
+            else if (!std::strcmp(argv[i], "--check")) check = true;
             else argv[out++] = argv[i];
         }
         argc = out;
@@ -125,6 +128,30 @@ int main(int argc, char** argv) {
     }
 #endif
     error.clear();
+    if (check) {   // everything a player's machine needs to start the game, short of a GPU
+        if (path.empty()) {
+            std::printf("check: no project or scene found (the built-in demo would play)\n");
+            return stress ? 0 : 1;
+        }
+        Scene checked;
+        if (!loadScene(path, checked, meshes, textures, error)) {
+            logLine("check failed: %s", error.c_str());
+            return 1;
+        }
+        int missing = 0, behaviours = 0;
+        for (const Entity& e : checked.entities)
+            for (const BehaviourPtr& b : e.behaviours) {
+                ++behaviours;
+                if (dynamic_cast<const MissingBehaviour*>(b.get())) {
+                    ++missing;
+                    std::printf("check: behaviour %s on %s has no code\n", b->typeName(), e.name.c_str());
+                }
+            }
+        std::printf("check: %s: %zu entities, %d behaviours, %zu meshes, %d textures, %s%s\n", path.c_str(),
+                    checked.entities.size(), behaviours, (size_t)meshes.count(), textures.count(),
+                    vfs::mounted() ? "from a pack" : "from files", missing ? ": MISSING CODE" : ": ok");
+        return missing ? 1 : 0;
+    }
     if (stress) {
         scene = buildStressScene();
     } else if (path.empty()) {
@@ -140,6 +167,13 @@ int main(int argc, char** argv) {
 
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
+    if (!settings.icon.empty()) {   // the project's icon on the window (and the task bar / Dock)
+        TextureLibrary icon;
+        std::string iconError;
+        int id = loadTexture(icon, project::resolve(settings.icon), iconError);
+        if (id >= 0) platform::setWindowIcon(icon.get(id).rgba.data(), icon.get(id).width, icon.get(id).height);
+        else logLine("icon: %s", iconError.c_str());
+    }
     AudioEngine audio;
     if (!audio.init()) std::fprintf(stderr, "%s\n", audio.error().c_str());
     Game game;

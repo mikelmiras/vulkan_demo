@@ -5,6 +5,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #define VK_USE_PLATFORM_METAL_EXT
+#include <cstring>
 #include <vulkan/vulkan.h>
 
 #include "platform/platform.h"
@@ -163,6 +164,31 @@ void setFullscreen(bool fullscreen) {
 }
 
 bool isFullscreen() { return g_window && (g_window.styleMask & NSWindowStyleMaskFullScreen) != 0; }
+
+bool setExecutableIcon(const std::filesystem::path&, const std::string&, std::string& error) {
+    error = "macOS apps get their icon from the bundle (Contents/Resources)";
+    return false;
+}
+
+// The Dock icon (macOS windows have no icon of their own)
+void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height) {
+    if (!rgba || !width || !height) return;
+    NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
+                                                                    pixelsWide:(NSInteger)width
+                                                                    pixelsHigh:(NSInteger)height
+                                                                 bitsPerSample:8
+                                                               samplesPerPixel:4
+                                                                      hasAlpha:YES
+                                                                      isPlanar:NO
+                                                                colorSpaceName:NSDeviceRGBColorSpace
+                                                                   bytesPerRow:(NSInteger)width * 4
+                                                                  bitsPerPixel:32];
+    if (!rep) return;
+    std::memcpy([rep bitmapData], rgba, (size_t)width * height * 4);
+    NSImage* image = [[NSImage alloc] initWithSize:NSMakeSize(width, height)];
+    [image addRepresentation:rep];
+    [NSApp setApplicationIconImage:image];
+}
 
 bool closeRequested() { return g_closeRequested; }
 

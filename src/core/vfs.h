@@ -21,8 +21,8 @@ bool read(const std::filesystem::path& path, std::string& out);   // the whole f
 bool exists(const std::filesystem::path& path);                   // a file (in the pack or on the disk)
 
 // Writing packs: files (path in the pack, path on the disk) into `out`, or appended to the end of `out` (an
-// executable) when `append`
+// executable) when `append`; each file compressed when that makes it worth it (unless !compress)
 bool writePack(const std::filesystem::path& out, const std::vector<std::pair<std::string, std::filesystem::path>>& files,
-               bool append, std::string& error);
+               bool append, std::string& error, bool compress = true);
 
 }  // namespace vfs

@@ -14,6 +14,7 @@
 #include "platform/platform.h"
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 
 #include "imgui.h"
@@ -205,6 +206,80 @@ void setFullscreen(bool fullscreen) {
 }
 
 bool isFullscreen() { return g_fullscreen; }
+
+// The .ico's images become RT_ICON resources 1..n and its directory the RT_GROUP_ICON 1 (the one Explorer shows)
+bool setExecutableIcon(const std::filesystem::path& exe, const std::string& ico, std::string& error) {
+#pragma pack(push, 2)
+    struct IcoHeader { WORD reserved, type, count; };
+    struct IcoEntry { BYTE width, height, colors, reserved; WORD planes, bits; DWORD bytes, offset; };
+    struct GroupEntry { BYTE width, height, colors, reserved; WORD planes, bits; DWORD bytes; WORD id; };
+#pragma pack(pop)
+    if (ico.size() < sizeof(IcoHeader)) { error = "not an icon"; return false; }
+    IcoHeader h;
+    std::memcpy(&h, ico.data(), sizeof(h));
+    if (h.type != 1 || h.count == 0 || ico.size() < sizeof(IcoHeader) + h.count * sizeof(IcoEntry)) { error = "not an icon"; return false; }
+    HANDLE update = BeginUpdateResourceW(exe.wstring().c_str(), FALSE);
+    if (!update) { error = "cannot open " + exe.u8string() + " for its resources"; return false; }
+    const WORD lang = MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL);
+    std::string group(sizeof(IcoHeader) + h.count * sizeof(GroupEntry), '\0');
+    std::memcpy(group.data(), &h, sizeof(h));
+    bool ok = true;
+    for (WORD i = 0; i < h.count && ok; ++i) {
+        IcoEntry e;
+        std::memcpy(&e, ico.data() + sizeof(IcoHeader) + i * sizeof(IcoEntry), sizeof(e));
+        if ((size_t)e.offset + e.bytes > ico.size()) { ok = false; break; }
+        ok = UpdateResourceW(update, MAKEINTRESOURCEW(3) /* RT_ICON */, MAKEINTRESOURCEW(i + 1), lang,
+                             (void*)(ico.data() + e.offset), e.bytes) != FALSE;
+        GroupEntry g{e.width, e.height, e.colors, 0, e.planes, e.bits, e.bytes, (WORD)(i + 1)};
+        std::memcpy(group.data() + sizeof(IcoHeader) + i * sizeof(GroupEntry), &g, sizeof(g));
+    }
+    ok = ok && UpdateResourceW(update, MAKEINTRESOURCEW(14) /* RT_GROUP_ICON */, MAKEINTRESOURCEW(1), lang,
+                               group.data(), (DWORD)group.size()) != FALSE;
+    if (!EndUpdateResourceW(update, ok ? FALSE : TRUE) || !ok) {
+        error = "cannot write the icon into " + exe.u8string();
+        return false;
+    }
+    return true;
+}
+
+// A 32-bit icon from the pixels (BGRA, bottom-up DIB), for the title bar and the task bar
+void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height) {
+    if (!g_hwnd || !rgba || !width || !height) return;
+    BITMAPV5HEADER bi{};
+    bi.bV5Size = sizeof(bi);
+    bi.bV5Width = (LONG)width;
+    bi.bV5Height = -(LONG)height;   // top-down
+    bi.bV5Planes = 1;
+    bi.bV5BitCount = 32;
+    bi.bV5Compression = BI_BITFIELDS;
+    bi.bV5RedMask = 0x00FF0000;
+    bi.bV5GreenMask = 0x0000FF00;
+    bi.bV5BlueMask = 0x000000FF;
+    bi.bV5AlphaMask = 0xFF000000;
+    void* bits = nullptr;
+    HDC dc = GetDC(nullptr);
+    HBITMAP color = CreateDIBSection(dc, (BITMAPINFO*)&bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    ReleaseDC(nullptr, dc);
+    if (!color || !bits) return;
+    uint8_t* dst = static_cast<uint8_t*>(bits);
+    for (size_t i = 0; i < (size_t)width * height; ++i) {
+        dst[i * 4 + 0] = rgba[i * 4 + 2];
+        dst[i * 4 + 1] = rgba[i * 4 + 1];
+        dst[i * 4 + 2] = rgba[i * 4 + 0];
+        dst[i * 4 + 3] = rgba[i * 4 + 3];
+    }
+    HBITMAP mask = CreateBitmap((int)width, (int)height, 1, 1, nullptr);
+    ICONINFO ii{};
+    ii.fIcon = TRUE;
+    ii.hbmColor = color;
+    ii.hbmMask = mask;
+    HICON icon = CreateIconIndirect(&ii);
+    DeleteObject(color);
+    DeleteObject(mask);
+    if (!icon) return;
+    SendMessageW(g_hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon);
+    SendMessageW(g_hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+}
 
 void windowSize(uint32_t& width, uint32_t& height) {
     width = g_width;

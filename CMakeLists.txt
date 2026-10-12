@@ -84,6 +84,7 @@ set(ENGINE_SOURCES
   src/core/vfs.cpp
   src/core/profiler.cpp
   src/core/log.cpp
+  src/core/compress.cpp
   src/app/profiler_view.cpp
   src/assets/meshes.cpp
   src/assets/animation.cpp
@@ -228,6 +229,10 @@ function(vkworld_add_game_module target)
     add_executable(${target}_game ${CMAKE_SOURCE_DIR}/src/runtime/main.cpp ${ARG_SOURCES})
     target_link_libraries(${target}_game PRIVATE engine_static)
     target_compile_definitions(${target}_game PRIVATE VKWORLD_STANDALONE_MODULE)
+    if(MSVC)   # (like the engine DLL: starts without a Vulkan runtime, so --check works anywhere)
+      target_link_options(${target}_game PRIVATE /DELAYLOAD:vulkan-1.dll)
+      target_link_libraries(${target}_game PRIVATE delayimp)
+    endif()
     set_target_properties(${target}_game PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${ARG_PROJECT_DIR}/bin)
     foreach(config ${CMAKE_CONFIGURATION_TYPES})
       string(TOUPPER ${config} CONFIG)

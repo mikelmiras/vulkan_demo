@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 #include <string>
 
 #include "imgui.h"
@@ -222,6 +223,26 @@ void setFullscreen(bool fullscreen) {
 }
 
 bool isFullscreen() { return g_fullscreen; }
+
+bool setExecutableIcon(const std::filesystem::path&, const std::string&, std::string& error) {
+    error = "executables have no icons here (the desktop entry has it)";
+    return false;
+}
+
+// EWMH _NET_WM_ICON: width, height, then ARGB pixels as 32-bit values
+void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height) {
+    if (!g_conn || !rgba || !width || !height) return;
+    std::vector<uint32_t> data(2 + (size_t)width * height);
+    data[0] = width;
+    data[1] = height;
+    for (size_t i = 0; i < (size_t)width * height; ++i) {
+        const uint8_t* p = rgba + i * 4;
+        data[2 + i] = ((uint32_t)p[3] << 24) | ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2];
+    }
+    xcb_change_property(g_conn, XCB_PROP_MODE_REPLACE, g_window, internAtom("_NET_WM_ICON"), XCB_ATOM_CARDINAL, 32,
+                        (uint32_t)data.size(), data.data());
+    xcb_flush(g_conn);
+}
 
 bool closeRequested() { return g_closeRequested; }
 

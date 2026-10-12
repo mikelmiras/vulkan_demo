@@ -1,6 +1,10 @@
 // core/project: project-relative paths, project.json, moving a project
 #include "test.h"
 
+#include <fstream>
+
+#include "core/compress.h"
+
 #include "app/export.h"
 #include "core/vfs.h"
 #include "scene/serialization.h"
@@ -194,3 +198,78 @@ TEST(export_game_pack_loads) {
     CHECK(!meshes.animations.empty());   // the tentacle model, from the pack too
 }
 #endif
+
+// The pack codec: round trips of every kind of data, smaller for repetitive data, damaged input refused
+TEST(lz_compression) {
+    auto roundTrip = [](const std::string& in) {
+        std::string packed = lz::compress(in.data(), in.size()), out;
+        return lz::decompress(packed.data(), packed.size(), out, in.size()) && out == in ? packed.size() : (size_t)-1;
+    };
+    CHECK(roundTrip("") != (size_t)-1);
+    CHECK(roundTrip("a") != (size_t)-1);
+    CHECK(roundTrip("hello, hello, hello, hello!") != (size_t)-1);
+    std::string text;
+    for (int i = 0; i < 2000; ++i) text += "{\"name\": \"Coin." + std::to_string(i % 37) + "\", \"position\": [1, 2, 3]},\n";
+    size_t packed = roundTrip(text);
+    REQUIRE(packed != (size_t)-1);
+    CHECK(packed < text.size() / 4);   // scene-like text shrinks a lot
+    std::string noise(100000, '\0');
+    uint32_t s = 12345;
+    for (char& c : noise) { s = s * 1664525u + 1013904223u; c = (char)(s >> 24); }
+    CHECK(roundTrip(noise) != (size_t)-1);   // incompressible: still right
+    std::string runs(70000, 'x');           // long runs: overlapping matches, long lengths
+    CHECK(roundTrip(runs) < 1000);
+    std::string bad = lz::compress(text.data(), text.size()), out;
+    bad.resize(bad.size() / 2);
+    CHECK(!lz::decompress(bad.data(), bad.size(), out, text.size()));
+}
+
+TEST(vfs_compressed_packs) {
+    auto dir = test::tempPath("lzpack");
+    std::filesystem::create_directories(dir);
+    std::string text;
+    for (int i = 0; i < 5000; ++i) text += "line " + std::to_string(i % 50) + " of a fairly repetitive scene file\n";
+    std::ofstream(dir / "scene.vkw", std::ios::binary) << text;
+    std::string noise(20000, '\0');
+    uint32_t s = 99;
+    for (char& c : noise) { s = s * 1664525u + 1013904223u; c = (char)(s >> 24); }
+    std::ofstream(dir / "image.png", std::ios::binary) << noise;
+    std::string error;
+    auto pak = dir / "game.pak";
+    REQUIRE(vfs::writePack(pak, {{"scene.vkw", dir / "scene.vkw"}, {"image.png", dir / "image.png"}}, false, error));
+    CHECK(std::filesystem::file_size(pak) < text.size() / 2 + noise.size() + 1000);   // the text shrank, the noise didn't grow
+    REQUIRE(vfs::mount(pak, dir / "game"));
+    std::string got;
+    REQUIRE(vfs::read("scene.vkw", got));
+    CHECK(got == text);
+    REQUIRE(vfs::read("image.png", got));
+    CHECK(got == noise);
+    vfs::unmount();
+    // Uncompressed packs (and old ones) read the same
+    REQUIRE(vfs::writePack(pak, {{"scene.vkw", dir / "scene.vkw"}}, false, error, false));
+    CHECK(std::filesystem::file_size(pak) > text.size());
+    REQUIRE(vfs::mount(pak, dir / "game"));
+    REQUIRE(vfs::read("scene.vkw", got));
+    CHECK(got == text);
+    vfs::unmount();
+}
+
+// Icons: a PNG's size from its header, wrapped as .ico and .icns
+TEST(export_icon_formats) {
+    std::ifstream in(std::string(VKWORLD_SAMPLE_GAME) + "/icon.png", std::ios::binary);
+    std::string png((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    uint32_t w = 0, h = 0;
+    REQUIRE(pngSize(png, w, h));
+    CHECK(w == 128 && h == 128);
+    CHECK(!pngSize("not a png at all, just text", w, h));
+    std::string ico = makeIco(png);
+    REQUIRE(ico.size() == 22 + png.size());
+    CHECK(ico[2] == 1 && ico[4] == 1);                 // an icon, one image
+    CHECK((uint8_t)ico[6] == 128);                     // its width
+    CHECK(ico.compare(22, png.size(), png) == 0);      // the PNG as it is, after the directory
+    std::string icns = makeIcns(png);
+    REQUIRE(icns.size() == 16 + png.size());
+    CHECK(icns.compare(0, 4, "icns") == 0 && icns.compare(8, 4, "ic07") == 0);   // 128 px
+    CHECK((uint8_t)icns[7] == (uint8_t)icns.size() && (uint8_t)icns[6] == (uint8_t)(icns.size() >> 8));
+    CHECK(makeIco("nope").empty() && makeIcns("nope").empty());
+}
