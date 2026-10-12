@@ -69,7 +69,8 @@ fullscreen.
 
 ### Shipping a game
 
-**File > Export game** (or `vkworld <project folder> --export <folder> [--pack | --single-file]`, without a window)
+**File > Export game** (or `vkworld <project folder> --export <folder> [--pack | --single-file] [--package]`,
+without a window)
 makes something that runs on its own, in one of three layouts:
 
 - **Folder**: the game (`vkgame` named after the project), the engine library, the shaders and the project's files.
@@ -91,6 +92,19 @@ each OS you ship for.
 
 `"Sample Game" --check` loads an exported game (pack, project, game code, start scene) without opening a window
 and reports what it found: CI runs it on every export, on Linux, Windows and macOS.
+
+**Packages to hand out** (File > Export game > *And make an AppImage / a .dmg / an installer*, or `--package`):
+next to the export, `<game>-<version>` made into an **AppImage** on Linux (one file that runs on any distribution;
+needs [appimagetool](https://github.com/AppImage/appimagetool) on the PATH or in `VKWORLD_APPIMAGETOOL`), a
+**.dmg** on macOS (the app and a link to Applications), or an **installer** on Windows (per user, no administrator:
+a Start menu entry and an uninstaller; needs [NSIS](https://nsis.sourceforge.io)'s `makensis`, or
+`VKWORLD_MAKENSIS`). The version is `project.json`'s `"gameVersion"` (default 1.0.0).
+
+**Update checks**: with an `"updateUrl"` in `project.json`, the game asks it at start (in the background) whether
+there's a newer `gameVersion`. It serves `{"version": "1.1.0", "url": "https://...", "notes": "..."}`, or it's a
+GitHub API `.../releases/latest` URL. When there is, the game state gets `update.available`, `update.version`,
+`update.url` and `update.notes` for a menu to show, and a button with the action `@open {update.url}` opens the
+page. Nothing is downloaded; players can turn it off (`settings.checkUpdates`).
 
 ### Tests
 
@@ -611,9 +625,14 @@ colliders draws them all (blue = solid, green = trigger).
 - **Crash reports**: a crash (a bad memory access, an assertion, an illegal instruction, an exception nothing
   caught) writes what happened and the stack to the console, the log file and `game-crash.txt` /
   `editor-crash.txt` next to it, then the program ends as it would have. The next run keeps it as
-  `*-crash-last.txt` and says so (the editor in its status bar, the game in its log). Linux and macOS stacks name
-  library functions and give offsets into programs (`addr2line -f -C -e vkgame <offset>`, `atos` on macOS);
-  Windows names functions from the `.pdb` when one is next to the program.
+  `*-crash-last.txt` and says so (the editor in its status bar, the game in its log). A report has the version and
+  commit (`vkworld --version` / `vkgame --version` print them too), the game's name and version, the stack, and
+  (Linux, macOS) the modules loaded with their build ids, so it can be read back later:
+  `python3 tools/symbolicate.py game-crash.txt --symbols <folder>` puts the function, file and line after each
+  frame. Releases keep their symbols aside: configure with `-DVKWORLD_RELEASE_SYMBOLS=ON`, then
+  `python3 tools/symbols.py split --out symbols <binaries>` strips what ships and keeps the debug info by build id
+  (macOS: `.dSYM`s; Windows: the `.pdb`s). Without symbols it still names functions from the binaries; Windows names
+  them in the report itself when the `.pdb` is next to the program.
 - **Log files**: vkgame writes `game.log`, the editor `editor.log`, in the user's data folder next to the save games
   (`~/.local/share/vkworld/<project>/`), with the game's messages, validation messages and fatal errors; the
   previous run's log stays as `*.1`.
@@ -1036,6 +1055,16 @@ you continue.
 | F11                            | Fullscreen                                     |
 | Click / Esc while playing      | Capture / release the mouse for the game       |
 
+## Releases
+
+`.github/workflows/release.yml` builds a release when a tag `v<version>` is pushed (the version in
+`CMakeLists.txt`'s `project()`; the tag must match it): optimised with debug info on Linux, Windows and macOS,
+tested, the symbols split off into `*-symbols` archives, and packaged as an AppImage and `.tar.gz` (Linux), a `.dmg`
+(macOS) and an installer and `.zip` (Windows), published as a GitHub release. Run by hand (Actions > Release > Run
+workflow) it builds the same packages as artifacts only. The editor's **Help > Check for updates** asks GitHub for
+the latest release (only when you click it; `-DVKWORLD_UPDATE_URL=` points it elsewhere); **Help > About** shows the
+version and commit.
+
 ## Code
 
 The code is split into an **engine** shared library (everything a game needs at runtime, Dear ImGui included) and
@@ -1046,7 +1075,7 @@ Includes are relative to `src/`.
 |----------------------------|-----------------------------------------------------------------|
 | `src/main.cpp`             | The editor's entry point                                        |
 | `src/runtime/main.cpp`     | The standalone game (`vkgame`)                                  |
-| `src/app/`                 | Window + renderer + ImGui setup and frame loop shared by both   |
+| `src/app/`                 | Window + renderer + ImGui setup and frame loop shared by both; exporting (and packaging) games (`export.*`); update checks (`updates.*`) |
 | `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer, `png.*` screenshot writer, `project.*` project folder and paths |
 | `src/platform/`            | OS layer: `platform.h` interface; Linux (`platform_linux.cpp`: gamepads, dialogs, and the window backend chosen at start: `platform_xcb.cpp` or `platform_wayland.cpp`), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: device, swapchain, pipelines, frame (`renderer.cpp`); textures and materials (`renderer_textures.cpp`); culling, batching, skinning data (`renderer_instances.cpp`); HDR, bloom, tonemapping (`renderer_post.cpp`); scene -> draw list (`scene_draw.*`) |
@@ -1060,7 +1089,7 @@ Includes are relative to `src/`.
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_asset_db.cpp` asset inspector, moving / renaming assets, `editor_terrain.cpp` terrain tool, `editor_prefs.cpp` preferences saved per user |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
-| `tools/`                   | `check_screenshot.py` (CI smoke test)                           |
+| `tools/`                   | `check_screenshot.py` (CI smoke test), `check_perf.py`, `symbols.py` (keep a release's symbols aside), `symbolicate.py` (read crash reports), `vscode-vkworld-lua` |
 | `bench/`                   | `engine_bench`: CPU timings on the stress scene (`scene/stress_scene.*`) |
 | `shaders/common.glsl`      | Frame data (camera, sun, light clusters, shadow cameras) and per-object instance data shared by the shaders |
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |

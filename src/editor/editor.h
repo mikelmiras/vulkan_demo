@@ -16,6 +16,7 @@
 #include "assets/meshes.h"
 #include "app/export.h"
 #include "core/project.h"
+#include "app/updates.h"
 #include "editor/editor_prefs.h"
 #include "game/game.h"
 #include "game/module.h"
@@ -95,6 +96,10 @@ private:
     void drawComponents(Entity& e);
     void drawStatusBar(const RenderStats& stats);
     void drawHelp();
+    void drawAbout();   // Help > About and Check for updates
+    bool showAbout_ = false;
+    bool exportPackage_ = false;   // File > Export game > And make an AppImage / .dmg / installer
+    updates::Check updateCheck_;
     void drawAddPopup();
     void drawAddMenuItems();
     void drawImportPopup();

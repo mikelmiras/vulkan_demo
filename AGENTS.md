@@ -98,3 +98,11 @@ performance, update the baseline from the numbers CI prints.
 3. One commit per task, with a message saying what changed and why.
 4. After pushing, check CI (`gh run list -b main -L 1`, `gh run watch <id> --exit-status`) and fix whatever breaks
    on the other platforms.
+
+## Releases
+
+The version lives in `CMakeLists.txt` (`project(VulkanWorld VERSION x.y.z)`; `core/version.h` reads it, with the
+git commit). A release is a tag `v<that version>` pushed to GitHub: `.github/workflows/release.yml` builds, tests,
+splits symbols off and packages on every platform, then publishes. Bump the version in its own commit first, and
+only tag when asked to (a tag publishes a release). `Actions > Release > Run workflow` builds the packages without
+publishing, to check the workflow.

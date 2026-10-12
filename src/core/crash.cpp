@@ -9,6 +9,7 @@
 #include <string>
 
 #include "core/log.h"
+#include "core/version.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -18,6 +19,13 @@
 #include <execinfo.h>
 #include <fcntl.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#else
+#include <elf.h>
+#include <link.h>
+#endif
 #endif
 
 namespace crash {
@@ -28,6 +36,8 @@ std::string g_name;
 // The handlers can't allocate: paths copied out once, at install
 char g_reportPath[1024] = {0};
 char g_logPath[1024] = {0};
+char g_version[128] = {0};   // "0.5.0 (e7b72ac1d2)"
+char g_product[256] = {0};   // "Product: Coin Hunt 1.2.0\n" (or nothing)
 volatile bool g_reporting = false;   // (abort() inside a report: don't report twice)
 
 void copyPath(char* dst, const std::filesystem::path& p) {
@@ -81,7 +91,8 @@ std::string header(const char* what) {
     std::time_t now = std::time(nullptr);
     char stamp[64];
     std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", std::localtime(&now));
-    std::snprintf(buf, sizeof(buf), "==== Crash report: %s ====\nWhat: %s\nWhen: %s\nStack:\n", g_name.c_str(), what, stamp);
+    std::snprintf(buf, sizeof(buf), "==== Crash report: %s ====\nWhat: %s\nWhen: %s\nVersion: %s\n%sStack:\n", g_name.c_str(), what,
+                  stamp, g_version, g_product);
     return buf;
 }
 
@@ -177,13 +188,121 @@ const char* signalName(int sig) {
     }
 }
 
+// The modules loaded (programs and libraries): where each is in memory and its build id, so a stack's addresses
+// can be turned into functions and lines later from the symbols kept for that build (tools/symbolicate.py).
+// "  0x<start>-0x<end> <build id or UUID> <path>", one per line.
+#if defined(__APPLE__)
+void writeModules(int fd) {
+    uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; ++i) {
+        const mach_header* header = _dyld_get_image_header(i);
+        const char* name = _dyld_get_image_name(i);
+        if (!header || !name) continue;
+        char uuid[40] = "-";
+        uint64_t size = 0;
+        const uint8_t* at = (const uint8_t*)header + (header->magic == MH_MAGIC_64 ? sizeof(mach_header_64) : sizeof(mach_header));
+        for (uint32_t c = 0; c < header->ncmds; ++c) {
+            const load_command* lc = (const load_command*)at;
+            if (lc->cmd == LC_UUID) {
+                const uint8_t* u = ((const uuid_command*)lc)->uuid;
+                std::snprintf(uuid, sizeof(uuid), "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X", u[0], u[1],
+                              u[2], u[3], u[4], u[5], u[6], u[7], u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]);
+            } else if (lc->cmd == LC_SEGMENT_64 && !std::strcmp(((const segment_command_64*)lc)->segname, "__TEXT")) {
+                size = ((const segment_command_64*)lc)->vmsize;
+            }
+            at += lc->cmdsize;
+        }
+        char line[1200];
+        std::snprintf(line, sizeof(line), "  0x%llx-0x%llx %s %s\n", (unsigned long long)(uintptr_t)header,
+                      (unsigned long long)((uintptr_t)header + size), uuid, name);
+        writeAll(fd, line);
+    }
+}
+#else
+// The GNU build id in an ELF image mapped at `base` (its notes), as hex; "-" if none
+void buildId(uintptr_t base, char* out, size_t size) {
+    std::snprintf(out, size, "-");
+    const auto* eh = (const ElfW(Ehdr)*)base;
+    if (std::memcmp(eh->e_ident, ELFMAG, SELFMAG) != 0) return;
+    const auto* ph = (const ElfW(Phdr)*)(base + eh->e_phoff);
+    uintptr_t bias = base;   // (where vaddr 0 is: the first segment's vaddr is 0 for libraries and PIE programs)
+    for (int i = 0; i < eh->e_phnum; ++i)
+        if (ph[i].p_type == PT_LOAD && ph[i].p_offset == 0) bias = base - ph[i].p_vaddr;
+    for (int i = 0; i < eh->e_phnum; ++i) {
+        if (ph[i].p_type != PT_NOTE) continue;
+        const uint8_t* at = (const uint8_t*)(bias + ph[i].p_vaddr);
+        const uint8_t* end = at + ph[i].p_memsz;
+        while (at + sizeof(ElfW(Nhdr)) <= end) {
+            const auto* note = (const ElfW(Nhdr)*)at;
+            const uint8_t* name = at + sizeof(ElfW(Nhdr));
+            const uint8_t* desc = name + ((note->n_namesz + 3) & ~3u);
+            if (note->n_type == NT_GNU_BUILD_ID && note->n_namesz == 4 && !std::memcmp(name, "GNU", 4)) {
+                size_t n = 0;
+                for (uint32_t b = 0; b < note->n_descsz && n + 3 < size; ++b, n += 2)
+                    std::snprintf(out + n, 3, "%02x", desc[b]);
+                return;
+            }
+            at = desc + ((note->n_descsz + 3) & ~3u);
+        }
+    }
+}
+
+// From /proc/self/maps (read() into a buffer kept for it: nothing allocated in a handler)
+void writeModules(int fd) {
+    static char maps[256 * 1024];
+    int in = ::open("/proc/self/maps", O_RDONLY);
+    if (in < 0) return;
+    size_t n = 0;
+    for (ssize_t r; n < sizeof(maps) - 1 && (r = ::read(in, maps + n, sizeof(maps) - 1 - n)) > 0;) n += (size_t)r;
+    ::close(in);
+    maps[n] = 0;
+    struct Module {
+        const char* path;
+        uintptr_t base, end;
+        bool exec;
+    };
+    static Module mods[256];
+    int count = 0;
+    for (char* line = maps; *line;) {
+        char* next = std::strchr(line, '\n');
+        if (next) *next = 0;
+        unsigned long long start = 0, stop = 0, offset = 0;
+        char perms[8] = {0};
+        int pathAt = 0;
+        if (std::sscanf(line, "%llx-%llx %7s %llx %*s %*s %n", &start, &stop, perms, &offset, &pathAt) >= 4 && pathAt > 0 &&
+            line[pathAt] == '/') {
+            const char* path = line + pathAt;
+            int m = 0;
+            while (m < count && std::strcmp(mods[m].path, path) != 0) ++m;
+            if (m == count && count < 256) mods[count++] = {path, offset == 0 ? (uintptr_t)start : 0, (uintptr_t)stop, false};
+            if (m < count) {
+                if (offset == 0 && (!mods[m].base || start < mods[m].base)) mods[m].base = (uintptr_t)start;
+                if (stop > mods[m].end) mods[m].end = (uintptr_t)stop;
+                if (perms[2] == 'x') mods[m].exec = true;
+            }
+        }
+        if (!next) break;
+        line = next + 1;
+    }
+    for (int m = 0; m < count; ++m) {
+        if (!mods[m].exec || !mods[m].base) continue;
+        char id[80];
+        buildId(mods[m].base, id, sizeof(id));
+        char line[1200];
+        std::snprintf(line, sizeof(line), "  0x%llx-0x%llx %s %s\n", (unsigned long long)mods[m].base,
+                      (unsigned long long)mods[m].end, id, mods[m].path);
+        writeAll(fd, line);
+    }
+}
+#endif
+
 // Async-signal-safe as far as it can be: no allocation, write() to descriptors (backtrace() was warmed up at
 // install, so it doesn't load anything now)
 void report(const char* what, int skip) {
-    char head[512];
+    char head[1024];
     std::time_t now = std::time(nullptr);
-    std::snprintf(head, sizeof(head), "==== Crash report: %s ====\nWhat: %s\nWhen: %lld (seconds since 1970)\nStack:\n",
-                  g_name.empty() ? "program" : g_name.c_str(), what, (long long)now);
+    std::snprintf(head, sizeof(head), "==== Crash report: %s ====\nWhat: %s\nWhen: %lld (seconds since 1970)\nVersion: %s\n%sStack:\n",
+                  g_name.empty() ? "program" : g_name.c_str(), what, (long long)now, g_version, g_product);
     void* stack[64];
     int count = backtrace(stack, 64);
     int fds[3] = {2, -1, -1};
@@ -198,7 +317,9 @@ void report(const char* what, int skip) {
             writeAll(fd, num);
             backtrace_symbols_fd(stack + i, 1, fd);
         }
-        writeAll(fd, "(addresses into a program or library: addr2line -f -C -e <it> <offset>, or atos on macOS)\n");
+        writeAll(fd, "Modules:\n");
+        writeModules(fd);
+        writeAll(fd, "(tools/symbolicate.py turns the addresses into functions and lines, with this build's symbols)\n");
         if (fd != 2) ::close(fd);
     }
 }
@@ -251,6 +372,7 @@ void onTerminate() {
 
 void install(const std::filesystem::path& folder, const std::string& name) {
     g_name = name;
+    std::snprintf(g_version, sizeof(g_version), "%s", version::full().c_str());
     std::error_code ec;
     std::filesystem::create_directories(folder, ec);
     g_report = folder / (name + "-crash.txt");
@@ -266,6 +388,11 @@ void install(const std::filesystem::path& folder, const std::string& name) {
     g_reporting = false;
     installHandlers();
     std::set_terminate(onTerminate);
+}
+
+void setProduct(const std::string& product) {
+    if (product.empty()) g_product[0] = 0;
+    else std::snprintf(g_product, sizeof(g_product), "Product: %s\n", product.c_str());
 }
 
 const std::filesystem::path& previousReport() { return g_previous; }

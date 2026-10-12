@@ -58,7 +58,15 @@ void imguiShutdown();
 std::filesystem::path openFileDialog(const char* title, const char* extension);
 std::filesystem::path openFolderDialog(const char* title);   // empty when cancelled / unavailable
 // Opens a file in the program the system uses for it (xdg-open, ShellExecute, open); false if that can't start
-bool openWithSystem(const std::filesystem::path& file);
+bool openWithSystem(const std::filesystem::path& file);   // (a URL too)
+
+// Runs a program (looked up on the PATH unless args[0] is a path) with these arguments and waits for it: false if it
+// couldn't start. `output`: what it wrote (stdout and stderr), `exitCode` how it ended. (Export packaging tools.)
+bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode);
+
+// Fetches a URL (http or https, through the OS's own TLS: WinHTTP, NSURLSession; curl or wget on Linux), waiting
+// up to `timeoutSeconds`: the body of a successful answer, else false and why. Blocks: call it on a worker thread.
+bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds = 10);
 
 std::filesystem::path executableDir();
 std::filesystem::path executablePath();   // empty if unknown

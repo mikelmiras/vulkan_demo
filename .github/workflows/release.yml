@@ -1,0 +1,188 @@
+name: Release
+
+# A tag "v<version>" (the version in CMakeLists.txt's project()) builds a release on every platform: optimised, with
+# debug info that's split off into a symbols archive (to read crash reports: tools/symbolicate.py), packaged
+# (Linux: .tar.gz and AppImage; macOS: .dmg; Windows: .zip and an installer), tested, and published as a GitHub
+# release. Run by hand (workflow_dispatch) it builds and packages the same, as artifacts only.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-24.04
+          - name: Windows
+            os: windows-2022
+          - name: macOS
+            os: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # (git describe: the commit in --version and crash reports)
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan-dev glslc libxcb1-dev libwayland-dev libxkbcommon-dev file binutils
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install vulkan-headers vulkan-loader molten-vk shaderc
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix)" >> "$GITHUB_ENV"
+
+      - name: Install Vulkan SDK and NSIS (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "1.3.296.0"
+          $installer = "$env:RUNNER_TEMP\VulkanSDK.exe"
+          Invoke-WebRequest "https://sdk.lunarg.com/sdk/download/$version/windows/VulkanSDK-$version-Installer.exe" -OutFile $installer
+          Start-Process -FilePath $installer -Wait -ArgumentList "--root","C:\VulkanSDK\$version","--accept-licenses","--default-answer","--confirm-command","install"
+          "VULKAN_SDK=C:\VulkanSDK\$version" >> $env:GITHUB_ENV
+          "C:\VulkanSDK\$version\Bin" >> $env:GITHUB_PATH
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe")) { choco install nsis -y --no-progress }
+
+      - name: Version
+        shell: bash
+        run: |
+          VERSION=$(sed -n 's/^project(VulkanWorld VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF#refs/tags/v}" != "$VERSION" ]]; then
+            echo "the tag ${GITHUB_REF#refs/tags/} doesn't match the version in CMakeLists.txt ($VERSION)"; exit 1
+          fi
+          case "$RUNNER_OS" in Linux) OS=linux-x86_64;; macOS) OS=macos-arm64;; Windows) OS=windows-x64;; esac
+          echo "DIST=VulkanWorld-$VERSION-$OS" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVKWORLD_RELEASE_SYMBOLS=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+      # The distribution: the editor, vkgame and the engine, the shaders, the sample game (with its built module),
+      # the tools and the docs; then the symbols split off into their own archive
+      - name: Gather
+        shell: bash
+        run: |
+          B=build; [ -d build/Release ] && B=build/Release
+          mkdir -p "dist/$DIST" symbols
+          cp -R "$B"/vkworld* "$B"/vkgame* "dist/$DIST/"
+          cp "$B"/libengine.* "$B"/engine.dll "dist/$DIST/" 2>/dev/null || true
+          cp -R build/shaders "dist/$DIST/shaders"
+          mkdir -p "dist/$DIST/examples" && cp -R examples/sample_game "dist/$DIST/examples/sample_game"
+          rm -rf "dist/$DIST/examples/sample_game/src" "dist/$DIST/examples/sample_game/CMakeLists.txt"
+          cp -R tools docs README.md AGENTS.md "dist/$DIST/"
+          rm -f "dist/$DIST"/*.pdb "dist/$DIST"/*.ilk "dist/$DIST"/*.exp "dist/$DIST"/*.lib
+          PY=python3; [ "$RUNNER_OS" = "Windows" ] && PY=python
+          FILES=$(find "dist/$DIST" -maxdepth 1 -type f \( -name 'vkworld*' -o -name 'vkgame*' -o -name 'libengine*' -o -name 'engine.dll' \))
+          FILES="$FILES $(find "dist/$DIST/examples" -name '*.so' -o -name '*.dylib' -o -name '*.dll' -o -name '*_game' -o -name '*_game.exe')"
+          if [ "$RUNNER_OS" = "Windows" ]; then cp "$B"/*.pdb . 2>/dev/null || true; for f in $FILES; do p="$(basename "${f%.*}").pdb"; [ -f "$p" ] && cp "$p" "$(dirname "$f")/"; done; fi
+          $PY tools/symbols.py split --out "symbols/$DIST-symbols" $FILES
+          "dist/$DIST/vkworld" --version || "dist/$DIST/vkworld.exe" --version
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cd dist
+          tar czf "$DIST.tar.gz" "$DIST"
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          mkdir -p AppDir/usr && cp -R "$DIST" AppDir/usr/bin
+          printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/vkworld" "$@"\n' > AppDir/AppRun
+          chmod +x AppDir/AppRun
+          printf '[Desktop Entry]\nType=Application\nName=Vulkan World\nExec=vkworld\nIcon=vkworld\nCategories=Development;Game;\nX-AppImage-Version=%s\n' "$VERSION" > AppDir/vkworld.desktop
+          cp ../examples/sample_game/icon.png AppDir/vkworld.png
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool --no-appstream AppDir "$DIST.AppImage"
+          APPIMAGE_EXTRACT_AND_RUN=1 "./$DIST.AppImage" --version
+          cd ../symbols && tar czf "../dist/$DIST-symbols.tar.gz" "$DIST-symbols"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          hdiutil create -volname "Vulkan World $VERSION" -srcfolder "$DIST" -ov -format UDZO "$DIST.dmg"
+          cd ../symbols && tar czf "../dist/$DIST-symbols.tar.gz" "$DIST-symbols"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd dist
+          Compress-Archive -Path $env:DIST -DestinationPath "$env:DIST.zip"
+          $nsi = @"
+          Unicode true
+          Name "Vulkan World $env:VERSION"
+          OutFile "$env:DIST-setup.exe"
+          InstallDir "`$LOCALAPPDATA\Programs\Vulkan World"
+          RequestExecutionLevel user
+          Page directory
+          Page instfiles
+          UninstPage uninstConfirm
+          UninstPage instfiles
+          Section
+            SetOutPath "`$INSTDIR"
+            File /r "$env:DIST\*.*"
+            WriteUninstaller "`$INSTDIR\Uninstall.exe"
+            CreateDirectory "`$SMPROGRAMS\Vulkan World"
+            CreateShortcut "`$SMPROGRAMS\Vulkan World\Vulkan World.lnk" "`$INSTDIR\vkworld.exe"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VulkanWorld" "DisplayName" "Vulkan World"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VulkanWorld" "DisplayVersion" "$env:VERSION"
+            WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VulkanWorld" "UninstallString" "`$\`"`$INSTDIR\Uninstall.exe`$\`""
+          SectionEnd
+          Section "Uninstall"
+            RMDir /r "`$INSTDIR"
+            RMDir /r "`$SMPROGRAMS\Vulkan World"
+            DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VulkanWorld"
+          SectionEnd
+          "@
+          Set-Content -Path installer.nsi -Value $nsi -Encoding UTF8
+          $makensis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $makensis) { $makensis = "C:\Program Files (x86)\NSIS\makensis.exe" }
+          & $makensis /V2 installer.nsi
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Remove-Item installer.nsi
+          Compress-Archive -Path "..\symbols\$env:DIST-symbols" -DestinationPath "$env:DIST-symbols.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}
+          path: |
+            dist/*.tar.gz
+            dist/*.AppImage
+            dist/*.dmg
+            dist/*.zip
+            dist/*-setup.exe
+
+  publish:
+    name: Publish
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --title "Vulkan World ${GITHUB_REF_NAME#v}" \
+            --notes "Downloads for Linux (AppImage, .tar.gz), macOS (.dmg) and Windows (installer, .zip). The *-symbols archives hold the debug symbols for reading crash reports: python3 tools/symbolicate.py <crash report> --symbols <unpacked folder>."

@@ -19,6 +19,11 @@ struct Settings {
     std::string moduleBuild;
     std::string icon;   // the game's icon: a PNG in the project (window icon; exported games' desktop entries)
     std::string language = "en";   // the strings/<language>.json the game starts with (see game/strings.h)
+    std::string gameVersion = "1.0.0";   // the game's own version (exports: the app's; update checks compare it)
+    // Where the game asks whether there's a newer version (vkgame at start; players can turn it off in
+    // settings.checkUpdates): JSON {"version": "1.1.0", "url": "...", "notes": "..."}, or a GitHub API "releases/latest"
+    // URL. Empty: no check.
+    std::string updateUrl;
 };
 
 void setRoot(const std::filesystem::path& root);

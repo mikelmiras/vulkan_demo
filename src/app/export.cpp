@@ -1,6 +1,8 @@
 #include "app/export.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <initializer_list>
 #include <cstring>
 #include <iterator>
 #include <cctype>
@@ -9,6 +11,7 @@
 #include <sstream>
 
 #include "core/json.h"
+#include "core/png.h"
 #include "core/project.h"
 #include "core/vfs.h"
 #include "game/module.h"
@@ -119,6 +122,137 @@ bool exportGame(const fs::path& projectDir, const fs::path& outDir, const fs::pa
 }
 
 namespace {
+
+// A tool's path: the environment variable naming it, else the name (the PATH), else where it's usually installed
+std::string findTool(const char* env, const char* name, std::initializer_list<const char*> usual = {}) {
+    if (const char* e = std::getenv(env); e && *e) return e;
+    std::error_code ec;
+    for (const char* u : usual)
+        if (fs::is_regular_file(fs::u8path(u), ec)) return u;
+    return name;
+}
+
+bool runTool(const std::vector<std::string>& args, const char* what, std::string& error) {
+    std::string output;
+    int code = 0;
+    if (!platform::runProgram(args, output, code)) {
+        error = std::string("can't run ") + args[0] + " (" + what + ")";
+        return false;
+    }
+    if (code != 0) {
+        while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) output.pop_back();
+        size_t from = output.size() > 600 ? output.size() - 600 : 0;   // (its last words)
+        error = args[0] + " failed (exit " + std::to_string(code) + "): " + output.substr(from);
+        return false;
+    }
+    return true;
+}
+
+bool copyTree(const fs::path& from, const fs::path& to, std::string& error) {
+    std::error_code ec;
+    fs::create_directories(to, ec);
+    fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing | fs::copy_options::copy_symlinks, ec);
+    if (ec) error = "can't copy " + from.u8string() + ": " + ec.message();
+    return !ec;
+}
+
+// The package around an export in `out`: see ExportOptions::package
+bool makePackage(const fs::path& out, const std::string& name, const project::Settings& settings, const std::string& iconPng,
+                 ExportResult& result, std::string& error) {
+    std::error_code ec;
+    std::string base = name + "-" + settings.gameVersion;
+    for (char& c : base) if (c == ' ') c = '_';
+#if defined(__APPLE__)
+    // A disk image: the app and a link to Applications (drag one onto the other)
+    fs::path staging = out / (base + ".dmg-staging");
+    fs::remove_all(staging, ec);
+    if (!copyTree(out / (name + ".app"), staging / (name + ".app"), error)) return false;
+    fs::create_directory_symlink("/Applications", staging / "Applications", ec);
+    result.package = out / (base + ".dmg");
+    fs::remove(result.package, ec);
+    bool ok = runTool({"hdiutil", "create", "-volname", name, "-srcfolder", staging.u8string(), "-ov", "-format", "UDZO",
+                       result.package.u8string()}, "makes the .dmg", error);
+    fs::remove_all(staging, ec);
+    return ok;
+#elif defined(_WIN32)
+    // An NSIS installer: installs for this user (no administrator needed), a Start menu entry, an uninstaller
+    std::string exe = result.executable.filename().u8string();
+    result.package = out / (base + "-setup.exe");
+    fs::path script = out / (base + ".nsi");
+    {
+        std::string key = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" + name;
+        std::ofstream nsi(script, std::ios::binary);
+        nsi << "Unicode true\n"
+               "Name \"" << settings.name << "\"\n"
+               "OutFile \"" << result.package.u8string() << "\"\n"
+               "InstallDir \"$LOCALAPPDATA\\Programs\\" << name << "\"\n"
+               "RequestExecutionLevel user\n"
+               "Page directory\nPage instfiles\nUninstPage uninstConfirm\nUninstPage instfiles\n"
+               "Section\n"
+               "  SetOutPath \"$INSTDIR\"\n"
+               "  File /r /x \"*.nsi\" /x \"*-setup.exe\" \"" << out.u8string() << "\\*.*\"\n"
+               "  WriteUninstaller \"$INSTDIR\\Uninstall.exe\"\n"
+               "  CreateDirectory \"$SMPROGRAMS\\" << name << "\"\n"
+               "  CreateShortcut \"$SMPROGRAMS\\" << name << "\\" << name << ".lnk\" \"$INSTDIR\\" << exe << "\"\n"
+               "  WriteRegStr HKCU \"" << key << "\" \"DisplayName\" \"" << settings.name << "\"\n"
+               "  WriteRegStr HKCU \"" << key << "\" \"DisplayVersion\" \"" << settings.gameVersion << "\"\n"
+               "  WriteRegStr HKCU \"" << key << "\" \"DisplayIcon\" \"$INSTDIR\\" << exe << "\"\n"
+               "  WriteRegStr HKCU \"" << key << "\" \"UninstallString\" \"$\\\"$INSTDIR\\Uninstall.exe$\\\"\"\n"
+               "SectionEnd\n"
+               "Section \"Uninstall\"\n"
+               "  RMDir /r \"$INSTDIR\"\n"
+               "  RMDir /r \"$SMPROGRAMS\\" << name << "\"\n"
+               "  DeleteRegKey HKCU \"" << key << "\"\n"
+               "SectionEnd\n";
+    }
+    std::string makensis = findTool("VKWORLD_MAKENSIS", "makensis",
+                                    {"C:\\Program Files (x86)\\NSIS\\makensis.exe", "C:\\Program Files\\NSIS\\makensis.exe"});
+    bool ok = runTool({makensis, "/V2", script.u8string()}, "makes the installer: install NSIS", error);
+    fs::remove(script, ec);
+    return ok;
+#else
+    // An AppImage: the export in an AppDir (usr/bin), with AppRun, a desktop entry and an icon
+    fs::path appDir = out / (base + ".AppDir");
+    fs::remove_all(appDir, ec);
+    fs::path bin = appDir / "usr" / "bin";
+    fs::create_directories(bin, ec);
+    for (const auto& entry : fs::directory_iterator(out, ec)) {
+        std::string file = entry.path().filename().u8string();
+        if (entry.path() == appDir || file.size() > 9 && file.compare(file.size() - 9, 9, ".AppImage") == 0) continue;
+        if (entry.is_directory(ec) ? !copyTree(entry.path(), bin / file, error)
+                                   : !fs::copy_file(entry.path(), bin / file, fs::copy_options::overwrite_existing, ec)) {
+            if (error.empty()) error = "can't copy " + entry.path().u8string() + ": " + ec.message();
+            return false;
+        }
+    }
+    std::string exe = result.executable.filename().u8string(), id = lower(name);
+    for (char& c : id) if (c == ' ') c = '-';
+    {
+        std::ofstream run(appDir / "AppRun");
+        run << "#!/bin/sh\nHERE=\"$(dirname \"$(readlink -f \"$0\")\")\"\nexec \"$HERE/usr/bin/" << exe << "\" \"$@\"\n";
+    }
+    fs::permissions(appDir / "AppRun", fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec |
+                                           fs::perms::others_read | fs::perms::others_exec, ec);
+    std::ofstream(appDir / (id + ".desktop")) << "[Desktop Entry]\nType=Application\nName=" << settings.name
+                                              << "\nExec=" << exe << "\nIcon=" << id << "\nTerminal=false\nCategories=Game;\n"
+                                              << "X-AppImage-Version=" << settings.gameVersion << "\n";
+    if (!iconPng.empty()) {
+        std::ofstream(appDir / (id + ".png"), std::ios::binary) << iconPng;
+    } else {   // (an AppImage needs one: a plain tile)
+        std::vector<uint8_t> rgba(64 * 64 * 4);
+        for (size_t i = 0; i < rgba.size(); i += 4) rgba[i] = 60, rgba[i + 1] = 110, rgba[i + 2] = 190, rgba[i + 3] = 255;
+        writePng((appDir / (id + ".png")).u8string(), 64, 64, rgba.data());
+    }
+    result.package = out / (base + "-x86_64.AppImage");
+    fs::remove(result.package, ec);
+    setenv("ARCH", "x86_64", 0);
+    setenv("APPIMAGE_EXTRACT_AND_RUN", "1", 0);   // (appimagetool is an AppImage itself: no FUSE needed this way)
+    bool ok = runTool({findTool("VKWORLD_APPIMAGETOOL", "appimagetool"), "--no-appstream", appDir.u8string(),
+                       result.package.u8string()}, "makes the AppImage: install appimagetool", error);
+    fs::remove_all(appDir, ec);
+    return ok;
+#endif
+}
 
 bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs::path& runtimeDir, ExportResult& result,
                    std::string& error, const ExportOptions& options) {
@@ -264,6 +398,7 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
         }
     }
 #endif
+    if (options.package && !makePackage(out, name, settings, iconPng, result, error)) return false;
     return true;
 }
 

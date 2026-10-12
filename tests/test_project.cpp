@@ -118,6 +118,34 @@ TEST(export_game_folder) {
     // Not over the project itself
     CHECK(!exportGame(sample, sample, platform::executableDir(), result, error));
 }
+
+#if defined(__linux__)
+// Packaging: without its tool the export says which is missing (the plain export is there, nothing half-made)
+TEST(export_package_needs_its_tool) {
+    namespace fs = std::filesystem;
+    fs::path sample = fs::u8path(VKWORLD_SAMPLE_GAME), out = test::tempPath("exported_package");
+    fs::remove_all(out);
+    setenv("VKWORLD_APPIMAGETOOL", "/nonexistent/appimagetool", 1);
+    ExportOptions options;
+    options.package = true;
+    ExportResult result;
+    std::string error;
+    CHECK(!exportGame(sample, out, platform::executableDir(), result, error, options));
+    unsetenv("VKWORLD_APPIMAGETOOL");
+    CHECK(error.find("appimagetool") != std::string::npos);
+    CHECK(fs::is_regular_file(out / "project.json"));
+    bool leftovers = false;
+    for (const auto& e : fs::directory_iterator(out))
+        if (e.path().extension() == ".AppDir" || e.path().extension() == ".AppImage") leftovers = true;
+    CHECK(!leftovers);
+    // A program that runs, and one that isn't there
+    std::string output;
+    int code = -1;
+    CHECK(platform::runProgram({"sh", "-c", "echo hi; exit 3"}, output, code));
+    CHECK(output == "hi\n" && code == 3);
+    CHECK(!platform::runProgram({"/nonexistent/tool"}, output, code));
+}
+#endif
 #endif
 
 // A scene using a file outside the project gets a warning: the exported game won't have it

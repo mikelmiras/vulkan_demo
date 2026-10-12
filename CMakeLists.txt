@@ -1,11 +1,26 @@
 cmake_minimum_required(VERSION 3.20)
-project(VulkanWorld C CXX)
+project(VulkanWorld VERSION 0.5.0 LANGUAGES C CXX)   # (the engine and editor: core/version.h)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 get_property(MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 if(NOT MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Releases: optimised and with debug info, which tools/symbols.py then moves aside (crash reports are read back
+# with it: tools/symbolicate.py). Every Linux binary gets a GNU build id, the key its symbols are kept by.
+option(VKWORLD_RELEASE_SYMBOLS "Release builds with debug info (for crash reports; strip it with tools/symbols.py)" OFF)
+if(VKWORLD_RELEASE_SYMBOLS)
+  if(MSVC)
+    add_compile_options($<$<CONFIG:Release>:/Zi>)
+    add_link_options($<$<CONFIG:Release>:/DEBUG> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
+  else()
+    add_compile_options($<$<CONFIG:Release>:-g>)
+  endif()
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_link_options(-Wl,--build-id)
 endif()
 
 # Executables find the engine library next to them ($ORIGIN / @loader_path), so a build folder can be copied as is
@@ -76,6 +91,14 @@ add_custom_command(
   DEPENDS ${CMAKE_SOURCE_DIR}/third_party/imgui/misc/fonts/Roboto-Medium.ttf ${CMAKE_SOURCE_DIR}/cmake/embed_file.cmake
   COMMENT "Embedding the default game font")
 
+# The version and git commit, refreshed every build (core/version.h)
+set(BUILD_INFO_SOURCE ${CMAKE_BINARY_DIR}/generated/build_info.cpp)
+add_custom_target(build_info
+  COMMAND ${CMAKE_COMMAND} -DVERSION=${PROJECT_VERSION} -DSOURCE_DIR=${CMAKE_SOURCE_DIR} -DOUTPUT=${BUILD_INFO_SOURCE}
+          -P ${CMAKE_SOURCE_DIR}/cmake/build_info.cmake
+  BYPRODUCTS ${BUILD_INFO_SOURCE}
+  COMMENT "Version and commit")
+
 # Lua 5.4.7, compiled as C++ so its errors unwind as exceptions through our code (no warnings from it)
 # (without the libraries scripts don't get: os, io, debug, package loading, and linit's luaL_openlibs)
 file(GLOB LUA_SOURCES ${CMAKE_SOURCE_DIR}/third_party/lua/src/*.c)
@@ -83,6 +106,8 @@ list(FILTER LUA_SOURCES EXCLUDE REGEX "/(loslib|liolib|loadlib|ldblib|linit)\\.c
 set_source_files_properties(${LUA_SOURCES} PROPERTIES LANGUAGE CXX COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/w,-w>")
 set(ENGINE_SOURCES
   ${DEFAULT_FONT_SOURCE}
+  ${BUILD_INFO_SOURCE}
+  src/core/version.cpp
   src/game/fonts.cpp
   src/game/strings.cpp
   src/core/json.cpp
@@ -142,6 +167,7 @@ set(ENGINE_SOURCES
   src/render/renderer_cull.cpp
   src/app/application.cpp
   src/app/export.cpp
+  src/app/updates.cpp
   src/script/lua_script.cpp
   src/script/lua_debugger.cpp
   src/net/udp.cpp
@@ -194,7 +220,7 @@ function(vkworld_engine_target name type)
     if(NOT MSVC)
       target_link_libraries(${name} PRIVATE gdi32 dwmapi)   # MSVC gets these via #pragma comment
     endif()
-    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32)
+    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32 winhttp)
     target_compile_definitions(${name} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   elseif(APPLE)
     target_link_libraries(${name} PRIVATE "-framework Cocoa" "-framework GameController" "-framework CoreHaptics")
@@ -210,7 +236,7 @@ function(vkworld_engine_target name type)
       target_link_libraries(${name} PRIVATE ${WAYLAND_CLIENT_LIBRARY} ${WAYLAND_CURSOR_LIBRARY} ${XKBCOMMON_LIBRARY})
     endif()
   endif()
-  add_dependencies(${name} shaders)
+  add_dependencies(${name} shaders build_info)
 endfunction()
 
 if(NOT WIN32 AND NOT APPLE)
@@ -246,6 +272,10 @@ add_executable(vkworld
   src/editor/editor_ui_layout.cpp
   src/editor/editor_prefs.cpp)
 target_link_libraries(vkworld PRIVATE engine)
+# Help > Check for updates asks here (GitHub's latest release of the engine; only when asked)
+set(VKWORLD_UPDATE_URL "https://api.github.com/repos/mikelmiras/vulkan_demo/releases/latest" CACHE STRING
+    "Where the editor's Help > Check for updates looks")
+target_compile_definitions(vkworld PRIVATE VKWORLD_UPDATE_URL="${VKWORLD_UPDATE_URL}")
 # For game modules built along with the engine: "{engineBuild}" in a project's moduleBuild command
 target_compile_definitions(vkworld PRIVATE VKWORLD_BUILD_DIR="${CMAKE_BINARY_DIR}")
 

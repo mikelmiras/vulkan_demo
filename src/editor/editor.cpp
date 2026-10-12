@@ -145,6 +145,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (panels && showInspector_) drawInspector(gpuName, stats);
     drawStatusBar(stats);
     if (showHelp_) drawHelp();
+    drawAbout();
     if (panels && showAssets_) drawAssetBrowser();
     drawAddPopup();
     drawImportPopup();

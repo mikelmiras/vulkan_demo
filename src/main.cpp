@@ -2,7 +2,8 @@
 //
 //   vkworld [project folder | scene.vkw] [--play [--game-view]] [--select <entity>] [--stress] [--fullscreen]
 //           [--screenshot out.png [--frames N]]
-//   vkworld <project folder> --export <folder> [--pack | --single-file]   (no window: exports the game and quits)
+//   vkworld <project folder> --export <folder> [--pack | --single-file] [--package]   (no window: exports the game
+//           and quits; --package: an AppImage, .dmg or installer of it too)
 //
 // The project is the folder given, else the working directory (its start scene opens if it has a project.json).
 // --play starts play mode right away (--game-view: with the Game view window shown); --select selects an entity by
@@ -41,6 +42,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--export") && i + 1 < argc) exportDir = argv[++i];
         else if (!std::strcmp(argv[i], "--pack")) exportOptions.layout = ExportOptions::Layout::Pack;
         else if (!std::strcmp(argv[i], "--single-file")) exportOptions.layout = ExportOptions::Layout::SingleFile;
+        else if (!std::strcmp(argv[i], "--package")) exportOptions.package = true;
         else scenePath = argv[i];
     }
 
@@ -55,6 +57,7 @@ int main(int argc, char** argv) {
         for (const std::string& w : result.warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
         std::printf("Exported %d files%s; the game: %s\n", result.files, result.standalone ? " (standalone)" : "",
                     result.executable.u8string().c_str());
+        if (!result.package.empty()) std::printf("Packaged: %s\n", result.package.u8string().c_str());
         return 0;
     }
 

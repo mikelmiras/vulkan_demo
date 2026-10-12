@@ -270,6 +270,8 @@ public:
         std::function<void(Vec3 color)> light;
     };
     void setGamepadOutput(GamepadOutput output) { gamepadOut_ = std::move(output); }
+    // Optional: opens a web page (the UI action "@open <url>"; the host's platform::openWithSystem)
+    void setUrlOpener(std::function<void(const std::string& url)> open) { urlOpener_ = std::move(open); }
     struct Rumble {
         float low = 0.f, high = 0.f, seconds = 0.f;
     };
@@ -434,6 +436,7 @@ private:
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
     GamepadOutput gamepadOut_;
+    std::function<void(const std::string&)> urlOpener_;
     Rumble lastRumble_;
     Vec3 light_;
     bool hasLight_ = false;

@@ -319,6 +319,83 @@ bool openWithSystem(const std::filesystem::path& file) {
     return true;
 }
 
+// posix_spawnp with stdout and stderr into one pipe
+bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode) {
+    output.clear();
+    exitCode = -1;
+    if (args.empty()) return false;
+    int out[2];
+    if (pipe(out) != 0) return false;
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, out[1], 1);
+    posix_spawn_file_actions_adddup2(&actions, out[1], 2);
+    posix_spawn_file_actions_addclose(&actions, out[0]);
+    std::vector<char*> argv;
+    for (const std::string& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    int spawned = posix_spawnp(&pid, args[0].c_str(), &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(out[1]);
+    if (spawned != 0) {
+        close(out[0]);
+        return false;
+    }
+    char buf[4096];
+    for (ssize_t n; (n = read(out[0], buf, sizeof(buf))) > 0;) output.append(buf, (size_t)n);
+    close(out[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    return !(WIFEXITED(status) && WEXITSTATUS(status) == 127 && output.empty());   // (127: no such program)
+}
+
+// curl, else wget, run directly (no shell: the URL is one argument) with their output read through a pipe
+bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+    body.clear();
+    if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
+        error = "not an http(s) URL: " + url;
+        return false;
+    }
+    std::string timeout = std::to_string(std::max(timeoutSeconds, 1));
+    std::vector<std::vector<std::string>> tools = {
+        {"curl", "-fsSL", "--max-time", timeout, "--", url},
+        {"wget", "-q", "-O", "-", "--timeout=" + timeout, "--", url}};
+    for (const auto& args : tools) {
+        int out[2];
+        if (pipe(out) != 0) break;
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_adddup2(&actions, out[1], 1);
+        posix_spawn_file_actions_addclose(&actions, out[0]);
+        posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0);
+        std::vector<char*> argv;
+        for (const std::string& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+        argv.push_back(nullptr);
+        pid_t pid = 0;
+        int spawned = posix_spawnp(&pid, args[0].c_str(), &actions, nullptr, argv.data(), environ);
+        posix_spawn_file_actions_destroy(&actions);
+        close(out[1]);
+        if (spawned != 0) {   // (not installed: the next one)
+            close(out[0]);
+            continue;
+        }
+        char buf[4096];
+        for (ssize_t n; (n = read(out[0], buf, sizeof(buf))) > 0;) body.append(buf, (size_t)n);
+        close(out[0]);
+        int status = 0;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) return true;
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 127) continue;   // (posix_spawnp found no such program)
+        error = args[0] + " failed for " + url + " (exit " + std::to_string(WIFEXITED(status) ? WEXITSTATUS(status) : -1) + ")";
+        body.clear();
+        return false;
+    }
+    error = "neither curl nor wget is installed";
+    return false;
+}
+
 std::filesystem::path executablePath() {
     std::error_code ec;
     std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);

@@ -543,7 +543,7 @@ const std::vector<std::pair<std::string, json::Value>>& Game::defaultSettings() 
         {"settings.effectsVolume", json::Value(1.0)}, {"settings.uiVolume", json::Value(1.0)},
         {"settings.ambienceVolume", json::Value(1.0)}, {"settings.headphones", json::Value(false)},
         {"settings.rumble", json::Value(true)}, {"settings.highContrast", json::Value(false)},
-        {"settings.colorBlind", json::Value("none")}};
+        {"settings.colorBlind", json::Value("none")}, {"settings.checkUpdates", json::Value(true)}};
     return defaults;
 }
 
@@ -725,7 +725,10 @@ void Game::runUIAction(const UIAction& a) {
     else if (verb == "@show") { if (Entity* e = entity()) e->visible = true; }
     else if (verb == "@hide") { if (Entity* e = entity()) e->visible = false; }
     else if (verb == "@toggle") { if (Entity* e = entity()) e->visible = !e->visible; }
-    else if (verb == "@set" || verb == "@cycle") {   // "@set key value", "@cycle key a b c": a game state value
+    else if (verb == "@open") {   // "@open {update.url}": a page in the browser (formatted like texts)
+        std::string url = ctx_.format(arg);
+        if (urlOpener_ && !url.empty()) urlOpener_(url);
+    } else if (verb == "@set" || verb == "@cycle") {   // "@set key value", "@cycle key a b c": a game state value
         std::vector<std::string> words;
         for (size_t at = 0; at < arg.size();) {
             size_t end = arg.find(' ', at);

@@ -36,6 +36,7 @@
 #include "render/environment.h"
 #include "game/module.h"
 #include "imgui.h"
+#include "app/updates.h"
 #include "platform/platform.h"
 #include "render/scene_draw.h"
 #include "scene/serialization.h"
@@ -194,6 +195,7 @@ int main(int argc, char** argv) {
     // The log: in the user's data folder, next to the save games
     logfile::open(project::saveDir(settings.name.empty() ? "Untitled" : settings.name).parent_path() / "game.log");
     crash::install(project::saveDir(settings.name.empty() ? "Untitled" : settings.name).parent_path(), "game");
+    crash::setProduct((settings.name.empty() ? std::string("Untitled") : settings.name) + " " + settings.gameVersion);
     if (!crash::previousReport().empty()) logLine("The last run crashed: %s", crash::previousReport().u8string().c_str());
     std::printf("Playing %s\n", stress ? "the stress test scene" : path.empty() ? "the built-in demo scene" : path.c_str());
     logfile::write("Playing " + (stress ? std::string("the stress test scene") : path.empty() ? std::string("the built-in demo scene") : path));
@@ -221,6 +223,7 @@ int main(int argc, char** argv) {
     game.setAudio(&audio);
     game.setGamepadOutput({[](float low, float high, float seconds) { platform::gamepadRumble(low, high, seconds); },
                            [](Vec3 c) { platform::setGamepadLight(c.x, c.y, c.z); }});
+    game.setUrlOpener([](const std::string& url) { platform::openWithSystem(fs::u8path(url)); });
     game.setAssetLibraries(meshes, textures);
     game.setLanguage(language.empty() ? settings.language : language);
     game.setAsyncLoading(true);   // scene changes load in the background, behind a loading screen
@@ -237,11 +240,29 @@ int main(int argc, char** argv) {
     ui.setTextureLookup(app.uiTextures(textures));
     bool uiWantsCursor = false;   // the game's UI had a menu up last frame: keep the pointer free
 
+    // Is there a newer version of this game? (asked once, in the background; menus show update.* when there is)
+    updates::Check updateCheck;
+    if (!settings.updateUrl.empty() && options.screenshotPath.empty() && game.state().flag("settings.checkUpdates"))
+        updateCheck.start(settings.updateUrl, settings.gameVersion);
+
     NetSession net;
     float dt = 0.f;
     bool firstLoad = !path.empty();
     bool showProfiler = false;   // F3
     while (!game.quitRequested() && app.beginFrame(dt)) {
+        if (updateCheck.ready()) {
+            if (updateCheck.newer()) {
+                updates::Release r = updateCheck.release();
+                game.state().set("update.available", json::Value(true));
+                game.state().set("update.version", json::Value(r.version));
+                game.state().set("update.url", json::Value(r.url));
+                game.state().set("update.notes", json::Value(r.notes));
+                logLine("An update is out: %s %s (%s)", settings.name.c_str(), r.version.c_str(), r.url.c_str());
+            } else if (!updateCheck.error().empty()) {
+                logLine("update check: %s", updateCheck.error().c_str());
+            }
+            updateCheck = updates::Check{};   // (once)
+        }
         if (firstLoad && !game.loading()) {   // the start scene is in, or didn't load: that's fatal
             firstLoad = false;
             if (!game.loadError().empty()) {

@@ -13,6 +13,8 @@
 namespace crash {
 
 void install(const std::filesystem::path& folder, const std::string& name);
+// What's running, for the report's "Product:" line (a game's name and version: "Coin Hunt 1.2.0")
+void setProduct(const std::string& product);
 const std::filesystem::path& previousReport();   // empty: the last run didn't crash (or nothing was installed)
 const std::filesystem::path& reportPath();       // where a crash now would write
 

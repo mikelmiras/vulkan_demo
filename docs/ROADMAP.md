@@ -473,7 +473,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
   partial openings (one ray, no diffraction), measured HRTFs (SOFA files), elevation cues, per-sound headphone
   choice, a settings screen in the built-in PauseMenu, beat-synced layer changes, music transitions on bars.
 
-## Round 5 (in progress)
+## Round 5 (done)
 
 | # | Task | Why |
 |---|------|-----|
@@ -487,7 +487,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 50 (done) | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
 | 51 (done) | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
 | 52 (done) | Platform: Wayland, gamepad rumble and light bars, a mouse-free text-input keyboard for consoles-style UI, high-contrast / colour-blind UI options | X11 only; accessibility settings are missing |
-| 53 | Releases: versioned builds with symbols kept for crash reports (symbolicated stacks), an update check, packaging (AppImage, .dmg, installer) | Exports are folders; crash stacks from shipped builds are offsets |
+| 53 (done) | Releases: versioned builds with symbols kept for crash reports (symbolicated stacks), an update check, packaging (AppImage, .dmg, installer) | Exports are folders; crash stacks from shipped builds are offsets |
 
 ### Round 5 notes
 - Task 43: lights moved out of the frame UBO into a storage buffer (set 0, binding 14: GpuLight, up to 1024, the
@@ -681,4 +681,47 @@ Working list for turning the renderer demo into a small game engine. Each task i
   decorations (libdecor) for GNOME, a window icon (xdg-toplevel-icon), clipboard and IME on Wayland, rumble on
   more than the first pad, DualSense trigger effects, light bars on Windows (HID output reports), the filter over
   the UI as well, a high-contrast editor theme, text-to-speech for menus.
+- Task 53: the version is CMake's project() version; cmake/build_info.cmake writes it with `git describe` into
+  generated/build_info.cpp on every build (only when it changed), read through core/version.h (string, commit,
+  full, compare: numeric parts, pre-releases first). --version on both programs (Application::parseArgs); crash
+  reports get Version and Product lines and, on Linux, a Modules section from /proc/self/maps read with read()
+  into a static buffer (each file-backed module with an executable mapping: its range from the offset-0 mapping,
+  and its GNU build id parsed from the ELF notes in memory), on macOS from dyld (header address, __TEXT size,
+  LC_UUID). tools/symbolicate.py maps each frame's address to its module and resolves it with addr2line or
+  llvm-symbolizer (Linux: the debug file found by build id in a symbols folder, a same-named file, or the module
+  itself, checked against the build id; ET_EXEC programs absolute, the rest relative to the load base), atos with
+  the load address (macOS), llvm-symbolizer --relative-address for Windows "module+0xRVA" frames. tools/symbols.py
+  split: objcopy --only-keep-debug into .build-id/xx/rest.debug, strip --strip-debug (the symbol table stays),
+  a gnu-debuglink; dsymutil + strip -S; Windows moves the .pdb aside. VKWORLD_RELEASE_SYMBOLS adds -g (/Zi /DEBUG),
+  every Linux link gets --build-id. Update checks: platform::httpGet (curl or wget spawned with the URL as an
+  argument, WinHTTP, NSURLSession), app/updates (our JSON or a GitHub release; a detached worker thread holding
+  shared state, so exiting never waits on the network); vkgame checks project.json's updateUrl against gameVersion
+  and puts update.* in the game state (settings.checkUpdates turns it off; "@open {update.url}" through
+  Game::setUrlOpener); the editor's Help > Check for updates asks VKWORLD_UPDATE_URL only when clicked, Help >
+  About shows the version. Packaging: ExportOptions::package after the export, through platform::runProgram:
+  an AppDir (usr/bin, AppRun, desktop entry with X-AppImage-Version, the icon or a plain one) into appimagetool;
+  hdiutil with the .app and an Applications link; an NSIS script (per-user install, Start menu, uninstaller,
+  registry uninstall entry) into makensis. Checked: a crash report from a SIGSEGV'd vkgame symbolicated before and
+  after splitting libengine.so's symbols; the sample game exported as an AppImage that runs (lavapipe, validation);
+  a local HTTP server for httpGet (Linux, Windows). .github/workflows/release.yml builds, tests, splits, packages
+  (AppImage and .tar.gz, .dmg, NSIS installer and .zip) on a v<version> tag (checked against CMake's) and
+  publishes; by hand it only builds artifacts. Not done: an auto-updater that downloads and installs, code signing
+  and notarization (macOS, Windows SmartScreen), crash report upload, Flatpak / Snap, delta updates, symbols for
+  the game module in the editor's own exports (tools/symbols.py by hand).
+
+## Round 6 (planned)
+
+| # | Task | Why |
+|---|------|-----|
+| 54 | Editor game view as its own render target (an ImGui image: bloom, temporal AA, any window layout), split-screen local multiplayer (several cameras, one pad each) | The game view shares the scene view's pass; local co-op isn't possible |
+| 55 | Global illumination: dynamic diffuse GI from a probe grid updated over frames (DDGI-style), screen-space reflections | Indirect light only comes from baked reflection probes and an ambient term |
+| 56 | Texture streaming: mips loaded on demand under a memory budget, residency feedback from the GPU | Every texture is fully resident; big projects run out of memory |
+| 57 | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
+| 58 | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
+| 59 | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
+| 60 | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
+| 61 | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
+| 62 | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
+| 63 | Text: complex scripts and right-to-left (HarfBuzz shaping), font fallback for CJK and emoji | Latin text only renders correctly |
+| 64 | Shipping, more: an auto-updater (download, verify, swap), crash report upload (opt-in), code signing and notarization in the release workflow | Updates are announced, not applied; crashes stay on players' machines |
 

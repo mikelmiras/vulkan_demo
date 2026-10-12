@@ -13,6 +13,7 @@
 #include "platform/platform.h"
 #include <spawn.h>
 #include <sys/wait.h>
+#include <unistd.h>
 #include <thread>
 #include <crt_externs.h>   // (_NSGetEnviron: `environ` isn't there for a dynamic library)
 
@@ -343,6 +344,85 @@ bool openWithSystem(const std::filesystem::path& file) {
     if (posix_spawnp(&pid, kOpener, nullptr, nullptr, argv, *_NSGetEnviron()) != 0) return false;
     std::thread([pid] { waitpid(pid, nullptr, 0); }).detach();   // (reaped when it's done)
     return true;
+}
+
+// posix_spawnp with stdout and stderr into one pipe
+bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode) {
+    output.clear();
+    exitCode = -1;
+    if (args.empty()) return false;
+    int out[2];
+    if (pipe(out) != 0) return false;
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, out[1], 1);
+    posix_spawn_file_actions_adddup2(&actions, out[1], 2);
+    posix_spawn_file_actions_addclose(&actions, out[0]);
+    std::vector<char*> argv;
+    for (const std::string& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    int spawned = posix_spawnp(&pid, args[0].c_str(), &actions, nullptr, argv.data(), *_NSGetEnviron());
+    posix_spawn_file_actions_destroy(&actions);
+    close(out[1]);
+    if (spawned != 0) {
+        close(out[0]);
+        return false;
+    }
+    char buf[4096];
+    for (ssize_t n; (n = read(out[0], buf, sizeof(buf))) > 0;) output.append(buf, (size_t)n);
+    close(out[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    return !(WIFEXITED(status) && WEXITSTATUS(status) == 127 && output.empty());   // (127: no such program)
+}
+
+// NSURLSession (the system's TLS and proxies), waited for on this thread
+bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+    body.clear();
+    @autoreleasepool {
+        NSURL* u = [NSURL URLWithString:[NSString stringWithUTF8String:url.c_str()]];
+        if (!u || !([u.scheme isEqualToString:@"http"] || [u.scheme isEqualToString:@"https"])) {
+            error = "not an http(s) URL: " + url;
+            return false;
+        }
+        int seconds = std::max(timeoutSeconds, 1);
+        NSURLSessionConfiguration* config = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+        config.timeoutIntervalForRequest = seconds;
+        config.timeoutIntervalForResource = seconds;
+        NSURLSession* session = [NSURLSession sessionWithConfiguration:config];
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        __block NSData* data = nil;
+        __block NSInteger status = 0;
+        __block NSString* failure = nil;
+        NSURLSessionDataTask* task = [session dataTaskWithURL:u
+                                            completionHandler:^(NSData* d, NSURLResponse* r, NSError* e) {
+                                                data = d;
+                                                if ([r isKindOfClass:[NSHTTPURLResponse class]])
+                                                    status = ((NSHTTPURLResponse*)r).statusCode;
+                                                if (e) failure = e.localizedDescription;
+                                                dispatch_semaphore_signal(done);
+                                            }];
+        [task resume];
+        long timedOut = dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(seconds + 2) * (int64_t)NSEC_PER_SEC));
+        [session finishTasksAndInvalidate];
+        if (timedOut) {
+            [task cancel];
+            error = "timed out fetching " + url;
+            return false;
+        }
+        if (failure) {
+            error = std::string(failure.UTF8String ? failure.UTF8String : "failed") + " (" + url + ")";
+            return false;
+        }
+        if (status < 200 || status >= 300) {
+            error = "HTTP " + std::to_string((long)status) + " from " + url;
+            return false;
+        }
+        if (data) body.assign((const char*)data.bytes, (size_t)data.length);
+        return true;
+    }
 }
 
 std::filesystem::path executablePath() {

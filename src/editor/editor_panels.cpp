@@ -1,5 +1,6 @@
 // Editor panels: menu bar, toolbar, status bar, help, dialogs and the input bindings window.
 #include "editor/editor.h"
+#include "core/version.h"
 #include "scene/project_templates.h"
 #include "script/lua_debugger.h"
 #include "game/strings.h"
@@ -21,6 +22,38 @@ using namespace editor_ui;
 // ---------------------------------------------------------------------------------------------
 // Menu bar / toolbar
 // ---------------------------------------------------------------------------------------------
+// Help > About: the version; and what Check for updates found
+void Editor::drawAbout() {
+    if (!showAbout_) return;
+    ImGui::SetNextWindowSize(ImVec2(px(420.f), 0.f), ImGuiCond_Appearing);
+    if (ImGui::Begin("About", &showAbout_, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking)) {
+        ImGui::Text("Vulkan World %s", version::string());
+        if (*version::commit()) ImGui::TextDisabled("Built from %s", version::commit());
+        ImGui::Separator();
+        if (!updateCheck_.started()) {
+            if (ImGui::Button("Check for updates")) updateCheck_.start(VKWORLD_UPDATE_URL, version::string());
+            ImGui::SameLine();
+            ImGui::TextDisabled("(asks %s)", VKWORLD_UPDATE_URL);
+        } else if (!updateCheck_.ready()) {
+            ImGui::TextUnformatted("Checking...");
+        } else if (!updateCheck_.error().empty()) {
+            ImGui::TextWrapped("Couldn't check: %s", updateCheck_.error().c_str());
+        } else if (updateCheck_.newer()) {
+            updates::Release r = updateCheck_.release();
+            ImGui::TextColored(ImVec4(0.5f, 0.9f, 0.5f, 1.f), "Version %s is out.", r.version.c_str());
+            if (!r.url.empty() && ImGui::Button("Open its page")) platform::openWithSystem(std::filesystem::u8path(r.url));
+            if (!r.notes.empty()) {
+                ImGui::BeginChild("##notes", ImVec2(0.f, px(160.f)), ImGuiChildFlags_Borders);
+                ImGui::TextWrapped("%s", r.notes.c_str());
+                ImGui::EndChild();
+            }
+        } else {
+            ImGui::Text("This is the latest version (%s).", updateCheck_.release().version.c_str());
+        }
+    }
+    ImGui::End();
+}
+
 void Editor::drawMenuBar() {
     if (!ImGui::BeginMainMenuBar()) return;
     if (ImGui::BeginMenu("File")) {
@@ -74,10 +107,21 @@ void Editor::drawMenuBar() {
                     ImGui::GetIO().ClearInputMouse();
                     ExportOptions o;
                     o.layout = (ExportOptions::Layout)i;
+                    o.package = exportPackage_;
                     if (!dir.empty()) exportGameTo(dir, o);
                 }
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s (save the scene first)", help[i]);
             }
+            ImGui::Separator();
+#if defined(_WIN32)
+            const char* packageLabel = "And make an installer (NSIS)";
+#elif defined(__APPLE__)
+            const char* packageLabel = "And make a .dmg";
+#else
+            const char* packageLabel = "And make an AppImage (appimagetool)";
+#endif
+            ImGui::MenuItem(packageLabel, nullptr, &exportPackage_);
+            tooltip("Something to hand out and install, named after the game and its version (project.json gameVersion)");
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Use this scene at startup")) {
@@ -221,6 +265,15 @@ void Editor::drawMenuBar() {
         if (ImGui::MenuItem("Fullscreen", "F11", &fullscreen)) platform::setFullscreen(fullscreen);
         ImGui::Separator();
         ImGui::MenuItem("Controls help", "F1", &showHelp_);
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Help")) {
+        ImGui::MenuItem("Controls", "F1", &showHelp_);
+        if (ImGui::MenuItem("Check for updates", nullptr, false, !updateCheck_.started() || updateCheck_.ready())) {
+            updateCheck_.start(VKWORLD_UPDATE_URL, version::string());
+            showAbout_ = true;
+        }
+        if (ImGui::MenuItem("About")) showAbout_ = true;
         ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();

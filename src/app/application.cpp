@@ -15,6 +15,7 @@
 #include "core/project.h"
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
+#include "core/version.h"
 #include "platform/platform.h"
 
 namespace {
@@ -51,7 +52,10 @@ void setupImGuiStyle(float scale) {
 Application::Options Application::parseArgs(int& argc, char** argv, Options o) {
     int out = 1;
     for (int i = 1; i < argc; ++i) {
-        if (!std::strcmp(argv[i], "--fullscreen")) {
+        if (!std::strcmp(argv[i], "--version")) {   // (and nothing else)
+            std::printf("%s %s\n", std::filesystem::path(argv[0]).stem().u8string().c_str(), version::full().c_str());
+            std::exit(0);
+        } else if (!std::strcmp(argv[i], "--fullscreen")) {
             o.fullscreen = true;
         } else if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
             o.screenshotPath = argv[++i];

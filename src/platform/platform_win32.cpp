@@ -10,6 +10,7 @@
 #include <shlobj.h>
 #include <shellapi.h>
 #include <xinput.h>
+#include <winhttp.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 
@@ -396,6 +397,104 @@ std::filesystem::path openFolderDialog(const char* title) {
 bool openWithSystem(const std::filesystem::path& file) {
     HINSTANCE r = ShellExecuteW(g_hwnd, L"open", file.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return (INT_PTR)r > 32;
+}
+
+// CreateProcess with a pipe for its output; arguments quoted the way the C runtime parses them back
+bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode) {
+    output.clear();
+    exitCode = -1;
+    if (args.empty()) return false;
+    std::wstring line;
+    for (const std::string& a : args) {
+        std::wstring w = widen(a.c_str()), q = L"\"";
+        for (size_t i = 0; i < w.size(); ++i) {
+            size_t slashes = 0;
+            while (i < w.size() && w[i] == L'\\') ++slashes, ++i;
+            if (i == w.size()) { q.append(slashes * 2, L'\\'); break; }
+            if (w[i] == L'"') { q.append(slashes * 2 + 1, L'\\'); q += L'"'; }
+            else { q.append(slashes, L'\\'); q += w[i]; }
+        }
+        q += L"\"";
+        line += (line.empty() ? L"" : L" ") + q;
+    }
+    SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
+    HANDLE readEnd = nullptr, writeEnd = nullptr;
+    if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) return false;
+    SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOW si{sizeof(si)};
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = si.hStdError = writeEnd;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    PROCESS_INFORMATION pi{};
+    BOOL started = CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(writeEnd);
+    if (!started) {
+        CloseHandle(readEnd);
+        return false;
+    }
+    char buf[4096];
+    for (DWORD n = 0; ReadFile(readEnd, buf, sizeof(buf), &n, nullptr) && n > 0;) output.append(buf, n);
+    CloseHandle(readEnd);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+    exitCode = (int)code;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
+// WinHTTP (the system's TLS and proxy settings)
+bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+    body.clear();
+    std::wstring wurl = widen(url.c_str());
+    URL_COMPONENTS parts{sizeof(URL_COMPONENTS)};
+    wchar_t host[256] = {0}, path[2048] = {0};
+    parts.lpszHostName = host;
+    parts.dwHostNameLength = 256;
+    parts.lpszUrlPath = path;
+    parts.dwUrlPathLength = 2048;
+    parts.dwExtraInfoLength = (DWORD)-1;   // (the query string: appended to the path below)
+    if (!WinHttpCrackUrl(wurl.c_str(), 0, 0, &parts) ||
+        (parts.nScheme != INTERNET_SCHEME_HTTP && parts.nScheme != INTERNET_SCHEME_HTTPS)) {
+        error = "not an http(s) URL: " + url;
+        return false;
+    }
+    std::wstring object = path;
+    if (parts.lpszExtraInfo && parts.dwExtraInfoLength) object.append(parts.lpszExtraInfo, parts.dwExtraInfoLength);
+    bool ok = false;
+    HINTERNET session = WinHttpOpen(L"vkworld", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+                                    WINHTTP_NO_PROXY_BYPASS, 0);
+    HINTERNET connection = nullptr, request = nullptr;
+    if (session) {
+        int ms = std::max(timeoutSeconds, 1) * 1000;
+        WinHttpSetTimeouts(session, ms, ms, ms, ms);
+        connection = WinHttpConnect(session, host, parts.nPort, 0);
+    }
+    if (connection)
+        request = WinHttpOpenRequest(connection, L"GET", object.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                     WINHTTP_DEFAULT_ACCEPT_TYPES, parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0);
+    if (request && WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
+        WinHttpReceiveResponse(request, nullptr)) {
+        DWORD status = 0, size = sizeof(status);
+        WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+                            &status, &size, WINHTTP_NO_HEADER_INDEX);
+        for (DWORD available = 0; WinHttpQueryDataAvailable(request, &available) && available > 0;) {
+            std::string chunk(available, '\0');
+            DWORD read = 0;
+            if (!WinHttpReadData(request, chunk.data(), available, &read) || read == 0) break;
+            body.append(chunk.data(), read);
+        }
+        ok = status >= 200 && status < 300;
+        if (!ok) error = "HTTP " + std::to_string(status) + " from " + url;
+    } else {
+        error = "can't reach " + url + " (error " + std::to_string(GetLastError()) + ")";
+    }
+    if (request) WinHttpCloseHandle(request);
+    if (connection) WinHttpCloseHandle(connection);
+    if (session) WinHttpCloseHandle(session);
+    if (!ok) body.clear();
+    return ok;
 }
 
 std::filesystem::path executablePath() {

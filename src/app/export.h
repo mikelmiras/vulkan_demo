@@ -21,6 +21,11 @@
 struct ExportOptions {
     enum class Layout { Folder, Pack, SingleFile };
     Layout layout = Layout::Folder;
+    // Also made into something to hand out and install, next to the export (named <game>-<gameVersion>):
+    //   Linux    an AppImage (one file that runs anywhere; needs appimagetool: on the PATH, or VKWORLD_APPIMAGETOOL)
+    //   macOS    a .dmg with the app and a link to Applications (hdiutil, part of macOS)
+    //   Windows  an installer (per user: Start menu entry, uninstaller; needs NSIS's makensis, or VKWORLD_MAKENSIS)
+    bool package = false;
 };
 
 struct ExportResult {
@@ -28,6 +33,7 @@ struct ExportResult {
     int files = 0;                      // copied or packed
     bool standalone = false;            // the game is a standalone build (no engine or module library)
     std::vector<std::string> warnings;  // e.g. assets outside the project that the game won't have
+    std::filesystem::path package;      // (ExportOptions::package) the AppImage, .dmg or installer made
 };
 
 // Icons: a PNG's size (false if it isn't a PNG), and the PNG wrapped as a Windows .ico or a macOS .icns (both
