@@ -1,5 +1,6 @@
 #include "core/crash.h"
 
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -14,7 +15,6 @@
 #include <dbghelp.h>
 #pragma comment(lib, "dbghelp.lib")
 #else
-#include <csignal>
 #include <execinfo.h>
 #include <fcntl.h>
 #include <unistd.h>

@@ -1,1 +1,30 @@
-{}
+{
+  "Linux": {
+    "diff_scenes": 3.436,
+    "draw_items": 0.281,
+    "fixed_update_avg": 3.462,
+    "game_start": 53.323,
+    "navigation_bake": 1324.82,
+    "paths_100": 44.935,
+    "physics_make_bodies": 54.842,
+    "physics_sync": 0.591,
+    "raycasts_1000": 0.86,
+    "scene_change_sync": 106.144,
+    "scene_copy": 0.715,
+    "world_matrices": 0.16
+  },
+  "macOS": {
+    "diff_scenes": 2.226,
+    "draw_items": 0.299,
+    "fixed_update_avg": 2.073,
+    "game_start": 40.891,
+    "navigation_bake": 2883.05,
+    "paths_100": 18.36,
+    "physics_make_bodies": 39.937,
+    "physics_sync": 0.217,
+    "raycasts_1000": 0.489,
+    "scene_change_sync": 89.341,
+    "scene_copy": 0.748,
+    "world_matrices": 0.078
+  }
+}
