@@ -175,7 +175,28 @@ The **Assets** panel (under the viewport; View > Assets) shows the project's fol
   under the mouse; a sound becomes that object's Audio Source.
 - **Drag onto the Inspector**: textures onto Mesh Renderer > Texture, sounds onto Audio Source > Clip file.
 
-Images in the browser show as thumbnails; other kinds of file get an icon. Selecting several objects: Ctrl+click in the viewport or the outliner (Shift+click in the outliner selects a
+Images in the browser show as thumbnails; other kinds of file get an icon.
+
+**The asset database**: every asset has an id, kept next to it in a small `<file>.meta` file (made by the editor;
+commit them with the project). Scenes and prefabs save the id along with each file they use (models, textures,
+animations, sounds, scene and sound fields of behaviours), so a file moved or renamed together with its `.meta`
+(in a file manager, or `git mv` both) is found again when the scene loads. Moving inside the editor does more:
+right-click an asset (or use the Inspector's buttons) to **rename or move** it (type a path to move it), drag it onto
+a folder (or onto Up) to move it, or **delete** it; the `.meta` goes along, and the references in the open scene, the
+project's other scenes and prefabs and `project.json` are updated. Renaming a script renames its behaviour type in
+the scenes too; renaming a prefab (Outliner > Prefabs) updates the behaviour fields that name it.
+
+Clicking an asset shows it in the **Inspector**: its path, size and id, which entities of the open scene use it,
+and its **import settings** (saved in its `.meta`; Apply reloads it in place, on screen right away):
+
+- Textures: *Max size* (larger images are scaled down when loaded), *Filter* (smooth, or blocky for pixel art),
+  *Mipmaps* (off for UI images).
+- Models: *Scale*; for OBJ, *Fit to a unit cube* (on: centred with its largest side 1, as before; off: as modelled).
+  A glTF model's scale goes on its prefab's root when it's imported.
+- Sounds: *Volume* (a gain on every play of the file) and *Stream by default* (Audio Sources made from it decode it
+  as it plays).
+
+Selecting several objects: Ctrl+click in the viewport or the outliner (Shift+click in the outliner selects a
 range, Ctrl+A every top-level object); the gizmo then moves, turns or scales them together around the first one,
 and Delete / Duplicate apply to all of them.
 
@@ -763,13 +784,13 @@ Includes are relative to `src/`.
 | `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer, `png.*` screenshot writer, `project.*` project folder and paths |
 | `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: device, swapchain, pipelines, frame (`renderer.cpp`); textures and materials (`renderer_textures.cpp`); culling, batching, skinning data (`renderer_instances.cpp`); HDR, bloom, tonemapping (`renderer_post.cpp`); scene -> draw list (`scene_draw.*`) |
-| `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`) |
+| `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`), asset ids and import settings (`asset_db.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
 | `src/script/`              | `lua_script.*`: Lua behaviours (the scripts/ folder, the Lua API, hot reload)   |
-| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_prefs.cpp` preferences saved per user |
+| `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_asset_db.cpp` asset inspector, moving / renaming assets, `editor_prefs.cpp` preferences saved per user |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
 | `tools/`                   | `check_screenshot.py` (CI smoke test)                           |

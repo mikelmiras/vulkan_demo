@@ -118,9 +118,13 @@ void Editor::drawPrefabs() {
     std::string name = p.name;
     if (ImGui::InputText("##name", &name, ImGuiInputTextFlags_EnterReturnsTrue) && !name.empty() && name != p.name) {
         pushUndo();
-        scene_.prefabs[(size_t)selectedPrefab_].name = scene_.uniquePrefabName(name);
+        std::string old = p.name, renamed = scene_.uniquePrefabName(name);
+        scene_.prefabs[(size_t)selectedPrefab_].name = renamed;
+        int refs = renamePrefabReferences(old, renamed);   // behaviours' prefab fields follow
+        setStatus("Renamed prefab " + old + " to " + renamed +
+                  (refs ? " (" + std::to_string(refs) + " behaviour fields updated)" : ""));
     }
-    tooltip("Rename (Enter). Behaviours refer to prefabs by this name, e.g. Shooter's \"prefab\" field.");
+    tooltip("Rename (Enter). Behaviour fields naming the prefab (Shooter's \"prefab\", say) are updated too.");
     int instances = 0;
     for (const Entity& e : scene_.entities)
         instances += e.prefab && e.prefab->prefab == p.id && !p.entities.empty() && e.prefab->source == p.entities[0].id;

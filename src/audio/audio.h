@@ -57,6 +57,8 @@ public:
     void setVelocity(Sound sound, Vec3 velocity);
     void setListener(Vec3 position, Vec3 forward, Vec3 velocity = {});
     void setMasterVolume(float volume);
+    // Sound files' import settings ("volume": a gain on every play) are read once per file: after changing them
+    void forgetImportSettings();
     bool streaming(Sound sound) const;   // decoded as it plays
 
     // Mixer

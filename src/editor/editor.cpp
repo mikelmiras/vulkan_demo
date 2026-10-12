@@ -10,6 +10,7 @@
 #include <filesystem>
 
 #include "ImGuizmo.h"
+#include "assets/asset_db.h"
 #include "imgui_internal.h"   // (DockBuilder: the default layout)
 #include "app/profiler_view.h"
 #include "core/log.h"
@@ -44,6 +45,7 @@ Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio
     std::string error;
     if (project::exists(project::root())) project::load(project::root(), project_, error);
     else project_.name = project::root().filename().u8string();
+    assetdb::open(project::root(), true);
     if (!project_.module.empty()) loadGameModule();
     loadScripts();
 }
@@ -137,6 +139,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (showInputBindings_) drawInputBindings();
     if (animGraphEntity_ != kNoEntity) drawAnimatorGraph();
     if (showProfiler_) drawProfilerWindow(&showProfiler_);
+    drawAssetDialogs();
 
     handleNavigation(dt);
     handleGizmo();
@@ -157,6 +160,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     pendingFocus_ = pendingDuplicate_ = pendingDelete_ = pendingReparent_ = pendingParent_ = pendingPrefab_ = kNoEntity;
 
     commitUndo();
+    if (selected_ != kNoEntity && selected_ != frameSelected_) selectedAsset_.clear();   // (an entity picked: it's shown)
     if (!scene_.find(selected_)) selected_ = kNoEntity;
     if (selected_ == kNoEntity) extraSelected_.clear();
     extraSelected_.erase(std::remove_if(extraSelected_.begin(), extraSelected_.end(),
@@ -540,6 +544,10 @@ void Editor::importModel(const std::string& rawPath, const Vec3* at) {
         Prefab p;
         std::string warning;
         if (!importGltfPrefab(path, meshes_, textures_, p, importError_, warning)) return;
+        // The model's import setting "scale" (assets/asset_db.h): on the prefab's root
+        float scale = assetdb::importSettings(std::filesystem::u8path(path))["scale"].asFloat(1.f);
+        if (scale > 0.f && scale != 1.f && std::isfinite(scale) && !p.entities.empty())
+            for (float& c : p.entities[0].transform.scale) c *= scale;
         pushUndo();
         p.name = scene_.uniquePrefabName(p.name);
         scene_.addPrefab(std::move(p));

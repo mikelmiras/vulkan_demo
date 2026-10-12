@@ -65,6 +65,8 @@ int addSkinnedMesh(MeshLibrary& lib, const std::string& name, const std::string&
 // Re-imports a mesh from its source: an OBJ path or a glTF primitive ("model.glb#mesh.primitive"). Already
 // loaded sources return their existing id; -1 with `error` on failure.
 int importMesh(MeshLibrary& lib, const std::string& source, std::string& error);
+// Reads an OBJ mesh again (after its import settings changed), keeping its id; -1 with `error` on failure
+int reloadMesh(MeshLibrary& lib, int id, std::string& error);
 
 // Ray vs. mesh in the mesh's local space. Returns the ray parameter t of the closest hit, or -1, and the hit
 // triangle's unit face normal if `normal` is given (it may face either way: meshes are double-sided).

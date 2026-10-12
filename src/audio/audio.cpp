@@ -1,4 +1,5 @@
 #include "audio/audio.h"
+#include "assets/asset_db.h"
 
 #include <cmath>
 #include <cstdio>
@@ -196,6 +197,15 @@ struct AudioEngine::Impl {
         ma_uint32 channels = 1;
     };
     std::map<std::string, Clip> clips;   // built-in ones, and files once decoded (by path)
+    std::map<std::string, float> gains;  // files' "volume" import settings (assets/asset_db.h), by clip
+    float gainOf(const std::string& clip) {
+        auto it = gains.find(clip);
+        if (it != gains.end()) return it->second;
+        float g = 1.f;
+        std::filesystem::path path = std::filesystem::u8path(project::resolve(clip));
+        if (vfs::exists(path)) g = std::clamp(assetdb::importSettings(path)["volume"].asFloat(1.f), 0.f, 4.f);
+        return gains[clip] = g;
+    }
     Sound next = 1;
     ma_sound_group buses[(int)AudioBus::Count]{};
     float busVolume[(int)AudioBus::Count] = {1.f, 1.f, 1.f, 1.f};
@@ -325,7 +335,7 @@ AudioEngine::Sound AudioEngine::play(const std::string& clip, const PlayParams& 
         error_ = clip + ": " + ma_result_description(r);
         return 0;
     }
-    ma_sound_set_volume(&s->sound, p.volume);
+    ma_sound_set_volume(&s->sound, p.volume * impl_->gainOf(clip));
     ma_sound_set_looping(&s->sound, p.loop);
     s->loop = p.loop;
     ma_sound_set_spatialization_enabled(&s->sound, p.spatial);
@@ -389,6 +399,8 @@ void AudioEngine::setListener(Vec3 position, Vec3 forward, Vec3 velocity) {
     ma_engine_listener_set_direction(&impl_->engine, 0, forward.x, forward.y, forward.z);
     ma_engine_listener_set_velocity(&impl_->engine, 0, velocity.x, velocity.y, velocity.z);
 }
+
+void AudioEngine::forgetImportSettings() { impl_->gains.clear(); }
 
 void AudioEngine::setMasterVolume(float volume) {
     if (impl_->ready) ma_engine_set_volume(&impl_->engine, volume);

@@ -42,6 +42,9 @@ public:
     size_t size() const { return type_ == Type::Array ? array_.size() : type_ == Type::Object ? object_.size() : 0; }
     const std::vector<Value>& elements() const { return array_; }
     const std::vector<std::pair<std::string, Value>>& members() const { return object_; }
+    // Editing in place (rewriting values: see assets/asset_db's retargetJson)
+    std::vector<Value>& elements() { return array_; }
+    std::vector<std::pair<std::string, Value>>& members() { return object_; }
 
     // Building (turns a null value into an array / object)
     Value& set(const std::string& key, Value v);   // keeps insertion order

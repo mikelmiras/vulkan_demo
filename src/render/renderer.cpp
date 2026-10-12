@@ -797,6 +797,10 @@ void Renderer::createShadowResources() {
     sci.anisotropyEnable = maxAnisotropy_ > 1.f;
     sci.maxAnisotropy = maxAnisotropy_;
     VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &sampler_));
+    sci.magFilter = sci.minFilter = VK_FILTER_NEAREST;   // ... and blocky (pixel art), nearest mip
+    sci.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sci.anisotropyEnable = VK_FALSE;
+    VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &nearestSampler_));
 
     // Post-processing: bilinear, clamped, one level at a time
     VkSamplerCreateInfo post{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
@@ -1220,6 +1224,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     PROFILE_SCOPE("Render (CPU)");
     if (resized_) recreateSwapchain();
     if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
+    reuploadChangedTextures();   // (before any of this frame's material sets are made: it may remake them all)
 
     {
         PROFILE_SCOPE("Wait for the GPU");
@@ -1363,6 +1368,7 @@ void Renderer::shutdown() {
     vkDestroyDescriptorPool(device_, materialPool_, nullptr);
     vkDestroyDescriptorSetLayout(device_, materialSetLayout_, nullptr);
     vkDestroySampler(device_, sampler_, nullptr);
+    vkDestroySampler(device_, nearestSampler_, nullptr);
     vkDestroySampler(device_, shadowSampler_, nullptr);
     destroyShadowArray(cascades_);
     destroyShadowArray(spotShadows_);

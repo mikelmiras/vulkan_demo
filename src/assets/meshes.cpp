@@ -1,4 +1,5 @@
 #include "assets/meshes.h"
+#include "assets/asset_db.h"
 
 #include <tuple>
 
@@ -227,7 +228,9 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
     }
     if (tris.empty()) { error = path + ": no faces found"; return -1; }
 
-    // Recentre and scale to fit the unit cube (largest side = 1), like the built-in meshes
+    // Recentre and scale to fit the unit cube (largest side = 1), like the built-in meshes, unless its import
+    // settings say otherwise ({"fitToUnitCube": false, "scale": 0.01}: as modelled, times the scale)
+    json::Value settings = assetdb::importSettings(fs::u8path(path));
     Vec3 lo{FLT_MAX, FLT_MAX, FLT_MAX}, hi{-FLT_MAX, -FLT_MAX, -FLT_MAX};
     for (const Corner& c : tris) {
         const Vec3& v = positions[(size_t)c.v];
@@ -237,6 +240,11 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
     Vec3 center = (lo + hi) * 0.5f;
     float extent = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z});
     float scale = extent > 0.f ? 1.f / extent : 1.f;
+    if (!settings["fitToUnitCube"].asBool(true)) {
+        center = {0, 0, 0};
+        scale = 1.f;
+    }
+    if (float extra = settings["scale"].asFloat(1.f); extra > 0.f && std::isfinite(extra)) scale *= extra;
 
     Mesh m;
     m.firstIndex = (uint32_t)lib.indices.size();
@@ -305,6 +313,26 @@ int importMesh(MeshLibrary& lib, const std::string& source, std::string& error) 
         if (lib.meshes[(size_t)i].source == source) return i;
     error = source + ": no such mesh in the file";
     return -1;
+}
+
+int reloadMesh(MeshLibrary& lib, int id, std::string& error) {
+    if (id < (int)MeshKind::Count || id >= lib.count()) { error = "not an imported mesh"; return -1; }
+    Mesh old = lib.meshes[(size_t)id];
+    if (old.source.empty() || old.source.find('#') != std::string::npos) {
+        error = old.name + ": only meshes from OBJ files are reloaded in place";
+        return -1;
+    }
+    lib.meshes[(size_t)id].source.clear();   // (or importObj would find it already loaded)
+    int fresh = importObj(lib, old.source, error);   // appended: new geometry, then this mesh points at it
+    lib.meshes[(size_t)id].source = old.source;
+    if (fresh < 0) return -1;
+    Mesh m = lib.meshes[(size_t)fresh];
+    lib.meshes.pop_back();
+    m.name = old.name;
+    m.source = old.source;
+    lib.meshes[(size_t)id] = m;
+    ++lib.version;
+    return id;
 }
 
 float intersectMesh(const MeshLibrary& lib, int mesh, Vec3 origin, Vec3 dir, Vec3* normal) {

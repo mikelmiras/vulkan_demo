@@ -263,7 +263,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 |---|------|-----|
 | 32 (done) | Editor layout: Dear ImGui's docking branch (dockable, tear-off panels), the layout and editor preferences saved per user | Panels only resize; nothing about the editor's setup survives a restart |
 | 33 (done) | Scripting: Lua behaviours (vendored Lua, fields, the GameContext API, hot reload on save) alongside C++ modules | Every bit of game logic needs a C++ rebuild |
-| 34 | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
+| 34 (done) | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
 | 35 | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
 | 36 | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
 | 37 | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
@@ -304,3 +304,21 @@ Working list for turning the renderer demo into a small game engine. Each task i
   tags...), state() for members that aren't fields, sandboxing CPU time (an endless loop hangs the game).
   Also: static bodies now get their (unused) mass properties given, not computed: a Debug build's Jolt asserted on
   mesh shapes, found by an ASan + Debug run of the tests (clean otherwise).
+- Task 34: assets/asset_db: a .meta sidecar per asset file ({"format": "vkworld-meta", "id": 128-bit hex, "import":
+  {...}}), scanned into id <-> path maps (mutex-guarded; a copy made with its .meta gets a new id; an unknown id
+  rescans once a second at most). The editor opens it writable (ids made as files are browsed or referenced on
+  save), games read-only. Scene format 24: "id" next to the asset tables' sources, "clipId" on audio sources and
+  "$refs" (field -> id) on behaviours with scene / sound fields; loading heals a path whose file is gone through its
+  id. Editor: rename / move / delete (context menu, Inspector buttons, drop on a folder or Up, New folder) move the
+  .meta along, retarget the libraries' sources, held scenes' references, scene path, project settings and
+  thumbnails in memory, and rewrite every string naming the file in the project's .vkw / .prefab / project.json
+  (assetdb::retargetJson: only strings resolving to the moved file or something under it; a folder's own name is
+  never taken for a reference). Script renames retype behaviours; prefab renames update FieldRef::Prefab fields.
+  Import settings: textures (maxSize box filter, nearest sampler, no mipmaps; reloadTexture keeps the id and bumps
+  a revision: the renderer waits for the GPU at the start of a frame, recreates it, rewrites the UI's descriptor set
+  in place and remakes the material sets), OBJ (fitToUnitCube, scale; reloadMesh appends new geometry and points
+  the mesh at it), glTF scale on the imported prefab's root, sound volume (a gain, cached per file) and stream by
+  default. The asset inspector shows id, size, settings with Apply / Revert, users in the scene. The sample game
+  has .meta files. Module API 23 (Texture gained fields). Not done: ids for project.json's own paths (they're
+  rewritten on moves instead), reloading glTF models in place, import settings for glTF images, an undo for file
+  operations, references from Lua source code (strings in scripts aren't rewritten).

@@ -10,6 +10,10 @@ struct Texture {
     std::string source;   // "bricks.png", "model.glb#image2"; empty for built-ins
     uint32_t width = 0, height = 0;
     std::vector<uint8_t> rgba;   // sRGB colour, 4 bytes per pixel
+    // From the image's import settings (assets/asset_db.h): {"maxSize": 1024, "filter": "nearest", "mipmaps": false}
+    bool nearest = false;        // sampled without filtering (pixel art)
+    bool mipmaps = true;         // smaller copies for distant surfaces
+    uint32_t revision = 0;       // bumped when reloaded in place (reloadTexture): the renderer uploads it again
 };
 
 // Textures are only ever appended, so ids stay valid. Id -1 means "no texture" (plain colour).
@@ -36,5 +40,7 @@ int addThumbnail(TextureLibrary& lib, const std::string& name, const std::string
 int loadTexture(TextureLibrary& lib, const std::string& path, std::string& error);
 int loadTextureFromMemory(TextureLibrary& lib, const std::string& name, const std::string& source, const uint8_t* data,
                           size_t size, std::string& error);
+// Reads an image file again (after its import settings changed), keeping its id; -1 with `error` on failure
+int reloadTexture(TextureLibrary& lib, int id, std::string& error);
 // Re-imports a texture from its source: an image path or a glTF image ("model.glb#image2")
 int importTexture(TextureLibrary& lib, const std::string& source, std::string& error);

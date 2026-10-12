@@ -94,6 +94,7 @@ set(ENGINE_SOURCES
   src/assets/meshes.cpp
   src/assets/animation.cpp
   src/assets/textures.cpp
+  src/assets/asset_db.cpp
   src/assets/gltf.cpp
   src/scene/behaviour.cpp
   src/scene/input_bindings.cpp
@@ -192,6 +193,7 @@ add_executable(vkworld
   src/editor/editor_inspector.cpp
   src/editor/editor_viewport.cpp
   src/editor/editor_assets.cpp
+  src/editor/editor_asset_db.cpp
   src/editor/editor_prefs.cpp)
 target_link_libraries(vkworld PRIVATE engine)
 # For game modules built along with the engine: "{engineBuild}" in a project's moduleBuild command
@@ -269,6 +271,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_editor_prefs.cpp
     tests/test_scripting.cpp
+    tests/test_asset_db.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

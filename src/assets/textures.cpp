@@ -1,4 +1,5 @@
 #include "assets/textures.h"
+#include "assets/asset_db.h"
 
 #include <algorithm>
 #include <cmath>
@@ -149,13 +150,29 @@ int loadTextureFromMemory(TextureLibrary& lib, const std::string& name, const st
     return addTexture(lib, name, source, (uint32_t)w, (uint32_t)h, std::move(rgba));
 }
 
-int loadTexture(TextureLibrary& lib, const std::string& path, std::string& error) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    fs::path abs = fs::weakly_canonical(fs::absolute(path, ec), ec);
-    std::string source = (ec ? fs::path(path) : abs).u8string();
-    for (int i = 0; i < lib.count(); ++i)
-        if (lib.textures[(size_t)i].source == source) return i;
+namespace {
+
+// Box-filters RGBA pixels down by whole steps until neither side is over maxSize
+void shrink(std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h, uint32_t maxSize) {
+    if (maxSize == 0 || std::max(w, h) <= maxSize) return;
+    uint32_t step = (std::max(w, h) + maxSize - 1) / maxSize;
+    uint32_t tw = std::max(1u, w / step), th = std::max(1u, h / step);
+    std::vector<uint8_t> out((size_t)tw * th * 4);
+    for (uint32_t y = 0; y < th; ++y)
+        for (uint32_t x = 0; x < tw; ++x) {
+            uint32_t sum[4] = {0, 0, 0, 0}, n = 0;
+            for (uint32_t sy = y * step; sy < std::min((y + 1) * step, h); ++sy)
+                for (uint32_t sx = x * step; sx < std::min((x + 1) * step, w); ++sx, ++n)
+                    for (int c = 0; c < 4; ++c) sum[c] += rgba[((size_t)sy * w + sx) * 4 + c];
+            for (int c = 0; c < 4; ++c) out[((size_t)y * tw + x) * 4 + c] = (uint8_t)(sum[c] / std::max(n, 1u));
+        }
+    rgba = std::move(out);
+    w = tw;
+    h = th;
+}
+
+// An image file decoded, with its import settings applied
+bool decodeImageFile(const std::string& path, Texture& t, std::string& error) {
     int w = 0, h = 0, channels = 0;
     std::string bytes;
     stbi_uc* pixels = vfs::read(path, bytes) ? stbi_load_from_memory((const stbi_uc*)bytes.data(), (int)bytes.size(), &w,
@@ -163,11 +180,50 @@ int loadTexture(TextureLibrary& lib, const std::string& path, std::string& error
                                              : nullptr;
     if (!pixels) {
         error = path + ": " + (stbi_failure_reason() ? stbi_failure_reason() : "cannot load image");
-        return -1;
+        return false;
     }
-    std::vector<uint8_t> rgba(pixels, pixels + (size_t)w * h * 4);
+    t.rgba.assign(pixels, pixels + (size_t)w * h * 4);
     stbi_image_free(pixels);
-    return addTexture(lib, fs::path(path).stem().u8string(), source, (uint32_t)w, (uint32_t)h, std::move(rgba));
+    t.width = (uint32_t)w;
+    t.height = (uint32_t)h;
+    json::Value s = assetdb::importSettings(std::filesystem::u8path(path));
+    shrink(t.rgba, t.width, t.height, (uint32_t)std::max(0, s["maxSize"].asInt(0)));
+    t.nearest = s["filter"].asString() == "nearest";
+    t.mipmaps = s["mipmaps"].asBool(true);
+    return true;
+}
+
+}  // namespace
+
+int loadTexture(TextureLibrary& lib, const std::string& path, std::string& error) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path abs = fs::weakly_canonical(fs::absolute(path, ec), ec);
+    std::string source = (ec ? fs::path(path) : abs).u8string();
+    for (int i = 0; i < lib.count(); ++i)
+        if (lib.textures[(size_t)i].source == source) return i;
+    Texture t;
+    if (!decodeImageFile(path, t, error)) return -1;
+    int id = addTexture(lib, fs::path(path).stem().u8string(), source, t.width, t.height, std::move(t.rgba));
+    lib.textures[(size_t)id].nearest = t.nearest;
+    lib.textures[(size_t)id].mipmaps = t.mipmaps;
+    return id;
+}
+
+int reloadTexture(TextureLibrary& lib, int id, std::string& error) {
+    if (id < 0 || id >= lib.count()) { error = "no such texture"; return -1; }
+    Texture& t = lib.textures[(size_t)id];
+    if (t.source.empty() || t.source.find('#') != std::string::npos) { error = t.name + ": not from an image file"; return -1; }
+    Texture fresh;
+    if (!decodeImageFile(t.source, fresh, error)) return -1;
+    t.rgba = std::move(fresh.rgba);
+    t.width = fresh.width;
+    t.height = fresh.height;
+    t.nearest = fresh.nearest;
+    t.mipmaps = fresh.mipmaps;
+    ++t.revision;
+    ++lib.version;
+    return id;
 }
 
 int addThumbnail(TextureLibrary& lib, const std::string& name, const std::string& path, uint32_t maxSize, std::string& error) {
@@ -182,18 +238,10 @@ int addThumbnail(TextureLibrary& lib, const std::string& name, const std::string
         return -1;
     }
     // Every thumbnail pixel averages the block of source pixels it covers
-    uint32_t step = std::max(1u, (uint32_t)std::ceil((float)std::max(w, h) / (float)std::max(maxSize, 1u)));
-    uint32_t tw = std::max(1u, (uint32_t)w / step), th = std::max(1u, (uint32_t)h / step);
-    std::vector<uint8_t> rgba((size_t)tw * th * 4);
-    for (uint32_t y = 0; y < th; ++y)
-        for (uint32_t x = 0; x < tw; ++x) {
-            uint32_t sum[4] = {0, 0, 0, 0}, n = 0;
-            for (uint32_t sy = y * step; sy < std::min((y + 1) * step, (uint32_t)h); ++sy)
-                for (uint32_t sx = x * step; sx < std::min((x + 1) * step, (uint32_t)w); ++sx, ++n)
-                    for (int c = 0; c < 4; ++c) sum[c] += pixels[((size_t)sy * w + sx) * 4 + c];
-            for (int c = 0; c < 4; ++c) rgba[((size_t)y * tw + x) * 4 + c] = (uint8_t)(sum[c] / std::max(n, 1u));
-        }
+    std::vector<uint8_t> rgba(pixels, pixels + (size_t)w * h * 4);
     stbi_image_free(pixels);
+    uint32_t tw = (uint32_t)w, th = (uint32_t)h;
+    shrink(rgba, tw, th, std::max(maxSize, 1u));
     return addTexture(lib, name, "", tw, th, std::move(rgba));
 }
 

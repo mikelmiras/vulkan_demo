@@ -146,11 +146,15 @@ private:
     struct GpuTexture {
         Image image;                             // image.view reads it as sRGB colour (albedo, emissive)
         VkImageView linear = VK_NULL_HANDLE;     // the same bytes as plain numbers (normal and metal/rough maps, UI)
+        uint32_t revision = 0;                   // the Texture's when uploaded (a newer one: uploaded again)
+        bool nearest = false;                    // sampled with nearestSampler_
     };
+    void reuploadChangedTextures();   // textures reloaded in place (TextureLibrary revisions): waits for the GPU
     // Set 1 for a draw: albedo, normal, metal/rough and emissive maps (defaults where it has none), made on first use
     VkDescriptorSet materialSet(const DrawItem& item);
     // Records the upload into `frame` when given (its staging buffer retired with that frame), else uploads now
-    GpuTexture createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame = VK_NULL_HANDLE);
+    GpuTexture createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame = VK_NULL_HANDLE,
+                             bool mipmaps = true);
     void destroyTexture(GpuTexture& t);
     VkCommandBuffer beginOneTimeCommands();
     void endOneTimeCommands(VkCommandBuffer cb);
@@ -215,6 +219,7 @@ private:
     std::unordered_map<uint64_t, VkDescriptorSet> materialSets_;   // by the four texture ids
     mutable std::unordered_map<int, VkDescriptorSet> uiSets_;      // texture id -> ImGui's set for it
     VkSampler sampler_ = VK_NULL_HANDLE;
+    VkSampler nearestSampler_ = VK_NULL_HANDLE;   // textures imported with "filter": "nearest"
     float maxAnisotropy_ = 1.f;             // 1 = anisotropic filtering not available
 
     static constexpr uint32_t kCascadeSize = 2048, kSpotShadowSize = 1024, kCascades = 4, kSpotShadows = 4;

@@ -203,6 +203,23 @@ private:
     void loadGameModule();      // (re)loads project_.module, keeping every scene's behaviours across the swap
     void rebuildGameModule();   // runs project_.moduleBuild in the background, then reloads
     void pollGameModule();      // once per frame: a finished build, or a library rebuilt outside the editor
+    // ---- Asset database (assets/asset_db.h, editor_asset_db.cpp): moves and renames keep references working
+    std::filesystem::path selectedAsset_;      // shown in the Inspector instead of the scene (cleared by picking an entity)
+    std::filesystem::path settingsFor_;        // whose import settings are being edited
+    json::Value editedSettings_;
+    std::filesystem::path renaming_, deleting_;   // the asset a Rename / Delete dialog is open for
+    std::string renameBuffer_;
+    bool openRename_ = false, openDelete_ = false;
+    std::pair<std::filesystem::path, std::filesystem::path> pendingMove_;   // an asset dropped on a folder
+    void drawAssetInspector();
+    void drawAssetDialogs();
+    void applyImportSettings();
+    bool moveAsset(const std::filesystem::path& from, const std::filesystem::path& to);   // a file or a folder
+    void deleteAsset(const std::filesystem::path& path);
+    std::vector<EntityId> assetUsers(const std::filesystem::path& file);   // entities of the scene using it
+    void retargetInMemory(const std::filesystem::path& from, const std::filesystem::path& to);
+    int renamePrefabReferences(const std::string& from, const std::string& to);   // behaviour fields naming a prefab
+    void renameScriptType(const std::string& from, const std::string& to);       // a script file renamed
     // ---- Lua scripts (script/lua_script.h): the project's scripts/ folder, reloaded when a file changes
     void loadScripts();         // (on opening a project, before its scenes)
     void pollScripts();         // once per frame
@@ -318,3 +335,27 @@ private:
     float vx_ = 0, vy_ = 0, vw_ = 1, vh_ = 1;
     float topH_ = 0, statusH_ = 0;
 };
+
+// (in the header: editor_assets.cpp and editor_asset_db.cpp use it)
+template <class F>
+void Editor::forEachHeldScene(F&& f) {
+    f(scene_);
+    f(editScene_);
+    if (undoBefore_) f(*undoBefore_);
+    // Undo steps and the frame's copy of the selection hold entities (and prefabs) too: lend them to a scene
+    auto lend = [&](std::vector<std::pair<size_t, Entity>>& entities, std::optional<std::vector<Prefab>>* prefabs) {
+        Scene s;
+        for (auto& item : entities) s.entities.push_back(std::move(item.second));
+        if (prefabs && *prefabs) s.prefabs = std::move(**prefabs);
+        f(s);
+        for (size_t i = 0; i < entities.size(); ++i) entities[i].second = std::move(s.entities[i]);
+        if (prefabs && *prefabs) **prefabs = std::move(s.prefabs);
+    };
+    for (std::vector<UndoStep>* steps : {&undo_, &redo_})
+        for (UndoStep& step : *steps) lend(step.delta.entities, &step.delta.prefabs);
+    if (frameEntity_) {
+        std::vector<std::pair<size_t, Entity>> one{std::move(*frameEntity_)};
+        lend(one, nullptr);
+        frameEntity_ = std::move(one[0]);
+    }
+}

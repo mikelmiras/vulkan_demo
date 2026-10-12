@@ -1,5 +1,6 @@
 // Editor inspector: the selection's components and behaviours, the scene's look, renderer info.
 #include "editor/editor.h"
+#include "assets/asset_db.h"
 
 #include <cctype>
 #include <cfloat>
@@ -31,6 +32,14 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         return;
     }
     ImGui::PushItemWidth(-px(110.f));
+    if (!selectedAsset_.empty()) {   // an asset picked in the browser
+        drawAssetInspector();
+        if (!selectedAsset_.empty()) {
+            ImGui::PopItemWidth();
+            ImGui::End();
+            return;
+        }
+    }
     if (playing()) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Playing: changes are lost on Stop");
 
     if (Entity* sel = selection()) {
@@ -404,6 +413,7 @@ void Editor::drawComponents(Entity& e) {
             if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Sound, dropped)) {
                 pushUndo();
                 a.clip = project::toStored(dropped.u8string());
+                a.stream = assetdb::importSettings(dropped)["stream"].asBool(a.stream);   // (its import setting)
             }
             if (ImGui::SmallButton("Browse...")) {
                 std::filesystem::path path = platform::openFileDialog("Sound file", "wav,mp3,flac");

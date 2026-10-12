@@ -1,4 +1,5 @@
 #include "scene/serialization.h"
+#include "assets/asset_db.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,7 +16,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 23;  // 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 24;  // 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -50,7 +51,13 @@ struct FieldWriter : FieldVisitor {
         if (v >= 0 && v < count) out.set(name, options[v]);   // by name: options may be reordered or added to
         else out.set(name, v);
     }
-    void field(const char* name, std::string& v, FieldRef) override { out.set(name, v); }
+    void field(const char* name, std::string& v, FieldRef kind) override {
+        out.set(name, v);
+        if (kind != FieldRef::Scene && kind != FieldRef::Sound) return;
+        std::string id = assetdb::idOfStored(v);   // (so the reference survives the file being moved)
+        if (!id.empty()) refs.set(name, id);
+    }
+    json::Value refs = json::Value::object();   // field -> the id of the file it names ("$refs")
 };
 
 // JSON members -> behaviour fields (missing members keep the behaviour's defaults)
@@ -76,7 +83,10 @@ struct FieldReader : FieldVisitor {
             v = j.asInt();
         }
     }
-    void field(const char* name, std::string& v, FieldRef) override { field(name, v); }
+    void field(const char* name, std::string& v, FieldRef kind) override {
+        field(name, v);
+        if (kind == FieldRef::Scene || kind == FieldRef::Sound) v = assetdb::heal(v, in["$refs"][name].asString());
+    }
 };
 
 bool readFile(const std::string& path, std::string& text) { return vfs::read(std::filesystem::u8path(path), text); }
@@ -160,6 +170,7 @@ json::Value behaviourToJson(const Behaviour& b) {
     }
     FieldWriter writer(bv);
     const_cast<Behaviour&>(b).fields(writer);   // fields() only reads here
+    if (writer.refs.size()) bv.set("$refs", writer.refs);
     return bv;
 }
 
@@ -299,6 +310,7 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         const AudioSource& a = *e.audioSource;
         json::Value& c = v.set("audioSource", json::Value::object());
         c.set("clip", a.clip);
+        if (std::string id = assetdb::idOfStored(a.clip); !id.empty()) c.set("clipId", id);
         c.set("volume", a.volume);
         c.set("loop", a.loop);
         c.set("playOnStart", a.playOnStart);
@@ -574,7 +586,7 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
     }
     if (const json::Value& c = v["audioSource"]; c.isObject()) {
         AudioSource a;
-        a.clip = c["clip"].asString();
+        a.clip = assetdb::heal(c["clip"].asString(), c["clipId"].asString());
         a.volume = c["volume"].asFloat(a.volume);
         a.loop = c["loop"].asBool(a.loop);
         a.playOnStart = c["playOnStart"].asBool(a.playOnStart);
@@ -797,6 +809,7 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
         json::Value v = json::Value::object();
         v.set("name", meshes.name(id));
         v.set("source", project::toStored(meshes.get(id).source));
+        if (std::string aid = assetdb::idOfStored(meshes.get(id).source); !aid.empty()) v.set("id", aid);
         m.push(std::move(v));
     }
     json::Value& t = doc.set("textures", json::Value::array());
@@ -804,6 +817,7 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
         json::Value v = json::Value::object();
         v.set("name", textures.name(id));
         v.set("source", project::toStored(textures.get(id).source));
+        if (std::string aid = assetdb::idOfStored(textures.get(id).source); !aid.empty()) v.set("id", aid);
         t.push(std::move(v));
     }
     json::Value& a = doc.set("animations", json::Value::array());
@@ -813,6 +827,7 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
         json::Value v = json::Value::object();
         v.set("name", name);
         v.set("source", project::toStored(clip->source));
+        if (std::string aid = assetdb::idOfStored(clip->source); !aid.empty()) v.set("id", aid);
         a.push(std::move(v));
     }
 }
@@ -830,19 +845,19 @@ bool assetListsFromJson(const json::Value& doc, MeshLibrary& meshes, TextureLibr
     size_t total = doc["meshes"].elements().size() + doc["textures"].elements().size() + doc["animations"].elements().size(), done = 0;
     auto step = [&] { reportProgress(total ? 0.8f * (float)++done / (float)total : 0.8f); };
     for (const json::Value& m : doc["meshes"].elements()) {
-        int id = importMesh(meshes, project::resolve(m["source"].asString()), error);
+        int id = importMesh(meshes, project::resolve(assetdb::heal(m["source"].asString(), m["id"].asString())), error);
         if (id < 0) return false;
         ids.meshes[m["name"].asString()] = id;
         step();
     }
     for (const json::Value& t : doc["textures"].elements()) {
-        int id = importTexture(textures, project::resolve(t["source"].asString()), error);
+        int id = importTexture(textures, project::resolve(assetdb::heal(t["source"].asString(), t["id"].asString())), error);
         if (id < 0) return false;
         ids.textures[t["name"].asString()] = id;
         step();
     }
     for (const json::Value& a : doc["animations"].elements()) {
-        int id = importAnimationClip(meshes, project::resolve(a["source"].asString()), error);
+        int id = importAnimationClip(meshes, project::resolve(assetdb::heal(a["source"].asString(), a["id"].asString())), error);
         if (id < 0) return false;
         ids.animations[a["name"].asString()] = meshes.animations[(size_t)id].name;
         step();

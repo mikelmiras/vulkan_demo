@@ -22,6 +22,7 @@
 #include "assets/meshes.h"
 #include "game/game.h"
 #include "script/lua_script.h"
+#include "assets/asset_db.h"
 #include "game/module.h"
 #include "imgui.h"
 #include "platform/platform.h"
@@ -128,6 +129,7 @@ int main(int argc, char** argv) {
         else std::fprintf(stderr, "warning: %s\n", error.c_str());
     }
 #endif
+    if (haveProject) assetdb::open(project::root(), false);   // (asset ids: files moved since a scene was saved)
     if (haveProject) {   // its Lua behaviours (scripts/), also before the scene
         int scripts = scripting::loadProject(project::root());
         if (scripts) std::printf("Lua scripts: %d behaviours\n", scripts);

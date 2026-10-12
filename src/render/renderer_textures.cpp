@@ -10,14 +10,15 @@
 using namespace render_detail;
 
 // Uploads RGBA8 sRGB pixels to a device-local image with a full mip chain (when the format can be blitted)
-Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame) {
+Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame,
+                                             bool mipmaps) {
     const VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
     VkFormatProperties fp;
     vkGetPhysicalDeviceFormatProperties(gpu_, format, &fp);
     const VkFormatFeatureFlags blit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
                                       VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
     uint32_t mips = 1;
-    if ((fp.optimalTilingFeatures & blit) == blit)
+    if (mipmaps && (fp.optimalTilingFeatures & blit) == blit)
         while ((std::max(width, height) >> mips) > 0) ++mips;
 
     GpuTexture t;
@@ -85,12 +86,43 @@ void Renderer::destroyTexture(GpuTexture& t) {
     t = {};
 }
 
+void Renderer::reuploadChangedTextures() {
+    std::vector<size_t> changed;
+    for (size_t i = 0; i < gpuTextures_.size(); ++i)
+        if (gpuTextures_[i].revision != textures_->get((int)i).revision) changed.push_back(i);
+    if (changed.empty()) return;
+    // Rare (an import setting changed in the editor): wait for every frame using them, then swap them in place
+    vkDeviceWaitIdle(device_);
+    for (size_t i : changed) {
+        const Texture& tex = textures_->get((int)i);
+        destroyTexture(gpuTextures_[i]);
+        gpuTextures_[i] = createTexture(tex.rgba.data(), tex.width, tex.height, VK_NULL_HANDLE, tex.mipmaps);
+        gpuTextures_[i].revision = tex.revision;
+        gpuTextures_[i].nearest = tex.nearest;
+        // The UI's set for it keeps its handle (this frame's UI already uses it) and now shows the new image
+        if (auto it = uiSets_.find((int)i); it != uiSets_.end()) {
+            VkDescriptorImageInfo info{VK_NULL_HANDLE, gpuTextures_[i].linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w.dstSet = it->second;
+            w.dstBinding = 0;
+            w.descriptorCount = 1;
+            w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;   // (the backend's layout: see ImGui_ImplVulkan_AddTexture)
+            w.pImageInfo = &info;
+            vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+        }
+    }
+    vkResetDescriptorPool(device_, materialPool_, 0);   // material sets pointed at the old images: made again
+    materialSets_.clear();
+}
+
 void Renderer::uploadTextures(VkCommandBuffer frame) {
     const size_t kFrameBudget = 24u << 20;   // bytes of pixels per frame (at least one texture)
     size_t sent = 0;
     while ((int)gpuTextures_.size() < textures_->count() && (!frame || sent < kFrameBudget)) {
         const Texture& tex = textures_->get((int)gpuTextures_.size());
-        gpuTextures_.push_back(createTexture(tex.rgba.data(), tex.width, tex.height, frame));
+        gpuTextures_.push_back(createTexture(tex.rgba.data(), tex.width, tex.height, frame, tex.mipmaps));
+        gpuTextures_.back().revision = tex.revision;
+        gpuTextures_.back().nearest = tex.nearest;
         sent += tex.rgba.size();
     }
     // The shadow map starts out readable, so frames without shadows can still bind it
@@ -130,7 +162,8 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
     }
     auto pick = [&](int id, bool colour, const GpuTexture& fallback) {
         const GpuTexture& t = id >= 0 ? gpuTextures_[(size_t)id] : fallback;
-        return VkDescriptorImageInfo{sampler_, colour ? t.image.view : t.linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        return VkDescriptorImageInfo{t.nearest ? nearestSampler_ : sampler_, colour ? t.image.view : t.linear,
+                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     };
     VkDescriptorImageInfo infos[4] = {pick(ids[0], true, whiteTexture_), pick(ids[1], false, flatNormal_),
                                       pick(ids[2], false, whiteTexture_), pick(ids[3], true, whiteTexture_)};

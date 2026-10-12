@@ -11,6 +11,7 @@
 #include <fstream>
 
 #include "app/export.h"
+#include "assets/asset_db.h"
 #include "script/lua_script.h"
 #include "editor/editor_ui.h"
 #include "platform/platform.h"
@@ -122,6 +123,8 @@ void Editor::openProject(const fs::path& dir) {
     }
     project_ = settings;
     editor_prefs::addRecent(recentProjects_, project::root().u8string());
+    assetdb::open(project::root(), true);
+    selectedAsset_.clear();
     loadScripts();
     bool sameModule = module_.loaded() && !project_.module.empty() && !module_.changedOnDisk() &&
                       module_.library() == GameModule::libraryPath(fs::u8path(project::resolve(project_.module)));
@@ -150,29 +153,6 @@ void Editor::exportGameTo(const fs::path& dir, const ExportOptions& options) {
 // ---------------------------------------------------------------------------------------------
 // Game module
 // ---------------------------------------------------------------------------------------------
-template <class F>
-void Editor::forEachHeldScene(F&& f) {
-    f(scene_);
-    f(editScene_);
-    if (undoBefore_) f(*undoBefore_);
-    // Undo steps and the frame's copy of the selection hold entities (and prefabs) too: lend them to a scene
-    auto lend = [&](std::vector<std::pair<size_t, Entity>>& entities, std::optional<std::vector<Prefab>>* prefabs) {
-        Scene s;
-        for (auto& item : entities) s.entities.push_back(std::move(item.second));
-        if (prefabs && *prefabs) s.prefabs = std::move(**prefabs);
-        f(s);
-        for (size_t i = 0; i < entities.size(); ++i) entities[i].second = std::move(s.entities[i]);
-        if (prefabs && *prefabs) **prefabs = std::move(s.prefabs);
-    };
-    for (std::vector<UndoStep>* steps : {&undo_, &redo_})
-        for (UndoStep& step : *steps) lend(step.delta.entities, &step.delta.prefabs);
-    if (frameEntity_) {
-        std::vector<std::pair<size_t, Entity>> one{std::move(*frameEntity_)};
-        lend(one, nullptr);
-        frameEntity_ = std::move(one[0]);
-    }
-}
-
 void Editor::loadGameModule() {
     if (playing()) stopPlay();
     // The old code's behaviours become their saved fields (the code is about to go away), then come back as
@@ -265,6 +245,7 @@ void Editor::scanAssets() {
         if (name.empty() || name[0] == '.' || name == "CMakeFiles") continue;   // hidden and build clutter
         AssetKind kind = assetKind(entry.path());
         if (kind == AssetKind::Other) continue;
+        if (kind != AssetKind::Folder) assetdb::idOf(entry.path());   // (its .meta: moved along, it keeps references)
         assets_.push_back({name, entry.path(), kind});
     }
     std::sort(assets_.begin(), assets_.end(), [](const AssetEntry& a, const AssetEntry& b) {
@@ -290,16 +271,34 @@ void Editor::drawAssetBrowser() {
         assetDir_ = assetDir_.parent_path();
         scanAssets();
     }
+    if (!atRoot && ImGui::BeginDragDropTarget()) {   // dropped on Up: moved to the folder above
+        if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(kAssetPayload)) {
+            fs::path from = fs::u8path((const char*)pl->Data);
+            pendingMove_ = {from, assetDir_.parent_path() / from.filename()};
+        }
+        ImGui::EndDragDropTarget();
+    }
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextDisabled("%s/%s", project_.name.c_str(), atRoot ? "" : rel.generic_u8string().c_str());
     ImGui::SameLine();
     if (ImGui::SmallButton("Refresh")) scanAssets();
     ImGui::SameLine();
+    if (ImGui::SmallButton("New folder")) {
+        std::error_code ec;
+        fs::path dir = assetDir_ / "New folder";
+        for (int i = 2; fs::exists(dir, ec); ++i) dir = assetDir_ / ("New folder " + std::to_string(i));
+        fs::create_directory(dir, ec);
+        scanAssets();
+        renaming_ = dir;
+        renameBuffer_ = dir.filename().u8string();
+        openRename_ = true;
+    }
+    ImGui::SameLine();
     if (ImGui::SmallButton("New script")) newScript();
     editor_ui::tooltip("A Lua behaviour in scripts/, from a template");
     ImGui::SameLine();
-    ImGui::TextDisabled("| double-click to open, drag onto the viewport or the Inspector");
+    ImGui::TextDisabled("| click: inspect, double-click: open, right-click: rename / delete, drag onto a folder to move");
 
     ImGui::BeginChild("##asset-grid");
     const float cell = px(112.f), icon = px(64.f), h = icon + ImGui::GetTextLineHeightWithSpacing() * 2.f + px(10.f);
@@ -313,10 +312,35 @@ void Editor::drawAssetBrowser() {
         if (i % (size_t)columns) ImGui::SameLine();
         ImGui::PushID((int)i);
         ImVec2 p = ImGui::GetCursorScreenPos();
-        if (ImGui::Selectable("##cell", false, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(cell, h)) &&
-            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-            open = a;
-            doOpen = true;
+        if (ImGui::Selectable("##cell", a.path == selectedAsset_, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(cell, h))) {
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                open = a;
+                doOpen = true;
+            } else {   // one click: in the Inspector
+                selectedAsset_ = a.path;
+                select(kNoEntity);
+            }
+        }
+        if (ImGui::BeginPopupContextItem("##asset-menu")) {
+            if (ImGui::MenuItem("Open")) { open = a; doOpen = true; }
+            if (ImGui::MenuItem("Show in Inspector")) { selectedAsset_ = a.path; select(kNoEntity); }
+            if (ImGui::MenuItem("Rename / move...")) {
+                renaming_ = a.path;
+                renameBuffer_ = a.path.filename().u8string();
+                openRename_ = true;
+            }
+            if (ImGui::MenuItem("Delete...")) {
+                deleting_ = a.path;
+                openDelete_ = true;
+            }
+            ImGui::EndPopup();
+        }
+        if (a.kind == AssetKind::Folder && ImGui::BeginDragDropTarget()) {   // an asset dropped on a folder: moved in
+            if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(kAssetPayload)) {
+                fs::path from = fs::u8path((const char*)pl->Data);
+                pendingMove_ = {from, a.path / from.filename()};
+            }
+            ImGui::EndDragDropTarget();
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
             ImGui::SetTooltip("%s\n%s", project::toStored(a.path.u8string()).c_str(), kindLabel((int)a.kind));
@@ -349,6 +373,11 @@ void Editor::drawAssetBrowser() {
     ImGui::EndChild();
     ImGui::End();
     if (doOpen) openAsset(open);
+    if (!pendingMove_.first.empty()) {
+        auto move = pendingMove_;
+        pendingMove_ = {};
+        if (move.first != move.second) moveAsset(move.first, move.second);
+    }
 }
 
 // An image's thumbnail, made the first time it's shown (a few per frame)
@@ -501,6 +530,7 @@ void Editor::handleViewportDrop() {
                 Entity* e = scene_.find(target);
                 if (!e->audioSource) e->audioSource = AudioSource{};
                 e->audioSource->clip = project::toStored(file.u8string());
+                e->audioSource->stream = assetdb::importSettings(file)["stream"].asBool(e->audioSource->stream);
                 select(target);
                 setStatus(e->name + " now plays " + file.filename().u8string());
             }
