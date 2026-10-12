@@ -144,8 +144,9 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
 
     handleNavigation(dt);
     bool brushing = handleTerrainTool(dt);
-    if (tool_ != Tool::Terrain) handleGizmo();
-    if (!brushing) handlePicking();
+    bool uiTook = !brushing && drawGameUIPreview();   // (the game's UI, over the view while editing)
+    if (tool_ != Tool::Terrain && !uiDragging_) handleGizmo();
+    if (!brushing && !uiTook) handlePicking();
     handleViewportDrop();
     handleShortcuts();
     drawEntityIcons();

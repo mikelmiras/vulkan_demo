@@ -65,6 +65,16 @@ const char* animatorConditionName(AnimatorTransition::When when) {
     return "greater";
 }
 
+namespace {
+const char* const kUiKinds[] = {"panel", "text", "image", "button", "slider", "toggle", "textField", "list"};
+}
+const char* uiKindName(UIElement::Kind kind) { return kUiKinds[std::clamp((int)kind, 0, 7)]; }
+UIElement::Kind uiKindFromName(const std::string& name) {
+    for (int i = 0; i < 8; ++i)
+        if (name == kUiKinds[i]) return (UIElement::Kind)i;
+    return UIElement::Kind::Panel;
+}
+
 const char* ikTypeName(AnimatorIK::Type type) { return type == AnimatorIK::Type::LookAt ? "look-at" : "two-bone"; }
 
 AnimatorTransition::When animatorConditionFromName(const std::string& name) {

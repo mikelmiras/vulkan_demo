@@ -39,6 +39,13 @@ public:
     // pointer is visible: call showCursor() in the frames a menu is up.
     bool button(float x, float y, float w, float h, const std::string& label, float textSize = 36.f);
     bool hovered(float x, float y, float w, float h) const;
+    // The mouse on the canvas (when the pointer is free and over the game), and its left button
+    bool mouseAvailable() const { return mouse_; }
+    ImVec2 mouse() const;
+    bool mouseDown() const;
+    bool mouseClicked() const;
+    float scale() const { return scale_; }   // window pixels per canvas unit
+    ImVec2 origin() const { return {x0_, y0_}; }   // the canvas's top left in the window
     void showCursor() { wantsCursor_ = true; }   // this frame needs the mouse pointer: the host frees the cursor
 
     // ---- Host side (the editor's play mode, vkgame)

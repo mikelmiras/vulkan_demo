@@ -50,6 +50,14 @@ bool eq(const AudioSource& a, const AudioSource& b) {
 bool eq(const ReverbZone& a, const ReverbZone& b) {
     return a.radius == b.radius && a.blend == b.blend && a.wet == b.wet && a.roomSize == b.roomSize && a.damping == b.damping;
 }
+bool eq(const UIElement& a, const UIElement& b) {
+    return a.kind == b.kind && eq(a.anchorMin, b.anchorMin, 2) && eq(a.anchorMax, b.anchorMax, 2) &&
+           eq(a.offsetMin, b.offsetMin, 2) && eq(a.offsetMax, b.offsetMax, 2) && eq(a.color, b.color) &&
+           a.opacity == b.opacity && a.rounding == b.rounding && a.text == b.text && a.textSize == b.textSize &&
+           eq(a.textColor, b.textColor) && a.align == b.align && a.font == b.font && a.image == b.image &&
+           a.action == b.action && a.target == b.target && a.value == b.value && a.min == b.min && a.max == b.max &&
+           a.spacing == b.spacing;
+}
 bool eq(const ReflectionProbe& a, const ReflectionProbe& b) {
     return eq(a.size, b.size) && a.resolution == b.resolution && a.boxProjection == b.boxProjection;
 }
@@ -147,7 +155,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
         !eq(a.prefab, b.prefab) || !eq(a.nestedPrefab, b.nestedPrefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter) || !eq(a.terrain, b.terrain) ||
-        !eq(a.reflectionProbe, b.reflectionProbe))
+        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.ui, b.ui))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;
     for (size_t i = 0; i < a.behaviours.size(); ++i) {

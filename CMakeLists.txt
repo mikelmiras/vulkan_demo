@@ -112,6 +112,7 @@ set(ENGINE_SOURCES
   src/game/builtin_behaviours.cpp
   src/game/module.cpp
   src/game/ui.cpp
+  src/game/ui_layout.cpp
   src/game/animation.cpp
   src/game/particles.cpp
   src/game/navigation.cpp
@@ -201,6 +202,7 @@ add_executable(vkworld
   src/editor/editor_assets.cpp
   src/editor/editor_asset_db.cpp
   src/editor/editor_terrain.cpp
+  src/editor/editor_ui_layout.cpp
   src/editor/editor_prefs.cpp)
 target_link_libraries(vkworld PRIVATE engine)
 # For game modules built along with the engine: "{engineBuild}" in a project's moduleBuild command
@@ -282,6 +284,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_terrain.cpp
     tests/test_environment.cpp
     tests/test_animation_ik.cpp
+    tests/test_ui_layout.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

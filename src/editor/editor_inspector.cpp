@@ -370,6 +370,10 @@ void Editor::drawComponents(Entity& e) {
             drawAnimatorInspector(e);
         }
     }
+    if (e.ui) {
+        if (!componentHeader("UI Element", open)) { pushUndo(); e.ui.reset(); }
+        else if (open) drawUIInspector(e);
+    }
     if (e.reflectionProbe) {
         if (!componentHeader("Reflection Probe", open)) { pushUndo(); e.reflectionProbe.reset(); }
         else if (open) {
@@ -730,6 +734,7 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Animator", nullptr, false, !e.animator)) { pushUndo(); e.animator = Animator{}; }
         if (ImGui::MenuItem("Particle Emitter", nullptr, false, !e.particleEmitter)) { pushUndo(); e.particleEmitter = ParticleEmitter{}; }
         if (ImGui::MenuItem("Reflection Probe", nullptr, false, !e.reflectionProbe)) { pushUndo(); e.reflectionProbe = ReflectionProbe{}; }
+        if (ImGui::MenuItem("UI Element", nullptr, false, !e.ui)) { pushUndo(); e.ui = UIElement{}; }
         if (ImGui::MenuItem("Terrain", nullptr, false, !e.terrain)) {
             pushUndo();
             e.terrain = Terrain{};

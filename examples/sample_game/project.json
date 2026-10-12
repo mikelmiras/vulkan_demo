@@ -2,7 +2,7 @@
   "format": "vkworld-project",
   "version": 1,
   "name": "Sample Game",
-  "startScene": "scenes/main.vkw",
+  "startScene": "scenes/menu.vkw",
   "module": "bin/sample_game",
   "icon": "icon.png",
   "moduleBuild": "cmake --build {engineBuild} --target sample_game"

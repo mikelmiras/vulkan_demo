@@ -189,10 +189,13 @@ TEST(export_game_pack_loads) {
     fs::path previous = project::root();
     project::setRoot(dir);
     MeshLibrary meshes = buildMeshLibrary();
-    Scene scene;
-    bool loaded = loadScene((dir / settings.startScene).u8string(), scene, meshes, textures(), error);
+    Scene menu, scene;
+    bool loadedMenu = loadScene((dir / settings.startScene).u8string(), menu, meshes, textures(), error);   // (the menu)
+    bool loaded = loadScene((dir / "scenes" / "main.vkw").u8string(), scene, meshes, textures(), error);
     project::setRoot(previous);
     vfs::unmount();
+    REQUIRE(loadedMenu);
+    CHECK(menu.findByName("Play") && menu.findByName("Play")->ui);
     REQUIRE(loaded);
     CHECK(scene.findByName("Coin.001") != nullptr);
     CHECK(!meshes.animations.empty());   // the tentacle model, from the pack too

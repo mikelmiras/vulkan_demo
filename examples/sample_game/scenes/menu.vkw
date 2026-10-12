@@ -1,0 +1,503 @@
+{
+  "format": "vkworld-scene",
+  "version": 28,
+  "meshes": [],
+  "textures": [],
+  "animations": [],
+  "entities": [
+    {
+      "id": 1,
+      "name": "Sun",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [-50, 30, 0],
+        "scale": [1, 1, 1]
+      },
+      "light": {
+        "type": "directional",
+        "color": [1, 0.95, 0.85],
+        "intensity": 1,
+        "castShadows": true
+      }
+    },
+    {
+      "id": 2,
+      "name": "Camera",
+      "transform": {
+        "position": [0, 1.5, 6],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "camera": {
+        "fov": 60,
+        "near": 0.1,
+        "far": 2000
+      }
+    },
+    {
+      "id": 3,
+      "name": "Coin",
+      "transform": {
+        "position": [3, 1.5, 0],
+        "rotation": [90, 0, 0],
+        "scale": [1.6, 1.6, 1.6]
+      },
+      "meshRenderer": {
+        "mesh": "Torus",
+        "color": [1, 0.78, 0.25],
+        "metallic": 1,
+        "roughness": 0.3
+      },
+      "behaviours": [
+        {
+          "type": "Spin",
+          "speed": 1.2
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Settings",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "behaviours": [
+        {
+          "type": "MenuSettings"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Menu",
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "panel",
+        "anchorMin": [0, 0],
+        "anchorMax": [1, 1],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 0],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0,
+        "rounding": 8,
+        "textSize": 36,
+        "textColor": [1, 1, 1],
+        "align": "center"
+      }
+    },
+    {
+      "id": 6,
+      "name": "Title",
+      "parent": 5,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "text",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [120, 120],
+        "offsetMax": [1000, 240],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.title}",
+        "textSize": 110,
+        "textColor": [1, 0.85, 0.4],
+        "align": "left"
+      }
+    },
+    {
+      "id": 7,
+      "name": "Panel",
+      "parent": 5,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "list",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [120, 300],
+        "offsetMax": [680, 900],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0,
+        "rounding": 8,
+        "textSize": 36,
+        "textColor": [1, 1, 1],
+        "align": "center",
+        "spacing": 14
+      }
+    },
+    {
+      "id": 8,
+      "name": "Play",
+      "parent": 7,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "button",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 80],
+        "color": [0.85, 0.55, 0.15],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.play}",
+        "textSize": 48,
+        "textColor": [0.1, 0.07, 0.03],
+        "align": "center",
+        "action": "@load scenes/main.vkw"
+      }
+    },
+    {
+      "id": 9,
+      "name": "Music",
+      "parent": 7,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "slider",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.music}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "left",
+        "value": "musicVolume",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "id": 10,
+      "name": "Spanish",
+      "parent": 7,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "toggle",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.spanish}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "left",
+        "value": "spanish"
+      }
+    },
+    {
+      "id": 11,
+      "name": "Name",
+      "parent": 7,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "textField",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.name}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "left",
+        "value": "playerName"
+      }
+    },
+    {
+      "id": 12,
+      "name": "Quit",
+      "parent": 7,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "button",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.quit}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "center",
+        "action": "@quit"
+      }
+    },
+    {
+      "id": 13,
+      "name": "Hint",
+      "parent": 5,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "text",
+        "anchorMin": [0, 1],
+        "anchorMax": [0, 1],
+        "offsetMin": [120, -90],
+        "offsetMax": [1400, -40],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.hint}",
+        "textSize": 30,
+        "textColor": [0.85, 0.88, 0.95],
+        "align": "left"
+      }
+    }
+  ],
+  "settings": {
+    "render": {
+      "sky": [0.62, 0.75, 0.9],
+      "zenith": [0.36, 0.56, 0.88],
+      "ground": [0.34, 0.35, 0.31],
+      "fogDensity": 0.006,
+      "ambient": 0.6,
+      "exposure": 1,
+      "bloomStrength": 0.06,
+      "bloomThreshold": 1,
+      "aoStrength": 0.6,
+      "aoRadius": 0.6
+    },
+    "navigation": {
+      "cellSize": 0.4,
+      "agentRadius": 0.4,
+      "agentHeight": 1.8,
+      "maxClimb": 0.45,
+      "maxSlope": 45
+    },
+    "layers": {
+      "names": [
+        "Default",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "collides": [
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295,
+        4294967295
+      ]
+    },
+    "input": [
+      {
+        "name": "move_forward",
+        "keys": [
+          "W",
+          "UpArrow",
+          "GamepadLStickUp"
+        ]
+      },
+      {
+        "name": "move_back",
+        "keys": [
+          "S",
+          "DownArrow",
+          "GamepadLStickDown"
+        ]
+      },
+      {
+        "name": "move_left",
+        "keys": [
+          "A",
+          "LeftArrow",
+          "GamepadLStickLeft"
+        ]
+      },
+      {
+        "name": "move_right",
+        "keys": [
+          "D",
+          "RightArrow",
+          "GamepadLStickRight"
+        ]
+      },
+      {
+        "name": "move_up",
+        "keys": [
+          "E",
+          "GamepadR1"
+        ]
+      },
+      {
+        "name": "move_down",
+        "keys": [
+          "Q",
+          "GamepadL1"
+        ]
+      },
+      {
+        "name": "jump",
+        "keys": [
+          "Space",
+          "GamepadFaceDown"
+        ]
+      },
+      {
+        "name": "sprint",
+        "keys": [
+          "LeftShift",
+          "RightShift",
+          "GamepadL3"
+        ]
+      },
+      {
+        "name": "look",
+        "keys": [],
+        "mouseButton": 1
+      },
+      {
+        "name": "look_left",
+        "keys": [
+          "GamepadRStickLeft"
+        ]
+      },
+      {
+        "name": "look_right",
+        "keys": [
+          "GamepadRStickRight"
+        ]
+      },
+      {
+        "name": "look_up",
+        "keys": [
+          "GamepadRStickUp"
+        ]
+      },
+      {
+        "name": "look_down",
+        "keys": [
+          "GamepadRStickDown"
+        ]
+      },
+      {
+        "name": "fire",
+        "keys": [
+          "GamepadR2"
+        ],
+        "mouseButton": 0
+      },
+      {
+        "name": "quicksave",
+        "keys": [
+          "F5"
+        ]
+      },
+      {
+        "name": "quickload",
+        "keys": [
+          "F9"
+        ]
+      },
+      {
+        "name": "pause",
+        "keys": [
+          "P",
+          "GamepadStart"
+        ]
+      }
+    ]
+  }
+}

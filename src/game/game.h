@@ -21,6 +21,7 @@
 #include "game/strings.h"
 #include "game/particles.h"
 #include "game/ui.h"
+#include "game/ui_layout.h"
 #include "physics/physics.h"
 #include "scene/scene.h"
 
@@ -272,8 +273,10 @@ public:
     std::filesystem::path saveGamePath(const std::string& slot) const;
     bool paused() const { return paused_; }
     void step();   // run exactly one fixed update (frame stepping while paused)
-    // Once per rendered frame, after frame(): the behaviours' drawUI(), between ui.begin() and ui.end()
+    // Once per rendered frame, after frame(): the behaviours' drawUI(), then the scene's UI layouts (UIElement
+    // components, game/ui_layout.h), between ui.begin() and ui.end()
     void drawUI(GameUI& ui);
+    const UIController& uiController() const { return uiController_; }
 
     float time() const { return time_; }               // simulated seconds since start()
     float updateMs() const { return updateMs_; }       // CPU time of a fixed update (smoothed), milliseconds
@@ -313,6 +316,9 @@ private:
     void completeSceneChange();
     void addChunk(EntityId root, const std::string& path, Vec3 offset, Scene& chunk);
     void drawLoadingScreen(GameUI& ui);
+    void runUIAction(const UIAction& a);   // a button pressed in a UI layout (game/ui_layout.h)
+    UIController uiController_;
+    bool keyboard_ = true;   // the last frame's: whether the UI may read keys
 
     Scene* scene_ = nullptr;
     const MeshLibrary* meshes_ = nullptr;

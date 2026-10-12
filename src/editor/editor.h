@@ -208,6 +208,13 @@ private:
     void loadGameModule();      // (re)loads project_.module, keeping every scene's behaviours across the swap
     void rebuildGameModule();   // runs project_.moduleBuild in the background, then reloads
     void pollGameModule();      // once per frame: a finished build, or a library rebuilt outside the editor
+    // ---- Game UI layouts (game/ui_layout.h, editor_ui_layout.cpp)
+    void addUIElement(UIElement::Kind kind);
+    void drawUIInspector(Entity& e);
+    bool drawGameUIPreview();   // true when it took the mouse
+    bool showGameUi_ = true, uiDragging_ = false;
+    StringTable previewStrings_;       // the project's texts, for the preview
+    double previewStringsAt_ = -1.0;
     // ---- Terrains (scene/terrain.h, editor_terrain.cpp)
     void addTerrain();
     void drawTerrainInspector(Entity& e);

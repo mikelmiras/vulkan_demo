@@ -267,7 +267,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 35 (done) | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
 | 36 (done) | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
 | 37 (done) | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
-| 38 | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
+| 38 (done) | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
 | 39 | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
 | 40 | Physics: vehicles (Jolt's wheeled vehicle), crouching / ladders / swimming for characters, debug drawing of contacts | Common game mechanics have to be hand-built |
 | 41 | Reliability: crash reports (stack traces into the log), chrome://tracing export of profiles, a performance regression check in CI | Crashes leave little to go on; performance drifts unnoticed |
@@ -390,3 +390,17 @@ Working list for turning the renderer demo into a small game engine. Each task i
   product, conjugate, rotate, axisAngle, rotationBetween, quatAngle. Lua: setAnimParameter, playAnimation,
   playLayer, stopLayer, setIK. Scene format 27, module API 26. Not done: foot placement as a ready-made behaviour,
   IK in the editor preview, joint limits and longer chains (FABRIK), polar blend spaces, blend trees in layers.
+- Task 38: a UIElement component (kind panel / text / image / button / slider / toggle / textField / list; anchors,
+  offsets, look, text, action, target, value, range, spacing; scene format 28). game/ui_layout: layoutUI places
+  visible elements (anchors in the parent's rectangle, or the canvas; lists stack children at their heights, skipping
+  hidden ones); UIController draws them with GameUI and handles the mouse (hover focuses, click presses, slider
+  drag), keys and gamepad (spatial navigation: the nearest focusable that way, scored along + 2 x across; the first
+  press only wakes the menu; Left / Right on a slider; Enter / Space / A; text fields take UTF-8 characters and
+  Backspace). Game::drawUI runs it after behaviours' drawUI, runs actions (messages, delivered at once even while
+  paused; @-actions), and masks the game's keyboard input while a text field is edited. GameUI gained mouse helpers.
+  Editor: Add > UI (a full-screen canvas made when needed), the UI Element inspector (anchor presets, numbers, look,
+  behaviour by kind), the preview over the viewport (texts translated with the project's string table) with
+  picking (smallest element under the mouse, transparent full-screen canvases skipped) and dragging, no gizmo for UI
+  entities, [ui] in the outliner. The sample game starts on a menu scene. Module API 27. Not done: grid / horizontal
+  layouts, scroll views, nine-slice images, animations / transitions, a back action, focus memory per menu, Lua
+  access to UI elements beyond the game state.

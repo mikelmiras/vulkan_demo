@@ -63,6 +63,13 @@ void GameUI::image(const std::string& texture, float x, float y, float w, float 
     if (id) dl_->AddImage(ImTextureRef(id), toScreen(x, y), toScreen(x + w, y + h), ImVec2(0, 0), ImVec2(1, 1), rgba(tint));
 }
 
+ImVec2 GameUI::mouse() const {
+    ImVec2 m = ImGui::GetIO().MousePos;
+    return {(m.x - x0_) / scale_, (m.y - y0_) / scale_};
+}
+bool GameUI::mouseDown() const { return mouse_ && ImGui::IsMouseDown(ImGuiMouseButton_Left); }
+bool GameUI::mouseClicked() const { return mouse_ && ImGui::IsMouseClicked(ImGuiMouseButton_Left); }
+
 bool GameUI::hovered(float x, float y, float w, float h) const {
     if (!mouse_) return false;
     ImVec2 m = ImGui::GetIO().MousePos, a = toScreen(x, y), b = toScreen(x + w, y + h);

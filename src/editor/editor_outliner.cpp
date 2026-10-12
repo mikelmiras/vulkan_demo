@@ -182,6 +182,7 @@ void Editor::drawOutlinerNode(EntityId id, const std::vector<std::vector<EntityI
                       : e.camera                                  ? "  [cam]"
                       : e.light                                   ? "  [light]"
                       : e.terrain                                 ? "  [terrain]"
+                      : e.ui                                      ? "  [ui]"
                       : (!e.meshRenderer && kids.empty())         ? "  [empty]"
                                                                   : "";
     ImGui::PopID();   // an open tree node pushes its own ID: keep the ID stack balanced around it

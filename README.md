@@ -659,6 +659,30 @@ Text is UTF-8, drawn in Roboto (compiled in) at any size, or in a font of the ga
 `ui.text(x, y, "¡Hola!", 48, {}, GameUI::Align::Left, "fonts/Title.ttf")` (HudText has a Font field). Glyphs are
 made as they're first used, so any script the font covers works.
 
+### UI layouts
+
+Menus and HUDs can also be laid out in the editor instead of drawn from code: **UI elements** are entities with a
+UI Element component (Add > UI), nested like any entities (an element sits inside its parent's rectangle; the top one
+in the screen's), drawn over the game in the outliner's order, while playing and, in the editor, over the viewport
+(View > Show game UI) where clicking picks one and dragging moves it. Each is placed by **anchors** (where in the
+parent: a corner, an edge, the centre, or stretched across; presets in the Inspector) and **offsets** from them, on
+the same 1080-high canvas as `GameUI`. Kinds:
+
+- **Panel**, **Text**, **Image**: a background (colour, opacity, rounding), a text, a picture.
+- **List**: its children stacked top to bottom (each as tall as its offsets say), with spacing.
+- **Button**: its *action* runs when it's pressed: a message (sent to the *target* entity by name, or to everyone;
+  `onMessage` gets it, also while paused), or `@resume`, `@pause`, `@quit`, `@load <scene>`, `@show` / `@hide` /
+  `@toggle <entity>` (menus that open other menus), `@save` / `@loadgame <slot>`.
+- **Slider**, **Toggle**, **Text field**: they show and change a **game state** value (`ctx.state()`, `game.state`
+  in Lua): a number in a range, a flag, a text.
+
+Texts are formatted like `HudText`: `{@key}` from the player's language, `{name}` from the game state. Menus work with
+the **keyboard and gamepad**: arrows / d-pad move to the nearest element that way, Enter / Space / A presses,
+Left / Right move a slider; the mouse works too (and is freed while a menu is up). While a text field is being typed
+into, the game's own controls don't see the keys. The sample game starts on a menu made this way
+(`scenes/menu.vkw`: Play, a music volume slider and a language toggle applied by `scripts/MenuSettings.lua`, a name
+field, Quit).
+
 ### Languages
 
 Games speak several languages through **string tables**: `strings/<language>.json` in the project, keys to text

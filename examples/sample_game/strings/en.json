@@ -15,5 +15,14 @@
     "paused": "Paused",
     "complete": "Level complete!",
     "won": "You win!"
+  },
+  "menu": {
+    "title": "Coin Hunt",
+    "play": "Play",
+    "music": "Music",
+    "spanish": "Español",
+    "name": "Your name",
+    "quit": "Quit",
+    "hint": "Arrows / d-pad to choose, Enter / A to press"
   }
 }

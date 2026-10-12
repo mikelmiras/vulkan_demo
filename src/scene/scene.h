@@ -332,6 +332,36 @@ struct ParticleEmitter {
 };
 
 // Marks an entity as part of a copy ("instance") of a prefab
+// A piece of the game's interface, laid out in the editor (game/ui_layout.h): a rectangle placed by its anchors (where
+// in the parent element's rectangle, as fractions: 0,0 top left; or the screen's, for the top one) and offsets (canvas
+// units from those points: the canvas is 1080 high), nested by the entity hierarchy and drawn in its order over the
+// game. Buttons, sliders, toggles and text fields react to the mouse, and to the keyboard and gamepad: arrows / d-pad
+// move between them, Enter / Space / A presses, Left / Right change a slider.
+struct UIElement {
+    enum class Kind { Panel, Text, Image, Button, Slider, Toggle, TextField, List };
+    Kind kind = Kind::Panel;
+    float anchorMin[2] = {0.5f, 0.5f}, anchorMax[2] = {0.5f, 0.5f};
+    float offsetMin[2] = {-150.f, -40.f}, offsetMax[2] = {150.f, 40.f};
+    Vec3 color{0.12f, 0.13f, 0.16f};   // its background (sRGB)
+    float opacity = 0.85f;             // 0: no background
+    float rounding = 8.f;
+    std::string text;                  // shown, formatted: {@key} from the strings, {name} from the game state
+    float textSize = 36.f;
+    Vec3 textColor{1, 1, 1};
+    int align = 1;                     // 0 left, 1 centre, 2 right
+    std::string font;                  // "" the game's font (game/fonts.h)
+    std::string image;                 // Image: a texture (built-in name or file)
+    // Button: what pressing it does: a message (its name) to `target` (an entity's name; "": everyone), or @resume,
+    // @pause, @quit, @load <scene>, @show <entity>, @hide <entity>, @toggle <entity>, @save <slot>, @loadgame <slot>
+    std::string action;
+    std::string target;
+    std::string value;                 // Slider / Toggle / TextField: the game state value it shows and changes
+    float min = 0.f, max = 1.f;        // Slider's range
+    float spacing = 10.f;              // List: the gap between its children, stacked top to bottom at their heights
+};
+const char* uiKindName(UIElement::Kind kind);   // "panel", "button", "textField", ...
+UIElement::Kind uiKindFromName(const std::string& name);
+
 // Reflections of the surroundings for shiny things inside a box: the scene is rendered from the entity's position in
 // all directions (when it's first seen, when it moves or changes, and on the editor's Bake), prefiltered like a sky
 // image, and surfaces inside the box reflect that (and get its ambient light) instead of the sky
@@ -422,6 +452,7 @@ struct Entity {
     std::optional<ParticleEmitter> particleEmitter;
     std::optional<Terrain> terrain;
     std::optional<ReflectionProbe> reflectionProbe;
+    std::optional<UIElement> ui;
     std::optional<PrefabLink> prefab;
     // In an instance of a prefab that itself contains an instance of another prefab (or is a variant of one), the
     // link the prefab's entity has to that inner prefab. Inside a prefab's own entities, `prefab` is that link.

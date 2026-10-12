@@ -103,6 +103,7 @@ void Editor::handleGizmo() {
     ImGuiIO& io = ImGui::GetIO();
     gizmoDrawn_ = false;
     if (viewingGameCamera()) return;
+    if (const Entity* e = selection(); e && e->ui) return;   // (UI elements are placed by anchors: dragged in the preview)
     Mat4 view = cam_.view();
     Mat4 proj = perspective(cam_.fovY, aspect(), 0.1f, 2000.f, false);   // ImGuizmo expects GL conventions
     ImGuizmo::SetOrthographic(false);
@@ -306,7 +307,7 @@ void Editor::drawViewportOverlay() {
     const Entity* e = scene_.find(selected_);
     if (e && !viewingGameCamera()) {
         const char* kind = e->meshRenderer ? meshes_.name(e->meshRenderer->mesh) : e->camera ? "camera"
-                           : e->terrain ? "terrain" : "empty";
+                           : e->terrain ? "terrain" : e->ui ? "ui" : "empty";
         std::snprintf(line, sizeof(line), "%s  (%s)", e->name.c_str(), kind);
         p.y += ImGui::GetTextLineHeightWithSpacing();
         dl->AddText(ImVec2(p.x + 1, p.y + 1), IM_COL32(0, 0, 0, 120), line);

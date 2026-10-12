@@ -432,7 +432,8 @@ void Game::stopSounds() {
 
 void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     if (!running()) return;
-    input_.beginFrame(keyboard, mouse, mouseDelta);
+    keyboard_ = keyboard;
+    input_.beginFrame(keyboard && !uiController_.editingText(), mouse, mouseDelta);   // (typing isn't playing)
     pollLoads(false);
     if (loader_.busy()) {   // the next scene is loading: this one waits, frozen
         input_.endFixedStep();
@@ -461,10 +462,45 @@ void Game::drawUI(GameUI& ui) {
         if (e.behaviours.empty() || !scene_->visibleInHierarchy(e.id)) continue;
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->drawUI(ctx_, e, ui);
     }
+    // The UI layouts (on top): drawn, clicked, navigated; what their buttons do happens now
+    if (!loader_.busy()) {
+        UILayout layout = layoutUI(*scene_, ui.width());
+        UIController::Frame f;   // (also with nothing to show: the controller forgets the last menu)
+        f.state = &state_;
+        f.format = [this](const std::string& t) { return ctx_.format(t); };
+        f.keyboard = keyboard_;
+        std::vector<UIAction> actions;
+        uiController_.frame(ui, *scene_, layout, f, actions);
+        for (const UIAction& a : actions) runUIAction(a);
+        if (!ctx_.messages_.empty()) deliverMessages();   // (now: no update may come while paused)
+    }
     if (loader_.busy() && loadingScreen_) drawLoadingScreen(ui);
     // Requests made from the UI (a menu's Load, Quit) happen now, not at the next update (which may not come while
     // paused)
     applyRequests();
+}
+
+void Game::runUIAction(const UIAction& a) {
+    if (a.action.empty()) return;
+    if (a.action[0] != '@') {   // a message, from the element
+        Message m{a.action, a.element, a.value, a.text};
+        if (a.target.empty()) ctx_.broadcast(m);
+        else if (Entity* t = ctx_.find(a.target)) ctx_.send(t->id, m);
+        return;
+    }
+    size_t space = a.action.find(' ');
+    std::string verb = a.action.substr(0, space), arg = space == std::string::npos ? "" : a.action.substr(space + 1);
+    auto entity = [&]() { return ctx_.find(arg); };
+    if (verb == "@resume") paused_ = false;
+    else if (verb == "@pause") paused_ = true;
+    else if (verb == "@quit") ctx_.quit();
+    else if (verb == "@load") { paused_ = false; ctx_.loadScene(arg); }
+    else if (verb == "@save") ctx_.saveGame(arg.empty() ? "quicksave" : arg);
+    else if (verb == "@loadgame") { paused_ = false; ctx_.loadGame(arg.empty() ? "quicksave" : arg); }
+    else if (verb == "@show") { if (Entity* e = entity()) e->visible = true; }
+    else if (verb == "@hide") { if (Entity* e = entity()) e->visible = false; }
+    else if (verb == "@toggle") { if (Entity* e = entity()) e->visible = !e->visible; }
+    else ctx_.log("UI: unknown action " + a.action);
 }
 
 void Game::step() {

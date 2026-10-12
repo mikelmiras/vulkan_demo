@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 27;  // 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 28;  // 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -474,6 +474,38 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             layers.push(std::move(lv));
         }
     }
+    if (e.ui) {
+        const UIElement& u = *e.ui;
+        json::Value& c = v.set("ui", json::Value::object());
+        c.set("kind", uiKindName(u.kind));
+        auto pair = [](const float p[2]) {
+            json::Value a = json::Value::array();
+            a.push(p[0]);
+            a.push(p[1]);
+            return a;
+        };
+        c.set("anchorMin", pair(u.anchorMin));
+        c.set("anchorMax", pair(u.anchorMax));
+        c.set("offsetMin", pair(u.offsetMin));
+        c.set("offsetMax", pair(u.offsetMax));
+        c.set("color", vec3(u.color));
+        c.set("opacity", u.opacity);
+        c.set("rounding", u.rounding);
+        if (!u.text.empty()) c.set("text", u.text);
+        c.set("textSize", u.textSize);
+        c.set("textColor", vec3(u.textColor));
+        c.set("align", u.align == 0 ? "left" : u.align == 2 ? "right" : "center");
+        if (!u.font.empty()) c.set("font", u.font);
+        if (!u.image.empty()) c.set("image", u.image);
+        if (!u.action.empty()) c.set("action", u.action);
+        if (!u.target.empty()) c.set("target", u.target);
+        if (!u.value.empty()) c.set("value", u.value);
+        if (u.kind == UIElement::Kind::Slider) {
+            c.set("min", u.min);
+            c.set("max", u.max);
+        }
+        if (u.kind == UIElement::Kind::List) c.set("spacing", u.spacing);
+    }
     if (e.reflectionProbe) {
         json::Value& c = v.set("reflectionProbe", json::Value::object());
         c.set("size", vec3(e.reflectionProbe->size));
@@ -765,6 +797,33 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         }
         terrain::touch(t);
         e.terrain = std::move(t);
+    }
+    if (const json::Value& c = v["ui"]; c.isObject()) {
+        UIElement u;
+        u.kind = uiKindFromName(c["kind"].asString());
+        auto pair = [](const json::Value& a, float out[2]) {
+            if (a.isArray() && a.size() == 2) out[0] = a[0].asFloat(out[0]), out[1] = a[1].asFloat(out[1]);
+        };
+        pair(c["anchorMin"], u.anchorMin);
+        pair(c["anchorMax"], u.anchorMax);
+        pair(c["offsetMin"], u.offsetMin);
+        pair(c["offsetMax"], u.offsetMax);
+        u.color = readVec3(c["color"], u.color);
+        u.opacity = c["opacity"].asFloat(u.opacity);
+        u.rounding = c["rounding"].asFloat(u.rounding);
+        u.text = c["text"].asString();
+        u.textSize = c["textSize"].asFloat(u.textSize);
+        u.textColor = readVec3(c["textColor"], u.textColor);
+        u.align = c["align"].asString() == "left" ? 0 : c["align"].asString() == "right" ? 2 : 1;
+        u.font = c["font"].asString();
+        u.image = c["image"].asString();
+        u.action = c["action"].asString();
+        u.target = c["target"].asString();
+        u.value = c["value"].asString();
+        u.min = c["min"].asFloat(u.min);
+        u.max = c["max"].asFloat(u.max);
+        u.spacing = c["spacing"].asFloat(u.spacing);
+        e.ui = u;
     }
     if (const json::Value& c = v["reflectionProbe"]; c.isObject()) {
         ReflectionProbe p;

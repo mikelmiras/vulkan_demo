@@ -15,5 +15,14 @@
     "paused": "En pausa",
     "complete": "¡Nivel completado!",
     "won": "¡Has ganado!"
+  },
+  "menu": {
+    "title": "Caza de monedas",
+    "play": "Jugar",
+    "music": "Música",
+    "spanish": "Español",
+    "name": "Tu nombre",
+    "quit": "Salir",
+    "hint": "Flechas / cruceta para elegir, Intro / A para pulsar"
   }
 }

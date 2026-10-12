@@ -167,6 +167,7 @@ void Editor::drawMenuBar() {
         }
         if (ImGui::MenuItem("Show navigation", nullptr, &showNavigation_) && showNavigation_) bakeNavigationPreview();
         ImGui::MenuItem("Preview particles", nullptr, &previewParticles_on_);
+        ImGui::MenuItem("Show game UI", nullptr, &showGameUi_);
         ImGui::Separator();
         if (ImGui::MenuItem("Focus selected", "F", false, selection() != nullptr)) focusSelected();
         if (ImGui::MenuItem("Reset camera")) cam_ = EditorCamera{};
@@ -363,6 +364,12 @@ void Editor::drawAddMenuItems() {
     if (ImGui::MenuItem("Camera")) addCamera();
     if (ImGui::MenuItem("Terrain")) addTerrain();
     if (ImGui::MenuItem("Reflection probe")) addReflectionProbe();
+    if (ImGui::BeginMenu("UI")) {
+        const char* names[] = {"Panel", "Text", "Image", "Button", "Slider", "Toggle", "Text field", "List"};
+        for (int i = 0; i < 8; ++i)
+            if (ImGui::MenuItem(names[i])) addUIElement((UIElement::Kind)i);
+        ImGui::EndMenu();
+    }
     if (ImGui::MenuItem("Point light")) addLight(Light::Type::Point);
     if (ImGui::MenuItem("Spot light")) addLight(Light::Type::Spot);
     if (ImGui::MenuItem("Directional light")) addLight(Light::Type::Directional);
