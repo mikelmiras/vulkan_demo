@@ -49,6 +49,8 @@ public:
         EntityId a = kNoEntity, b = kNoEntity;
     };
     void setRecordContacts(bool on);
+    // A soft body's particles after the last step, in its entity's space (false: it has none simulated)
+    bool softBodyPositions(EntityId id, std::vector<Vec3>& out) const;
     const std::vector<ContactPoint>& contacts() const;
     Physics();
     ~Physics();

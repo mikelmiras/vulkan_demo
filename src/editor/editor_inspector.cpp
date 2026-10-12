@@ -425,6 +425,69 @@ void Editor::drawComponents(Entity& e) {
         if (!componentHeader("Terrain", open)) { pushUndo(); e.terrain.reset(); }
         else if (open) drawTerrainInspector(e);
     }
+    if (e.softBody) {
+        if (!componentHeader("Soft Body", open)) { pushUndo(); e.softBody.reset(); }
+        else if (open) {
+            SoftBody& sb = *e.softBody;
+            int shape = (int)sb.shape;
+            if (ImGui::Combo("Shape", &shape, "Cloth\0Mesh (squashy)\0")) {
+                pushUndo();
+                sb.shape = (SoftBody::Shape)shape;
+            }
+            if (sb.shape == SoftBody::Shape::Cloth) {
+                ImGui::DragFloat("Width", &sb.width, 0.05f, 0.05f, 100.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                track();
+                ImGui::DragFloat("Height", &sb.height, 0.05f, 0.05f, 100.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                track();
+                ImGui::SliderInt("Resolution", &sb.resolution, 2, 64);
+                track();
+                int pin = sb.pinned == "top" ? 0 : sb.pinned == "corners" ? 1 : 2;
+                if (ImGui::Combo("Pinned", &pin, "Top edge\0Top corners\0Nothing\0")) {
+                    pushUndo();
+                    sb.pinned = pin == 0 ? "top" : pin == 1 ? "corners" : "none";
+                }
+                ImGui::SliderFloat("Bendiness", &sb.bendiness, 0.f, 1.f, "%.2f");
+                track();
+            } else {
+                ImGui::DragFloat("Pressure", &sb.pressure, 10.f, 0.f, 1e6f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+                track();
+                tooltip("Inflates a closed mesh (a ball, a cushion): a few thousand holds it firm");
+                if (!e.meshRenderer) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a mesh renderer (its mesh)");
+            }
+            ImGui::DragFloat("Mass", &sb.mass, 0.05f, 0.01f, 10000.f, "%.2f kg", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::SliderFloat("Stiffness", &sb.stiffness, 0.f, 1.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Damping", &sb.damping, 0.f, 2.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Friction", &sb.friction, 0.f, 1.f, "%.2f");
+            track();
+            ImGui::TextDisabled("Simulated while playing; drawn with the Mesh Renderer's look.");
+        }
+    }
+    if (e.fracture) {
+        if (!componentHeader("Fracture", open)) { pushUndo(); e.fracture.reset(); }
+        else if (open) {
+            Fracture& f = *e.fracture;
+            ImGui::SliderInt("Pieces", &f.pieces, 2, 64);
+            track();
+            int seed = (int)f.seed;
+            if (ImGui::DragInt("Seed", &seed, 1.f, 0, 1 << 30)) f.seed = (uint32_t)seed;
+            track();
+            tooltip("Another seed, other cuts (the same pieces every time for a seed)");
+            ImGui::DragFloat("Break speed", &f.breakSpeed, 0.1f, 0.f, 200.f, f.breakSpeed > 0.f ? "%.1f m/s" : "never by impacts",
+                             ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::DragFloat("Burst", &f.burst, 0.05f, 0.f, 100.f, "%.2f m/s", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::DragFloat("Piece life", &f.pieceLife, 0.1f, 0.f, 600.f, f.pieceLife > 0.f ? "%.1f s" : "forever",
+                             ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::TextDisabled("%d pieces made. Breaks on a hard impact, a Destructible\nrunning out of hits, or ctx.shatter().",
+                                (int)f.pieceMeshes.size());
+            if (!e.meshRenderer) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a mesh renderer (its mesh is cut)");
+        }
+    }
     if (e.brain) {
         if (!componentHeader("AI Brain", open)) { pushUndo(); e.brain.reset(); }
         else if (open) drawBrainInspector(e);
@@ -588,6 +651,9 @@ void Editor::drawComponents(Entity& e) {
             tooltip("Moved by animation or game code instead of simulated: it pushes others but isn't pushed (a "
                     "ragdoll's parts until it goes limp, a lift)");
             ImGui::SliderFloat("Bounciness", &rb.bounciness, 0.f, 1.f, "%.2f");
+            track();
+            ImGui::SliderFloat("Buoyancy", &rb.buoyancy, 0.f, 3.f, "%.2f");
+            tooltip("In Water volumes (trigger boxes tagged Water): 1 neither floats nor sinks, more floats, less sinks");
             track();
             ImGui::SliderFloat("Friction", &rb.friction, 0.f, 2.f, "%.2f");
             track();
@@ -852,6 +918,20 @@ void Editor::drawComponents(Entity& e) {
             pushUndo();
             e.joint = Joint{};
             if (!e.rigidBody) e.rigidBody = RigidBody{};
+            if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
+        }
+        if (ImGui::MenuItem("Soft Body", nullptr, false, !e.softBody)) {
+            pushUndo();
+            e.softBody = SoftBody{};
+            if (e.meshRenderer && e.meshRenderer->mesh != (int)MeshKind::Plane) e.softBody->shape = SoftBody::Shape::Mesh;
+            if (!e.meshRenderer) {
+                e.meshRenderer = MeshRenderer{};
+                e.meshRenderer->mesh = (int)MeshKind::Plane;
+            }
+        }
+        if (ImGui::MenuItem("Fracture", nullptr, false, !e.fracture)) {
+            pushUndo();
+            e.fracture = Fracture{};
             if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
         }
         if (ImGui::MenuItem("AI Brain", nullptr, false, !e.brain)) {

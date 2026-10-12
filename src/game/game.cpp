@@ -345,6 +345,48 @@ void GameContext::destroy(EntityId id) {
     if (!isDestroyed(id)) destroyQueue_.push_back(id);
 }
 
+void GameContext::shatter(EntityId id) {
+    Entity* e = find(id);
+    if (!e || isDestroyed(id)) return;
+    if (!e->fracture || !e->meshRenderer || e->fracture->pieceMeshes.empty() || !meshes_) {
+        destroy(id);
+        return;
+    }
+    Mat4 world = scene_->worldMatrix(id);
+    Vec3 centre = transformPoint(world, {0, 0, 0});
+    if (e->meshRenderer->mesh >= 0 && e->meshRenderer->mesh < meshes_->count()) {
+        const Mesh& m = meshes_->get(e->meshRenderer->mesh);
+        centre = transformPoint(world, (m.boundsMin + m.boundsMax) * 0.5f);
+    }
+    Entity whole = *e;   // (copied: spawning may move the entities)
+    Vec3 velocity = whole.rigidBody ? whole.rigidBody->velocity : Vec3{};
+    float mass = whole.rigidBody ? whole.rigidBody->mass : 1.f;
+    const Fracture& f = *whole.fracture;
+    for (size_t k = 0; k < f.pieceMeshes.size(); ++k) {
+        int mesh = f.pieceMeshes[k];
+        if (mesh < 0 || mesh >= meshes_->count()) continue;
+        const Mesh& pm = meshes_->get(mesh);
+        Entity piece;
+        piece.id = scene_->reserveId();
+        piece.name = whole.name + " piece " + std::to_string(k + 1);
+        piece.layer = whole.layer;
+        piece.tags = {"Debris"};
+        piece.transform.setMatrix(world);   // (a root: where the whole was in the world)
+        piece.meshRenderer = whole.meshRenderer;
+        piece.meshRenderer->mesh = mesh;
+        piece.collider = Collider{};
+        piece.collider->shape = Collider::Shape::Mesh;   // (moving: its convex hull)
+        piece.rigidBody = whole.rigidBody ? *whole.rigidBody : RigidBody{};
+        piece.rigidBody->kinematic = false;
+        piece.rigidBody->mass = std::max(mass / (float)f.pieceMeshes.size(), 0.01f);
+        Vec3 out = transformPoint(world, (pm.boundsMin + pm.boundsMax) * 0.5f) - centre;
+        piece.rigidBody->velocity = velocity + (length(out) > 1e-4f ? normalize(out) : Vec3{0, 1, 0}) * f.burst;
+        if (f.pieceLife > 0.f) game_->debris_.emplace_back(piece.id, time_ + f.pieceLife);
+        spawnQueue_.push_back(std::move(piece));
+    }
+    destroy(id);
+}
+
 bool GameContext::isDestroyed(EntityId id) const {
     return std::find(destroyQueue_.begin(), destroyQueue_.end(), id) != destroyQueue_.end();
 }
@@ -417,6 +459,7 @@ void Game::begin(bool fresh, bool keepPhysics) {
     if (!keepPhysics) physics_.clear();
     brains_.clear();
     noises_.clear();
+    debris_.clear();
     particles_.clear();
     prevWorlds_.clear();
     prevIds_.clear();
@@ -839,7 +882,22 @@ void Game::fixedUpdate(float dt) {
     }
     {
         PROFILE_SCOPE("Physics");
-        playImpacts(physics_.step(*scene_, *meshes_, dt));
+        std::vector<Impact> impacts = physics_.step(*scene_, *meshes_, dt);
+        playImpacts(impacts);
+        for (const Impact& i : impacts)   // hard enough: pre-fractured things break
+            if (const Entity* e = scene_->find(i.entity); e && e->fracture && e->fracture->breakSpeed > 0.f &&
+                                                          i.speed >= e->fracture->breakSpeed)
+                ctx_.shatter(i.entity);
+        for (Entity& e : scene_->entities)   // soft bodies: where their particles went
+            if (e.softBody && physics_.softBodyPositions(e.id, e.softBody->positions)) ++e.softBody->positionsVersion;
+        for (auto it = debris_.begin(); it != debris_.end();) {   // pieces whose time is up
+            if (time_ >= it->second) {
+                ctx_.destroy(it->first);
+                it = debris_.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
     if (tick_ % 15 == 0) updateNavObstacles();
     {

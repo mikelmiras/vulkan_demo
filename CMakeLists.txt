@@ -108,6 +108,8 @@ set(ENGINE_SOURCES
   src/scene/scene_diff.cpp
   src/scene/stress_scene.cpp
   src/physics/physics.cpp
+  src/physics/soft_body.cpp
+  src/physics/fracture.cpp
   src/audio/audio.cpp
   src/audio/miniaudio_impl.c
   src/game/input.cpp
@@ -321,7 +323,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_reliability.cpp
     tests/test_lights.cpp
     tests/test_lod.cpp
-    tests/test_ai.cpp)
+    tests/test_ai.cpp
+    tests/test_soft_fracture.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 35;  // 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 36;  // 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -498,6 +498,30 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
                 c.set("foliageDensity", terrain::encodeBytes(t.foliageDensity));
         }
     }
+    if (e.softBody) {
+        const SoftBody& sb = *e.softBody;
+        json::Value& c = v.set("softBody", json::Value::object());
+        c.set("shape", sb.shape == SoftBody::Shape::Cloth ? "cloth" : "mesh");
+        c.set("width", sb.width);
+        c.set("height", sb.height);
+        c.set("resolution", sb.resolution);
+        c.set("pinned", sb.pinned);
+        c.set("mass", sb.mass);
+        c.set("stiffness", sb.stiffness);
+        c.set("bendiness", sb.bendiness);
+        c.set("pressure", sb.pressure);
+        c.set("damping", sb.damping);
+        c.set("friction", sb.friction);
+    }
+    if (e.fracture) {
+        const Fracture& f = *e.fracture;
+        json::Value& c = v.set("fracture", json::Value::object());
+        c.set("pieces", f.pieces);
+        c.set("seed", (double)f.seed);
+        c.set("breakSpeed", f.breakSpeed);
+        c.set("burst", f.burst);
+        c.set("pieceLife", f.pieceLife);
+    }
     if (e.brain) {
         const AIBrain& b = *e.brain;
         json::Value& c = v.set("brain", json::Value::object());
@@ -618,6 +642,7 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("mass", rb.mass);
         c.set("useGravity", rb.useGravity);
         c.set("bounciness", rb.bounciness);
+        if (rb.buoyancy != 1.2f) c.set("buoyancy", rb.buoyancy);
         c.set("friction", rb.friction);
         c.set("damping", rb.damping);
         if (length(rb.velocity) > 0.f) c.set("velocity", vec3(rb.velocity));
@@ -900,6 +925,30 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         terrain::touch(t);
         e.terrain = std::move(t);
     }
+    if (const json::Value& c = v["softBody"]; c.isObject()) {
+        SoftBody sb;
+        sb.shape = c["shape"].asString() == "mesh" ? SoftBody::Shape::Mesh : SoftBody::Shape::Cloth;
+        sb.width = c["width"].asFloat(sb.width);
+        sb.height = c["height"].asFloat(sb.height);
+        sb.resolution = c["resolution"].asInt(sb.resolution);
+        sb.pinned = c.has("pinned") ? c["pinned"].asString() : sb.pinned;
+        sb.mass = c["mass"].asFloat(sb.mass);
+        sb.stiffness = c["stiffness"].asFloat(sb.stiffness);
+        sb.bendiness = c["bendiness"].asFloat(sb.bendiness);
+        sb.pressure = c["pressure"].asFloat(sb.pressure);
+        sb.damping = c["damping"].asFloat(sb.damping);
+        sb.friction = c["friction"].asFloat(sb.friction);
+        e.softBody = sb;
+    }
+    if (const json::Value& c = v["fracture"]; c.isObject()) {
+        Fracture f;
+        f.pieces = c["pieces"].asInt(f.pieces);
+        f.seed = (uint32_t)c["seed"].asNumber(f.seed);
+        f.breakSpeed = c["breakSpeed"].asFloat(f.breakSpeed);
+        f.burst = c["burst"].asFloat(f.burst);
+        f.pieceLife = c["pieceLife"].asFloat(f.pieceLife);
+        e.fracture = f;
+    }
     if (const json::Value& c = v["brain"]; c.isObject()) {
         AIBrain b;
         for (const json::Value& nv : c["nodes"].elements()) {
@@ -1017,6 +1066,7 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         rb.mass = std::max(c["mass"].asFloat(rb.mass), 0.001f);
         rb.useGravity = c["useGravity"].asBool(true);
         rb.bounciness = c["bounciness"].asFloat(rb.bounciness);
+        rb.buoyancy = c["buoyancy"].asFloat(rb.buoyancy);
         rb.friction = c["friction"].asFloat(rb.friction);
         rb.damping = c["damping"].asFloat(rb.damping);
         rb.velocity = readVec3(c["velocity"], {});

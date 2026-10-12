@@ -99,6 +99,41 @@ struct RigidBody {
     Vec3 angularVelocity;      // radians per second around each axis (world space)
     bool kinematic = false;    // moved by animation or game code, not simulated (pushes others, isn't pushed):
                                // a ragdoll's parts until it goes limp
+    float buoyancy = 1.2f;     // in Water volumes: 1 neither floats nor sinks, more floats, less sinks
+};
+
+// A soft body (physics/soft_body.h): cloth, or the entity's mesh as a squashy volume (jelly, a ball, a cushion).
+// Drawn with the entity's MeshRenderer look; its particles collide with everything else.
+struct SoftBody {
+    enum class Shape { Cloth, Mesh };
+    Shape shape = Shape::Cloth;
+    float width = 2.f, height = 2.f;   // cloth: a sheet in the entity's XY plane, centred on it
+    int resolution = 16;               // cloth: particles along each side
+    std::string pinned = "top";        // cloth: "top" edge, "corners" (top two) or "none" held where they start
+    float mass = 1.f;                  // all of it, kg
+    float stiffness = 0.9f;            // 0 floppy .. 1 hardly stretches
+    float bendiness = 0.5f;            // cloth: how freely it folds (0 stiff .. 1 limp)
+    float pressure = 0.f;              // mesh: inflation (0: none; a few thousand: a firm ball)
+    float damping = 0.1f;
+    float friction = 0.5f;
+    // Runtime (not saved): the drawn mesh, deformed in place; the particles' positions (entity space) as simulated
+    int mesh = -1;
+    int meshVertices = 0, meshSource = -1;
+    std::vector<Vec3> positions;
+    uint64_t positionsVersion = 0, meshVersion = 0;   // (the drawn mesh shows the particles of meshVersion)
+};
+
+// Pre-fractured: breaks into pieces (cut from its mesh, the same ones every time: physics/fracture.h) on a hard
+// enough impact, when a Destructible on it runs out of hits, or on ctx.shatter()
+struct Fracture {
+    int pieces = 8;
+    uint32_t seed = 1;
+    float breakSpeed = 6.f;     // impacts this fast (m/s) break it (0: only ctx.shatter / Destructible)
+    float burst = 2.f;          // how fast the pieces fly apart (m/s)
+    float pieceLife = 8.f;      // seconds before the pieces are cleared away (0: they stay)
+    // Runtime: the pieces' meshes in the library (made by fracture::syncMeshes)
+    std::vector<int> pieceMeshes;
+    uint64_t piecesKey = 0;
 };
 
 // A wheeled vehicle (physics/physics.h, Jolt's): the entity's rigid body is the chassis (scale 1), its wheels hang
@@ -545,6 +580,8 @@ struct Entity {
     std::optional<Replicated> replicated;
     std::optional<Vehicle> vehicle;
     std::optional<AIBrain> brain;
+    std::optional<SoftBody> softBody;
+    std::optional<Fracture> fracture;
     std::optional<PrefabLink> prefab;
     // In an instance of a prefab that itself contains an instance of another prefab (or is a variant of one), the
     // link the prefab's entity has to that inner prefab. Inside a prefab's own entities, `prefab` is that link.

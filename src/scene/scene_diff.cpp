@@ -34,7 +34,8 @@ bool eq(const Light& a, const Light& b) {
 bool eq(const RigidBody& a, const RigidBody& b) {
     return a.mass == b.mass && a.lockRotation == b.lockRotation && a.useGravity == b.useGravity &&
            a.bounciness == b.bounciness && a.friction == b.friction && a.damping == b.damping &&
-           eq(a.velocity, b.velocity) && eq(a.angularVelocity, b.angularVelocity) && a.kinematic == b.kinematic;
+           eq(a.velocity, b.velocity) && eq(a.angularVelocity, b.angularVelocity) && a.kinematic == b.kinematic &&
+           a.buoyancy == b.buoyancy;
 }
 bool eq(const NavLink& a, const NavLink& b) { return eq(a.end, b.end) && a.bothWays == b.bothWays && a.cost == b.cost; }
 bool eq(const Joint& a, const Joint& b) {
@@ -51,6 +52,15 @@ bool eq(const AudioSource& a, const AudioSource& b) {
 }
 bool eq(const ReverbZone& a, const ReverbZone& b) {
     return a.radius == b.radius && a.blend == b.blend && a.wet == b.wet && a.roomSize == b.roomSize && a.damping == b.damping;
+}
+bool eq(const SoftBody& a, const SoftBody& b) {
+    return a.shape == b.shape && a.width == b.width && a.height == b.height && a.resolution == b.resolution &&
+           a.pinned == b.pinned && a.mass == b.mass && a.stiffness == b.stiffness && a.bendiness == b.bendiness &&
+           a.pressure == b.pressure && a.damping == b.damping && a.friction == b.friction;
+}
+bool eq(const Fracture& a, const Fracture& b) {
+    return a.pieces == b.pieces && a.seed == b.seed && a.breakSpeed == b.breakSpeed && a.burst == b.burst &&
+           a.pieceLife == b.pieceLife;
 }
 bool eq(const AIBrain& a, const AIBrain& b) {
     if (a.nodes.size() != b.nodes.size()) return false;
@@ -188,7 +198,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
         !eq(a.prefab, b.prefab) || !eq(a.nestedPrefab, b.nestedPrefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter) || !eq(a.terrain, b.terrain) ||
-        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.ui, b.ui) || !eq(a.vehicle, b.vehicle) || !eq(a.brain, b.brain) ||
+        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.ui, b.ui) || !eq(a.vehicle, b.vehicle) || !eq(a.brain, b.brain) || !eq(a.softBody, b.softBody) || !eq(a.fracture, b.fracture) ||
         a.replicated.has_value() != b.replicated.has_value() || (a.replicated && a.replicated->fields != b.replicated->fields))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;

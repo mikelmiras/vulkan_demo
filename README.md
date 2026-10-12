@@ -543,6 +543,16 @@ colliders draws them all (blue = solid, green = trigger).
   back go up and down; jump lets go) and swims in trigger volumes tagged **Water** (it floats and sinks slowly;
   jump or up swims up).
 - View > Show contacts draws, while playing, where bodies touch (dots) and which way they push (lines).
+- **Soft bodies**: a **Soft Body** component makes **cloth** (a sheet of particles, pinned along its top edge, at
+  its top corners or nowhere; how stiff and how freely it folds) or turns the entity's mesh into a **squashy**
+  volume (jelly, a cushion; *Pressure* inflates it into a firm ball). Simulated by Jolt with everything else (it
+  collides, things land on it); drawn with the Mesh Renderer's look, its mesh following the particles.
+- **Buoyancy**: rigid bodies in a Water volume (a trigger box tagged **Water**) float or sink by their Rigid Body's
+  *Buoyancy* (1: neither; a cork 2, a stone 0.4), with drag in the water.
+- **Fracture**: a **Fracture** component cuts the mesh into pieces ahead of time (as many as set; another *Seed*,
+  other cuts). It breaks into them on an impact faster than its *Break speed*, when a Destructible on it runs out
+  of hits, or on `ctx.shatter(id)`: rigid pieces (tagged Debris) flying apart, cleared away after their *Piece life*.
+  Convex meshes (boxes, rocks) cut cleanly; a concave mesh's cut faces may cross its gaps.
 - Everything (queries, triggers, characters, bodies) is one Jolt world, kept up to date with the scene each update.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
 

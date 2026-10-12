@@ -17,6 +17,8 @@
 #include "app/application.h"
 #include "app/profiler_view.h"
 #include "core/crash.h"
+#include "physics/fracture.h"
+#include "physics/soft_body.h"
 #include "core/log.h"
 #include "core/profiler.h"
 #include "audio/audio.h"
@@ -283,6 +285,8 @@ int main(int argc, char** argv) {
         std::vector<Mat4> worlds = game.worldMatrices();
         std::vector<Mat4> joints;
         terrain::syncMeshes(scene, meshes);
+        softbody::syncMeshes(scene, meshes);
+        fracture::syncMeshes(scene, meshes);
         std::vector<DrawItem> items = collectDrawItems(scene, worlds, kNoEntity, &joints, &meshes);
         std::vector<LightInfo> lights = collectLights(scene, worlds);
         std::vector<PlantSet> plants = collectPlants(scene, worlds, meshes);

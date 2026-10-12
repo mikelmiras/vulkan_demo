@@ -189,6 +189,9 @@ public:
 
     // Removes the entity (and its children) once every behaviour has run this update, so references stay valid
     void destroy(EntityId id);
+    // Breaks a pre-fractured entity (a Fracture component) into its pieces: rigid bodies flying apart from where it
+    // was (cleared away after its pieceLife); without one (or its pieces not made yet), just destroys it
+    void shatter(EntityId id);
     bool isDestroyed(EntityId id) const;   // queued this update
     void log(const std::string& message);  // shown in the viewport and printed to stdout
 
@@ -419,6 +422,7 @@ private:
     std::map<std::string, json::Value> settings_;
     std::unordered_map<EntityId, ai::BrainState> brains_;   // AI brains' memory (game/behaviour_tree.h)
     std::vector<ai::Noise> noises_;                          // heard by them (the last two seconds)
+    std::vector<std::pair<EntityId, float>> debris_;         // shattered pieces, and when they're cleared away
     uint64_t noiseSerial_ = 0;
     void updateBrains();
     float settingsSaveIn_ = -1.f;   // (>= 0: changed, saved when it runs out)

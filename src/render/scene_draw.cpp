@@ -44,6 +44,8 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
         DrawItem d;
         d.model = worlds[i];
         d.mesh = e.meshRenderer->mesh;
+        if (e.softBody && e.softBody->mesh >= 0 && (!meshes || e.softBody->mesh < meshes->count()))
+            d.mesh = e.softBody->mesh;   // (its own deforming copy: physics/soft_body.h)
         d.color = e.meshRenderer->color;
         d.texture = e.meshRenderer->texture;
         d.tiling = e.meshRenderer->tiling;

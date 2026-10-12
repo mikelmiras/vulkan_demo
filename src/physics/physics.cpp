@@ -1,7 +1,9 @@
 #include "physics/physics.h"
+#include "physics/soft_body.h"
 #include "scene/terrain.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <mutex>
@@ -35,6 +37,9 @@
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
+#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 #include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
 #include <Jolt/Physics/Vehicle/VehicleConstraint.h>
 #include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
@@ -242,6 +247,140 @@ struct Physics::Impl {
         bool seen = false;
     };
     std::unordered_map<EntityId, VehicleState> vehicles;
+
+    // ---- Soft bodies (physics/soft_body.h): a Jolt soft body per SoftBody component, made again when its settings
+    // change; where its particles are after each step, in the entity's space
+    struct SoftState {
+        JPH::BodyID id;
+        uint64_t key = 0;
+        bool seen = false;
+        std::vector<Vec3> positions;
+    };
+    std::unordered_map<EntityId, SoftState> softBodies;
+    void removeSoft(SoftState& s) {
+        bi().RemoveBody(s.id);
+        bi().DestroyBody(s.id);
+    }
+    static uint64_t softKey(const SoftBody& s, int mesh, const Mat4& world) {
+        uint64_t k = 1469598103934665603ull;
+        auto mix = [&](const void* d, size_t n) {
+            for (size_t i = 0; i < n; ++i) k = (k ^ static_cast<const uint8_t*>(d)[i]) * 1099511628211ull;
+        };
+        auto f = [&](float x) { mix(&x, sizeof(x)); };
+        f((float)s.shape); f(s.width); f(s.height); f((float)s.resolution); f(s.mass); f(s.stiffness); f(s.bendiness);
+        f(s.pressure); f(s.damping); f(s.friction); f((float)mesh);
+        mix(s.pinned.data(), s.pinned.size());
+        for (int i = 0; i < 16; ++i) f(std::round(world.m[i] * 1000.f));   // (moved by hand: made again there)
+        return k;
+    }
+    void syncSoftBodies(const Scene& scene, const MeshLibrary& meshes, const std::vector<Mat4>& worlds) {
+        for (auto& [id, s] : softBodies) s.seen = false;
+        for (size_t i = 0; i < scene.entities.size(); ++i) {
+            const Entity& e = scene.entities[i];
+            if (!e.softBody || !scene.visibleInHierarchy(e.id)) continue;
+            int mesh = e.meshRenderer ? e.meshRenderer->mesh : -1;
+            uint64_t key = softKey(*e.softBody, mesh, worlds[i]);
+            auto it = softBodies.find(e.id);
+            if (it != softBodies.end() && it->second.key != key) {
+                removeSoft(it->second);
+                softBodies.erase(it);
+                it = softBodies.end();
+            }
+            if (it == softBodies.end()) {
+                softbody::Build b;
+                if (!softbody::build(*e.softBody, meshes, mesh, b)) continue;
+                const SoftBody& sb = *e.softBody;
+                Placement p = place(worlds[i]);
+                JPH::Ref<JPH::SoftBodySharedSettings> shared = new JPH::SoftBodySharedSettings;
+                for (size_t k = 0; k < b.particles.size(); ++k) {
+                    Vec3 q = b.particles[k];
+                    shared->mVertices.push_back(JPH::SoftBodySharedSettings::Vertex(
+                        JPH::Float3(q.x * p.scale.x, q.y * p.scale.y, q.z * p.scale.z), JPH::Float3(0, 0, 0), b.invMass[k]));
+                }
+                for (size_t f = 0; f + 2 < b.faces.size(); f += 3)
+                    shared->AddFace(JPH::SoftBodySharedSettings::Face(b.faces[f], b.faces[f + 1], b.faces[f + 2]));
+                // Stiffness and bending as compliances (0: rigid); a limp cloth has no bend constraints at all
+                float soft = 1.f - std::clamp(sb.stiffness, 0.f, 1.f), bend = std::clamp(sb.bendiness, 0.f, 1.f);
+                JPH::SoftBodySharedSettings::VertexAttributes attributes(
+                    soft * soft * soft * 0.01f, soft * soft * soft * 0.01f, bend >= 0.999f ? FLT_MAX : bend * bend * bend * 0.1f);
+                shared->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
+                if (sb.pressure > 0.f) shared->CalculateVolumeConstraintVolumes();
+                shared->Optimize();
+                JPH::SoftBodyCreationSettings cs(shared, JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation),
+                                                 objectLayer(e.layer, true));
+                cs.mPressure = std::max(sb.pressure, 0.f);
+                cs.mLinearDamping = std::max(sb.damping, 0.f);
+                cs.mFriction = std::max(sb.friction, 0.f);
+                cs.mUpdatePosition = false;   // (its particles move; the body stays where the entity is)
+                cs.mNumIterations = 8;
+                cs.mUserData = e.id;
+                JPH::Body* body = bi().CreateSoftBody(cs);
+                if (!body) continue;
+                bi().AddBody(body->GetID(), JPH::EActivation::Activate);
+                SoftState s;
+                s.id = body->GetID();
+                s.key = key;
+                it = softBodies.emplace(e.id, std::move(s)).first;
+            }
+            it->second.seen = true;
+        }
+        for (auto it = softBodies.begin(); it != softBodies.end();) {   // soft bodies taken off (or entities gone)
+            if (it->second.seen) { ++it; continue; }
+            removeSoft(it->second);
+            it = softBodies.erase(it);
+        }
+    }
+    void readSoftBodies(const Scene& scene) {
+        for (auto& [id, s] : softBodies) {
+            const Entity* e = scene.find(id);
+            if (!e) continue;
+            Mat4 toEntity = inverseAffine(scene.worldMatrix(id));
+            JPH::BodyLockRead lock(system.GetBodyLockInterface(), s.id);
+            if (!lock.Succeeded()) continue;
+            const JPH::Body& body = lock.GetBody();
+            const auto* mp = static_cast<const JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+            JPH::RMat44 com = body.GetCenterOfMassTransform();
+            s.positions.clear();
+            for (const JPH::SoftBodyVertex& v : mp->GetVertices()) {
+                JPH::RVec3 w = com * JPH::RVec3(v.mPosition);
+                s.positions.push_back(transformPoint(toEntity, {(float)w.GetX(), (float)w.GetY(), (float)w.GetZ()}));
+            }
+        }
+    }
+
+    // ---- Buoyancy: dynamic bodies in trigger volumes tagged "Water" float (or sink) by their RigidBody's buoyancy
+    void applyBuoyancy(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 gravity, float dt) {
+        struct Water {
+            Vec3 lo, hi;
+        };
+        std::vector<Water> water;
+        for (size_t i = 0; i < scene.entities.size(); ++i) {
+            const Entity& e = scene.entities[i];
+            if (!e.collider || !e.collider->trigger || e.collider->shape != Collider::Shape::Box || !e.hasTag("Water")) continue;
+            Water w{{1e30f, 1e30f, 1e30f}, {-1e30f, -1e30f, -1e30f}};
+            Vec3 c = e.collider->center, h = e.collider->size * 0.5f;
+            for (int k = 0; k < 8; ++k) {
+                Vec3 q = transformPoint(worlds[i], c + Vec3{k & 1 ? h.x : -h.x, k & 2 ? h.y : -h.y, k & 4 ? h.z : -h.z});
+                w.lo = {std::min(w.lo.x, q.x), std::min(w.lo.y, q.y), std::min(w.lo.z, q.z)};
+                w.hi = {std::max(w.hi.x, q.x), std::max(w.hi.y, q.y), std::max(w.hi.z, q.z)};
+            }
+            water.push_back(w);
+        }
+        if (water.empty()) return;
+        for (auto& [id, t] : bodies) {
+            if (!t.dynamic || t.kinematic) continue;
+            const Entity* e = scene.find(id);
+            if (!e || !e->rigidBody) continue;
+            JPH::RVec3 p = bi().GetCenterOfMassPosition(t.id);
+            Vec3 at{(float)p.GetX(), (float)p.GetY(), (float)p.GetZ()};
+            for (const Water& w : water) {
+                if (at.x < w.lo.x || at.x > w.hi.x || at.z < w.lo.z || at.z > w.hi.z || at.y < w.lo.y - 2.f || at.y > w.hi.y + 2.f) continue;
+                bi().ApplyBuoyancyImpulse(t.id, JPH::RVec3(at.x, w.hi.y, at.z), JPH::Vec3(0, 1, 0), e->rigidBody->buoyancy,
+                                          0.5f, 0.05f, JPH::Vec3::sZero(), toJ(gravity), dt);
+                break;
+            }
+        }
+    }
     void removeVehicle(VehicleState& v) {
         system.RemoveStepListener(v.constraint);
         system.RemoveConstraint(v.constraint);
@@ -785,6 +924,13 @@ void Physics::setRecordContacts(bool on) {
 
 const std::vector<Physics::ContactPoint>& Physics::contacts() const { return impl_->contacts.points; }
 
+bool Physics::softBodyPositions(EntityId id, std::vector<Vec3>& out) const {
+    auto it = impl_->softBodies.find(id);
+    if (it == impl_->softBodies.end() || it->second.positions.empty()) return false;
+    out = it->second.positions;
+    return true;
+}
+
 void Physics::remapMeshes(const std::vector<int>& map) {
     auto remap = [&](ShapeKey& k) {
         if (k.mesh >= 0 && k.mesh < (int)map.size()) k.mesh = map[(size_t)k.mesh];
@@ -804,6 +950,8 @@ void Physics::clear() {
     impl_->joints.clear();
     for (auto& [id, v] : impl_->vehicles) impl_->removeVehicle(v);
     impl_->vehicles.clear();
+    for (auto& [id, s] : impl_->softBodies) impl_->removeSoft(s);
+    impl_->softBodies.clear();
     impl_->groups = nullptr;
     impl_->groupsKey = 0;
     impl_->grouped.clear();
@@ -928,6 +1076,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
 
     im.syncJoints(scene, worlds);
     im.syncVehicles(scene, worlds);
+    im.syncSoftBodies(scene, meshes, worlds);
     if (im.added > 256) {   // many new bodies (a scene starting): rebuild the broad-phase's trees once
         im.system.OptimizeBroadPhase();
         im.added = 0;
@@ -937,6 +1086,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
     if (dt <= 0.f) return {};   // (just bringing the bodies up to date)
     im.contacts.impacts.clear();
     im.contacts.points.clear();
+    im.applyBuoyancy(scene, worlds, settings.gravity, dt);
     im.system.Update(dt, 1, &im.temp, &im.jobs);
 
     // ---- Write the moving bodies back: ancestors first, each against its parent's world as it is now (a chain of
@@ -985,6 +1135,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
     }
 
     im.writeVehicles(scene);
+    im.readSoftBodies(scene);
 
     // ---- Joints pulled harder than they hold come apart
     for (auto it = im.joints.begin(); it != im.joints.end();) {

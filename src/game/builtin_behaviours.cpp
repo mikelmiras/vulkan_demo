@@ -521,7 +521,8 @@ struct Destructible : BehaviourBase<Destructible> {
             dust.additive = false;
             ctx.emitParticles(dust, at, 30);
         }
-        ctx.destroy(self.id);
+        if (self.fracture) ctx.shatter(self.id);   // (pre-fractured: into its pieces)
+        else ctx.destroy(self.id);
         ctx.playSound("Break", at);
         if (!dropPrefab.empty()) ctx.spawn(dropPrefab, at);
         ctx.log("Destroyed " + name);

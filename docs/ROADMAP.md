@@ -482,7 +482,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 45 (done) | Terrain and vegetation: terrain LOD, holes, heightmap import, instanced grass and foliage painted with a brush (wind, distance fade) | 256 x 256 terrains are 130k triangles; there's nothing to fill them with |
 | 46 (done) | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
 | 47 (done) | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
-| 48 | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
+| 48 (done) | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
 | 49 | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
 | 50 | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
 | 51 | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
@@ -583,4 +583,22 @@ Working list for turning the renderer demo into a small game engine. Each task i
   correction, a hitscan hitting with compensation and missing without. Not done: field-level deltas and
   quantisation inside a blob, reliable messages, scene changes after joining, server-side rewinding of animation
   poses (only transforms), bandwidth limits per client, encryption.
+- Task 48: physics/soft_body builds what's simulated and drawn: cloth as a grid in the entity's XY plane (pinned
+  particles get no mass; drawn twice, the back turned round), a mesh's vertices welded by position into particles
+  (its faces kept, mapped to particles). Physics keeps a Jolt soft body per SoftBody (made again when its settings
+  or its entity's place change: a key over both), with edge, shear and bend constraints from stiffness and bendiness
+  as compliances (limp: no bend constraints), volume constraints when pressured, mUpdatePosition off so its body
+  stays put; after each step its particles go back into the entity's space (Physics::softBodyPositions), Game copies
+  them onto the component and softbody::syncMeshes (editor and vkgame, with the terrains) rewrites its own drawn
+  copy of the mesh in place with smooth normals. Buoyancy: before each step, every dynamic body inside a Water trigger
+  box (or up to 2 m about it) gets BodyInterface::ApplyBuoyancyImpulse at the box's top. Fracture: physics/fracture
+  splits a triangle soup by a plane (crossing triangles re-cut into each side's polygon, then fanned) and caps both
+  sides with a fan around the crossing points sorted by angle; cut() splits the biggest piece through (about) its
+  centre in a seeded random direction until there are enough pieces (slivers retried). fracture::syncMeshes makes
+  each (mesh, count, seed)'s piece meshes once (found again by name). ctx.shatter queues the pieces as spawns
+  (fresh ids, the whole's world transform, a convex hull collider, a share of the mass, its velocity plus a burst
+  outward from the centre) and destroys the whole; impacts over breakSpeed shatter, as does a Destructible with a
+  Fracture; Game destroys pieces after their pieceLife. Scene format 36, module API 35. Not done: soft bodies
+  following a moved entity (they're made again), tearing cloth, soft bodies in water, fracturing concave meshes
+  properly, breaking pieces further, joints holding pieces until they're hit.
 
