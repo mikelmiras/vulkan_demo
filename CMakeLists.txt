@@ -126,6 +126,8 @@ set(ENGINE_SOURCES
   src/render/renderer_shadows.cpp
   src/render/scene_draw.cpp
   src/render/environment.cpp
+  src/render/light_clusters.cpp
+  src/render/renderer_lights.cpp
   src/render/renderer_environment.cpp
   src/render/renderer_probes.cpp
   src/render/renderer_taa.cpp
@@ -311,7 +313,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_gameplay.cpp
     tests/test_joints.cpp
     tests/test_vehicles.cpp
-    tests/test_reliability.cpp)
+    tests/test_reliability.cpp
+    tests/test_lights.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module

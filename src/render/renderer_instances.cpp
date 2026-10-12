@@ -74,7 +74,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     std::vector<Frustum> shadowViews;
     std::vector<uint32_t> shadowLayers;
     for (uint32_t l = 0; l < kShadowLayers; ++l)
-        if (shadowLayers_ & (1u << l)) {
+        if (shadowLayers_ & (1ull << l)) {
             shadowViews.emplace_back(shadowViewProj_[l]);
             shadowLayers.push_back(l);
         }

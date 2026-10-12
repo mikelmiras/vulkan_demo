@@ -23,20 +23,22 @@
 namespace render_detail {
 
 // Must match shaders/common.glsl
-constexpr int kMaxPointLights = 8;
+constexpr int kShadowViews = 52;       // 4 sun cascades + 48 views of spot and point lights in the atlas
+constexpr int kMaxLights = 1024;       // point and spot lights drawn (the nearest)
+constexpr int kClusterX = 16, kClusterY = 9, kClusterSlices = 24;
+constexpr size_t kMaxClusterIndices = 1 << 17;
 struct FrameUBO {
     Mat4 viewProj;
-    Mat4 shadowViewProj[20];  // 0-3: the sun's cascades, 4-7: spot lights, 8-19: two point lights' cube faces
+    Mat4 shadowViewProj[kShadowViews];  // 0-3: the sun's cascades, then views in the shadow atlas
+    float shadowRect[kShadowViews][4];  // atlas views: the tile (uv offset, uv size)
     float camPos[4];
     float fogColor[4];   // rgb linear, w = density
     float viewport[4];   // width, height, outline width in pixels, unused
     float sunDir[4];     // xyz, w = 1 if it casts shadows
     float sunColor[4];   // rgb linear * intensity
-    float ambient[4];    // rgb, w = point light count
-    float pointPos[kMaxPointLights][4];     // xyz, w = range
-    float pointColor[kMaxPointLights][4];   // rgb linear * intensity
-    float pointDir[kMaxPointLights][4];     // spot lights: xyz = direction it shines
-    float pointSpot[kMaxPointLights][4];    // x = cos inner, y = cos outer (-2: a point light), z = shadow layer or -1
+    float ambient[4];    // rgb, w = point and spot light count (the lights buffer)
+    float clusterGrid[4];    // tiles x, y, depth slices, w = 1: clustered (0: every light, for probe views)
+    float clusterDepth[4];   // near, slices / log(far / near)
     float camRight[4], camUp[4];
     float camForward[4];      // w = tan(fovY / 2)
     float cascadeSplits[4];   // far end of each cascade, metres along the view
@@ -47,6 +49,14 @@ struct FrameUBO {
     float probeMin[4][4];     // its box
     float probeMax[4][4];     // w = 1: box projection
     float probeSh[4][9][4];   // its irradiance
+};
+
+// A point or spot light (set 0, binding 14)
+struct GpuLight {
+    float posRange[4];   // xyz, w = range
+    float color[4];      // rgb linear * intensity, w = 1: spot
+    float dir[4];        // spots: the direction it shines, w = cos outer
+    float params[4];     // x = cos inner, y = first shadow view (-1: none), z = cookie layer (-1: none), w = tan outer
 };
 
 struct InstanceData {

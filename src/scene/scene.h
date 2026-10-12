@@ -60,7 +60,9 @@ struct Light {
     float range = 15.f;               // point and spot lights fade to nothing at this distance
     float spotAngle = 30.f;           // spot lights: half-angle of the cone, degrees (along the entity's -Z)
     float spotSoftness = 0.2f;        // spot lights: how much of the cone's edge fades out (0..1)
-    bool castShadows = true;          // the sun (the first directional light) and up to 4 spot lights
+    bool castShadows = true;          // the sun (the first directional light), spot and point lights (the
+                                      // most important get the biggest tiles of the shadow atlas)
+    std::string cookie;               // spot lights: an image projected through the cone (its brightness)
 };
 const char* lightTypeName(Light::Type type);
 

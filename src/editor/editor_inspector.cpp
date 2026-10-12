@@ -731,14 +731,29 @@ void Editor::drawComponents(Entity& e) {
                 ImGui::SliderFloat("Edge softness", &l.spotSoftness, 0.f, 1.f, "%.2f");
                 track();
             }
-            if (l.type != Light::Type::Point) {
-                ImGui::Checkbox("Cast shadows", &l.castShadows);
+            if (l.type == Light::Type::Spot) {
+                ImGui::InputText("Cookie", &l.cookie);
                 track();
+                if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Texture, dropped)) {
+                    pushUndo();
+                    l.cookie = project::toStored(dropped.u8string());
+                }
+                tooltip("An image the light shines through (a window frame, leaves): drop one from the Assets panel");
+                if (!l.cookie.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Remove##cookie")) {
+                        pushUndo();
+                        l.cookie.clear();
+                    }
+                }
             }
+            ImGui::Checkbox("Cast shadows", &l.castShadows);
+            track();
             if (l.type == Light::Type::Directional)
                 ImGui::TextDisabled("Shines along the entity's -Z (rotate it).\nThe first directional light is the sun.");
-            else if (l.type == Light::Type::Spot)
-                ImGui::TextDisabled("Shines along the entity's -Z. Up to 4 spot\nlights cast shadows (the nearest).");
+            else
+                ImGui::TextDisabled("%s Shadows: the nearest lights in view get\nthe sharpest (up to 48 views; a point light uses 6).",
+                                    l.type == Light::Type::Spot ? "Shines along the entity's -Z." : "Shines all around.");
         }
     }
     if (e.collider) {

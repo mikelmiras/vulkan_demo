@@ -473,11 +473,11 @@ Working list for turning the renderer demo into a small game engine. Each task i
   partial openings (one ray, no diffraction), measured HRTFs (SOFA files), elevation cues, per-sound headphone
   choice, a settings screen in the built-in PauseMenu, beat-synced layer changes, music transitions on bars.
 
-## Round 5 (next)
+## Round 5 (in progress)
 
 | # | Task | Why |
 |---|------|-----|
-| 43 | Lighting at scale: clustered forward lighting (hundreds of point / spot lights), a shadow atlas for point and spot lights, light cookies | Light counts are capped and only a few lights cast shadows |
+| 43 (done) | Lighting at scale: clustered forward lighting (hundreds of point / spot lights), a shadow atlas for point and spot lights, light cookies | Light counts are capped and only a few lights cast shadows |
 | 44 | GPU-driven rendering: persistent instance data on the GPU (only changes uploaded), Hi-Z occlusion culling, mesh LODs chosen on the GPU | The CPU still writes every instance every frame; hidden objects behind walls are drawn |
 | 45 | Terrain and vegetation: terrain LOD, holes, heightmap import, instanced grass and foliage painted with a brush (wind, distance fade) | 256 x 256 terrains are 130k triangles; there's nothing to fill them with |
 | 46 | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
@@ -488,3 +488,21 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 51 | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
 | 52 | Platform: Wayland, gamepad rumble and light bars, a mouse-free text-input keyboard for consoles-style UI, high-contrast / colour-blind UI options | X11 only; accessibility settings are missing |
 | 53 | Releases: versioned builds with symbols kept for crash reports (symbolicated stacks), an update check, packaging (AppImage, .dmg, installer) | Exports are folders; crash stacks from shipped builds are offsets |
+
+### Round 5 notes
+- Task 43: lights moved out of the frame UBO into a storage buffer (set 0, binding 14: GpuLight, up to 1024, the
+  nearest first counting from the edge of their range), with clusters at binding 15: render/light_clusters builds
+  them on the CPU each frame (16 x 9 tiles, 24 slices logarithmic from 0.1 m to 1 km; a light goes into the
+  clusters under the screen box of its bounding box, all of the screen if a corner is behind the camera, and the
+  slices of its depth range; offsets and counts, then up to 131072 indices). scene.frag finds its cluster by
+  projecting its world position with the frame's view-projection (no viewport offsets needed) and loops over the
+  cluster's lights; probe views (clusterGrid.w = 0) loop over all of them. Shadows: the spot and point arrays gave
+  way to one 4096 atlas (binding 5): computeShadows ranks shadow-casting lights in view, asks allocateAtlas
+  (power-of-two quadtree, biggest first) for 1024 / 512 / 256 tiles (point faces half), up to 48 views; each view
+  has its matrix and tile rectangle in the UBO (52 views with the cascades; the mask is 64-bit now), is cleared
+  with vkCmdClearAttachments and drawn with its viewport in one pass; PCF taps stay inside the tile. Cookies: a
+  16-layer 256 x 256 array (binding 6), loaded with stb and resampled the first time a light names one, projected
+  across the cone (an orthonormal frame around its axis, scaled by tan of the outer angle); scene format 32 (with
+  an asset id). Point lights' castShadows is saved now (it was implied). Not done: cluster building on the GPU,
+  light cookies for point lights (cubes), shadow caching for static lights (every view is redrawn every frame),
+  area lights, clustered decals / probes, IES profiles.

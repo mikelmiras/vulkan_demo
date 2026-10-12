@@ -129,7 +129,7 @@ void Renderer::uploadTextures(VkCommandBuffer frame) {
     // The shadow map starts out readable, so frames without shadows can still bind it
     if (!shadowMapReady_) {
         VkCommandBuffer cb = beginOneTimeCommands();
-        for (VkImage image : {cascades_.image, spotShadows_.image, pointShadows_.image}) {
+        for (VkImage image : {cascades_.image, atlas_.image}) {
             VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
             b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
             b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;

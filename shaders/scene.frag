@@ -5,8 +5,17 @@
 // Writes linear HDR colour (alpha 1); the post pass adds bloom, tonemaps and gamma-encodes.
 
 layout(set = 0, binding = 1) uniform sampler2DArray shadowCascades;   // the sun's, 4 layers
-layout(set = 0, binding = 5) uniform sampler2DArray spotShadows;      // spot lights', 4 layers
-layout(set = 0, binding = 6) uniform sampler2DArray pointShadows;     // point lights', 6 faces each
+layout(set = 0, binding = 5) uniform sampler2D shadowAtlas;          // spot and point lights' (tiles)
+layout(set = 0, binding = 6) uniform sampler2DArray cookies;          // spot lights' cookies
+// Point and spot lights, and the clusters of the view they reach (render/light_clusters.h)
+struct Light {
+    vec4 posRange;   // xyz, w = range
+    vec4 color;      // rgb = colour * intensity (linear), w = 1: spot
+    vec4 dir;        // spots: the direction it shines, w = cos outer
+    vec4 params;     // x = cos inner, y = first shadow view (-1: none), z = cookie layer (-1: none), w = tan outer
+};
+layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; };
+layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]; };   // (offset, count) each, then indices
 layout(set = 0, binding = 9) uniform sampler2D probe0;         // reflection probes' radiance (like skyRadiance)
 layout(set = 0, binding = 10) uniform sampler2D probe1;
 layout(set = 0, binding = 11) uniform sampler2D probe2;
@@ -39,6 +48,23 @@ float shadowTest(sampler2DArray map, float layer, vec4 clip, float bias) {
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x)
             lit += proj.z - bias <= texture(map, vec3(uv + vec2(x, y) * texel, layer)).r ? 1.0 : 0.0;
+    return lit / 9.0;
+}
+
+// The same in a tile of the atlas (`view`'s rectangle), its 3x3 samples kept inside the tile
+float atlasShadow(int view, vec3 p, float bias) {
+    vec4 clip = frame.shadowViewProj[view] * vec4(p, 1.0);
+    vec3 proj = clip.xyz / clip.w;
+    vec2 uv = proj.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0 || proj.z < 0.0) return 1.0;
+    vec4 rect = frame.shadowRect[view];
+    vec2 texel = 1.0 / vec2(textureSize(shadowAtlas, 0));
+    vec2 lo = rect.xy + texel * 0.5, hi = rect.xy + rect.zw - texel * 0.5;
+    vec2 at = rect.xy + uv * rect.zw;
+    float lit = 0.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x)
+            lit += proj.z - bias <= texture(shadowAtlas, clamp(at + vec2(x, y) * texel, lo, hi)).r ? 1.0 : 0.0;
     return lit / 9.0;
 }
 
@@ -227,32 +253,52 @@ void main() {
     float vis = dot(N, L) > 0.0 ? sunVisibility(N, L) : 0.0;
     color += shade(N, V, L, frame.sunColor.rgb, base, metallic, rough) * vis;
 
-    // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone
-    int count = int(frame.ambient.w);
-    for (int i = 0; i < count; ++i) {
-        vec3 d = frame.pointPos[i].xyz - vWorldPos;
-        float dist = length(d), range = frame.pointPos[i].w;
+    // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone. The main view
+    // shades with its cluster's lights; probe views (clusterGrid.w = 0) with every light.
+    uint first = 0u, count = uint(frame.ambient.w);
+    bool clustered = frame.clusterGrid.w > 0.5;
+    if (clustered) {
+        vec4 c = frame.viewProj * vec4(vWorldPos, 1.0);
+        vec2 uv = clamp(c.xy / c.w * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
+        float depth = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
+        int slice = depth <= frame.clusterDepth.x ? 0 : int(log(depth / frame.clusterDepth.x) * frame.clusterDepth.y);
+        slice = clamp(slice, 0, int(frame.clusterGrid.z) - 1);
+        ivec2 tile = ivec2(uv * frame.clusterGrid.xy);
+        uint cluster = uint((slice * int(frame.clusterGrid.y) + tile.y) * int(frame.clusterGrid.x) + tile.x);
+        uint headers = uint(frame.clusterGrid.x * frame.clusterGrid.y * frame.clusterGrid.z) * 2u;
+        first = headers + clusters[cluster * 2u];
+        count = clusters[cluster * 2u + 1u];
+    }
+    for (uint k = 0u; k < count; ++k) {
+        Light li = lights[clustered ? clusters[first + k] : k];
+        vec3 d = li.posRange.xyz - vWorldPos;
+        float dist = length(d), range = li.posRange.w;
         if (dist >= range) continue;
         vec3 Lp = d / max(dist, 1e-4);
         float window = clamp(1.0 - (dist * dist) / (range * range), 0.0, 1.0);
         float light = window * window;
-        vec4 spot = frame.pointSpot[i];
-        if (spot.y > -1.5) {
-            light *= smoothstep(spot.y, spot.x, dot(-Lp, frame.pointDir[i].xyz));
+        int shadowView = int(li.params.y);
+        if (li.color.w > 0.5) {   // a spot
+            float cosAngle = dot(-Lp, li.dir.xyz);
+            light *= smoothstep(li.dir.w, li.params.x, cosAngle);
             if (light <= 0.0) continue;
-            if (spot.z >= 0.0) {
-                vec3 p = vWorldPos + N * 0.04;
-                light *= shadowTest(spotShadows, spot.z - 4.0, frame.shadowViewProj[int(spot.z)] * vec4(p, 1.0), 0.00015);
+            if (li.params.z >= 0.0) {   // its cookie, across the cone
+                vec3 axis = li.dir.xyz;
+                vec3 side = normalize(cross(axis, abs(axis.y) > 0.99 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
+                vec3 up = cross(side, axis);
+                vec3 v = -d / max(dot(-d, axis), 1e-4);   // on the plane one metre down the cone
+                vec2 cuv = vec2(dot(v, side), -dot(v, up)) / li.params.w * 0.5 + 0.5;
+                light *= dot(texture(cookies, vec3(clamp(cuv, 0.0, 1.0), li.params.z)).rgb, vec3(0.3333));
+                if (light <= 0.0) continue;
             }
-        } else if (spot.z >= 0.0) {   // a point light's cube: the face towards this point (+x -x +y -y +z -z)
+            if (shadowView >= 0) light *= atlasShadow(shadowView, vWorldPos + N * 0.04, 0.00015);
+        } else if (shadowView >= 0) {   // a point light's cube: the face towards this point (+x -x +y -y +z -z)
             vec3 a = -d, m = abs(a);
             int face = m.x >= m.y && m.x >= m.z ? (a.x > 0.0 ? 0 : 1) : m.y >= m.z ? (a.y > 0.0 ? 2 : 3) : (a.z > 0.0 ? 4 : 5);
-            int layer = int(spot.z) + face;
-            vec3 p = vWorldPos + N * (0.02 + 0.01 * dist);
-            light *= shadowTest(pointShadows, float(layer - 8), frame.shadowViewProj[layer] * vec4(p, 1.0), 0.0002);
-            if (light <= 0.0) continue;
+            light *= atlasShadow(shadowView + face, vWorldPos + N * (0.02 + 0.01 * dist), 0.0002);
         }
-        color += shade(N, V, Lp, frame.pointColor[i].rgb * light, base, metallic, rough);
+        if (light <= 0.0) continue;
+        color += shade(N, V, Lp, li.color.rgb * light, base, metallic, rough);
     }
 
     if (!terrain) color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;

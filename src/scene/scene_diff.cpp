@@ -28,7 +28,8 @@ bool eq(const Collider& a, const Collider& b) {
 }
 bool eq(const Light& a, const Light& b) {
     return a.type == b.type && eq(a.color, b.color) && a.intensity == b.intensity && a.range == b.range &&
-           a.spotAngle == b.spotAngle && a.spotSoftness == b.spotSoftness && a.castShadows == b.castShadows;
+           a.spotAngle == b.spotAngle && a.spotSoftness == b.spotSoftness && a.castShadows == b.castShadows &&
+           a.cookie == b.cookie;
 }
 bool eq(const RigidBody& a, const RigidBody& b) {
     return a.mass == b.mass && a.lockRotation == b.lockRotation && a.useGravity == b.useGravity &&

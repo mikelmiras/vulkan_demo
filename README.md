@@ -213,7 +213,7 @@ it; hiding, deleting or duplicating a parent includes its children) and a **tran
 | Component       | What it does                                                         |
 |-----------------|----------------------------------------------------------------------|
 | Mesh Renderer   | Draws a mesh (built-in or imported) with a colour and optional texture |
-| Light           | Directional (the sun, with shadows) or point light                   |
+| Light           | Directional (the sun), point or spot light, with shadows; spots can have a cookie |
 | Camera          | The game renders through the first entity that has one               |
 | Collider        | Box, sphere, capsule or mesh shape; solid or trigger (see Collision) |
 | Rigid Body      | Falls, bounces, slides, gets pushed and knocked (see Collision)      |
@@ -264,11 +264,15 @@ dropping on the right.
   get mipmaps and anisotropic filtering, and are read as sRGB colour or as plain data, whichever the slot needs.
   The demo scene's "Materials" row shows them.
 - **Lights**: Light components, directional (shines along the entity's -Z), point (colour, intensity, range) or
-  spot (a cone along -Z, with a soft edge). The first directional light is the sun; up to 8 point and spot lights
-  (nearest the camera) light each frame. Scenes without a directional light get a default sun.
+  spot (a cone along -Z, with a soft edge). The first directional light is the sun; up to 1024 point and spot lights
+  (nearest the camera) light each frame, through **clustered** lighting: the view is cut into 16 x 9 tiles and 24
+  depth slices, each listing the lights that reach it, so a pixel only shades with the lights near it (hundreds of
+  small lights cost little). A spot light can have a **cookie**: an image it shines through (a window frame,
+  leaves), its brightness masking the light. Scenes without a directional light get a default sun.
 - **Shadows**: the sun's are 4 cascades (2048x2048 each) covering 160 m of the view, closer ones sharper, each
-  snapped to texels so edges don't shimmer; up to 4 spot lights cast shadows too (1024x1024), and the 2 nearest
-  point lights (six 512x512 faces each, a cube). Filtered 3x3. Cut-outs cast shadows with their holes; see-through
+  snapped to texels so edges don't shimmer. Spot and point lights cast shadows into a **shadow atlas** (one 4096 x
+  4096 image cut into tiles): those in view nearest the camera get the biggest tiles (1024, then 512, then 256; a
+  point light's six cube faces half that), up to 48 views a frame. Filtered 3x3. Cut-outs cast shadows with their holes; see-through
   materials cast one only where they're mostly opaque (glass: none).
 - **Ambient occlusion**: corners, creases and the ground under things darken a little (screen-space, from the
   depth, at half resolution; strength and radius in the scene's look settings).
@@ -939,7 +943,7 @@ Includes are relative to `src/`.
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
 | `tools/`                   | `check_screenshot.py` (CI smoke test)                           |
 | `bench/`                   | `engine_bench`: CPU timings on the stress scene (`scene/stress_scene.*`) |
-| `shaders/common.glsl`      | Frame data (camera, sun, point lights, shadow camera) and per-object instance data shared by the shaders |
+| `shaders/common.glsl`      | Frame data (camera, sun, light clusters, shadow cameras) and per-object instance data shared by the shaders |
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |
 | `shaders/shadow.vert`      | Shadow map (depth only)                                         |
 | `shaders/post.vert`, `bloom_*.frag`, `composite.frag` | Bloom down / up passes; tonemapping and gamma onto the swapchain |

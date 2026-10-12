@@ -3,18 +3,16 @@
 
 layout(set = 0, binding = 0) uniform Frame {
     mat4 viewProj;
-    mat4 shadowViewProj[20];  // 0-3: the sun's cascades, 4-7: spot lights, 8-19: point lights' cube faces
+    mat4 shadowViewProj[52];  // 0-3: the sun's cascades, then spot and point lights' views in the shadow atlas
+    vec4 shadowRect[52];      // atlas views: the tile (uv offset, uv size)
     vec4 camPos;
     vec4 fogColor;        // rgb = fog/sky colour, w = density
     vec4 viewport;        // width, height, outline width (px), unused
     vec4 sunDir;          // xyz = direction the light travels, w = 1 when it casts shadows
     vec4 sunColor;        // rgb = colour * intensity (linear)
-    vec4 ambient;         // rgb = ambient strength, w = number of point lights
-    vec4 pointPos[8];     // xyz = position, w = range
-    vec4 pointColor[8];   // rgb = colour * intensity (linear)
-    vec4 pointDir[8];     // spot lights: xyz = the direction it shines
-    vec4 pointSpot[8];    // x = cos inner, y = cos outer (-2: a point light), z = shadow layer (spots: 4-7; point
-                          // lights: the first of their six, 8 or 14) or -1
+    vec4 ambient;         // rgb = ambient strength, w = number of point and spot lights (the lights buffer)
+    vec4 clusterGrid;     // tiles x, y, depth slices; w = 1: clustered (0: every light)
+    vec4 clusterDepth;    // near, slices / log(far / near)
     vec4 camRight;        // the camera's axes in the world: billboards face it
     vec4 camUp;
     vec4 camForward;      // w = tan(fovY / 2)

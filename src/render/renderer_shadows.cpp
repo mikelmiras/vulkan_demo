@@ -1,10 +1,12 @@
 // Shadows: the sun's 4 cascades (each an orthographic camera around a slice of the view, snapped to texels so edges
-// don't shimmer) and up to 4 spot lights (perspective), rendered depth-only into two layered images.
+// don't shimmer), in a layered image, and spot and point lights' (perspective; six for a point light) in tiles of
+// one atlas: the most important lights (nearest the camera, in view) get the biggest tiles.
 #include "render/renderer.h"
 
 #include <algorithm>
 #include <cmath>
 
+#include "render/light_clusters.h"
 #include "render/renderer_internal.h"
 
 using namespace render_detail;
@@ -53,10 +55,10 @@ void Renderer::destroyShadowArray(ShadowArray& a) {
     a = {};
 }
 
-uint32_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool sunShadows,
+uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool sunShadows,
                                   const std::vector<const LightInfo*>& lights, FrameUBO& u,
-                                  std::vector<int>& shadowLayer) const {
-    uint32_t layers = 0;
+                                  std::vector<int>& shadowLayer) {
+    uint64_t layers = 0;
     shadowLayer.assign(lights.size(), -1);
     // ---- The sun: the view from 0.1 m to kShadowDistance in 4 slices, closer ones smaller (sharper)
     Vec3 fwd = normalize(info.camForward);
@@ -91,37 +93,65 @@ uint32_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
             proj.m[12] += (std::round(ox) - ox) / half;
             proj.m[13] += (std::round(oy) - oy) / half;
             u.shadowViewProj[c] = proj * view;
-            layers |= 1u << c;
+            layers |= 1ull << c;
         }
         prev = split;
     }
-    // ---- Spot lights (the nearest ones casting shadows): a perspective camera down the cone. Point lights: six,
-    // one per face of a cube around them (a little wider than 90 degrees, so filtering near an edge stays inside).
-    uint32_t spotSlot = 0, pointSlot = 0;
+    // ---- Spot and point lights casting shadows, in view, most important first (the order given): a tile each
+    // for spots, six for point lights (a cube around them, a little wider than 90 degrees per face, so filtering
+    // near an edge stays inside). Tiles shrink down the list: 1024, then 512 from the third light, 256 from the
+    // seventh (point lights' faces half that), while views and atlas room last.
+    Frustum view(info.viewProj);
+    struct Wanted {
+        size_t light;
+        uint32_t first, faces;
+    };
+    std::vector<Wanted> wanted;
+    std::vector<int> sizes;
+    uint32_t views = 0, rank = 0;
+    const uint32_t maxViews = kShadowLayers - kCascades;
     for (size_t i = 0; i < lights.size(); ++i) {
         const LightInfo* l = lights[i];
-        if (!l->castShadows) continue;
-        if (l->spot) {
-            if (spotSlot >= kSpotShadows) continue;
-            Vec3 dir = normalize(l->direction);
-            Vec3 lup = std::fabs(dir.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
-            float fov = std::min(2.f * l->spotAngle * DEG2RAD * 1.1f, 3.f);
-            uint32_t layer = kCascades + spotSlot++;
-            u.shadowViewProj[layer] =
-                perspective(fov, 1.f, 0.1f, std::max(l->range, 0.2f), true) * lookAt(l->position, l->position + dir, lup);
-            layers |= 1u << layer;
-            shadowLayer[i] = (int)layer;
-        } else {
-            if (pointSlot >= kPointShadows) continue;
-            uint32_t first = kCascades + kSpotShadows + pointSlot++ * 6;
-            static const Vec3 dirs[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-            static const Vec3 ups[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
-            Mat4 proj = perspective(95.f * DEG2RAD, 1.f, 0.05f, std::max(l->range, 0.2f), true);
-            for (uint32_t face = 0; face < 6; ++face) {
-                u.shadowViewProj[first + face] = proj * lookAt(l->position, l->position + dirs[face], ups[face]);
-                layers |= 1u << (first + face);
+        if (!l->castShadows || l->intensity <= 0.f) continue;
+        Vec3 r{l->range, l->range, l->range};
+        if (!view.visible(Mat4{}, l->position - r, l->position + r)) continue;   // (lights nothing on screen)
+        uint32_t faces = l->spot ? 1 : 6;
+        if (views + faces > maxViews) continue;
+        int size = rank < 2 ? 1024 : rank < 6 ? 512 : 256;
+        if (!l->spot) size /= 2;
+        ++rank;
+        wanted.push_back({i, views, faces});
+        for (uint32_t f = 0; f < faces; ++f) sizes.push_back(size);
+        views += faces;
+    }
+    std::vector<AtlasTile> tiles = allocateAtlas((int)kAtlasSize, sizes);
+    uint32_t next = kCascades;
+    for (const Wanted& w : wanted) {
+        bool placed = true;
+        for (uint32_t f = 0; f < w.faces; ++f) placed = placed && tiles[w.first + f].size > 0;
+        if (!placed) continue;   // (the atlas is full: no shadow)
+        const LightInfo* l = lights[w.light];
+        shadowLayer[w.light] = (int)next;
+        for (uint32_t f = 0; f < w.faces; ++f, ++next) {
+            const AtlasTile& t = tiles[w.first + f];
+            shadowTiles_[next] = {(uint32_t)t.x, (uint32_t)t.y, (uint32_t)t.size};
+            float inv = 1.f / (float)kAtlasSize;
+            u.shadowRect[next][0] = (float)t.x * inv;
+            u.shadowRect[next][1] = (float)t.y * inv;
+            u.shadowRect[next][2] = u.shadowRect[next][3] = (float)t.size * inv;
+            if (l->spot) {
+                Vec3 dir = normalize(l->direction);
+                Vec3 lup = std::fabs(dir.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
+                float fov = std::min(2.f * l->spotAngle * DEG2RAD * 1.1f, 3.f);
+                u.shadowViewProj[next] = perspective(fov, 1.f, 0.1f, std::max(l->range, 0.2f), true) *
+                                         lookAt(l->position, l->position + dir, lup);
+            } else {
+                static const Vec3 dirs[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+                static const Vec3 ups[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+                u.shadowViewProj[next] = perspective(95.f * DEG2RAD, 1.f, 0.05f, std::max(l->range, 0.2f), true) *
+                                         lookAt(l->position, l->position + dirs[f], ups[f]);
             }
-            shadowLayer[i] = (int)first;
+            layers |= 1ull << next;
         }
     }
     return layers;
@@ -143,57 +173,80 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
         vkCmdPipelineBarrier(cb, src, dst, 0, 0, nullptr, 0, nullptr, 1, &b);
     };
     if (!shadowLayers_) return;   // (both stay readable, as last frame left them)
+    bool atlasUsed = (shadowLayers_ >> kCascades) != 0;
+    std::vector<VkImage> images{cascades_.image};
+    if (atlasUsed) images.push_back(atlas_.image);
     // The previous frame's sampling must finish first; the old contents are discarded
-    for (ShadowArray* a : {&cascades_, &spotShadows_, &pointShadows_})
-        barrier(a->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    for (VkImage image : images)
+        barrier(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, depthStages,
                 VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
-    for (uint32_t layer = 0; layer < kShadowLayers; ++layer) {
-        // (point lights' faces are only read by the light using them: unused ones needn't even be cleared)
-        if (layer >= kCascades + kSpotShadows && !(shadowLayers_ & (1u << layer))) continue;
-        const ShadowArray& a = layer < kCascades ? cascades_ : layer < kCascades + kSpotShadows ? spotShadows_ : pointShadows_;
-        uint32_t inArray = layer < kCascades ? layer : layer < kCascades + kSpotShadows ? layer - kCascades
-                                                                                       : layer - kCascades - kSpotShadows;
-        VkRenderingAttachmentInfo sd{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        sd.imageView = a.layers[inArray];
-        sd.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        sd.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;   // (every layer: unused ones read as "lit")
-        sd.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        sd.clearValue.depthStencil = {1.f, 0};
-        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        ri.renderArea = {{0, 0}, {a.size, a.size}};
-        ri.layerCount = 1;
-        ri.pDepthAttachment = &sd;
-        vkCmdBeginRendering(cb, &ri);
-        if (shadowLayers_ & (1u << layer)) {
-            VkViewport vp{0.f, 0.f, (float)a.size, (float)a.size, 0.f, 1.f};
-            VkRect2D sc{{0, 0}, {a.size, a.size}};
-            vkCmdSetViewport(cb, 0, 1, &vp);
-            vkCmdSetScissor(cb, 0, 1, &sc);
-            int32_t index = (int32_t)layer;
-            vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
-            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
-            for (const Batch& b : shadowBatches_[layer]) {
+    auto drawView = [&](uint32_t layer, uint32_t x, uint32_t y, uint32_t size) {
+        VkViewport vp{(float)x, (float)y, (float)size, (float)size, 0.f, 1.f};
+        VkRect2D sc{{(int32_t)x, (int32_t)y}, {size, size}};
+        vkCmdSetViewport(cb, 0, 1, &vp);
+        vkCmdSetScissor(cb, 0, 1, &sc);
+        int32_t index = (int32_t)layer;
+        vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
+        for (const Batch& b : shadowBatches_[layer]) {
+            const Mesh& mesh = meshes_->get(b.mesh);
+            vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
+        }
+        if (!shadowCutoutBatches_[layer].empty()) {   // holes: their texture's alpha decides, per pixel
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowCutoutPipeline_);
+            VkDescriptorSet bound = VK_NULL_HANDLE;
+            for (const Batch& b : shadowCutoutBatches_[layer]) {
+                if (b.texture != bound) {
+                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
+                    bound = b.texture;
+                }
                 const Mesh& mesh = meshes_->get(b.mesh);
                 vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
             }
-            if (!shadowCutoutBatches_[layer].empty()) {   // holes: their texture's alpha decides, per pixel
-                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowCutoutPipeline_);
-                VkDescriptorSet bound = VK_NULL_HANDLE;
-                for (const Batch& b : shadowCutoutBatches_[layer]) {
-                    if (b.texture != bound) {
-                        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
-                        bound = b.texture;
-                    }
-                    const Mesh& mesh = meshes_->get(b.mesh);
-                    vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
-                }
-            }
+        }
+    };
+    // The sun's cascades: a layer each (every one cleared: unused ones read as "lit")
+    for (uint32_t layer = 0; layer < kCascades; ++layer) {
+        VkRenderingAttachmentInfo sd{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        sd.imageView = cascades_.layers[layer];
+        sd.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        sd.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        sd.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        sd.clearValue.depthStencil = {1.f, 0};
+        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        ri.renderArea = {{0, 0}, {cascades_.size, cascades_.size}};
+        ri.layerCount = 1;
+        ri.pDepthAttachment = &sd;
+        vkCmdBeginRendering(cb, &ri);
+        if (shadowLayers_ & (1ull << layer)) drawView(layer, 0, 0, cascades_.size);
+        vkCmdEndRendering(cb);
+    }
+    // The atlas: one pass, each view cleared and drawn in its tile (the rest is never read)
+    if (atlasUsed) {
+        VkRenderingAttachmentInfo sd{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        sd.imageView = atlas_.layers[0];
+        sd.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        sd.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        sd.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        ri.renderArea = {{0, 0}, {atlas_.size, atlas_.size}};
+        ri.layerCount = 1;
+        ri.pDepthAttachment = &sd;
+        vkCmdBeginRendering(cb, &ri);
+        for (uint32_t layer = kCascades; layer < kShadowLayers; ++layer) {
+            if (!(shadowLayers_ & (1ull << layer))) continue;
+            const ShadowTile& t = shadowTiles_[layer];
+            VkClearAttachment clear{VK_IMAGE_ASPECT_DEPTH_BIT, 0, {}};
+            clear.clearValue.depthStencil = {1.f, 0};
+            VkClearRect rect{{{(int32_t)t.x, (int32_t)t.y}, {t.size, t.size}}, 0, 1};
+            vkCmdClearAttachments(cb, 1, &clear, 1, &rect);
+            drawView(layer, t.x, t.y, t.size);
         }
         vkCmdEndRendering(cb);
     }
-    for (ShadowArray* a : {&cascades_, &spotShadows_, &pointShadows_})
-        barrier(a->image, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    for (VkImage image : images)
+        barrier(image, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                 VK_ACCESS_SHADER_READ_BIT);
 }

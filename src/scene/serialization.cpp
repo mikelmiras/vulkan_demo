@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 31;  // 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 32;  // 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -615,8 +615,12 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         if (l.type == Light::Type::Spot) {
             c.set("spotAngle", l.spotAngle);
             c.set("spotSoftness", l.spotSoftness);
+            if (!l.cookie.empty()) {
+                c.set("cookie", l.cookie);
+                if (std::string id = assetdb::idOfStored(l.cookie); !id.empty()) c.set("cookieId", id);
+            }
         }
-        if (l.type != Light::Type::Point) c.set("castShadows", l.castShadows);
+        c.set("castShadows", l.castShadows);
     }
     if (e.collider) {
         const Collider& col = *e.collider;
@@ -960,6 +964,7 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         l.intensity = c["intensity"].asFloat(l.intensity);
         l.range = c["range"].asFloat(l.range);
         l.castShadows = c["castShadows"].asBool(true);
+        l.cookie = assetdb::heal(c["cookie"].asString(), c["cookieId"].asString());
         e.light = l;
     }
     if (const json::Value& c = v["collider"]; c.isObject()) {

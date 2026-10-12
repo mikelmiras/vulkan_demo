@@ -58,6 +58,7 @@ struct LightInfo {
     float intensity = 1.f;
     float range = 15.f;
     bool castShadows = true;
+    std::string cookie;         // spot lights: an image projected through the cone (a path; "" none)
 };
 
 // A reflection probe to draw with (ReflectionProbe, scene/scene.h): baked when its key is new
@@ -262,11 +263,12 @@ private:
     };
     ShadowArray createShadowArray(uint32_t size, uint32_t layers);
     void destroyShadowArray(ShadowArray& a);
-    // Fills the frame's shadow matrices and cascade splits; returns which layers to render (bit per layer).
-    // shadowLayer[i] gets the layer of lights[i]'s shadow (a point light's first face), or -1.
-    uint32_t computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool sunShadows,
+    // Fills the frame's shadow matrices and cascade splits, and places the lights' shadows in the atlas (the
+    // most important first, bigger); returns which views to render (bit per view). shadowLayer[i] gets the view
+    // of lights[i]'s shadow (a point light's first face), or -1.
+    uint64_t computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool sunShadows,
                             const std::vector<const LightInfo*>& lights, render_detail::FrameUBO& u,
-                            std::vector<int>& shadowLayer) const;
+                            std::vector<int>& shadowLayer);
     void recordShadows(VkCommandBuffer cb);
     // GPU pass times (core/profiler.h): timestamps between the passes, read back a couple of frames later
     static constexpr uint32_t kMaxTimestamps = 8;
@@ -312,13 +314,31 @@ private:
     float envSh_[9][3] = {};   // textures imported with "filter": "nearest"
     float maxAnisotropy_ = 1.f;             // 1 = anisotropic filtering not available
 
-    static constexpr uint32_t kCascadeSize = 2048, kSpotShadowSize = 1024, kCascades = 4, kSpotShadows = 4;
-    static constexpr uint32_t kPointShadowSize = 512, kPointShadows = 2, kShadowLayers = 20;
+    static constexpr uint32_t kCascadeSize = 2048, kCascades = 4, kAtlasSize = 4096;
+    static constexpr uint32_t kShadowLayers = 52;     // render_detail::kShadowViews: cascades, then atlas views
     static constexpr float kShadowDistance = 160.f;   // the sun's shadows reach this far from the camera
     VkFormat shadowFormat_ = VK_FORMAT_D32_SFLOAT;
-    ShadowArray cascades_, spotShadows_, pointShadows_;
+    ShadowArray cascades_, atlas_;   // the sun's cascades; spot and point lights' tiles in one image
+    struct ShadowTile {
+        uint32_t x = 0, y = 0, size = 0;
+    };
+    ShadowTile shadowTiles_[kShadowLayers];   // atlas views: where in the atlas
     bool shadowMapReady_ = false;   // in SHADER_READ_ONLY layout
-    uint32_t shadowLayers_ = 0;     // this frame's shadow layers to render (bits 0-3 cascades, 4-7 spots, 8-19 points)
+    uint64_t shadowLayers_ = 0;     // this frame's shadow views to render (bits 0-3 cascades, then the atlas's)
+    // Lights (binding 14) and their clusters (binding 15), per frame
+    Buffer lights_[MAX_FRAMES], clusters_[MAX_FRAMES];
+    void createLightBuffers();
+    uint32_t lightCount_ = 0, clusteredIndices_ = 0;   // (stats)
+    // Spot lights' cookies: images projected through the cone, in a texture array (binding 6)
+    static constexpr uint32_t kCookieSize = 256, kCookieLayers = 16;
+    Image cookies_;
+    bool cookiesReady_ = false;
+    std::unordered_map<std::string, int> cookieLayers_;   // path -> layer (-1: couldn't load)
+    void createCookies();
+    void updateCookies(const SceneRenderInfo& info);
+    // The lights buffer, and (clustered: the main view) their clusters; probe views loop over every light
+    void writeLights(const SceneRenderInfo& info, const std::vector<const LightInfo*>& lights,
+                     const std::vector<int>& shadowView, render_detail::FrameUBO& u, bool clustered);
     bool frameShadows_ = false;     // the sun casts shadows this frame
     VkSampler shadowSampler_ = VK_NULL_HANDLE;
     VkPipeline shadowPipeline_ = VK_NULL_HANDLE;

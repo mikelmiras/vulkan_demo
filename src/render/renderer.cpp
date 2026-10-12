@@ -566,14 +566,14 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[14] = {
+    VkDescriptorSetLayoutBinding frameBindings[16] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // joint matrices (and terrains' layers)
         {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // particles
-        {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // spot shadows
-        {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // point shadows
+        {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the shadow atlas
+        {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // spot lights' cookies
         {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the sky image
         {8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // its radiance
         {9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // reflection probes
@@ -581,9 +581,11 @@ void Renderer::createPipelines() {
         {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // instance indices (GPU culling)
+        {14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // point and spot lights
+        {15, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // their clusters
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 14;
+    dslci.bindingCount = 16;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -815,8 +817,8 @@ void Renderer::endOneTimeCommands(VkCommandBuffer cb) {
 
 void Renderer::createShadowResources() {
     cascades_ = createShadowArray(kCascadeSize, kCascades);
-    spotShadows_ = createShadowArray(kSpotShadowSize, kSpotShadows);
-    pointShadows_ = createShadowArray(kPointShadowSize, kPointShadows * 6);
+    atlas_ = createShadowArray(kAtlasSize, 1);
+    createCookies();
     VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     sci.magFilter = sci.minFilter = VK_FILTER_NEAREST;   // the shader compares and filters itself
     sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -892,7 +894,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9 * MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 6 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
@@ -961,7 +963,7 @@ void Renderer::createResources(const MeshLibrary&) {
         w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         w[0].pBufferInfo = &bi;
         VkDescriptorImageInfo cascadeInfo{shadowSampler_, cascades_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo spotInfo{shadowSampler_, spotShadows_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo spotInfo{shadowSampler_, atlas_.layers[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         w[1].dstSet = descSets_[i];
         w[1].dstBinding = 1;
         w[1].descriptorCount = 1;
@@ -970,7 +972,7 @@ void Renderer::createResources(const MeshLibrary&) {
         w[2] = w[1];
         w[2].dstBinding = 5;
         w[2].pImageInfo = &spotInfo;
-        VkDescriptorImageInfo pointInfo{shadowSampler_, pointShadows_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo pointInfo{sampler_, cookies_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         w[3] = w[1];
         w[3].dstBinding = 6;
         w[3].pImageInfo = &pointInfo;
@@ -987,6 +989,7 @@ void Renderer::createResources(const MeshLibrary&) {
     }
 
     createCulling();
+    createLightBuffers();
     for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) {
         ensureInstanceCapacity(1024);
         SceneRenderInfo none;
@@ -1294,12 +1297,16 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     if (info.lights)
         for (const LightInfo& l : *info.lights) {
             if (l.directional && !haveSun) { sun = l; haveSun = true; }
-            else if (!l.directional) points.push_back(&l);
+            else if (!l.directional && l.intensity > 0.f && l.range > 0.f) points.push_back(&l);
         }
-    std::sort(points.begin(), points.end(), [&](const LightInfo* a, const LightInfo* b) {
+    // Nearest first, counting from the edge of their reach (a big light a little further away matters more)
+    auto reach = [&](const LightInfo* l) { return std::max(length(l->position - info.camPos) - l->range, 0.f); };
+    std::stable_sort(points.begin(), points.end(), [&](const LightInfo* a, const LightInfo* b) {
+        float ra = reach(a), rb = reach(b);
+        if (ra != rb) return ra < rb;
         return length(a->position - info.camPos) < length(b->position - info.camPos);
     });
-    if (points.size() > (size_t)kMaxPointLights) points.resize(kMaxPointLights);
+    if (points.size() > (size_t)kMaxLights) points.resize(kMaxLights);
     if (shadows) frameShadows_ = sun.castShadows && sun.intensity > 0.f;
 
     Vec3 fog = srgbToLinear(info.sky);
@@ -1317,6 +1324,7 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     set4(u.sunDir, normalize(sun.direction), shadows && frameShadows_ ? 1.f : 0.f);
     set4(u.sunColor, srgbToLinear(sun.color) * sun.intensity, 0.f);
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
+    writeLights(info, points, lightShadow, u, shadows);
     set4(u.zenith, srgbToLinear(info.zenith), 0.f);
     set4(u.ground, srgbToLinear(info.ground), 0.f);
     set4(u.envParams, {envId_ != 0 ? 1.f : 0.f, info.skyIntensity, info.skyRotation}, 0.f);
@@ -1328,20 +1336,6 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         set4(u.camUp, cross(right, f), 0.f);
         set4(u.camForward, f, std::tan(info.fovY * 0.5f));
     }
-    for (size_t i = 0; i < points.size(); ++i) {
-        const LightInfo& l = *points[i];
-        set4(u.pointPos[i], l.position, std::max(l.range, 0.01f));
-        set4(u.pointColor[i], srgbToLinear(l.color) * l.intensity, 0.f);
-        set4(u.pointDir[i], normalize(l.direction), 0.f);
-        u.pointSpot[i][1] = -2.f;   // a point light
-        u.pointSpot[i][2] = (float)lightShadow[i];   // (-1: no shadow)
-        if (l.spot) {
-            float outer = std::clamp(l.spotAngle, 1.f, 89.f) * DEG2RAD;
-            float inner = outer * (1.f - std::clamp(l.spotSoftness, 0.f, 1.f));
-            u.pointSpot[i][0] = std::cos(inner);
-            u.pointSpot[i][1] = std::cos(outer);
-        }
-    }
 }
 
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
@@ -1352,6 +1346,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (info.antialiasing >= 0 && info.antialiasing != (int)aa_) setAntialiasing((Antialiasing)info.antialiasing);
     reuploadChangedTextures();   // (before any of this frame's material sets are made: it may remake them all)
     uploadEnvironment(info.environment);
+    updateCookies(info);
     updateProbes(info);
 
     {
@@ -1475,8 +1470,12 @@ void Renderer::shutdown() {
     destroyCulling();
     vkDestroySampler(device_, shadowSampler_, nullptr);
     destroyShadowArray(cascades_);
-    destroyShadowArray(spotShadows_);
-    destroyShadowArray(pointShadows_);
+    destroyShadowArray(atlas_);
+    destroyImage(cookies_);
+    for (int i = 0; i < MAX_FRAMES; ++i) {
+        destroyBuffer(lights_[i]);
+        destroyBuffer(clusters_[i]);
+    }
     destroyBuffer(vertexBuffer_);
     destroyBuffer(skinBuffer_);
     destroyBuffer(indexBuffer_);
