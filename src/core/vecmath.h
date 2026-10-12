@@ -189,6 +189,37 @@ inline Mat4 composeTRS(Vec3 t, Quat q, Vec3 s) {
     return m;
 }
 // The rotation of an affine matrix (scale divided out) as a quaternion
+// Quaternion products: a * b turns by b, then by a
+inline Quat operator*(Quat a, Quat b) {
+    return {a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+            a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z};
+}
+inline Quat conjugate(Quat q) { return {-q.x, -q.y, -q.z, q.w}; }   // (the inverse of a unit quaternion)
+inline Vec3 rotate(Quat q, Vec3 v) {
+    Quat r = q * Quat{v.x, v.y, v.z, 0.f} * conjugate(q);
+    return {r.x, r.y, r.z};
+}
+inline Quat axisAngle(Vec3 axis, float angle) {
+    Vec3 a = normalize(axis);
+    float s = std::sin(angle * 0.5f);
+    return {a.x * s, a.y * s, a.z * s, std::cos(angle * 0.5f)};
+}
+// The shortest turn taking direction `from` to direction `to`
+inline Quat rotationBetween(Vec3 from, Vec3 to) {
+    from = normalize(from);
+    to = normalize(to);
+    float d = dot(from, to);
+    if (d > 0.999999f) return {};
+    if (d < -0.999999f) {   // opposite: half a turn around any perpendicular
+        Vec3 axis = cross({1, 0, 0}, from);
+        if (length(axis) < 1e-6f) axis = cross({0, 1, 0}, from);
+        return axisAngle(axis, 3.14159265f);
+    }
+    Vec3 c = cross(from, to);
+    return normalizeQuat({c.x, c.y, c.z, 1.f + d});
+}
+inline float quatAngle(Quat q) { return 2.f * std::acos(std::fmin(std::fabs(q.w), 1.f)); }   // radians, 0..pi
+
 inline Quat rotationOf(const Mat4& m) {
     Vec3 c0{m.m[0], m.m[1], m.m[2]}, c1{m.m[4], m.m[5], m.m[6]}, c2{m.m[8], m.m[9], m.m[10]};
     float sx = length(c0), sy = length(c1), sz = length(c2);

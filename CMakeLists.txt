@@ -281,6 +281,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_asset_db.cpp
     tests/test_terrain.cpp
     tests/test_environment.cpp
+    tests/test_animation_ik.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

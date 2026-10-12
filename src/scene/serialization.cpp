@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 26;  // 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 27;  // 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -370,11 +370,13 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
                 o.set("loop", s.loop);
                 if (!s.blend.empty()) {
                     o.set("blendParameter", s.blendParameter);
+                    if (!s.blendParameterY.empty()) o.set("blendParameterY", s.blendParameterY);
                     json::Value points = json::Value::array();
                     for (const BlendClip& b : s.blend) {
                         json::Value bp = json::Value::object();
                         bp.set("clip", b.clip);
                         bp.set("at", b.at);
+                        if (!s.blendParameterY.empty()) bp.set("atY", b.atY);
                         points.push(std::move(bp));
                     }
                     o.set("blend", std::move(points));
@@ -404,6 +406,7 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
                 o.set("weight", l.weight);
                 o.set("speed", l.speed);
                 o.set("loop", l.loop);
+                if (l.additive) o.set("additive", true);
                 if (a.playing && l.playing) {
                     o.set("playing", true);
                     o.set("time", l.time);
@@ -411,6 +414,24 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
                 list.push(std::move(o));
             }
             c.set("layers", std::move(list));
+        }
+        if (!a.ik.empty()) {
+            json::Value list = json::Value::array();
+            for (const AnimatorIK& k : a.ik) {
+                json::Value o = json::Value::object();
+                o.set("name", k.name);
+                o.set("type", ikTypeName(k.type));
+                o.set("bone", k.bone);
+                if (!k.targetEntity.empty()) o.set("targetEntity", k.targetEntity);
+                if (k.type == AnimatorIK::Type::TwoBone) o.set("pole", vec3(k.pole));
+                else {
+                    o.set("aimAxis", vec3(k.aimAxis));
+                    o.set("maxAngle", k.maxAngle);
+                }
+                o.set("weight", k.weight);
+                list.push(std::move(o));
+            }
+            c.set("ik", std::move(list));
         }
         if (a.rootMotion) {
             c.set("rootMotion", true);
@@ -670,8 +691,9 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             s.speed = o["speed"].asFloat(s.speed);
             s.loop = o["loop"].asBool(s.loop);
             s.blendParameter = o["blendParameter"].asString();
+            s.blendParameterY = o["blendParameterY"].asString();
             for (const json::Value& bp : o["blend"].elements())
-                s.blend.push_back({clipName(bp["clip"].asString()), bp["at"].asFloat(0.f)});
+                s.blend.push_back({clipName(bp["clip"].asString()), bp["at"].asFloat(0.f), bp["atY"].asFloat(0.f)});
             a.states.push_back(std::move(s));
         }
         for (const json::Value& o : c["transitions"].elements()) {
@@ -693,9 +715,22 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             l.weight = o["weight"].asFloat(l.weight);
             l.speed = o["speed"].asFloat(l.speed);
             l.loop = o["loop"].asBool(l.loop);
+            l.additive = o["additive"].asBool(false);
             l.playing = o["playing"].asBool(false);
             l.time = o["time"].asFloat(0.f);
             a.layers.push_back(std::move(l));
+        }
+        for (const json::Value& o : c["ik"].elements()) {
+            AnimatorIK k;
+            k.name = o["name"].asString();
+            k.type = o["type"].asString() == "look-at" ? AnimatorIK::Type::LookAt : AnimatorIK::Type::TwoBone;
+            k.bone = o["bone"].asString();
+            k.targetEntity = o["targetEntity"].asString();
+            k.pole = readVec3(o["pole"], k.pole);
+            k.aimAxis = readVec3(o["aimAxis"], k.aimAxis);
+            k.maxAngle = o["maxAngle"].asFloat(k.maxAngle);
+            k.weight = o["weight"].asFloat(k.weight);
+            a.ik.push_back(std::move(k));
         }
         a.rootMotion = c["rootMotion"].asBool(false);
         a.rootBone = c["rootBone"].asString();

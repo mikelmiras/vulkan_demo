@@ -770,6 +770,37 @@ int eSetRagdoll(lua_State* L) {
     context(L).setRagdoll(toEntityId(L, 1), lua_toboolean(L, 2));
     return 0;
 }
+Animator& checkAnimator(lua_State* L, Entity& e) {
+    if (!e.animator) luaL_error(L, "'%s' has no animator", e.name.c_str());
+    return *e.animator;
+}
+int eSetAnimParameter(lua_State* L) {   // e:setAnimParameter(name, value): a number or a boolean
+    Entity& e = checkEntity(L, 1);
+    float v = lua_isboolean(L, 3) ? (lua_toboolean(L, 3) ? 1.f : 0.f) : (float)luaL_checknumber(L, 3);
+    checkAnimator(L, e).setParameter(luaL_checkstring(L, 2), v);
+    return 0;
+}
+int ePlayAnimation(lua_State* L) {   // e:playAnimation(clip, fade, loop)
+    Entity& e = checkEntity(L, 1);
+    checkAnimator(L, e).play(luaL_checkstring(L, 2), (float)luaL_optnumber(L, 3, 0.2), lua_isnoneornil(L, 4) || lua_toboolean(L, 4));
+    return 0;
+}
+int ePlayLayer(lua_State* L) {   // e:playLayer(layer, clip, weight, loop)
+    Entity& e = checkEntity(L, 1);
+    checkAnimator(L, e).playLayer(luaL_checkstring(L, 2), luaL_checkstring(L, 3), (float)luaL_optnumber(L, 4, 1.0),
+                                  lua_isnoneornil(L, 5) || lua_toboolean(L, 5));
+    return 0;
+}
+int eStopLayer(lua_State* L) {
+    Entity& e = checkEntity(L, 1);
+    checkAnimator(L, e).stopLayer(luaL_checkstring(L, 2));
+    return 0;
+}
+int eSetIK(lua_State* L) {   // e:setIK(chain, point, weight): true if the animator has that chain
+    Entity& e = checkEntity(L, 1);
+    lua_pushboolean(L, checkAnimator(L, e).setIK(luaL_checkstring(L, 2), toVec3(L, 3), (float)luaL_optnumber(L, 4, 1.0)));
+    return 1;
+}
 int eScript(lua_State* L) {   // e:script("Door"): that Lua behaviour's instance (its members and functions)
     Entity& e = checkEntity(L, 1);
     auto* b = dynamic_cast<LuaBehaviour*>(findBehaviour(e, luaL_checkstring(L, 2)));
@@ -1252,7 +1283,10 @@ lua_State* state() {
                                 {"lookAt", eLookAt},           {"emitParticles", eEmitParticles},
                                 {"playSound", ePlaySound},     {"setRagdoll", eSetRagdoll},
                                 {"script", eScript},           {"getField", eGetField},
-                                {"setField", eSetField},       {nullptr, nullptr}};
+                                {"setField", eSetField},       {"setAnimParameter", eSetAnimParameter},
+                                {"playAnimation", ePlayAnimation}, {"playLayer", ePlayLayer},
+                                {"stopLayer", eStopLayer},     {"setIK", eSetIK},
+                                {nullptr, nullptr}};
     setFunctions(L, methods);
     lua_setfield(L, -2, "methods");
     lua_pop(L, 1);

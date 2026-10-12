@@ -323,14 +323,26 @@ self.animator->setParameter("jump", jumpPressed);
 ```
 
 A state can be a **blend tree** instead of one clip: points along a parameter (walk at 0, run at 3), mixing the
-two either side of its value and keeping them in step. **Layers** play other clips over the main one on part
+two either side of its value and keeping them in step. Tick *2D* for a **blend space** over two parameters
+(strafing: sideways and forward speed): each clip sits at a point, and the parameters' values mix the clips around
+them (gradient band interpolation: a clip plays alone on its point); the inspector plots the points and, while
+playing, where the parameters are. **Layers** play other clips over the main one on part
 of the skeleton (a mask bone and everything under it), by weight: `animator->playLayer("Upper", "Wave", 0.8f)`.
+An *additive* layer adds its clip's change from its first frame on top of whatever pose is there (breathing, a
+flinch) instead of replacing it.
+
+**IK** (inverse kinematics) runs after the animation, in the Animator's *IK* list: a **two-bone** chain (pick its
+end bone, a hand or a foot: it, its parent and grandparent bend, the middle joint towards a direction you give)
+reaches for a point, and **look-at** turns a bone's axis towards one (as far as a maximum angle). The target is an
+entity by name, or a point game code sets each update with a weight to fade it in and out:
+`self.animator->setIK("LeftFoot", groundHit.point, 1.f)` (feet on slopes), `setIK("Head", enemyPos, 0.7f)`.
 With **root motion** on, the root bone's travel across the ground moves the entity (as a character when it has a
 capsule) and the bone stays put, so feet don't slide. *Open graph* shows the state machine as a diagram, the
 playing state lit while the game runs.
 
 **Animation events** are named times in a clip (a footstep, the frame a sword hits): when playback passes one,
-the entity's behaviours get `onAnimationEvent(ctx, self, "Footstep")`.
+the entity's behaviours get `onAnimationEvent(ctx, self, "Footstep")`. In a blend tree the clip that weighs most
+fires its events (at the same point of its cycle), and layers' clips fire theirs.
 
 Outside Play, the Animator inspector previews its clip: play / pause, and a slider to scrub to any time (only
 what's drawn changes, not the scene). New events are added at the preview time.
@@ -750,7 +762,8 @@ Callbacks, all optional: `start()`, `update(dt)` (fixed step), `onTriggerEnter(o
   `hasTag`, `addTag`, `removeTag`, `destroy`, `send(name, value, text)`, `moveCharacter(delta)` (returns
   `grounded`, `hitWall`, ...), `lookAt(point)`, `emitParticles(n)`, `playSound(clip, volume)`, `setRagdoll(limp)`,
   `script("Type")` (another Lua behaviour's `self`), `getField("Type", "name")` / `setField("Type", "name", v)`
-  (any behaviour's fields, C++ ones too).
+  (any behaviour's fields, C++ ones too); animators: `setAnimParameter(name, value)`, `playAnimation(clip, fade)`,
+  `playLayer(layer, clip, weight)`, `stopLayer(layer)`, `setIK(chain, point, weight)`.
 - **`game`**: `time()`, `dt()`, `find(name or id)`, `findWithTag(tag)`, `spawn(prefab, pos, forward, parent)`,
   `destroy(e)`, `log(...)` (and `print`), `raycast(origin, dir, maxDistance, ignore, layers)` (a hit: `entity`,
   `point`, `normal`, `distance`), `overlapSphere(center, radius, layers)`, `findPath(from, to)`,

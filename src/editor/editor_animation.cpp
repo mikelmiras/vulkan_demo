@@ -161,6 +161,11 @@ void Editor::drawAnimatorInspector(Entity& e) {
             track();
             tooltip("Plays from the start of the game (else when game code calls playLayer)");
             ImGui::SameLine();
+            ImGui::Checkbox("Additive", &l.additive);
+            track();
+            tooltip("Adds the clip's change from its first frame on top of the pose (breathing, a recoil) instead of "
+                    "replacing it");
+            ImGui::SameLine();
             if (ImGui::SmallButton("Remove")) removeLayer = (int)i;
             ImGui::PopID();
         }
@@ -170,6 +175,61 @@ void Editor::drawAnimatorInspector(Entity& e) {
             AnimatorLayer l;
             l.name = "Layer " + std::to_string(a.layers.size() + 1);
             a.layers.push_back(l);
+        }
+        ImGui::TreePop();
+    }
+
+    // Inverse kinematics
+    if (ImGui::TreeNodeEx("IK", ImGuiTreeNodeFlags_SpanAvailWidth, "IK (%zu)", a.ik.size())) {
+        tooltip("After the animation: a two-bone chain (an arm, a leg) reaching for a point, or a bone turning to "
+                "look at one. The target is an entity, or a point game code sets with animator->setIK(name, point, "
+                "weight)");
+        std::unordered_map<std::string, EntityId> names = scene_.namesUnder(e.id);
+        std::vector<std::string> sorted;
+        for (const auto& [n, id] : names) sorted.push_back(n);
+        std::sort(sorted.begin(), sorted.end());
+        int remove = -1;
+        for (size_t i = 0; i < a.ik.size(); ++i) {
+            AnimatorIK& k = a.ik[i];
+            ImGui::PushID((int)i + 3000);
+            ImGui::SeparatorText(k.name.empty() ? "(unnamed)" : k.name.c_str());
+            ImGui::InputText("Name", &k.name);
+            track();
+            int type = (int)k.type;
+            const char* types[] = {"Two-bone (reach)", "Look at"};
+            if (ImGui::Combo("Type", &type, types, 2)) { pushUndo(); k.type = (AnimatorIK::Type)type; }
+            if (ImGui::BeginCombo("Bone", k.bone.empty() ? "(pick one)" : k.bone.c_str())) {
+                for (const std::string& n : sorted)
+                    if (ImGui::Selectable(n.c_str(), n == k.bone)) { pushUndo(); k.bone = n; }
+                ImGui::EndCombo();
+            }
+            tooltip(k.type == AnimatorIK::Type::TwoBone ? "The end of the chain (a hand, a foot): it, its parent and "
+                                                         "its grandparent bend to reach" : "The bone that turns");
+            ImGui::InputText("Target entity", &k.targetEntity);
+            track();
+            tooltip("Reach for / look at this entity (by name); empty: the point game code sets");
+            if (k.type == AnimatorIK::Type::TwoBone) {
+                ImGui::DragFloat3("Bend towards", &k.pole.x, 0.01f, -1.f, 1.f, "%.2f");
+                track();
+                tooltip("Which way the middle joint bends, in the model's space (knees: forward, elbows: back)");
+            } else {
+                ImGui::DragFloat3("Aim axis", &k.aimAxis.x, 0.01f, -1.f, 1.f, "%.2f");
+                track();
+                tooltip("The bone's own axis that should point at the target");
+                ImGui::SliderFloat("Max angle", &k.maxAngle, 0.f, 180.f, "%.0f deg");
+                track();
+            }
+            ImGui::SliderFloat("Weight", &k.weight, 0.f, 1.f, "%.2f");
+            track();
+            if (ImGui::SmallButton("Remove")) remove = (int)i;
+            ImGui::PopID();
+        }
+        if (remove >= 0) { pushUndo(); a.ik.erase(a.ik.begin() + remove); }
+        if (ImGui::SmallButton("Add IK chain")) {
+            pushUndo();
+            AnimatorIK k;
+            k.name = "IK " + std::to_string(a.ik.size() + 1);
+            a.ik.push_back(k);
         }
         ImGui::TreePop();
     }
@@ -206,6 +266,35 @@ void Editor::drawAnimatorInspector(Entity& e) {
             } else {
                 ImGui::InputText("Parameter", &s.blendParameter);
                 track();
+                bool twoD = !s.blendParameterY.empty();
+                if (ImGui::Checkbox("2D", &twoD)) {
+                    pushUndo();
+                    s.blendParameterY = twoD ? "y" : "";
+                }
+                tooltip("A 2D blend space: each clip at a point of two parameters (strafing: sideways and forward "
+                        "speed); the parameters' values mix the clips around them");
+                if (twoD) {
+                    ImGui::InputText("Parameter Y", &s.blendParameterY);
+                    track();
+                    // The points, and where the parameters are now (while playing)
+                    float size = std::min(ImGui::GetContentRegionAvail().x, px(160.f));
+                    ImVec2 o = ImGui::GetCursorScreenPos();
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    dl->AddRectFilled(o, ImVec2(o.x + size, o.y + size), IM_COL32(30, 32, 38, 255), 4.f);
+                    float lo = 1e9f, hi = -1e9f;
+                    for (const BlendClip& b : s.blend) lo = std::min({lo, b.at, b.atY}), hi = std::max({hi, b.at, b.atY});
+                    if (hi - lo < 1e-3f) lo -= 1.f, hi += 1.f;
+                    float pad = (hi - lo) * 0.15f;
+                    lo -= pad, hi += pad;
+                    auto at = [&](float x, float y) {
+                        return ImVec2(o.x + (x - lo) / (hi - lo) * size, o.y + size - (y - lo) / (hi - lo) * size);
+                    };
+                    for (const BlendClip& b : s.blend) dl->AddCircleFilled(at(b.at, b.atY), px(4.f), IM_COL32(120, 180, 255, 255));
+                    if (playing() && a.state == s.name)
+                        dl->AddCircle(at(a.parameter(s.blendParameter), a.parameter(s.blendParameterY)), px(6.f),
+                                      IM_COL32(255, 200, 80, 255), 0, 2.f);
+                    ImGui::Dummy(ImVec2(size, size));
+                }
                 int removePoint = -1;
                 for (size_t k = 0; k < s.blend.size(); ++k) {
                     ImGui::PushID((int)k + 100);
@@ -213,6 +302,12 @@ void Editor::drawAnimatorInspector(Entity& e) {
                     ImGui::DragFloat("##at", &s.blend[k].at, 0.01f, 0.f, 0.f, "%.2f");
                     track();
                     ImGui::SameLine();
+                    if (twoD) {
+                        ImGui::SetNextItemWidth(px(60.f));
+                        ImGui::DragFloat("##atY", &s.blend[k].atY, 0.01f, 0.f, 0.f, "%.2f");
+                        track();
+                        ImGui::SameLine();
+                    }
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - px(28.f));
                     std::string bc = s.blend[k].clip;
                     if (clipCombo("##clip", bc, meshes_)) { pushUndo(); s.blend[k].clip = bc; }

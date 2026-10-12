@@ -78,15 +78,20 @@ bool eq(const Skin& a, const Skin& b) {
     return true;
 }
 bool eq(const AnimationEvent& a, const AnimationEvent& b) { return a.clip == b.clip && a.time == b.time && a.name == b.name; }
-bool eq(const BlendClip& a, const BlendClip& b) { return a.clip == b.clip && a.at == b.at; }
+bool eq(const BlendClip& a, const BlendClip& b) { return a.clip == b.clip && a.at == b.at && a.atY == b.atY; }
+bool eq(const AnimatorIK& a, const AnimatorIK& b) {
+    return a.name == b.name && a.type == b.type && a.bone == b.bone && a.targetEntity == b.targetEntity &&
+           eq(a.pole, b.pole) && eq(a.aimAxis, b.aimAxis) && a.maxAngle == b.maxAngle && a.weight == b.weight &&
+           eq(a.target, b.target) && a.hasTarget == b.hasTarget;
+}
 bool eq(const AnimatorLayer& a, const AnimatorLayer& b) {
     return a.name == b.name && a.clip == b.clip && a.mask == b.mask && a.weight == b.weight && a.speed == b.speed &&
-           a.loop == b.loop && a.playing == b.playing && a.time == b.time;
+           a.loop == b.loop && a.additive == b.additive && a.playing == b.playing && a.time == b.time;
 }
 template <class T> bool eqList(const std::vector<T>& a, const std::vector<T>& b);
 bool eq(const AnimatorState& a, const AnimatorState& b) {
     return a.name == b.name && a.clip == b.clip && a.speed == b.speed && a.loop == b.loop &&
-           a.blendParameter == b.blendParameter && eqList(a.blend, b.blend);
+           a.blendParameter == b.blendParameter && a.blendParameterY == b.blendParameterY && eqList(a.blend, b.blend);
 }
 bool eq(const AnimatorTransition& a, const AnimatorTransition& b) {
     return a.from == b.from && a.to == b.to && a.parameter == b.parameter && a.when == b.when && a.value == b.value &&
@@ -99,7 +104,7 @@ template <class T> bool eqList(const std::vector<T>& a, const std::vector<T>& b)
     return true;
 }
 bool eq(const Animator& a, const Animator& b) {
-    return eqList(a.layers, b.layers) && a.rootMotion == b.rootMotion && a.rootBone == b.rootBone &&
+    return eqList(a.layers, b.layers) && eqList(a.ik, b.ik) && a.rootMotion == b.rootMotion && a.rootBone == b.rootBone &&
            a.fadeFromState == b.fadeFromState && eqList(a.events, b.events) && eqList(a.states, b.states) && eqList(a.transitions, b.transitions) &&
            a.startState == b.startState && a.state == b.state && a.parameters == b.parameters && a.clip == b.clip && a.speed == b.speed && a.loop == b.loop && a.playOnStart == b.playOnStart &&
            a.playing == b.playing && a.time == b.time && a.fadeFrom == b.fadeFrom && a.fadeFromTime == b.fadeFromTime &&

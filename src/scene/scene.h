@@ -149,6 +149,7 @@ struct AnimationEvent {
 struct BlendClip {
     std::string clip;
     float at = 0.f;
+    float atY = 0.f;   // 2D blend spaces: where it is along the second parameter
 };
 struct AnimatorState {
     std::string name, clip;
@@ -158,6 +159,9 @@ struct AnimatorState {
     // value, mixed by where it falls between them and kept in step (walk / run by speed)
     std::string blendParameter;
     std::vector<BlendClip> blend;
+    // A 2D blend space when set (strafing: speed forward and sideways): the clips are points (at, atY), mixed by how
+    // near the two parameters are to each (gradient band interpolation: exactly a clip on its point)
+    std::string blendParameterY;
 };
 
 // A clip played over the Animator's main one, on part of the skeleton (the `mask` bone and everything under it;
@@ -169,9 +173,30 @@ struct AnimatorLayer {
     float weight = 1.f;
     float speed = 1.f;
     bool loop = true;
+    // Additive: the clip's change from its first frame is added on top of what's there (a breathing or a recoil over
+    // any pose), instead of replacing it
+    bool additive = false;
     // runtime
     bool playing = false;
     float time = 0.f;
+};
+
+// Inverse kinematics on top of the animation (game/animation.h): a two-bone chain (an arm, a leg: the bone, its
+// parent and grandparent) reaching for a point, or a bone turning towards one (a head, a gun arm). The target is an
+// entity (by name) or a point game code sets (Animator::setIK), with a weight to fade it in and out.
+struct AnimatorIK {
+    enum class Type { TwoBone, LookAt };
+    std::string name;
+    Type type = Type::TwoBone;
+    std::string bone;             // two-bone: the end (hand, foot); look-at: the bone that turns
+    std::string targetEntity;     // follows this entity ("": the point set by setIK)
+    Vec3 pole{0, 0, 1};           // two-bone: which way the middle joint bends, in the Animator's space (knees: forward)
+    Vec3 aimAxis{0, 0, 1};        // look-at: the bone's own axis that should point at the target
+    float maxAngle = 80.f;        // look-at: turns at most this far from the animation's pose, degrees
+    float weight = 1.f;           // 0: just the animation, 1: all the way
+    // runtime: the point to reach (world space), set by game code
+    Vec3 target;
+    bool hasTarget = false;
 };
 struct AnimatorTransition {
     enum class When { Greater, Less, IsTrue, IsFalse, ClipEnded };
@@ -184,6 +209,7 @@ struct AnimatorTransition {
 };
 
 const char* animatorConditionName(AnimatorTransition::When when);   // "greater", "clip ended", ...
+const char* ikTypeName(AnimatorIK::Type type);   // "two-bone", "look-at"
 AnimatorTransition::When animatorConditionFromName(const std::string& name);
 
 // Plays animation clips (MeshLibrary::animations) on the entities under it, matched by name: a model's skeleton
@@ -198,6 +224,7 @@ struct Animator {
     std::vector<AnimatorTransition> transitions;
     std::string startState;                     // empty: the first state
     std::vector<AnimatorLayer> layers;
+    std::vector<AnimatorIK> ik;   // applied in this order after the animation
     // Root motion: the root bone's travel in the clip (across the ground: x and z) moves the Animator's entity
     // instead of the bone (as a character, with a capsule or sphere collider), so feet don't slide
     bool rootMotion = false;
@@ -218,6 +245,17 @@ struct Animator {
         for (auto& p : parameters)
             if (p.first == name) { p.second = value; return; }
         parameters.emplace_back(name, value);
+    }
+    // An IK chain's target (world space) and weight; false if there's no chain by that name
+    bool setIK(const std::string& name, Vec3 target, float weight) {
+        for (AnimatorIK& k : ik)
+            if (k.name == name) {
+                k.target = target;
+                k.hasTarget = true;
+                k.weight = weight;
+                return true;
+            }
+        return false;
     }
     float parameter(const std::string& name) const {
         for (const auto& p : parameters)

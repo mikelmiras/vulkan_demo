@@ -4,6 +4,7 @@
 #include "assets/meshes.h"
 #include "scene/scene.h"
 
+#include <utility>
 #include <vector>
 
 // An AnimationEvent that playback passed
@@ -21,3 +22,7 @@ void poseClip(Scene& scene, const MeshLibrary& meshes, EntityId root, const std:
 
 // Enters a state of the Animator's state machine (cross-fading `fade` seconds); false if there's no such state
 bool enterAnimatorState(Animator& a, const std::string& state, float fade);
+
+// 2D blend space weights (gradient band interpolation) of `points` at (x, y): one per point, adding up to 1; exactly 1
+// on a point; the nearest point's when (x, y) is outside them all
+std::vector<float> blendWeights2D(const std::vector<std::pair<float, float>>& points, float x, float y);

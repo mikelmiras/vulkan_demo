@@ -266,7 +266,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 34 (done) | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
 | 35 (done) | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
 | 36 (done) | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
-| 37 | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
+| 37 (done) | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
 | 38 | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
 | 39 | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
 | 40 | Physics: vehicles (Jolt's wheeled vehicle), crouching / ladders / swimming for characters, debug drawing of contacts | Common game mechanics have to be hand-built |
@@ -378,3 +378,15 @@ Working list for turning the renderer demo into a small game engine. Each task i
   (checked on the stress scene: only stats text differs, and two pixels where draw order changed). Not done:
   persistent GPU scene data (instances are still written by the CPU every frame, which is most of the cost), shadow
   passes on the GPU, occlusion culling, multi-draw indirect.
+- Task 37: the animation source is now any number of weighted clips (sampled at one phase, mixed by a running
+  weighted blend). 2D blend spaces: AnimatorState::blendParameterY and BlendClip::atY, weighted by gradient band
+  interpolation (blendWeights2D, cartesian); the inspector plots the points and the live parameters. Additive
+  layers: the track's change from its first frame (translation added, rotation multiplied on the right, scale
+  multiplied), scaled by the weight, on the full pose underneath. IK (AnimatorIK; Animator::setIK; Lua e:setIK):
+  after posing (and for animators not playing), two-bone (law of cosines, the middle joint in the plane of the reach
+  and the pole given in the Animator's space; the top bone then the middle one turned about their pivots, slerped by
+  weight; out of reach: straight towards it) and look-at (the bone's aim axis turned onto the target, limited to
+  maxAngle). Events: by phase, from a blend tree's heaviest clip and from layers' clips. vecmath gained quaternion
+  product, conjugate, rotate, axisAngle, rotationBetween, quatAngle. Lua: setAnimParameter, playAnimation,
+  playLayer, stopLayer, setIK. Scene format 27, module API 26. Not done: foot placement as a ready-made behaviour,
+  IK in the editor preview, joint limits and longer chains (FABRIK), polar blend spaces, blend trees in layers.

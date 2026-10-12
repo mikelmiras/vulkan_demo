@@ -65,6 +65,8 @@ const char* animatorConditionName(AnimatorTransition::When when) {
     return "greater";
 }
 
+const char* ikTypeName(AnimatorIK::Type type) { return type == AnimatorIK::Type::LookAt ? "look-at" : "two-bone"; }
+
 AnimatorTransition::When animatorConditionFromName(const std::string& name) {
     for (int i = 0; i <= (int)AnimatorTransition::When::ClipEnded; ++i)
         if (name == animatorConditionName((AnimatorTransition::When)i)) return (AnimatorTransition::When)i;
