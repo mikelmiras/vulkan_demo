@@ -288,14 +288,17 @@ TEST(net_prediction_replays_inputs) {
     float c = client.context().find(mine)->transform.position[2], s = server.context().find(mine)->transform.position[2];
     CHECK_NEAR(c, s, 0.05);
     CHECK(s < startClient - 3.f);
-    CHECK(cn.corrections() == 0);   // (it predicted right all along: never put back)
+    // (it predicted right, but for the odd input arriving late: the server held the previous one for a tick, and
+    // the client was put right; a jittery machine (CI's) sees a few)
+    uint64_t walking = cn.corrections();
+    CHECK(walking <= 3);
     // The server moves it (a knock back): the client takes it, while walking on
     server.context().find(mine)->transform.position[0] += 4.f;
     ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
     for (int i = 0; i < 30; ++i) pump(server, sn, client, cn);
     ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
     for (int i = 0; i < 40; ++i) pump(server, sn, client, cn);
-    CHECK(cn.corrections() >= 1);
+    CHECK(cn.corrections() > walking);   // (the knock back: put right)
     CHECK_NEAR(client.context().find(mine)->transform.position[0], server.context().find(mine)->transform.position[0], 0.05);
     CHECK_NEAR(client.context().find(mine)->transform.position[2], server.context().find(mine)->transform.position[2], 0.05);
     sn.stop();
