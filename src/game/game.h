@@ -310,6 +310,7 @@ public:
     std::vector<Mat4> worldMatrices() const;      // aligned with scene.entities
     const NavGrid& navigation();                  // baked on first use (see GameContext::findPath)
     const Physics& physics() const { return physics_; }
+    void setRecordContacts(bool on) { physics_.setRecordContacts(on); }   // (Physics::contacts(): for showing them)
     const ParticleSystem& particles() const { return particles_; }
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
     // Render interpolation (on by default): worldMatrices() and activeCamera() blend the last two fixed updates

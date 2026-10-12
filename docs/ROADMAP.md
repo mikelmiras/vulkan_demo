@@ -269,7 +269,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 37 (done) | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
 | 38 (done) | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
 | 39 (done) | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
-| 40 | Physics: vehicles (Jolt's wheeled vehicle), crouching / ladders / swimming for characters, debug drawing of contacts | Common game mechanics have to be hand-built |
+| 40 (done) | Physics: vehicles (Jolt's wheeled vehicle), crouching / ladders / swimming for characters, debug drawing of contacts | Common game mechanics have to be hand-built |
 | 41 | Reliability: crash reports (stack traces into the log), chrome://tracing export of profiles, a performance regression check in CI | Crashes leave little to go on; performance drifts unnoticed |
 | 42 | Audio: sound occlusion by geometry, HRTF for headphones, a settings screen with saved volumes, music stingers / layers | Sounds come through walls; volume settings don't persist |
 
@@ -422,3 +422,21 @@ Working list for turning the renderer demo into a small game engine. Each task i
   Scene format 29, module API 28. Not done: what the README lists (scene changes, history for late joiners,
   replay of unacknowledged inputs, lag compensation, security), interest management (everything goes to everyone),
   delta compression.
+- Task 40: a Vehicle component (wheels with position, radius, width, steering, driven and a shown entity; engine
+  torque, max RPM, steering lock, suspension length / frequency / damping; driver input throttle, steering, brake,
+  handbrake; read back speed along -Z and gear; scene format 30). Physics keeps a Jolt VehicleConstraint (a
+  WheeledVehicleController, forward -Z, ray collision tester on the chassis's layer, a step listener) per dynamic
+  body with a Vehicle, keyed on its settings and scale (a change remakes it) and removed before its body; driven
+  wheels pair across axles (similar z) into differentials sharing the torque; the handbrake holds the non-steering
+  wheels. After each step the wheel entities get GetWheelLocalTransform (axle X, up Y) in the body's frame, their
+  scale kept. VehicleDriver brakes when pressed against the way it rolls (above 1 m/s), eases the steering and
+  parks with the handbrake when disabled. PlayerController: crouch (the capsule's height times crouchHeight, centre
+  lowered so the feet stay; a ray from the crouched top checks headroom before standing; the head eases down by the
+  same amount; crouchSpeed), "climb" when a sphere around the body's middle touches a Ladder-tagged entity (forward /
+  back move vertically at climbSpeed; no gravity), "swim" when the middle is in a Water-tagged entity (swimSpeed;
+  vertical speed eased toward up / down input minus a slow sink). The character is remade with the new capsule when
+  it crouches (its key holds the height). Contact points: Physics::setRecordContacts / contacts() (added and persisted
+  contacts, up to 1024 a step; off by default), the editor's View > Show contacts while playing, and the selected
+  vehicle's wheels drawn in the viewport. Module API 29. Not done: tracked vehicles and motorcycles, gearbox / clutch
+  settings and anti-roll bars in the inspector, Lua access to vehicles, getting in and out of vehicles as a
+  ready-made behaviour, swimming animations or buoyancy for rigid bodies, ladders that aren't vertical.

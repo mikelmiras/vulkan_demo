@@ -35,6 +35,9 @@
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/Vehicle/VehicleCollisionTester.h>
+#include <Jolt/Physics/Vehicle/VehicleConstraint.h>
+#include <Jolt/Physics/Vehicle/WheeledVehicleController.h>
 #include <Jolt/RegisterTypes.h>
 
 namespace {
@@ -82,9 +85,27 @@ class ContactRecorder final : public JPH::ContactListener {
 public:
     std::mutex mutex;
     std::unordered_map<EntityId, Impact> impacts;   // the hardest per body this step
+    bool recordPoints = false;
+    std::vector<Physics::ContactPoint> points;      // every contact this step (when recording)
+
+    void record(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& m) {
+        if (!recordPoints) return;
+        std::lock_guard<std::mutex> lock(mutex);
+        for (JPH::uint i = 0; i < m.mRelativeContactPointsOn1.size() && points.size() < 1024; ++i) {
+            JPH::RVec3 p = m.GetWorldSpaceContactPointOn1(i);
+            points.push_back({{(float)p.GetX(), (float)p.GetY(), (float)p.GetZ()},
+                              {m.mWorldSpaceNormal.GetX(), m.mWorldSpaceNormal.GetY(), m.mWorldSpaceNormal.GetZ()},
+                              (EntityId)a.GetUserData(), (EntityId)b.GetUserData()});
+        }
+    }
+    void OnContactPersisted(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& m,
+                            JPH::ContactSettings&) override {
+        record(a, b, m);
+    }
 
     void OnContactAdded(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& m,
                         JPH::ContactSettings&) override {
+        record(a, b, m);
         JPH::RVec3 p = m.GetWorldSpaceContactPointOn1(0);
         float closing = (a.GetPointVelocity(p) - b.GetPointVelocity(p)).Dot(m.mWorldSpaceNormal);
         if (closing <= 1.5f) return;
@@ -213,7 +234,172 @@ struct Physics::Impl {
 
     JPH::BodyInterface& bi() { return system.GetBodyInterfaceNoLock(); }
 
+    // ---- Vehicles: a Jolt vehicle constraint on the chassis's body (made again when its settings change)
+    struct VehicleState {
+        JPH::Ref<JPH::VehicleConstraint> constraint;
+        JPH::BodyID body;
+        uint64_t key = 0;
+        bool seen = false;
+    };
+    std::unordered_map<EntityId, VehicleState> vehicles;
+    void removeVehicle(VehicleState& v) {
+        system.RemoveStepListener(v.constraint);
+        system.RemoveConstraint(v.constraint);
+    }
+
+    static uint64_t vehicleKey(const Vehicle& v, const Placement& p) {
+        uint64_t key = 1469598103934665603ull;
+        auto mix = [&](const void* data, size_t n) {
+            for (size_t i = 0; i < n; ++i) key = (key ^ static_cast<const uint8_t*>(data)[i]) * 1099511628211ull;
+        };
+        auto f = [&](float x) { mix(&x, sizeof(x)); };
+        for (const Vehicle::Wheel& w : v.wheels) {
+            f(w.position.x); f(w.position.y); f(w.position.z); f(w.radius); f(w.width);
+            f(w.steering ? 1.f : 0.f); f(w.driven ? 1.f : 0.f);
+        }
+        f((float)v.wheels.size()); f(v.engineTorque); f(v.maxRpm); f(v.maxSteer); f(v.suspensionLength);
+        f(v.suspensionFrequency); f(v.suspensionDamping); // (scale read back from a turning body's matrix wobbles in its last bits: rounded)
+        for (float sc : {p.scale.x, p.scale.y, p.scale.z}) f(std::round(sc * 1000.f));
+        return key;
+    }
+
+    // Makes, remakes and drops the vehicles; hands them the driver's input
+    void syncVehicles(Scene& scene, const std::vector<Mat4>& worlds) {
+        for (auto& [id, v] : vehicles) v.seen = false;
+        for (size_t i = 0; i < scene.entities.size(); ++i) {
+            const Entity& e = scene.entities[i];
+            if (!e.vehicle || e.vehicle->wheels.empty()) continue;
+            auto b = bodies.find(e.id);
+            if (b == bodies.end() || !b->second.dynamic) continue;   // (a vehicle needs a rigid body to carry)
+            const Vehicle& vh = *e.vehicle;
+            Placement p = place(worlds[i]);
+            uint64_t key = vehicleKey(vh, p);
+            auto it = vehicles.find(e.id);
+            if (it != vehicles.end() && (it->second.key != key || it->second.body != b->second.id)) {
+                removeVehicle(it->second);
+                vehicles.erase(it);
+                it = vehicles.end();
+            }
+            if (it == vehicles.end()) {
+                VehicleState state;
+                state.body = b->second.id;
+                state.key = key;
+                if (!makeVehicle(state, e, p)) continue;
+                it = vehicles.emplace(e.id, std::move(state)).first;
+            }
+            it->second.seen = true;
+            auto* controller = static_cast<JPH::WheeledVehicleController*>(it->second.constraint->GetController());
+            controller->SetDriverInput(std::clamp(vh.throttle, -1.f, 1.f), std::clamp(vh.steering, -1.f, 1.f),
+                                       std::clamp(vh.brake, 0.f, 1.f), std::clamp(vh.handbrake, 0.f, 1.f));
+            if (vh.throttle != 0.f || vh.steering != 0.f) bi().ActivateBody(it->second.body);   // (wake it to drive off)
+        }
+        for (auto it = vehicles.begin(); it != vehicles.end();) {   // vehicles taken off their entities
+            if (it->second.seen) { ++it; continue; }
+            removeVehicle(it->second);
+            it = vehicles.erase(it);
+        }
+    }
+
+    bool makeVehicle(VehicleState& state, const Entity& e, const Placement& p) {
+        const Vehicle& vh = *e.vehicle;
+        JPH::VehicleConstraintSettings settings;
+        settings.mUp = JPH::Vec3(0, 1, 0);
+        settings.mForward = JPH::Vec3(0, 0, -1);   // (-Z is forward, as for everything else)
+        auto controller = new JPH::WheeledVehicleControllerSettings;
+        settings.mController = controller;
+        controller->mEngine.mMaxTorque = std::fmax(vh.engineTorque, 0.f);
+        controller->mEngine.mMaxRPM = std::fmax(vh.maxRpm, controller->mEngine.mMinRPM + 100.f);
+        std::vector<int> driven;
+        for (size_t w = 0; w < vh.wheels.size(); ++w) {
+            const Vehicle::Wheel& wheel = vh.wheels[w];
+            auto ws = new JPH::WheelSettingsWV;
+            ws->mPosition = JPH::Vec3(wheel.position.x * p.scale.x, wheel.position.y * p.scale.y, wheel.position.z * p.scale.z);
+            ws->mWheelForward = JPH::Vec3(0, 0, -1);
+            ws->mRadius = std::fmax(wheel.radius, 0.01f);
+            ws->mWidth = std::fmax(wheel.width, 0.01f);
+            ws->mSuspensionMinLength = 0.f;
+            ws->mSuspensionMaxLength = std::fmax(vh.suspensionLength, 0.01f);
+            ws->mSuspensionSpring.mFrequency = std::fmax(vh.suspensionFrequency, 0.1f);
+            ws->mSuspensionSpring.mDamping = std::fmax(vh.suspensionDamping, 0.f);
+            ws->mMaxSteerAngle = wheel.steering ? std::clamp(vh.maxSteer, 0.f, 89.f) * 3.14159265f / 180.f : 0.f;
+            ws->mMaxHandBrakeTorque = wheel.steering ? 0.f : 4000.f;   // (the handbrake holds the fixed wheels)
+            settings.mWheels.push_back(ws);
+            if (wheel.driven) driven.push_back((int)w);
+        }
+        // Driven wheels pair up across each axle (wheels about as far forward), each pair through a differential
+        std::vector<std::pair<int, int>> axles;
+        std::vector<bool> used(vh.wheels.size(), false);
+        for (int a : driven) {
+            if (used[(size_t)a]) continue;
+            used[(size_t)a] = true;
+            int partner = -1;
+            for (int b : driven)
+                if (!used[(size_t)b] && std::fabs(vh.wheels[(size_t)b].position.z - vh.wheels[(size_t)a].position.z) < 0.25f) {
+                    partner = b;
+                    break;
+                }
+            if (partner >= 0) used[(size_t)partner] = true;
+            bool aLeft = partner < 0 || vh.wheels[(size_t)a].position.x <= vh.wheels[(size_t)partner].position.x;
+            axles.emplace_back(aLeft ? a : partner, aLeft ? partner : a);
+        }
+        for (auto [left, right] : axles) {
+            JPH::VehicleDifferentialSettings d;
+            d.mLeftWheel = left;
+            d.mRightWheel = right;
+            d.mEngineTorqueRatio = 1.f / (float)axles.size();
+            controller->mDifferentials.push_back(d);
+        }
+        JPH::BodyLockWrite lock(system.GetBodyLockInterface(), state.body);
+        if (!lock.Succeeded()) return false;
+        state.constraint = new JPH::VehicleConstraint(lock.GetBody(), settings);
+        state.constraint->SetVehicleCollisionTester(
+            new JPH::VehicleCollisionTesterRay(objectLayer(e.layer, true), JPH::Vec3(0, 1, 0)));
+        system.AddConstraint(state.constraint);
+        system.AddStepListener(state.constraint);
+        return true;
+    }
+
+    // After a step: the wheel entities turn and spring, the vehicle tells its speed and gear
+    void writeVehicles(Scene& scene) {
+        for (auto& [id, state] : vehicles) {
+            Entity* e = scene.find(id);
+            if (!e || !e->vehicle) continue;
+            Vehicle& vh = *e->vehicle;
+            JPH::RVec3 jp;
+            JPH::Quat jq;
+            bi().GetPositionAndRotation(state.body, jp, jq);
+            Mat4 body = composeTRS({(float)jp.GetX(), (float)jp.GetY(), (float)jp.GetZ()}, fromJ(jq.Normalized()), {1, 1, 1});
+            JPH::Vec3 v = bi().GetLinearVelocity(state.body);
+            JPH::Vec3 forward = jq * JPH::Vec3(0, 0, -1);
+            vh.speed = v.Dot(forward);
+            auto* controller = static_cast<JPH::WheeledVehicleController*>(state.constraint->GetController());
+            vh.gear = controller->GetTransmission().GetCurrentGear();
+            for (size_t w = 0; w < vh.wheels.size(); ++w) {
+                if (vh.wheels[w].entity.empty()) continue;
+                Entity* we = scene.findByName(vh.wheels[w].entity);
+                if (!we || we == e) continue;
+                JPH::Mat44 m = state.constraint->GetWheelLocalTransform((JPH::uint)w, JPH::Vec3(1, 0, 0), JPH::Vec3(0, 1, 0));
+                Mat4 local;
+                for (int c = 0; c < 4; ++c)
+                    for (int r = 0; r < 4; ++r) local.m[c * 4 + r] = m(r, c);
+                Placement wheelNow = place(scene.worldMatrix(we->id));
+                Placement wheelAt = place(body * local);
+                Mat4 world = composeTRS(wheelAt.position, wheelAt.rotation, wheelNow.scale);
+                Mat4 parent = we->parent != kNoEntity ? scene.worldMatrix(we->parent) : Mat4{};
+                we->transform.setMatrix(inverseAffine(parent) * world);
+            }
+        }
+    }
+
     void remove(Tracked& t) {
+        for (auto it = vehicles.begin(); it != vehicles.end();) {   // (nor a vehicle its chassis)
+            if (it->second.body == t.id) {
+                removeVehicle(it->second);
+                it = vehicles.erase(it);
+            } else {
+                ++it;
+            }
+        }
         for (auto it = joints.begin(); it != joints.end();) {   // (a constraint mustn't outlive its bodies)
             if (it->second.c->GetBody1()->GetID() == t.id || it->second.c->GetBody2()->GetID() == t.id) {
                 system.RemoveConstraint(it->second.c);
@@ -588,6 +774,13 @@ Physics::~Physics() {
 
 void Physics::swap(Physics& other) { impl_.swap(other.impl_); }
 
+void Physics::setRecordContacts(bool on) {
+    impl_->contacts.recordPoints = on;
+    if (!on) impl_->contacts.points.clear();
+}
+
+const std::vector<Physics::ContactPoint>& Physics::contacts() const { return impl_->contacts.points; }
+
 void Physics::remapMeshes(const std::vector<int>& map) {
     auto remap = [&](ShapeKey& k) {
         if (k.mesh >= 0 && k.mesh < (int)map.size()) k.mesh = map[(size_t)k.mesh];
@@ -605,6 +798,8 @@ size_t Physics::bodyCount() const { return impl_->bodies.size(); }
 void Physics::clear() {
     for (auto& [id, j] : impl_->joints) impl_->system.RemoveConstraint(j.c);
     impl_->joints.clear();
+    for (auto& [id, v] : impl_->vehicles) impl_->removeVehicle(v);
+    impl_->vehicles.clear();
     impl_->groups = nullptr;
     impl_->groupsKey = 0;
     impl_->grouped.clear();
@@ -728,6 +923,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
     }
 
     im.syncJoints(scene, worlds);
+    im.syncVehicles(scene, worlds);
     if (im.added > 256) {   // many new bodies (a scene starting): rebuild the broad-phase's trees once
         im.system.OptimizeBroadPhase();
         im.added = 0;
@@ -736,6 +932,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
     // ---- Simulate
     if (dt <= 0.f) return {};   // (just bringing the bodies up to date)
     im.contacts.impacts.clear();
+    im.contacts.points.clear();
     im.system.Update(dt, 1, &im.temp, &im.jobs);
 
     // ---- Write the moving bodies back: ancestors first, each against its parent's world as it is now (a chain of
@@ -782,6 +979,8 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
         t.position = now.position;
         t.rotation = now.rotation;
     }
+
+    im.writeVehicles(scene);
 
     // ---- Joints pulled harder than they hold come apart
     for (auto it = im.joints.begin(); it != im.joints.end();) {

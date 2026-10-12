@@ -155,6 +155,8 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Inspector", nullptr, &showInspector_);
         ImGui::MenuItem("Assets", nullptr, &showAssets_);
         ImGui::MenuItem("Show colliders", nullptr, &showColliders_);
+        ImGui::MenuItem("Show contacts", nullptr, &showContacts_);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("While playing: where bodies touch (dots) and which way they push (lines)");
         ImGui::MenuItem("Profiler", "F3", &showProfiler_);
         if (renderer_ && ImGui::BeginMenu("Anti-aliasing")) {
             const char* names[] = {"MSAA (4x)", "Temporal", "Off"};

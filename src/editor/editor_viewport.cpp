@@ -404,6 +404,43 @@ void Editor::drawColliders() {
                 }
         dl->PopClipRect();
     }
+    if (showContacts_ && playing()) {   // the last physics step's contacts: a dot and its normal
+        ImDrawList* dl = ImGui::GetBackgroundDrawList();
+        dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
+        for (const Physics::ContactPoint& c : game_.physics().contacts()) {
+            ImVec2 a, b;
+            if (!worldToScreen(c.position, a)) continue;
+            dl->AddCircleFilled(a, px(3.f), IM_COL32(255, 80, 60, 230));
+            if (worldToScreen(c.position + c.normal * 0.3f, b)) dl->AddLine(a, b, IM_COL32(255, 220, 60, 230), px(1.5f));
+        }
+        dl->PopClipRect();
+    }
+    if (const Entity* e = scene_.find(selected_); e && e->vehicle) {   // the selected vehicle's wheels
+        ImDrawList* dl = ImGui::GetBackgroundDrawList();
+        dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
+        const Mat4& m = worldOf(e->id);
+        Vec3 side = normalize(transformDir(m, {1, 0, 0})), up = normalize(transformDir(m, {0, 1, 0})),
+             fwd = normalize(transformDir(m, {0, 0, 1}));
+        for (const Vehicle::Wheel& w : e->vehicle->wheels) {
+            Vec3 c = transformPoint(m, w.position) - up * e->vehicle->suspensionLength;   // (hanging down)
+            ImU32 col = w.driven ? IM_COL32(255, 170, 60, 220) : IM_COL32(200, 200, 200, 200);
+            for (float s : {-0.5f, 0.5f}) {
+                Vec3 o = c + side * (w.width * s);
+                const int n = 20;
+                for (int i = 0; i < n; ++i) {
+                    float a0 = 2.f * PI * i / n, a1 = 2.f * PI * (i + 1) / n;
+                    ImVec2 sa, sb;
+                    if (worldToScreen(o + (up * std::cos(a0) + fwd * std::sin(a0)) * w.radius, sa) &&
+                        worldToScreen(o + (up * std::cos(a1) + fwd * std::sin(a1)) * w.radius, sb))
+                        dl->AddLine(sa, sb, col, px(1.2f));
+                }
+            }
+            ImVec2 top, bottom;
+            if (worldToScreen(transformPoint(m, w.position), top) && worldToScreen(c, bottom))
+                dl->AddLine(top, bottom, col, px(1.f));
+        }
+        dl->PopClipRect();
+    }
     bool any = showColliders_;
     if (!any)
         if (const Entity* e = scene_.find(selected_)) any = e->collider.has_value();

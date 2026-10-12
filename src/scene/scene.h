@@ -98,6 +98,33 @@ struct RigidBody {
                                // a ragdoll's parts until it goes limp
 };
 
+// A wheeled vehicle (physics/physics.h, Jolt's): the entity's rigid body is the chassis (scale 1), its wheels hang
+// under it on springs and an engine drives them through an automatic gearbox. Game code (or the built-in
+// VehicleDriver behaviour) sets the throttle, steering and brakes; the physics step reads them.
+struct Vehicle {
+    struct Wheel {
+        Vec3 position;               // where its suspension is attached, in the chassis's space
+        float radius = 0.4f, width = 0.25f;
+        bool steering = false;       // turns with the steering (the front ones)
+        bool driven = true;          // the engine drives it
+        std::string entity;          // a child that shows it, by name ("": none): moved, steered and spun to match
+    };
+    std::vector<Wheel> wheels;       // pairs left (x < 0) and right make the axles
+    float engineTorque = 500.f;      // N·m at most
+    float maxRpm = 6000.f;
+    float maxSteer = 30.f;           // degrees
+    float suspensionLength = 0.3f;   // travel, m
+    float suspensionFrequency = 2.f, suspensionDamping = 0.5f;   // springiness (Hz), 0..1
+    // Driving (runtime: set by game code)
+    float throttle = 0.f;            // -1..1 (backwards below 0)
+    float steering = 0.f;            // -1 left .. 1 right
+    float brake = 0.f;               // 0..1
+    float handbrake = 0.f;           // 0..1 (the wheels that don't steer)
+    // Read back after each step
+    float speed = 0.f;               // m/s along its forward (-Z)
+    int gear = 0;
+};
+
 // Connects the entity's rigid body to another body, or to the world (Jolt constraints). The other body is found
 // by name, nearest first (under the same parents: a ragdoll's bones find their own model's).
 struct Joint {
@@ -460,6 +487,7 @@ struct Entity {
     std::optional<ReflectionProbe> reflectionProbe;
     std::optional<UIElement> ui;
     std::optional<Replicated> replicated;
+    std::optional<Vehicle> vehicle;
     std::optional<PrefabLink> prefab;
     // In an instance of a prefab that itself contains an instance of another prefab (or is a variant of one), the
     // link the prefab's entity has to that inner prefab. Inside a prefab's own entities, `prefab` is that link.

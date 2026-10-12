@@ -329,6 +329,7 @@ private:
     bool gizmoDrawn_ = false;
 
     bool showOutliner_ = true, showInspector_ = true, showHelp_ = false, showColliders_ = false, showProfiler_ = false;
+    bool showContacts_ = false;   // View > Show contacts (while playing)
     bool openAddMenu_ = false, scrollToSelected_ = false;
     EntityId pendingDelete_ = kNoEntity, pendingDuplicate_ = kNoEntity, pendingFocus_ = kNoEntity;
     EntityId pendingReparent_ = kNoEntity, pendingParent_ = kNoEntity;   // drag & drop in the outliner

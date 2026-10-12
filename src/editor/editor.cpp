@@ -85,6 +85,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     float mdx = 0.f, mdy = 0.f;
     platform::takeMouseDelta(mdx, mdy);
     game_.input().setMouseCaptured(captured);
+    game_.setRecordContacts(showContacts_);
     game_.frame(dt, !io.WantTextInput, captured || viewportHovered(), captured ? ImVec2(mdx, mdy) : io.MouseDelta);
     net_.update(dt);
     uiWantsCursor_ = false;

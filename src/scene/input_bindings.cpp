@@ -10,6 +10,7 @@ std::vector<InputAction> defaultInputActions() {
         {"move_down", {ImGuiKey_Q, ImGuiKey_GamepadL1}},
         {"jump", {ImGuiKey_Space, ImGuiKey_GamepadFaceDown}},
         {"sprint", {ImGuiKey_LeftShift, ImGuiKey_RightShift, ImGuiKey_GamepadL3}},
+        {"crouch", {ImGuiKey_C, ImGuiKey_LeftCtrl, ImGuiKey_GamepadFaceRight}},
         {"look", {}, ImGuiMouseButton_Right},   // hold to steer the view with the mouse (not needed while captured)
         {"look_left", {ImGuiKey_GamepadRStickLeft}},
         {"look_right", {ImGuiKey_GamepadRStickRight}},

@@ -463,6 +463,18 @@ colliders draws them all (blue = solid, green = trigger).
   joint to its parent bone. The model animates as usual until `ctx.setRagdoll(root, true)` makes it go limp (its
   Animator stops and the bones fall in one piece); `false` hands it back to the animation. Put the ragdoll on a
   layer that doesn't meet its character's own capsule.
+- **Vehicles**: a **Vehicle** component on a rigid body makes it a car (Jolt's wheeled vehicle): wheels
+  (position, radius, width, steering, driven, and an entity shown as the wheel, which then turns and springs with
+  it), engine torque and RPM, steering lock and suspension. Add component > Vehicle puts four wheels at the
+  corners of the collider (front ones steer, back ones drive) and gives the body a car's mass; the selected
+  vehicle's wheels are drawn in the viewport. The **VehicleDriver** behaviour drives it with the move keys (back
+  brakes, then reverses; jump is the handbrake); code sets `vehicle->throttle`, `steering`, `brake`, `handbrake`
+  and reads `speed` and `gear`.
+- **PlayerController** also crouches (the `crouch` action, C / Left Ctrl: the capsule shrinks from the top, the
+  camera eases down, and it only stands up with room overhead), climbs entities tagged **Ladder** (forward /
+  back go up and down; jump lets go) and swims in trigger volumes tagged **Water** (it floats and sinks slowly;
+  jump or up swims up).
+- View > Show contacts draws, while playing, where bodies touch (dots) and which way they push (lines).
 - Everything (queries, triggers, characters, bodies) is one Jolt world, kept up to date with the scene each update.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
 
@@ -516,7 +528,8 @@ Behaviours are C++ classes attached to entities as components (Inspector > Add c
 | Patrol           | Moves back and forth between its start and start + offset                    |
 | LookAt           | Turns to face another entity (by name)                                       |
 | NavAgent         | Walks to another entity along paths around walls (the scene's navigation)    |
-| PlayerController | First-person walking, mouse look, jumping; collides through its capsule collider |
+| PlayerController | First-person walking, mouse look, jumping, crouching, ladders and swimming; collides through its capsule collider |
+| VehicleDriver    | Drives the entity's Vehicle with the move keys (jump: the handbrake)          |
 | Pickup           | Collected when the collector touches its trigger collider; logs how many are left |
 | Shooter          | Fires a prefab along its -Z while the fire action (left mouse) is held      |
 | Projectile       | Flies forward, stops at the first solid collider and damages Destructibles   |

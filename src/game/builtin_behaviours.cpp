@@ -230,6 +230,9 @@ struct PlayerController : BehaviourBase<PlayerController> {
         v.field("vy", vy);
         v.field("grounded", grounded);
         v.field("spawn", spawn);
+        v.field("crouched", crouched);
+        v.field("crouchAmount", crouchAmount);
+        v.field("mode", mode);
     }
     float moveSpeed = 6.f;
     float sprintMultiplier = 2.f;
@@ -240,10 +243,18 @@ struct PlayerController : BehaviourBase<PlayerController> {
     float respawnBelow = -50.f;      // falling under this height puts the player back at the start
     bool fly = false;                // no gravity or collision; E / Q move up and down
     std::string jumpSound = "Jump";
+    float crouchHeight = 0.55f;      // the collider's height crouched, as a part of standing
+    float crouchSpeed = 0.5f;        // walking speed crouched, as a part of moveSpeed
+    float climbSpeed = 3.f;          // up and down ladders (entities tagged "Ladder"), in m/s
+    float swimSpeed = 3.5f;          // in water (trigger volumes tagged "Water"), in m/s
     // runtime state
     float yaw = 0.f, pitch = 0.f, vy = 0.f;
     bool grounded = false;
     Vec3 spawn;
+    bool crouched = false;
+    float crouchAmount = 0.f;        // 0 standing .. 1 crouched (eased, the head goes down with it)
+    std::string mode = "walk";       // walk, climb or swim
+    float standHeight = -1.f, standCenterY = 0.f, headY = 0.f;   // (as the scene had them)
 
     void fields(FieldVisitor& v) override {
         v.field("moveSpeed", moveSpeed, 0.05f, 0.f, 1000.f);
@@ -255,6 +266,50 @@ struct PlayerController : BehaviourBase<PlayerController> {
         v.field("respawnBelow", respawnBelow, 0.5f);
         v.field("fly", fly);
         v.field("jumpSound", jumpSound, FieldRef::Sound);
+        v.field("crouchHeight", crouchHeight, 0.01f, 0.2f, 1.f);
+        v.field("crouchSpeed", crouchSpeed, 0.01f, 0.f, 1.f);
+        v.field("climbSpeed", climbSpeed, 0.05f, 0.f, 100.f);
+        v.field("swimSpeed", swimSpeed, 0.05f, 0.f, 100.f);
+    }
+
+    // What the body is in: "climb" touching a Ladder, "swim" with its middle in Water, else "walk"
+    static std::string surroundings(GameContext& ctx, const Entity& self) {
+        Vec3 at = ctx.worldPosition(self.id) + (self.collider ? Vec3{0, self.collider->center.y, 0} : Vec3{0, 0.9f, 0});
+        float r = self.collider ? self.collider->radius : 0.4f;
+        bool water = false, ladder = false;
+        for (EntityId id : ctx.overlapSphere(at, 0.05f))
+            if (const Entity* o = ctx.find(id); o && o != &self && o->hasTag("Water")) water = true;
+        for (EntityId id : ctx.overlapSphere(at, r + 0.15f))
+            if (const Entity* o = ctx.find(id); o && o != &self && o->hasTag("Ladder")) ladder = true;
+        return ladder ? "climb" : water ? "swim" : "walk";
+    }
+
+    // Crouching shrinks the collider from the top (the feet stay put) and lowers the head with it; standing back
+    // up waits for room overhead
+    void crouch(GameContext& ctx, Entity& self, Entity* h, bool want) {
+        if (!self.collider || self.collider->shape != Collider::Shape::Capsule) return;
+        Collider& c = *self.collider;
+        if (standHeight < 0.f) {
+            standHeight = c.height;
+            standCenterY = c.center.y;
+            headY = h != &self ? h->transform.position[1] : 0.f;
+        }
+        float drop = standHeight * (1.f - crouchHeight);
+        if (!want && crouched) {   // room to stand?
+            Vec3 top = ctx.worldPosition(self.id) + Vec3{0, standCenterY - drop * 0.5f + (standHeight - drop) * 0.5f, 0};
+            RaycastHit hit;
+            if (ctx.raycast(top, {0, 1, 0}, drop + 0.05f, hit, self.id)) want = true;
+        }
+        crouched = want;
+        float target = crouched ? 1.f : 0.f;
+        float step = ctx.dt() * 8.f;
+        crouchAmount = crouchAmount < target ? std::min(target, crouchAmount + step) : std::max(target, crouchAmount - step);
+        float height = crouched ? standHeight - drop : standHeight;   // (the collider snaps; the view eases)
+        if (std::fabs(c.height - height) > 1e-4f) {
+            c.height = height;
+            c.center.y = standCenterY - (standHeight - height) * 0.5f;
+        }
+        if (h != &self) h->transform.position[1] = headY - drop * crouchAmount;
     }
 
     // The entity that looks up and down: the first child with a camera, else the body itself
@@ -287,7 +342,11 @@ struct PlayerController : BehaviourBase<PlayerController> {
         pitch = std::clamp(pitch, -1.5f, 1.5f);
         Vec3 flat{std::cos(yaw), 0.f, std::sin(yaw)}, right{-flat.z, 0.f, flat.x};
         Vec3 move = flat * in.axis("move_back", "move_forward") + right * in.axis("move_left", "move_right");
-        float speed = moveSpeed * (in.down("sprint") ? sprintMultiplier : 1.f);
+        Entity* h = head(ctx, self);
+        mode = fly ? "walk" : surroundings(ctx, self);
+        crouch(ctx, self, h, !fly && mode == "walk" && in.down("crouch"));
+        float speed = mode == "swim" ? swimSpeed
+                    : moveSpeed * (crouched ? crouchSpeed : in.down("sprint") ? sprintMultiplier : 1.f);
         // Keyboard: full speed in any direction. Stick: proportional to how far it's pushed
         if (length(move) > 1.f) move = normalize(move);
         move = move * speed;
@@ -295,6 +354,29 @@ struct PlayerController : BehaviourBase<PlayerController> {
         if (fly) {
             movePosition(self.transform, (move + Vec3{0, in.axis("move_down", "move_up") * speed, 0}) * dt);
             vy = 0.f;
+        } else if (mode == "climb" && !in.pressed("jump")) {
+            // On a ladder: forward and back climb, sideways still steps off; no falling
+            float up = in.axis("move_back", "move_forward");
+            vy = up * climbSpeed;
+            Vec3 side = right * (in.axis("move_left", "move_right") * moveSpeed * 0.5f);
+            Vec3 delta = (side + Vec3{0, vy, 0}) * dt;
+            if (up < 0.f && grounded) delta = delta + flat * (-climbSpeed * dt);   // (backing off at the bottom)
+            if (self.collider) grounded = ctx.moveCharacter(self, delta).grounded;
+            else movePosition(self.transform, delta);
+            vy = 0.f;
+        } else if (mode == "swim") {
+            // In water: floats, slowly sinks; jump (or up) swims up, down swims down
+            float rise = in.axis("move_down", "move_up") + (in.down("jump") ? 1.f : 0.f);
+            float targetVy = std::clamp(rise, -1.f, 1.f) * swimSpeed - 0.5f;
+            vy += (targetVy - vy) * std::min(1.f, dt * 4.f);
+            Vec3 delta = (move + Vec3{0, vy, 0}) * dt;
+            if (self.collider) {
+                CharacterMove m = ctx.moveCharacter(self, delta);
+                grounded = m.grounded;
+                if ((grounded && vy < 0.f) || (m.hitCeiling && vy > 0.f)) vy = 0.f;
+            } else {
+                movePosition(self.transform, delta);
+            }
         } else {
             if (grounded && in.pressed("jump")) {
                 vy = jumpSpeed;
@@ -319,13 +401,43 @@ struct PlayerController : BehaviourBase<PlayerController> {
         }
 
         // Body: yaw only. Head: pitch (or both, when the body is the camera)
-        Entity* h = head(ctx, self);
         Vec3 forward{std::cos(pitch) * flat.x, std::sin(pitch), std::cos(pitch) * flat.z};
         self.transform.setMatrix(lookRotation(self.transform.pos(), h == &self ? forward : flat, self.transform.scale));
         if (h != &self) {
             h->transform.rotation[0] = pitch / DEG2RAD;
             h->transform.rotation[1] = h->transform.rotation[2] = 0.f;
         }
+    }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Drives the entity's Vehicle: forward / back are the throttle (back brakes first, then reverses), left / right
+// steer (eased), jump is the handbrake
+struct VehicleDriver : BehaviourBase<VehicleDriver> {
+    static constexpr const char* kTypeName = "VehicleDriver";
+    float steerSpeed = 3.f;    // how fast the wheels turn to the stick (per second, of full lock)
+    bool enabled = true;       // off: hands off (another behaviour or a player getting in turns it on)
+    void fields(FieldVisitor& v) override {
+        v.field("steerSpeed", steerSpeed, 0.05f, 0.f, 100.f);
+        v.field("enabled", enabled);
+    }
+    void update(GameContext& ctx, Entity& self) override {
+        if (!self.vehicle) return;
+        Vehicle& vh = *self.vehicle;
+        const InputMap& in = ctx.input();
+        float forward = enabled ? in.axis("move_back", "move_forward") : 0.f;
+        float steer = enabled ? in.axis("move_left", "move_right") : 0.f;
+        // Pressing against the way it's rolling brakes, until it's nearly stopped
+        vh.brake = 0.f;
+        if (forward * vh.speed < 0.f && std::fabs(vh.speed) > 1.f) {
+            vh.brake = std::fabs(forward);
+            forward = 0.f;
+        }
+        vh.throttle = forward;
+        float step = steerSpeed * ctx.dt();
+        vh.steering = vh.steering < steer ? std::min(steer, vh.steering + step) : std::max(steer, vh.steering - step);
+        vh.handbrake = enabled && in.down("jump") ? 1.f : 0.f;
+        if (!enabled && std::fabs(vh.speed) < 0.5f) vh.handbrake = 1.f;   // (parked)
     }
 };
 
@@ -739,6 +851,7 @@ void registerBuiltinBehaviours() {
     registerBehaviour<PlayerController>(
         "First-person walking: WASD / arrows to move, hold the right mouse button to look, Space to jump, Shift to "
         "sprint. Put it on a body with a capsule collider and a camera child at eye height.");
+    registerBehaviour<VehicleDriver>("Drives the entity's Vehicle with the move keys (jump: the handbrake)");
     registerBehaviour<Pickup>("Collected when the collector entity (by name) touches its trigger collider");
     registerBehaviour<Shooter>("Fires a prefab along its -Z while the fire action (left mouse) is held");
     registerBehaviour<Projectile>("Flies along its -Z and stops at the first solid collider, damaging Destructibles");

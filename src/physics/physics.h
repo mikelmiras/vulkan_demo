@@ -43,6 +43,13 @@ struct CharacterMove {
 
 class Physics {
 public:
+    // Contacts of the last step, for showing them (setRecordContacts: off unless asked, it costs a little)
+    struct ContactPoint {
+        Vec3 position, normal;
+        EntityId a = kNoEntity, b = kNoEntity;
+    };
+    void setRecordContacts(bool on);
+    const std::vector<ContactPoint>& contacts() const;
     Physics();
     ~Physics();
     Physics(const Physics&) = delete;

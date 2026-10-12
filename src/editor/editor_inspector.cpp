@@ -653,6 +653,58 @@ void Editor::drawComponents(Entity& e) {
             if (!e.rigidBody) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a rigid body (and a collider)");
         }
     }
+    if (e.vehicle) {
+        if (!componentHeader("Vehicle", open)) { pushUndo(); e.vehicle.reset(); }
+        else if (open) {
+            Vehicle& v = *e.vehicle;
+            ImGui::DragFloat("Engine torque", &v.engineTorque, 5.f, 0.f, 1e5f, "%.0f N m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::DragFloat("Max RPM", &v.maxRpm, 10.f, 1000.f, 20000.f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::SliderFloat("Max steering", &v.maxSteer, 0.f, 60.f, "%.0f deg");
+            track();
+            ImGui::DragFloat("Suspension", &v.suspensionLength, 0.01f, 0.01f, 2.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            tooltip("How far each wheel hangs below where it's attached");
+            ImGui::DragFloat("Stiffness", &v.suspensionFrequency, 0.05f, 0.1f, 20.f, "%.2f Hz", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::SliderFloat("Damping", &v.suspensionDamping, 0.f, 2.f, "%.2f");
+            track();
+            int removeWheel = -1;
+            for (size_t w = 0; w < v.wheels.size(); ++w) {
+                Vehicle::Wheel& wheel = v.wheels[w];
+                ImGui::PushID((int)w);
+                bool node = ImGui::TreeNode("wheel", "Wheel %d", (int)w + 1);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) removeWheel = (int)w;
+                if (node) {
+                    ImGui::DragFloat3("Position", &wheel.position.x, 0.01f, 0.f, 0.f, "%.2f");
+                    track();
+                    tooltip("Where its suspension is attached, in the vehicle's own space");
+                    ImGui::DragFloat("Radius", &wheel.radius, 0.01f, 0.01f, 5.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                    track();
+                    ImGui::DragFloat("Width", &wheel.width, 0.01f, 0.01f, 5.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                    track();
+                    ImGui::Checkbox("Steers", &wheel.steering);
+                    track();
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Driven", &wheel.driven);
+                    track();
+                    pickReference("Shown by", wheel.entity, FieldRef::Entity);
+                    tooltip("An entity (usually a child) turned and moved with this wheel");
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            if (removeWheel >= 0) { pushUndo(); v.wheels.erase(v.wheels.begin() + removeWheel); }
+            if (ImGui::Button("Add wheel")) { pushUndo(); v.wheels.emplace_back(); }
+            if (!e.rigidBody) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a rigid body (and a collider)");
+            else if (std::find_if(e.behaviours.begin(), e.behaviours.end(), [](const BehaviourPtr& b) {
+                         return std::string(b->typeName()) == "VehicleDriver";
+                     }) == e.behaviours.end())
+                ImGui::TextDisabled("Add a VehicleDriver behaviour to drive it with the keys");
+        }
+    }
     if (e.light) {
         if (!componentHeader("Light", open)) { pushUndo(); e.light.reset(); }
         else if (open) {
@@ -776,6 +828,28 @@ void Editor::drawComponents(Entity& e) {
             e.joint = Joint{};
             if (!e.rigidBody) e.rigidBody = RigidBody{};
             if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
+        }
+        if (ImGui::MenuItem("Vehicle", nullptr, false, !e.vehicle)) {
+            // A car: four wheels at the corners of its collider (the front two steer, the back two drive)
+            pushUndo();
+            if (!e.collider) e.collider = e.meshRenderer ? fitCollider(meshes_, e.meshRenderer->mesh) : Collider{};
+            if (!e.rigidBody) {
+                e.rigidBody = RigidBody{};
+                e.rigidBody->mass = 1200.f;
+            }
+            Vehicle v;
+            const Collider& c = *e.collider;
+            Vec3 half = c.shape == Collider::Shape::Box ? c.size * 0.5f : Vec3{c.radius, c.radius, c.radius};
+            for (int i = 0; i < 4; ++i) {
+                Vehicle::Wheel w;
+                bool front = i < 2;
+                w.position = {c.center.x + (i % 2 ? half.x : -half.x), c.center.y - half.y * 0.5f,
+                              c.center.z + (front ? -half.z : half.z) * 0.7f};
+                w.steering = front;
+                w.driven = !front;
+                v.wheels.push_back(w);
+            }
+            e.vehicle = v;
         }
         if (ImGui::MenuItem("Collider", nullptr, false, !e.collider)) {
             pushUndo();
