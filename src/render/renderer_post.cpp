@@ -236,7 +236,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, compositePipeline_);
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &compositeSet_, 0, nullptr);
         Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, ao ? 1.f : 0.f, 0.f},
-               {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}, {}};
+               {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, 0.f}, {(float)info.colorFilter, 0.f, 0.f, 0.f}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
         if (const SceneRenderInfo* in = info.inset; in && in->viewportW >= 1.f && in->viewportH >= 1.f) {   // the inset's

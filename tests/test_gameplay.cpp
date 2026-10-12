@@ -240,3 +240,41 @@ TEST(gameplay_layers) {
     CHECK(crate);
     CHECK(!ghost);
 }
+
+// Gamepad feedback: rumble and the light bar go to the host's output (clamped); the player can turn rumble off
+TEST(gameplay_gamepad_feedback) {
+    test::ImGuiContextGuard imgui;
+    Scene s;
+    s.create("Anything");
+    std::vector<Game::Rumble> rumbles;
+    std::vector<Vec3> lights;
+    Game g;
+    g.setGamepadOutput({[&](float low, float high, float seconds) { rumbles.push_back({low, high, seconds}); },
+                        [&](Vec3 c) { lights.push_back(c); }});
+    g.start(s, meshes());
+    g.context().rumble(0.5f, 1.5f, 0.3f);
+    g.context().setGamepadLight({1.f, 0.f, 2.f});
+    REQUIRE(rumbles.size() == 1);
+    CHECK(rumbles[0].low == 0.5f && rumbles[0].high == 1.f && rumbles[0].seconds == 0.3f);
+    REQUIRE(lights.size() == 1);
+    CHECK(lights[0].x == 1.f && lights[0].z == 1.f);
+    CHECK(g.lastRumble().high == 1.f);
+    CHECK(g.gamepadLight() && g.gamepadLight()->x == 1.f);
+    // Turned off in the settings (a menu toggle bound to settings.rumble): the rumble stops, and later ones are none
+    g.state().set("settings.rumble", json::Value(false));
+    ImGui::NewFrame();
+    g.frame(1.f / 60.f, false, false);
+    ImGui::EndFrame();
+    REQUIRE(rumbles.size() == 2);
+    CHECK(rumbles[1].seconds == 0.f);
+    g.context().rumble(1.f, 1.f, 1.f);
+    CHECK(rumbles.back().low == 0.f && rumbles.back().seconds == 0.f);
+    g.state().set("settings.rumble", json::Value(true));
+    ImGui::NewFrame();
+    g.frame(1.f / 60.f, false, false);
+    ImGui::EndFrame();
+    g.context().rumble(0.2f, 0.f, 0.5f);
+    CHECK(rumbles.back().low == 0.2f && rumbles.back().seconds == 0.5f);
+    g.stop();   // (stops what's still going)
+    CHECK(rumbles.back().seconds == 0.f);
+}

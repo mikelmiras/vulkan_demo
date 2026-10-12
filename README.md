@@ -2,7 +2,8 @@
 
 A small Vulkan 1.3 3D scene with a Blender-style editing UI, in C++17.
 
-- Runs on **Linux** (X11 / XWayland, via raw XCB), **Windows** (Win32) and **macOS** (Cocoa + MoltenVK). No GLFW/SDL needed.
+- Runs on **Linux** (Wayland, X11 / XWayland via raw XCB), **Windows** (Win32) and **macOS** (Cocoa + MoltenVK). No
+  GLFW/SDL needed.
 - Scripting: [Lua](https://www.lua.org) 5.4.7 (`third_party/lua`, MIT)
 - UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b (docking branch) + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo);
   images: [stb_image](https://github.com/nothings/stb) v2.30; glTF: [cgltf](https://github.com/jkuhlmann/cgltf) v1.14;
@@ -15,7 +16,11 @@ Requires the [Vulkan SDK](https://vulkan.lunarg.com/) (sets `VULKAN_SDK`, provid
 
 ### Linux
 
-Also needs libxcb (installed on any X11/XWayland desktop).
+Also needs libxcb (installed on any X11/XWayland desktop), and for native Wayland windows libwayland and
+libxkbcommon's headers (`sudo apt install libwayland-dev libxkbcommon-dev`; without them it builds for X11 only).
+On a Wayland session the window is a native Wayland one when the compositor draws window decorations itself (KDE,
+sway, Hyprland, ...); elsewhere (GNOME) it goes through XWayland, which gets a title bar. `VKWORLD_PLATFORM=wayland`
+or `=x11` picks one.
 
 ```sh
 cmake -S . -B build
@@ -264,7 +269,12 @@ dropping on the right.
   never missed. The keyboard is ignored while typing in a text field, and the mouse while it's over a panel.
 - **Click the game view to capture the mouse** for mouse look without holding a button; Esc releases it.
 - Gamepads work through Dear ImGui's backends (XInput on Windows, GameController on macOS) and the Linux joystick
-  API (`/dev/input/js0`, Xbox-style layout).
+  API (`/dev/input/js*`, Xbox-style layout; a pad plugged in later is found within two seconds).
+- **Rumble and light bars**: `ctx.rumble(low, high, seconds)` runs the heavy and light motors (0..1; Lua
+  `input.rumble`), `ctx.setGamepadLight({r, g, b})` colours a DualShock 4 / DualSense light bar (Lua
+  `input.setLight`). Windows rumbles through XInput (no light bars there); macOS uses the pad's haptics and light;
+  Linux rumbles through the pad's evdev node and writes its LEDs in sysfs (often only root may: a udev rule allows
+  it). The player's `settings.rumble` turns rumble off.
 - Messages logged by behaviours show at the bottom of the viewport (and on stdout).
 - Game > Maximize viewport on play hides the side panels while playing.
 
@@ -526,9 +536,12 @@ WAV / MP3 / FLAC file.
   starting). `ctx.playStinger("music/hit.ogg", "beat")` plays a short phrase on the music's next beat (or "bar", or
   "now"), with the music dipping under it. MusicPlayer has `layers` (comma-separated), `layerVolume`, `bpm` and
   `beatsPerBar`; Lua has `game.playMusicLayers`, `game.setMusicLayer` and `game.playStinger`.
-- **Player settings**: master, music, effects, UI and ambience volumes and headphones live in `settings.json` in
-  the game's save folder, read when the game starts and saved a second after a change. They appear in the game
-  state as `settings.masterVolume`, `settings.musicVolume`, ..., `settings.headphones`, so a menu's sliders and
+- **Player settings**: master, music, effects, UI and ambience volumes, headphones, rumble and the accessibility
+  options live in `settings.json` in the game's save folder, read when the game starts and saved a second after a
+  change. They appear in the game state as `settings.masterVolume`, `settings.musicVolume`, ..., `settings.headphones`,
+  `settings.rumble`, `settings.highContrast` (UI layouts drawn with opaque black boxes, white text and a thick
+  yellow outline on the focus) and `settings.colorBlind` (`none`, `protanopia`, `deuteranopia` or `tritanopia`: a
+  filter over the 3D view that moves what that eye can't tell apart into differences it can), so a menu's sliders and
   toggles (UI elements bound to those values) or a script change them, and the game applies them (on top of its
   own bus volumes). The sample game's title menu has a Settings screen built that way; a button's action can now
   be several, separated by `;` (`@hide Panel; @show Settings`).
@@ -802,14 +815,19 @@ the same 1080-high canvas as `GameUI`. Kinds:
 - **List**: its children stacked top to bottom (each as tall as its offsets say), with spacing.
 - **Button**: its *action* runs when it's pressed: a message (sent to the *target* entity by name, or to everyone;
   `onMessage` gets it, also while paused), or `@resume`, `@pause`, `@quit`, `@load <scene>`, `@show` / `@hide` /
-  `@toggle <entity>` (menus that open other menus), `@save` / `@loadgame <slot>`.
+  `@toggle <entity>` (menus that open other menus), `@save` / `@loadgame <slot>`, `@set <key> <value>` (a game
+  state value: a number, `true` / `false` or a word) and `@cycle <key> <a> <b> ...` (the next of those values:
+  `@cycle settings.colorBlind none protanopia deuteranopia tritanopia` on a button showing
+  `Colours: {settings.colorBlind}`).
 - **Slider**, **Toggle**, **Text field**: they show and change a **game state** value (`ctx.state()`, `game.state`
   in Lua): a number in a range, a flag, a text.
 
 Texts are formatted like `HudText`: `{@key}` from the player's language, `{name}` from the game state. Menus work with
 the **keyboard and gamepad**: arrows / d-pad move to the nearest element that way, Enter / Space / A presses,
 Left / Right move a slider; the mouse works too (and is freed while a menu is up). While a text field is being typed
-into, the game's own controls don't see the keys. The sample game starts on a menu made this way
+into, the game's own controls don't see the keys. A text field opened with the gamepad (A) brings up an **on-screen
+keyboard**: the d-pad picks a key, A types it, B deletes, X is a space, Y is Shift, Start or Done finishes (the
+mouse can click its keys too). The sample game starts on a menu made this way
 (`scenes/menu.vkw`: Play, a music volume slider and a language toggle applied by `scripts/MenuSettings.lua`, a name
 field, Quit).
 
@@ -964,7 +982,7 @@ Callbacks, all optional: `start()`, `update(dt)` (fixed step), `onTriggerEnter(o
   `scenePath()`, `quit()`, `saveGame(slot)`, `loadGame(slot)`, `hasSaveGame(slot)`, `setPaused(b)`, `paused()`,
   and `game.state.key` (numbers, strings and booleans that survive scene changes and go in save games).
 - **`input`**: `down(action)`, `pressed`, `released`, `pressedThisFrame` (for `drawUI`), `value`,
-  `axis(negative, positive)`, `mouseDelta()` (returns x, y).
+  `axis(negative, positive)`, `mouseDelta()` (returns x, y), `rumble(low, high, seconds)`, `setLight(color)`.
 - **`ui`** (in `drawUI`): `width()`, `height()`, `text(x, y, text, size, color, align, font)`, `textWidth`,
   `rect(x, y, w, h, color, rounding)`, `border`, `bar(x, y, w, h, fraction, fill, back)`, `image(texture, x, y, w, h)`,
   `button(x, y, w, h, label, size)` (true when clicked), `hovered(...)`, `showCursor()`; colours are
@@ -1030,7 +1048,7 @@ Includes are relative to `src/`.
 | `src/runtime/main.cpp`     | The standalone game (`vkgame`)                                  |
 | `src/app/`                 | Window + renderer + ImGui setup and frame loop shared by both   |
 | `src/core/`                | `vecmath.h` vector/matrix helpers, `json.*` JSON reader/writer, `png.*` screenshot writer, `project.*` project folder and paths |
-| `src/platform/`            | OS layer: `platform.h` interface; XCB (Linux), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
+| `src/platform/`            | OS layer: `platform.h` interface; Linux (`platform_linux.cpp`: gamepads, dialogs, and the window backend chosen at start: `platform_xcb.cpp` or `platform_wayland.cpp`), Win32, Cocoa (macOS) implementations; ImGui XCB backend |
 | `src/render/`              | Vulkan renderer: device, swapchain, pipelines, frame (`renderer.cpp`); textures and materials (`renderer_textures.cpp`); culling, batching, skinning data (`renderer_instances.cpp`); HDR, bloom, tonemapping (`renderer_post.cpp`); scene -> draw list (`scene_draw.*`) |
 | `src/assets/`              | Mesh library (procedural meshes, OBJ import, picking), texture library (`textures.*`), glTF import (`gltf.*`), asset ids and import settings (`asset_db.*`) |
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`); terrains (`terrain.*`); new projects from templates (`project_templates.*`) |

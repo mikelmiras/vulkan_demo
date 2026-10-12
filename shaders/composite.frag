@@ -9,6 +9,7 @@ layout(set = 0, binding = 2) uniform sampler2D ao;   // ambient occlusion, half 
 layout(push_constant) uniform Post {
     vec4 a;   // x = exposure, y = bloom strength, z = 1: apply ambient occlusion
     vec4 b;   // rgb = outline colour (sRGB)
+    vec4 c;   // x = colour-blindness filter: 0 none, 1 protanopia, 2 deuteranopia, 3 tritanopia
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -27,6 +28,21 @@ vec3 pbrNeutral(vec3 color) {
     return mix(color, newPeak * vec3(1.0), g);
 }
 
+// Daltonization (Fidaner, Lin, Ozguven): the colour as that eye sees it (simulated in LMS cone space), and what's
+// lost moved into the channels it still tells apart
+vec3 daltonize(vec3 rgb, int mode) {
+    const mat3 toLms = mat3(17.8824, 3.45565, 0.0299566, 43.5161, 27.1554, 0.184309, 4.11935, 3.86714, 1.46709);
+    const mat3 toRgb = mat3(0.0809444479, -0.0102485335, -0.000365296938, -0.130504409, 0.0540193266, -0.00412161469,
+                            0.116721066, -0.113614708, 0.693511405);
+    vec3 lms = toLms * rgb;
+    if (mode == 1) lms.x = 2.02344 * lms.y - 2.52581 * lms.z;         // no L cones
+    else if (mode == 2) lms.y = 0.494207 * lms.x + 1.24827 * lms.z;   // no M cones
+    else lms.z = -0.395913 * lms.x + 0.801109 * lms.y;                // no S cones
+    vec3 error = rgb - toRgb * lms;
+    vec3 shift = vec3(0.0, 0.7 * error.r + error.g, 0.7 * error.r + error.b);
+    return clamp(rgb + shift, 0.0, 1.0);
+}
+
 void main() {
     ivec2 px = ivec2(gl_FragCoord.xy);
     vec4 h = texelFetch(hdr, px, 0);
@@ -41,6 +57,7 @@ void main() {
     }
     vec3 c = (max(scene, vec3(0.0)) + texture(bloom, uv).rgb * pc.a.y) * pc.a.x;
     c = pow(clamp(pbrNeutral(c), 0.0, 1.0), vec3(1.0 / 2.2));
+    if (pc.c.x > 0.5) c = daltonize(c, int(pc.c.x + 0.5));
     c = mix(c, pc.b.rgb, outline);
     float noise = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
     outColor = vec4(c + noise / 255.0, 1.0);

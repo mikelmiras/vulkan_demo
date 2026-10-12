@@ -1197,6 +1197,17 @@ int iAxis(lua_State* L) {
     lua_pushnumber(L, context(L).input().axis(luaL_checkstring(L, 1), luaL_checkstring(L, 2)));
     return 1;
 }
+int iRumble(lua_State* L) {   // input.rumble(low, high, seconds)
+    context(L).rumble((float)luaL_checknumber(L, 1), (float)luaL_optnumber(L, 2, lua_tonumber(L, 1)),
+                      (float)luaL_optnumber(L, 3, 0.25));
+    return 0;
+}
+int iSetLight(lua_State* L) {   // input.setLight(vec3(r, g, b)) or input.setLight(r, g, b)
+    Vec3 c = lua_isnumber(L, 1) ? Vec3{(float)luaL_checknumber(L, 1), (float)luaL_checknumber(L, 2), (float)luaL_checknumber(L, 3)}
+                                : toVec3(L, 1);
+    context(L).setGamepadLight(c);
+    return 0;
+}
 int iMouseDelta(lua_State* L) {
     ImVec2 d = context(L).input().mouseDelta();
     lua_pushnumber(L, d.x);
@@ -1411,7 +1422,8 @@ lua_State* state() {
     lua_newtable(L);
     const luaL_Reg input[] = {{"down", iDown},   {"pressed", iPressed}, {"released", iReleased},
                               {"pressedThisFrame", iPressedThisFrame}, {"value", iValue},
-                              {"axis", iAxis},   {"mouseDelta", iMouseDelta}, {nullptr, nullptr}};
+                              {"axis", iAxis},   {"mouseDelta", iMouseDelta}, {"rumble", iRumble},
+                              {"setLight", iSetLight}, {nullptr, nullptr}};
     setFunctions(L, input);
     lua_setglobal(L, "input");
 

@@ -42,6 +42,8 @@ public:
         std::function<std::string(const std::string&)> format;   // text -> what's shown (null: as it is)
         bool keyboard = true;         // reads keys and the gamepad (not while an editor text box has them)
         bool interactive = true;      // false: just drawn (the editor's preview)
+        // The player's settings.highContrast: opaque black boxes, white text, a thick yellow outline on the focus
+        bool highContrast = false;
     };
     // Draws the scene's UI and handles the mouse, keys and gamepad; pressed buttons' actions go to `actions`
     void frame(GameUI& ui, Scene& scene, const UILayout& layout, const Frame& f, std::vector<UIAction>& actions);
@@ -50,8 +52,14 @@ public:
     void setFocus(EntityId id) { focused_ = id; }
     bool editingText() const { return editing_ != kNoEntity; }   // a text field takes the keyboard
     bool hasMenu() const { return hasMenu_; }   // something could be pressed last frame (the pointer is freed)
+    // The on-screen keyboard: shown while a text field is edited after the gamepad opened it (A on the field).
+    // The d-pad or stick picks a key, A types it, B deletes, X is a space, Y is Shift, Start (or Done) finishes;
+    // the mouse can click its keys, and a real keyboard still types.
+    bool keyboardShown() const { return editing_ != kNoEntity && osk_; }
 
 private:
     EntityId focused_ = kNoEntity, editing_ = kNoEntity, dragging_ = kNoEntity;
     bool hasMenu_ = false;
+    bool osk_ = false, oskShift_ = false;
+    int oskRow_ = 1, oskCol_ = 0;   // the key picked (rows of 10 columns; the last row's keys span several)
 };

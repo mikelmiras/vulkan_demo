@@ -219,6 +219,8 @@ int main(int argc, char** argv) {
     if (!audio.init()) std::fprintf(stderr, "%s\n", audio.error().c_str());
     Game game;
     game.setAudio(&audio);
+    game.setGamepadOutput({[](float low, float high, float seconds) { platform::gamepadRumble(low, high, seconds); },
+                           [](Vec3 c) { platform::setGamepadLight(c.x, c.y, c.z); }});
     game.setAssetLibraries(meshes, textures);
     game.setLanguage(language.empty() ? settings.language : language);
     game.setAsyncLoading(true);   // scene changes load in the background, behind a loading screen
@@ -323,6 +325,7 @@ int main(int argc, char** argv) {
         info.bloomThreshold = scene.render.bloomThreshold;
         info.aoStrength = scene.render.aoStrength;
         info.aoRadius = scene.render.aoRadius;
+        info.colorFilter = game.colorFilter();
         if (!scene.render.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
             std::string skyError;
             info.environment = environment::load(project::resolve(scene.render.skyImage), skyError);

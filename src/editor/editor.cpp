@@ -28,6 +28,9 @@
 Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio, float uiScale, bool persistent)
     : meshes_(meshes), textures_(textures), audio_(audio), uiScale_(uiScale), scene_(buildDefaultScene()) {
     game_.setAudio(audio);
+    if (persistent)   // (a real editor: screenshot runs and tests don't rumble pads)
+        game_.setGamepadOutput({[](float low, float high, float seconds) { platform::gamepadRumble(low, high, seconds); },
+                           [](Vec3 c) { platform::setGamepadLight(c.x, c.y, c.z); }});
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     persistent_ = persistent;
     if (persistent_) {
@@ -273,6 +276,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.bloomThreshold = r.bloomThreshold;
     info.aoStrength = r.aoStrength;
     info.aoRadius = r.aoRadius;
+    if (playing()) info.colorFilter = game_.colorFilter();   // (the player's setting, as the game will look)
     if (!r.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
         std::string skyError;
         info.environment = environment::load(project::resolve(r.skyImage), skyError);

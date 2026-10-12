@@ -55,6 +55,10 @@ python3 tools/check_screenshot.py shot.png
 - If the validation layer isn't installed system-wide, unpack `vulkan-validationlayers` locally and point
   `VK_ADD_LAYER_PATH` and `LD_LIBRARY_PATH` at it.
 - Throwaway scenes and tools for checks go in a scratch folder outside the repository, never in it.
+- Native Wayland (Linux): run a headless compositor, `weston --backend=headless --renderer=pixman --socket=wl-test`
+  (unpacked locally like the validation layer if need be), then `WAYLAND_DISPLAY=wl-test VKWORLD_PLATFORM=wayland
+  ./build/vkgame --screenshot ...`. Without `VKWORLD_PLATFORM` a compositor that doesn't decorate windows (weston's
+  kiosk shell, GNOME) gets XWayland when `DISPLAY` is set.
 
 ### Performance
 

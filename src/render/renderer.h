@@ -107,6 +107,10 @@ struct SceneRenderInfo {
     float aspect = 16.f / 9.f;
     float fogDensity = 0.006f, ambient = 0.45f, exposure = 1.f, bloomStrength = 0.06f, bloomThreshold = 1.f;
     float aoStrength = 0.6f, aoRadius = 0.6f;   // ambient occlusion (screen space): how dark, how far (m); 0: off
+    // A colour-blindness filter over the picture (the player's settings.colorBlind, Game::colorFilter()): 0 none,
+    // 1 protanopia, 2 deuteranopia, 3 tritanopia. Daltonized: what that eye can't tell apart is moved into
+    // differences it can see.
+    int colorFilter = 0;
     float zNear = 0.1f, zFar = 2000.f;          // the camera's clip planes (to read depth back as distance)
     // A sky image (render/environment.h): drawn as the sky, lighting and reflected (null: the colours above)
     const Environment* environment = nullptr;

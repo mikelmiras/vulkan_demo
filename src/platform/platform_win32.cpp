@@ -9,6 +9,7 @@
 #include <commdlg.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <xinput.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 
@@ -38,6 +39,27 @@ bool g_captured = false;
 float g_mouseDx = 0.f, g_mouseDy = 0.f;
 bool g_fullscreen = false;
 WINDOWPLACEMENT g_windowedPlacement{sizeof(WINDOWPLACEMENT)};
+
+// XInput, loaded when first needed (as Dear ImGui's backend does for input): rumble on the first pad connected
+using XInputGetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
+using XInputSetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_VIBRATION*);
+XInputGetStateFn g_xinputGetState = nullptr;
+XInputSetStateFn g_xinputSetState = nullptr;
+bool g_xinputTried = false;
+int g_rumblePad = -1;
+ULONGLONG g_rumbleUntil = 0;   // (XInput has no duration: stopped by pollEvents)
+
+bool loadXInput() {
+    if (g_xinputTried) return g_xinputSetState != nullptr;
+    g_xinputTried = true;
+    for (const char* dll : {"xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll", "xinput1_2.dll", "xinput1_1.dll"})
+        if (HMODULE m = LoadLibraryA(dll)) {
+            g_xinputGetState = (XInputGetStateFn)(void*)GetProcAddress(m, "XInputGetState");
+            g_xinputSetState = (XInputSetStateFn)(void*)GetProcAddress(m, "XInputSetState");
+            break;
+        }
+    return g_xinputGetState && g_xinputSetState;
+}
 
 // Keep the (hidden) cursor inside the client area while captured
 void clipCursorToWindow() {
@@ -149,12 +171,14 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
 
 void destroyWindow() {
     setCursorCaptured(false);
+    if (g_rumbleUntil) gamepadRumble(0.f, 0.f, 0.f);
     DestroyWindow(g_hwnd);
     UnregisterClassW(kClassName, g_instance);
     g_hwnd = nullptr;
 }
 
 void pollEvents() {
+    if (g_rumbleUntil && GetTickCount64() >= g_rumbleUntil) gamepadRumble(0.f, 0.f, 0.f);
     MSG msg;
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
@@ -207,6 +231,31 @@ void setFullscreen(bool fullscreen) {
 }
 
 bool isFullscreen() { return g_fullscreen; }
+
+bool gamepadRumble(float low, float high, float seconds) {
+    if (!loadXInput()) return false;
+    bool stop = seconds <= 0.f || (low <= 0.f && high <= 0.f);
+    if (!stop || g_rumblePad < 0) {
+        g_rumblePad = -1;
+        for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) {
+            XINPUT_STATE state{};
+            if (g_xinputGetState(i, &state) == ERROR_SUCCESS) {
+                g_rumblePad = (int)i;
+                break;
+            }
+        }
+    }
+    if (g_rumblePad < 0) return false;
+    XINPUT_VIBRATION v{};
+    if (!stop) {   // (left: the heavy motor, right: the light one)
+        v.wLeftMotorSpeed = (WORD)(std::clamp(low, 0.f, 1.f) * 65535.f);
+        v.wRightMotorSpeed = (WORD)(std::clamp(high, 0.f, 1.f) * 65535.f);
+    }
+    g_rumbleUntil = stop ? 0 : GetTickCount64() + (ULONGLONG)(seconds * 1000.f);
+    return g_xinputSetState((DWORD)g_rumblePad, &v) == ERROR_SUCCESS;
+}
+
+bool setGamepadLight(float, float, float) { return false; }   // (XInput has no light bars)
 
 // The .ico's images become RT_ICON resources 1..n and its directory the RT_GROUP_ICON 1 (the one Explorer shows)
 bool setExecutableIcon(const std::filesystem::path& exe, const std::string& ico, std::string& error) {

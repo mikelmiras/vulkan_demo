@@ -11,3 +11,6 @@ void ImGui_ImplXcb_NewFrame(float displayWidth, float displayHeight, float delta
 // Drains the X event queue. Every event goes to `handler` first; unless it returns true (consumed), input events
 // then go to ImGui. Keyboard auto-repeat release/press pairs are merged.
 void ImGui_ImplXcb_PollEvents(bool (*handler)(void* user, xcb_generic_event_t* event), void* user);
+
+// An X keysym (the same numbers as xkbcommon's: the Wayland backend uses it too) -> ImGui's key; None if unmapped
+int ImGui_ImplXcb_KeysymToKey(uint32_t keysym);

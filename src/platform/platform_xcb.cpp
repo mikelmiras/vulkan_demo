@@ -1,29 +1,20 @@
-// Linux platform layer: X11 / XWayland window via XCB.
+// Linux window backend: X11 / XWayland via XCB (platform_linux.h).
 #define VK_USE_PLATFORM_XCB_KHR
 #include <xcb/xcb.h>
 #include <vulkan/vulkan.h>
 
 #include "platform/platform.h"
-#include <spawn.h>
-#include <sys/wait.h>
-#include <thread>
-extern char** environ;
+#include "platform/platform_linux.h"
 
-#include <fcntl.h>
-#include <linux/joystick.h>
-#include <unistd.h>
-
-#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
-#include <string>
 
 #include "imgui.h"
 #include "platform/imgui_impl_xcb.h"
 
-namespace platform {
+namespace platform::x11 {
 
 namespace {
 
@@ -36,7 +27,6 @@ bool g_imguiReady = false;
 bool g_captured = false, g_fullscreen = false;
 float g_mouseDx = 0.f, g_mouseDy = 0.f;
 xcb_cursor_t g_invisibleCursor = 0;
-int g_joystick = -1;   // /dev/input/js0, if there is one
 
 xcb_atom_t internAtom(const char* name) {
     auto cookie = xcb_intern_atom(g_conn, 0, (uint16_t)std::strlen(name), name);
@@ -82,46 +72,6 @@ bool onEvent(void*, xcb_generic_event_t* e) {
     return false;
 }
 
-// Linux joystick API (xpad layout: Xbox and most other pads) -> ImGui gamepad keys
-void pollJoystick() {
-    if (g_joystick < 0 || !g_imguiReady) return;
-    ImGuiIO& io = ImGui::GetIO();
-    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
-    auto stick = [&](ImGuiKey negative, ImGuiKey positive, int raw) {
-        float v = raw / 32767.f, dead = 0.15f;
-        float n = std::clamp((-v - dead) / (1.f - dead), 0.f, 1.f), p = std::clamp((v - dead) / (1.f - dead), 0.f, 1.f);
-        io.AddKeyAnalogEvent(negative, n > 0.1f, n);
-        io.AddKeyAnalogEvent(positive, p > 0.1f, p);
-    };
-    js_event ev;
-    while (read(g_joystick, &ev, sizeof(ev)) == (ssize_t)sizeof(ev)) {
-        int type = ev.type & ~JS_EVENT_INIT;
-        if (type == JS_EVENT_BUTTON) {
-            static const ImGuiKey buttons[] = {ImGuiKey_GamepadFaceDown, ImGuiKey_GamepadFaceRight, ImGuiKey_GamepadFaceLeft,
-                                               ImGuiKey_GamepadFaceUp, ImGuiKey_GamepadL1, ImGuiKey_GamepadR1,
-                                               ImGuiKey_GamepadBack, ImGuiKey_GamepadStart, ImGuiKey_None,
-                                               ImGuiKey_GamepadL3, ImGuiKey_GamepadR3};
-            if (ev.number < sizeof(buttons) / sizeof(buttons[0]) && buttons[ev.number] != ImGuiKey_None)
-                io.AddKeyEvent(buttons[ev.number], ev.value != 0);
-        } else if (type == JS_EVENT_AXIS) {
-            switch (ev.number) {
-                case 0: stick(ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight, ev.value); break;
-                case 1: stick(ImGuiKey_GamepadLStickUp, ImGuiKey_GamepadLStickDown, ev.value); break;
-                case 3: stick(ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight, ev.value); break;
-                case 4: stick(ImGuiKey_GamepadRStickUp, ImGuiKey_GamepadRStickDown, ev.value); break;
-                case 6: stick(ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight, ev.value); break;
-                case 7: stick(ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadDpadDown, ev.value); break;
-                case 2:
-                case 5: {   // triggers: -32767 released .. 32767 pulled
-                    float t = (ev.value + 32767) / 65534.f;
-                    io.AddKeyAnalogEvent(ev.number == 2 ? ImGuiKey_GamepadL2 : ImGuiKey_GamepadR2, t > 0.1f, t);
-                    break;
-                }
-            }
-        }
-    }
-}
-
 }  // namespace
 
 bool createWindow(const char* title, uint32_t width, uint32_t height) {
@@ -160,8 +110,6 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
 
 void destroyWindow() {
     setCursorCaptured(false);
-    if (g_joystick >= 0) close(g_joystick);
-    g_joystick = -1;
     xcb_destroy_window(g_conn, g_window);
     xcb_disconnect(g_conn);
     g_conn = nullptr;
@@ -170,7 +118,7 @@ void destroyWindow() {
 void pollEvents() {
     if (g_imguiReady) {
         ImGui_ImplXcb_PollEvents(onEvent, nullptr);
-        pollJoystick();
+        linux_shared::gamepadPoll();
         return;
     }
     while (xcb_generic_event_t* e = xcb_poll_for_event(g_conn)) {
@@ -228,11 +176,6 @@ void setFullscreen(bool fullscreen) {
 
 bool isFullscreen() { return g_fullscreen; }
 
-bool setExecutableIcon(const std::filesystem::path&, const std::string&, std::string& error) {
-    error = "executables have no icons here (the desktop entry has it)";
-    return false;
-}
-
 // EWMH _NET_WM_ICON: width, height, then ARGB pixels as 32-bit values
 void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height) {
     if (!g_conn || !rgba || !width || !height) return;
@@ -271,90 +214,15 @@ VkSurfaceKHR createVulkanSurface(VkInstance instance) {
 void imguiInit() {
     ImGui_ImplXcb_Init(g_conn, g_window);
     g_imguiReady = true;
-    g_joystick = open("/dev/input/js0", O_RDONLY | O_NONBLOCK);
+    linux_shared::gamepadOpen();
 }
 
 void imguiNewFrame(float deltaTime) { ImGui_ImplXcb_NewFrame((float)g_width, (float)g_height, deltaTime); }
 
 void imguiShutdown() {
+    linux_shared::gamepadClose();
     ImGui_ImplXcb_Shutdown();
     g_imguiReady = false;
 }
 
-std::filesystem::path openFileDialog(const char* title, const char* extension) {
-    // No toolkit here: borrow the desktop's dialog helper if one is installed
-    std::string t = title, patterns;
-    for (char& c : t) if (c == '\'' ) c = ' ';
-    for (size_t start = 0, end; start <= std::strlen(extension); start = end + 1) {   // "obj,glb" -> "*.obj *.glb"
-        end = std::string(extension).find(',', start);
-        if (end == std::string::npos) end = std::strlen(extension);
-        std::string e = std::string(extension).substr(start, end - start);
-        bool safe = !e.empty() && e.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == std::string::npos;
-        if (safe) patterns += (patterns.empty() ? "*." : " *.") + e;
-    }
-    const std::string cmds[] = {
-        "zenity --file-selection --title='" + t + "' --file-filter='" + patterns + "' --file-filter='*' 2>/dev/null",
-        "kdialog --getopenfilename . '" + patterns + "' --title '" + t + "' 2>/dev/null"};
-    for (const std::string& cmd : cmds) {
-        std::string tool = cmd.substr(0, cmd.find(' '));
-        if (std::system(("command -v " + tool + " >/dev/null 2>&1").c_str()) != 0) continue;
-        FILE* p = popen(cmd.c_str(), "r");
-        if (!p) continue;
-        std::string out;
-        char buf[512];
-        while (std::fgets(buf, sizeof(buf), p)) out += buf;
-        pclose(p);
-        while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
-        return out;   // empty when cancelled
-    }
-    return {};
-}
-
-std::filesystem::path openFolderDialog(const char* title) {
-    std::string t = title;
-    for (char& c : t) if (c == '\'') c = ' ';
-    const std::string cmds[] = {"zenity --file-selection --directory --title='" + t + "' 2>/dev/null",
-                                "kdialog --getexistingdirectory . --title '" + t + "' 2>/dev/null"};
-    for (const std::string& cmd : cmds) {
-        std::string tool = cmd.substr(0, cmd.find(' '));
-        if (std::system(("command -v " + tool + " >/dev/null 2>&1").c_str()) != 0) continue;
-        FILE* p = popen(cmd.c_str(), "r");
-        if (!p) continue;
-        std::string out;
-        char buf[512];
-        while (std::fgets(buf, sizeof(buf), p)) out += buf;
-        pclose(p);
-        while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
-        return out;
-    }
-    return {};
-}
-
-static const char* const kOpener = "xdg-open";
-
-bool openWithSystem(const std::filesystem::path& file) {
-    std::string path = file.u8string();
-    char* argv[] = {const_cast<char*>(kOpener), const_cast<char*>(path.c_str()), nullptr};
-    pid_t pid = 0;
-    if (posix_spawnp(&pid, kOpener, nullptr, nullptr, argv, environ) != 0) return false;
-    std::thread([pid] { waitpid(pid, nullptr, 0); }).detach();   // (reaped when it's done)
-    return true;
-}
-
-std::filesystem::path executablePath() {
-    std::error_code ec;
-    std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
-    return ec ? std::filesystem::path() : exe;
-}
-
-std::filesystem::path executableDir() {
-    std::filesystem::path exe = executablePath();
-    return exe.empty() ? std::filesystem::current_path() : exe.parent_path();
-}
-
-std::vector<std::filesystem::path> uiFontCandidates() {
-    return {"/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf", "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/TTF/DejaVuSans.ttf"};
-}
-
-}  // namespace platform
+}  // namespace platform::x11

@@ -35,6 +35,12 @@ void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height);
 bool setExecutableIcon(const std::filesystem::path& exe, const std::string& ico, std::string& error);
 bool isFullscreen();
 
+// Gamepad feedback, on the first pad: rumble with the heavy (low frequency) and light (high frequency) motors 0..1
+// for `seconds` (0 stops it), and a light bar's colour (DualShock 4 / DualSense, 0..1). False where the pad, the
+// OS or permissions don't allow it (Windows: no light bars through XInput; Linux: the LEDs are often root's).
+bool gamepadRumble(float low, float high, float seconds);
+bool setGamepadLight(float r, float g, float b);
+
 // Content scale of the window's monitor (1.0 = 96 DPI on Windows, always 1.0 on X11)
 float dpiScale();
 

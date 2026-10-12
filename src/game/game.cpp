@@ -323,6 +323,25 @@ void GameContext::makeNoise(Vec3 position, float loudness, EntityId source) {
     game_->noises_.push_back({position, loudness, time_, source, ++game_->noiseSerial_});
 }
 
+void GameContext::rumble(float low, float high, float seconds) {
+    Game& g = *game_;
+    auto it = g.settings_.find("settings.rumble");
+    if (it != g.settings_.end() && !it->second.asBool(true)) low = high = seconds = 0.f;   // (the player's turned it off)
+    low = std::clamp(low, 0.f, 1.f);
+    high = std::clamp(high, 0.f, 1.f);
+    seconds = std::max(seconds, 0.f);
+    g.lastRumble_ = {low, high, seconds};
+    if (g.gamepadOut_.rumble) g.gamepadOut_.rumble(low, high, seconds);
+}
+
+void GameContext::setGamepadLight(Vec3 color) {
+    Game& g = *game_;
+    color = {std::clamp(color.x, 0.f, 1.f), std::clamp(color.y, 0.f, 1.f), std::clamp(color.z, 0.f, 1.f)};
+    g.light_ = color;
+    g.hasLight_ = true;
+    if (g.gamepadOut_.light) g.gamepadOut_.light(color);
+}
+
 json::Value* GameContext::blackboard(EntityId id) {
     Entity* e = find(id);
     return e && e->brain ? &e->brain->blackboard : nullptr;
@@ -507,6 +526,9 @@ void Game::begin(bool fresh, bool keepPhysics) {
 
 void Game::stop() {
     if (settingsSaveIn_ >= 0.f) saveSettings();
+    if (lastRumble_.seconds > 0.f && gamepadOut_.rumble) gamepadOut_.rumble(0.f, 0.f, 0.f);   // (no rumbling on)
+    lastRumble_ = {};
+    hasLight_ = false;
     loadingScene_.clear();
     for (Chunk& c : chunks_) c.cancelled = true;
     stopSounds();
@@ -519,8 +541,17 @@ const std::vector<std::pair<std::string, json::Value>>& Game::defaultSettings() 
     static const std::vector<std::pair<std::string, json::Value>> defaults = {
         {"settings.masterVolume", json::Value(1.0)}, {"settings.musicVolume", json::Value(1.0)},
         {"settings.effectsVolume", json::Value(1.0)}, {"settings.uiVolume", json::Value(1.0)},
-        {"settings.ambienceVolume", json::Value(1.0)}, {"settings.headphones", json::Value(false)}};
+        {"settings.ambienceVolume", json::Value(1.0)}, {"settings.headphones", json::Value(false)},
+        {"settings.rumble", json::Value(true)}, {"settings.highContrast", json::Value(false)},
+        {"settings.colorBlind", json::Value("none")}};
     return defaults;
+}
+
+int Game::colorFilter() const {
+    auto it = settings_.find("settings.colorBlind");
+    if (it == settings_.end()) return 0;
+    const std::string& mode = it->second.asString();
+    return mode == "protanopia" ? 1 : mode == "deuteranopia" ? 2 : mode == "tritanopia" ? 3 : 0;
 }
 
 void Game::loadSettings() {
@@ -537,6 +568,7 @@ void Game::loadSettings() {
         const json::Value& v = doc[key.substr(9)];   // (saved without the "settings." prefix)
         if (v.type() == T::Number && value.type() == T::Number) value = json::Value(std::clamp(v.asNumber(), 0.0, 1.0));
         else if (v.type() == T::Bool && value.type() == T::Bool) value = v;
+        else if (v.type() == T::String && value.type() == T::String) value = v;
     }
 }
 
@@ -552,13 +584,18 @@ void Game::syncSettings(float dt) {
             continue;
         }
         using T = json::Value::Type;
-        bool changed = value.type() == T::Bool ? now->type() == T::Bool && now->asBool() != value.asBool()
-                                               : now->type() == T::Number && now->asNumber() != value.asNumber();
+        bool changed = value.type() == T::Bool     ? now->type() == T::Bool && now->asBool() != value.asBool()
+                       : value.type() == T::String ? now->type() == T::String && now->asString() != value.asString()
+                                                   : now->type() == T::Number && now->asNumber() != value.asNumber();
         if (changed) {
             value = value.type() == T::Number ? json::Value(std::clamp(now->asNumber(), 0.0, 1.0)) : *now;
             state_.set(key, value);   // (clamped)
             settingsSaveIn_ = 1.f;
         }
+    }
+    if (!settings_["settings.rumble"].asBool(true) && lastRumble_.seconds > 0.f) {   // (turned off while rumbling)
+        lastRumble_ = {};
+        if (gamepadOut_.rumble) gamepadOut_.rumble(0.f, 0.f, 0.f);
     }
     if (settingsSaveIn_ >= 0.f) {
         settingsSaveIn_ -= std::max(dt, 0.f);
@@ -639,6 +676,7 @@ void Game::drawUI(GameUI& ui) {
         f.state = &state_;
         f.format = [this](const std::string& t) { return ctx_.format(t); };
         f.keyboard = keyboard_;
+        f.highContrast = settings_["settings.highContrast"].asBool(false);
         std::vector<UIAction> actions;
         uiController_.frame(ui, *scene_, layout, f, actions);
         for (const UIAction& a : actions) runUIAction(a);
@@ -687,7 +725,35 @@ void Game::runUIAction(const UIAction& a) {
     else if (verb == "@show") { if (Entity* e = entity()) e->visible = true; }
     else if (verb == "@hide") { if (Entity* e = entity()) e->visible = false; }
     else if (verb == "@toggle") { if (Entity* e = entity()) e->visible = !e->visible; }
-    else ctx_.log("UI: unknown action " + a.action);
+    else if (verb == "@set" || verb == "@cycle") {   // "@set key value", "@cycle key a b c": a game state value
+        std::vector<std::string> words;
+        for (size_t at = 0; at < arg.size();) {
+            size_t end = arg.find(' ', at);
+            if (end == std::string::npos) end = arg.size();
+            if (end > at) words.push_back(arg.substr(at, end - at));
+            at = end + 1;
+        }
+        if (words.size() < 2) {
+            ctx_.log("UI: " + verb + " needs a key and a value");
+            return;
+        }
+        auto parse = [](const std::string& w) {   // (true / false, a number, or the text)
+            if (w == "true" || w == "false") return json::Value(w == "true");
+            char* end = nullptr;
+            double d = std::strtod(w.c_str(), &end);
+            return end && *end == 0 ? json::Value(d) : json::Value(w);
+        };
+        size_t pick = 1;
+        if (verb == "@cycle") {   // the one after the current value (the first if it's none of them)
+            const json::Value* now = state_.get(words[0]);
+            for (size_t i = 1; i < words.size(); ++i)
+                if (now && json::write(*now) == json::write(parse(words[i]))) {
+                    pick = i + 1 < words.size() ? i + 1 : 1;
+                    break;
+                }
+        }
+        state_.set(words[0], parse(words[pick]));
+    } else ctx_.log("UI: unknown action " + a.action);
 }
 
 void Game::step() {

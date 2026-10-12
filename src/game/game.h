@@ -161,6 +161,10 @@ public:
     void playSound2D(const std::string& clip, float volume = 1.f);
     // A noise AI brains can hear (without a sound: footsteps, a thrown stone); playSound makes one too
     void makeNoise(Vec3 position, float loudness = 1.f, EntityId source = kNoEntity);
+    // Gamepad feedback: rumble (the heavy and light motors 0..1, for `seconds`; 0 stops it; nothing while the
+    // player's settings.rumble is off) and the colour of a light bar (DualShock 4, DualSense; sRGB 0..1)
+    void rumble(float low, float high, float seconds);
+    void setGamepadLight(Vec3 color);
     // An AI brain's blackboard (nullptr: no AIBrain on it)
     json::Value* blackboard(EntityId id);
     // Music: one track, streamed and looping on the music bus, cross-fading from the one before
@@ -259,6 +263,18 @@ public:
     void setPaused(bool paused) { paused_ = paused; }
     // Optional: with an audio engine, AudioSources play and ctx.playSound() is heard. Set before start().
     void setAudio(AudioEngine* audio) { audio_ = audio; }
+    // Optional: where gamepad feedback goes (the host's platform::gamepadRumble / setGamepadLight). Requests are
+    // remembered either way (tests): the last rumble asked for, and the light's colour.
+    struct GamepadOutput {
+        std::function<void(float low, float high, float seconds)> rumble;
+        std::function<void(Vec3 color)> light;
+    };
+    void setGamepadOutput(GamepadOutput output) { gamepadOut_ = std::move(output); }
+    struct Rumble {
+        float low = 0.f, high = 0.f, seconds = 0.f;
+    };
+    const Rumble& lastRumble() const { return lastRumble_; }
+    const Vec3* gamepadLight() const { return hasLight_ ? &light_ : nullptr; }
     // For ctx.loadScene() / loadGame(): the libraries scenes load into (imports are appended). Without them, scene
     // changes fail (logged). The meshes must be the ones given to start().
     void setAssetLibraries(MeshLibrary& meshes, TextureLibrary& textures) { meshLib_ = &meshes; texLib_ = &textures; }
@@ -284,9 +300,11 @@ public:
     GameState& state() { return state_; }
 
     // The player's settings: settings.json in the save folder, read at start(), and in the game state as
-    // settings.<name> (kSettings: volumes 0..1, headphones), so menus (UI sliders and toggles bound to them) and
+    // settings.<name> (kSettings: volumes 0..1, headphones, rumble), so menus (UI sliders and toggles bound to them) and
     // scripts change them; applied every frame, saved a second after a change and at stop()
     static const std::vector<std::pair<std::string, json::Value>>& defaultSettings();
+    // settings.colorBlind as SceneRenderInfo::colorFilter (0 none, 1 protanopia, 2 deuteranopia, 3 tritanopia)
+    int colorFilter() const;
     void saveSettings();
 
     // The same as the GameContext requests, done right away (between updates)
@@ -415,6 +433,10 @@ private:
     GameContext::TimerId nextTimer_ = 1;
     std::vector<std::pair<EntityId, EntityId>> triggerPairs_;   // overlapping after the previous update
     AudioEngine* audio_ = nullptr;
+    GamepadOutput gamepadOut_;
+    Rumble lastRumble_;
+    Vec3 light_;
+    bool hasLight_ = false;
     std::vector<std::pair<EntityId, AudioEngine::Sound>> attached_;   // sounds following their entity
     std::unordered_map<AudioEngine::Sound, Vec3> soundPos_;           // ... where they were last frame
     Vec3 listener_;

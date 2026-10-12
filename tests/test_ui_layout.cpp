@@ -214,3 +214,98 @@ TEST(ui_layout_saved) {
     CHECK(back.ui->anchorMax[1] == 0.4f && back.ui->offsetMin[1] == -2.f);
     CHECK(back.ui->text == "{@menu.volume}" && back.ui->value == "volume" && back.ui->max == 5.f && back.ui->align == 0);
 }
+
+// A text field opened with the gamepad gets the on-screen keyboard: keys picked with the d-pad, typed with A
+TEST(ui_layout_on_screen_keyboard) {
+    test::ImGuiContextGuard imgui;
+    ImGui::GetIO().DisplaySize = ImVec2(1920, 1080);
+    ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_HasGamepad;   // (else ImGui drops the pad's keys)
+    Scene s;
+    Entity& name = element(s, "Name", UIElement::Kind::TextField);
+    place(*name.ui, 0.5f, 0.2f, 0.5f, 0.2f, -200, 0, 200, 60);
+    name.ui->value = "playerName";
+    Game g;
+    g.start(s, meshes());
+    GameUI ui;
+    frame(g, ui);
+    tap(g, ui, ImGuiKey_GamepadDpadDown);   // (wakes the menu)
+    tap(g, ui, ImGuiKey_GamepadFaceDown);   // opens the field, with the keyboard (the q row, its first key)
+    REQUIRE(g.uiController().keyboardShown());
+    tap(g, ui, ImGuiKey_GamepadFaceUp);     // Shift: a capital
+    tap(g, ui, ImGuiKey_GamepadDpadRight);
+    tap(g, ui, ImGuiKey_GamepadDpadRight);
+    tap(g, ui, ImGuiKey_GamepadFaceDown);   // E
+    tap(g, ui, ImGuiKey_GamepadDpadDown);   // the a row, d
+    tap(g, ui, ImGuiKey_GamepadFaceDown);   // d (Shift was for one)
+    tap(g, ui, ImGuiKey_GamepadFaceLeft);   // a space
+    tap(g, ui, ImGuiKey_GamepadDpadUp);
+    tap(g, ui, ImGuiKey_GamepadDpadUp);     // the digits, 3
+    tap(g, ui, ImGuiKey_GamepadFaceDown);
+    for (int i = 0; i < 3; ++i) tap(g, ui, ImGuiKey_GamepadDpadLeft);   // round the edge: 0
+    tap(g, ui, ImGuiKey_GamepadFaceDown);
+    CHECK(g.state().text("playerName") == "Ed 30");
+    tap(g, ui, ImGuiKey_GamepadFaceRight);  // deletes it
+    CHECK(g.state().text("playerName") == "Ed 3");
+    // The bottom row: Done finishes
+    tap(g, ui, ImGuiKey_GamepadDpadUp);     // (round the top: the bottom row, under the 0: Done)
+    tap(g, ui, ImGuiKey_GamepadDpadLeft);   // Delete (a wide key: one step)
+    tap(g, ui, ImGuiKey_GamepadDpadRight);  // Done
+    tap(g, ui, ImGuiKey_GamepadFaceDown);
+    CHECK(!g.uiController().editingText());
+    CHECK(!g.uiController().keyboardShown());
+    CHECK(g.state().text("playerName") == "Ed 3");
+    // Opened with the keyboard (Enter): no on-screen one
+    tap(g, ui, ImGuiKey_Enter);
+    CHECK(g.uiController().editingText());
+    CHECK(!g.uiController().keyboardShown());
+    g.stop();
+}
+
+// Accessibility settings from a menu: "@cycle" steps settings.colorBlind through its modes (the render filter
+// follows), "@set" turns on high contrast (the UI's drawn that way)
+TEST(ui_layout_accessibility_settings) {
+    test::ImGuiContextGuard imgui;
+    ImGui::GetIO().DisplaySize = ImVec2(1920, 1080);
+    Scene s;
+    Entity& menu = element(s, "Menu", UIElement::Kind::List);
+    place(*menu.ui, 0.5f, 0.5f, 0.5f, 0.5f, -200, -100, 200, 100);
+    EntityId m = menu.id;
+    Entity& colors = element(s, "Colours", UIElement::Kind::Button, m);
+    place(*colors.ui, 0, 0, 0, 0, 0, 0, 0, 60);
+    colors.ui->text = "Colours: {settings.colorBlind}";
+    colors.ui->action = "@cycle settings.colorBlind none protanopia deuteranopia tritanopia";
+    Entity& contrast = element(s, "Contrast", UIElement::Kind::Button, m);
+    place(*contrast.ui, 0, 0, 0, 0, 0, 0, 0, 60);
+    contrast.ui->action = "@set settings.highContrast true; @set difficulty 2";
+    Game g;
+    g.start(s, meshes());
+    GameUI ui;
+    frame(g, ui);
+    CHECK(g.state().text("settings.colorBlind") == "none");
+    CHECK(g.colorFilter() == 0);
+    tap(g, ui, ImGuiKey_DownArrow);   // (wakes the menu: Colours)
+    tap(g, ui, ImGuiKey_Enter);
+    tap(g, ui, ImGuiKey_Enter);
+    CHECK(g.state().text("settings.colorBlind") == "deuteranopia");
+    CHECK(g.colorFilter() == 2);
+    tap(g, ui, ImGuiKey_Enter);
+    tap(g, ui, ImGuiKey_Enter);   // (round to the first)
+    CHECK(g.state().text("settings.colorBlind") == "none");
+    tap(g, ui, ImGuiKey_Enter);
+    tap(g, ui, ImGuiKey_DownArrow);
+    tap(g, ui, ImGuiKey_Enter);
+    CHECK(g.state().flag("settings.highContrast"));
+    CHECK(g.state().number("difficulty") == 2.f);
+    frame(g, ui);   // (drawn in high contrast)
+    g.stop();
+    // Saved with the player's settings, and read back
+    Game again;
+    again.start(s, meshes());
+    CHECK(again.state().text("settings.colorBlind") == "protanopia");
+    CHECK(again.colorFilter() == 1);
+    CHECK(again.state().flag("settings.highContrast"));
+    again.state().set("settings.colorBlind", json::Value("none"));   // (the next run starts as before)
+    again.state().set("settings.highContrast", json::Value(false));
+    frame(again, ui);
+    again.stop();
+}

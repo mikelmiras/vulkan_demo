@@ -486,7 +486,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 49 (done) | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
 | 50 (done) | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
 | 51 (done) | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
-| 52 | Platform: Wayland, gamepad rumble and light bars, a mouse-free text-input keyboard for consoles-style UI, high-contrast / colour-blind UI options | X11 only; accessibility settings are missing |
+| 52 (done) | Platform: Wayland, gamepad rumble and light bars, a mouse-free text-input keyboard for consoles-style UI, high-contrast / colour-blind UI options | X11 only; accessibility settings are missing |
 | 53 | Releases: versioned builds with symbols kept for crash reports (symbolicated stacks), an update check, packaging (AppImage, .dmg, installer) | Exports are folders; crash stacks from shipped builds are offsets |
 
 ### Round 5 notes
@@ -654,4 +654,31 @@ Working list for turning the renderer demo into a small game engine. Each task i
   render target (an ImGui image: bloom, TAA, overlapping other windows), several game views (split-screen),
   the game view while not playing, undo for a move of something since changed on disk, more templates (racing,
   third person).
+- Task 52: Linux has two window backends now, picked when the window is made: platform_linux.cpp holds the public
+  functions (forwarding to platform::x11 or platform::wl) and what they share (gamepads, dialogs, paths, fonts).
+  platform_wayland.cpp: wl_compositor, xdg-shell, xdg-decoration (server-side), wl_seat with wl_pointer (wayland-
+  cursor themes, the cursor following ImGui's) and wl_keyboard (xkbcommon keymaps; ImGui keys from the level-0
+  keysym through the XCB backend's table, text from xkb_state_key_get_utf8, the compositor's repeat rate applied
+  to text here), pointer-constraints + relative-pointer for capture, xdg_toplevel fullscreen, VK_KHR_wayland_surface.
+  The protocols' client code is generated once (third_party/wayland-protocols), so building needs only libwayland-dev
+  and libxkbcommon-dev (CMake finds them; X11 only without). Policy: native on a Wayland session when the compositor
+  offers server-side decorations, or there's no DISPLAY; else XWayland (VKWORLD_PLATFORM=wayland|x11 forces).
+  Checked on a headless weston with lavapipe (vkgame and the editor, validation on; the fallback both ways); input
+  wasn't exercised there (no input devices). Gamepads: rumble and light bars as platform::gamepadRumble /
+  setGamepadLight (Linux: an FF_RUMBLE effect uploaded to the pad's evdev node, found through sysfs from its js
+  node, and sysfs LEDs: hid-playstation's rgb:indicator or hid-sony's :red/:green/:blue; Windows: XInputSetState,
+  loaded at runtime, stopped by pollEvents when the time is up; macOS: GCController haptics (CoreHaptics, one
+  continuous event: intensity from the stronger motor, sharpness from the light one's share) and GCDeviceLight).
+  Linux pads plugged in later are found (every 2 s), unplugged ones closed. Game::setGamepadOutput is how hosts
+  connect them (tests see the requests), ctx.rumble / ctx.setGamepadLight and Lua input.rumble / input.setLight; the
+  player's settings.rumble stops it. On-screen keyboard: UIController shows one when a text field is opened with the
+  pad's A (rows of characters, then Shift / Space / Delete / Done spanning columns; wrapping navigation; one-shot
+  Shift; the mouse can use it). Accessibility: settings take strings now; settings.highContrast draws UI layouts with
+  opaque black boxes, white text and outlines, a thick yellow focus; settings.colorBlind (none, protanopia,
+  deuteranopia, tritanopia) is SceneRenderInfo::colorFilter, applied in the composite pass after tonemapping
+  (daltonization: the eye's view simulated in LMS space, the difference moved into green and blue); UI actions
+  @set and @cycle let menus change them. Not done: Wayland fractional scaling and HiDPI buffers, client-side
+  decorations (libdecor) for GNOME, a window icon (xdg-toplevel-icon), clipboard and IME on Wayland, rumble on
+  more than the first pad, DualSense trigger effects, light bars on Windows (HID output reports), the filter over
+  the UI as well, a high-contrast editor theme, text-to-speech for menus.
 

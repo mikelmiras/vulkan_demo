@@ -213,6 +213,8 @@ bool processInputEvent(xcb_generic_event_t* e) {
 
 }  // namespace
 
+int ImGui_ImplXcb_KeysymToKey(uint32_t keysym) { return (int)keysymToImGuiKey(keysym); }
+
 bool ImGui_ImplXcb_Init(xcb_connection_t* connection, xcb_window_t window) {
     ImGuiIO& io = ImGui::GetIO();
     IM_ASSERT(io.BackendPlatformUserData == nullptr && "Already initialized a platform backend!");
