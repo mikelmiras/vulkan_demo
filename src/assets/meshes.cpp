@@ -14,6 +14,8 @@
 #include <sstream>
 #include <utility>
 
+#include "assets/mesh_lod.h"
+
 const AnimationClip* MeshLibrary::findAnimation(const std::string& name) const {
     for (const AnimationClip& a : animations)
         if (a.name == name) return &a;
@@ -279,6 +281,7 @@ int importObj(MeshLibrary& lib, const std::string& path, std::string& error) {
     m.source = source;
     lib.meshes.push_back(m);
     ++lib.version;
+    generateLods(lib, lib.count() - 1);
     return lib.count() - 1;
 }
 

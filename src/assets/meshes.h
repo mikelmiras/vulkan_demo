@@ -22,9 +22,16 @@ struct SkinVertex {
     float weights[4] = {0, 0, 0, 0};
 };
 
+// A simpler version of a mesh, drawn when it's small on screen (assets/mesh_lod.h)
+struct MeshLod {
+    uint32_t firstIndex = 0, indexCount = 0;
+    int32_t vertexOffset = 0;
+};
+
 struct Mesh {
     uint32_t firstIndex = 0, indexCount = 0;
     int32_t vertexOffset = 0;
+    std::vector<MeshLod> lods;   // levels 1, 2...: each about a quarter of the one before (none: always this)
     Vec3 boundsMin, boundsMax;   // local-space bounding box
     std::string name;
     std::string source;          // file it was imported from ("model.obj", "model.glb#2.0"); empty for built-ins

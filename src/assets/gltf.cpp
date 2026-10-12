@@ -1,4 +1,5 @@
 #include "assets/gltf.h"
+#include "assets/mesh_lod.h"
 
 #include <algorithm>
 #include <cmath>
@@ -161,7 +162,9 @@ int importPrimitive(MeshLibrary& lib, const std::string& name, const std::string
         for (Vertex& v : verts) v.normal = normalize(v.normal);
     }
     if (!skin.empty()) return addSkinnedMesh(lib, name, source, verts, skin, indices);
-    return addMesh(lib, name, source, verts, indices);
+    int id = addMesh(lib, name, source, verts, indices);
+    generateLods(lib, id);   // (skinned ones get none)
+    return id;
 }
 
 // Image bytes, from the .glb buffer, a data: URI or a file next to the model

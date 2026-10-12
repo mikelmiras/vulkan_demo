@@ -278,6 +278,23 @@ Renderer::Buffer Renderer::createBuffer(VkDeviceSize size, VkBufferUsageFlags us
     return b;
 }
 
+Renderer::Buffer Renderer::createDeviceBuffer(VkDeviceSize size, VkBufferUsageFlags usage) {
+    Buffer b;
+    VkBufferCreateInfo ci{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    ci.size = size;
+    ci.usage = usage;
+    VK_CHECK(vkCreateBuffer(device_, &ci, nullptr, &b.buffer));
+    VkMemoryRequirements req;
+    vkGetBufferMemoryRequirements(device_, b.buffer, &req);
+    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ai.allocationSize = req.size;
+    ai.memoryTypeIndex = findMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    VK_CHECK(vkAllocateMemory(device_, &ai, nullptr, &b.memory));
+    VK_CHECK(vkBindBufferMemory(device_, b.buffer, b.memory, 0));
+    b.size = size;
+    return b;
+}
+
 void Renderer::destroyBuffer(Buffer& b) {
     vkDestroyBuffer(device_, b.buffer, nullptr);
     vkFreeMemory(device_, b.memory, nullptr);
@@ -990,8 +1007,9 @@ void Renderer::createResources(const MeshLibrary&) {
 
     createCulling();
     createLightBuffers();
+    ensureInstanceStore(1024);
     for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) {
-        ensureInstanceCapacity(1024);
+        ensureIndexCapacity(1024);
         SceneRenderInfo none;
         uploadJoints(none);      // small buffers, so bindings 3 and 4 are always valid
         uploadParticles(none);
@@ -1076,7 +1094,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 0, nullptr);
 
-    recordCulling(cb, info);   // (compute: before any rendering)
+    recordInstanceUpload(cb);   // (what changed in the instances: before anything reads them)
+    recordCulling(cb, info);    // (compute: before any rendering)
 
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
@@ -1091,7 +1110,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                      colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                 depthStages | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,   // (the last frame's AO read it)
+                 depthStages | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,   // (last frame's AO, pyramid)
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, depthStages,
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
@@ -1145,8 +1164,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                 vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
                 boundTexture = b.texture;
             }
-            const Mesh& mesh = meshes_->get(b.mesh);
-            vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
+            drawBatch(cb, b);
         };
 
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
@@ -1157,11 +1175,13 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
                     boundTexture = b.texture;
                 }
-                vkCmdDrawIndexedIndirect(cb, cullCommands_[frame_].buffer, i * sizeof(VkDrawIndexedIndirectCommand), 1,
-                                         sizeof(VkDrawIndexedIndirectCommand));
+                size_t levels = 1 + meshes_->get(b.mesh).lods.size();   // (one draw per level it has)
+                for (size_t k = 0; k < levels && k < 3; ++k)
+                    vkCmdDrawIndexedIndirect(cb, cullCommands_[frame_].buffer, (i * 3 + k) * sizeof(VkDrawIndexedIndirectCommand),
+                                             1, sizeof(VkDrawIndexedIndirectCommand));
             } else {
                 draw(b);
-                stats_.triangles += meshes_->get(b.mesh).indexCount / 3 * b.count;
+                stats_.triangles += rangeOf(b).indexCount / 3 * b.count;
             }
             stats_.drawCalls++;
         }
@@ -1198,11 +1218,13 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         }
     }
     vkCmdEndRendering(cb);
-    if (aoSupported_)   // the depth, for ambient occlusion
+    if (aoSupported_) {   // the depth, for ambient occlusion and the occlusion culling pyramid
         imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depthStages,
-                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                     VK_ACCESS_SHADER_READ_BIT);
+                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        if (info.items) recordHiz(cb, info);
+    }
 
     timestamp(cb, "Scene");
     if (aa_ == Antialiasing::Temporal && info.items) {   // blended with the frames before (renderer_taa.cpp)
@@ -1348,6 +1370,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     uploadEnvironment(info.environment);
     updateCookies(info);
     updateProbes(info);
+    if (occlusion_ && gpuCulling_) ensureHiz(info);   // (sized to the viewport)
 
     {
         PROFILE_SCOPE("Wait for the GPU");
@@ -1484,7 +1507,8 @@ void Renderer::shutdown() {
         for (Buffer& b : list) destroyBuffer(b);
     for (int i = 0; i < MAX_FRAMES; ++i) {
         destroyBuffer(ubo_[i]);
-        destroyBuffer(instances_[i]);
+        if (instanceStaging_[i].buffer) destroyBuffer(instanceStaging_[i]);
+        if (i == 0 && instanceStore_.buffer) destroyBuffer(instanceStore_);
         destroyBuffer(joints_[i]);
         destroyBuffer(particles_[i]);
         vkDestroySemaphore(device_, imageAvailable_[i], nullptr);

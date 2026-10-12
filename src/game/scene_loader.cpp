@@ -2,6 +2,7 @@
 
 #include <map>
 
+#include "assets/mesh_lod.h"
 #include "scene/serialization.h"
 
 struct SceneLoader::Loaded {
@@ -79,6 +80,7 @@ void mergeSceneAssets(Scene& scene, const MeshLibrary& fromMeshes, const Texture
                 found = addSkinnedMesh(meshes, m.name, m.source, verts, skin, idx);
             } else {
                 found = addMesh(meshes, m.name, m.source, verts, idx);
+                generateLods(meshes, found);
             }
         }
         meshMap[(size_t)i] = found;

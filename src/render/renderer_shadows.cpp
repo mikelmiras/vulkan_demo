@@ -190,8 +190,7 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
         vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
         for (const Batch& b : shadowBatches_[layer]) {
-            const Mesh& mesh = meshes_->get(b.mesh);
-            vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
+            drawBatch(cb, b);
         }
         if (!shadowCutoutBatches_[layer].empty()) {   // holes: their texture's alpha decides, per pixel
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowCutoutPipeline_);
@@ -201,8 +200,7 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
                     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
                     bound = b.texture;
                 }
-                const Mesh& mesh = meshes_->get(b.mesh);
-                vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
+                drawBatch(cb, b);
             }
         }
     };

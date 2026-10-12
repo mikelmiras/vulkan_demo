@@ -478,7 +478,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | # | Task | Why |
 |---|------|-----|
 | 43 (done) | Lighting at scale: clustered forward lighting (hundreds of point / spot lights), a shadow atlas for point and spot lights, light cookies | Light counts are capped and only a few lights cast shadows |
-| 44 | GPU-driven rendering: persistent instance data on the GPU (only changes uploaded), Hi-Z occlusion culling, mesh LODs chosen on the GPU | The CPU still writes every instance every frame; hidden objects behind walls are drawn |
+| 44 (done) | GPU-driven rendering: persistent instance data on the GPU (only changes uploaded), Hi-Z occlusion culling, mesh LODs chosen on the GPU | The CPU still writes every instance every frame; hidden objects behind walls are drawn |
 | 45 | Terrain and vegetation: terrain LOD, holes, heightmap import, instanced grass and foliage painted with a brush (wind, distance fade) | 256 x 256 terrains are 130k triangles; there's nothing to fill them with |
 | 46 | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
 | 47 | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
@@ -506,3 +506,24 @@ Working list for turning the renderer demo into a small game engine. Each task i
   an asset id). Point lights' castShadows is saved now (it was implied). Not done: cluster building on the GPU,
   light cookies for point lights (cubes), shadow caching for static lights (every view is redrawn every frame),
   area lights, clustered decals / probes, IES profiles.
+- Task 44: instances: one InstanceData per draw item (then the outlined ones again, in the outline colour) in a
+  device-local store (binding 2); a CPU mirror says what it holds, so each frame only items whose 112 bytes changed
+  go through the frame's staging buffer, as merged vkCmdCopyBuffer runs recorded at the start of the next command
+  buffer (the main frame's, or a probe bake's), after earlier readers and copies. Batches list item indices
+  (binding 13) instead of copying instances per use (shadow views share one per caster). A bigger store is a new
+  one (the old retired with the frame), fully re-sent. LODs: assets/mesh_lod clusters vertices on a grid (normal
+  direction and a coarse texture cell in the key, so seams and creases stay), searching the grid size for about a
+  quarter of the previous level's triangles, up to two levels, for non-skinned meshes of 1500+ triangles at import
+  (OBJ, glTF, scene loading); Mesh::lods hold their index ranges. chooseLod uses the bounding sphere's fraction of
+  the view height (below 0.12: level 1; 0.04: level 2), on the CPU per item (CPU-culled, transparent and shadow
+  draws) and in cull.comp, which fills three indirect draws per batch (level k's instances in a region after the
+  list). Occlusion: hiz_depth(_ms).comp copies the viewport's depth (the farthest sample when multisampled) into
+  level 0 of an R32F pyramid sized to the viewport; hiz_reduce.comp makes each level from the farthest of 2 x 2 (3
+  at odd edges); cull.comp projects a box's corners with the pyramid's camera and drops it if its nearest depth is
+  behind every texel of the level where it covers 2 x 2 (one texel of slack for jitter), keeping it when a corner
+  was behind that camera or off its screen. The pyramid is remade (after the GPU idles) when the viewport or depth
+  buffer changes; it needs a sampleable depth buffer (like AO). Checked: the stress scene and demo pixel-identical
+  with occlusion on and off, the CPU and GPU paths identical with LODs, sync validation clean. Module API 31. Not
+  done: two-phase occlusion (no one-frame pop-in), occlusion for shadow views, LOD cross-fading, meshlets, LODs for
+  skinned meshes, the GPU writing the instances (the CPU still diffs them).
+

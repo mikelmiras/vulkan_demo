@@ -187,7 +187,7 @@ private:
     bool gpuCulling_ = true;          // (VKWORLD_GPU_CULLING=0: on the CPU, as before)
     bool gpuCulled_ = false;          // this frame's scene batches are drawn indirectly
     uint32_t cullCount_[MAX_FRAMES] = {}, cullBatches_[MAX_FRAMES] = {};   // what each frame slot's pass culled
-    Buffer cullBounds_[MAX_FRAMES], cullCommands_[MAX_FRAMES], instanceIndex_[MAX_FRAMES];
+    Buffer cullBounds_[MAX_FRAMES], cullCommands_[MAX_FRAMES], instanceIndex_[MAX_FRAMES], cullParams_[MAX_FRAMES];
     VkDescriptorSetLayout cullSetLayout_ = VK_NULL_HANDLE;
     VkPipelineLayout cullLayout_ = VK_NULL_HANDLE;
     VkPipeline cullPipeline_ = VK_NULL_HANDLE;
@@ -198,9 +198,30 @@ private:
     void destroyCulling();
     void writeCullSet();   // this frame's: its bounds, commands and instance indices
     void ensureCullCapacity(size_t objects, size_t batches);
-    void prepareGpuCulling(const std::vector<DrawItem>& items, const std::vector<uint32_t>& visible);
+    void prepareGpuCulling(const std::vector<DrawItem>& items, const std::vector<uint32_t>& visible,
+                           const SceneRenderInfo& info);
     void recordCulling(VkCommandBuffer cb, const SceneRenderInfo& info);
     void readCullStats();
+    // Occlusion culling: a depth pyramid (farthest depth per texel, halving), made from the main pass's depth at the
+    // end of each frame and tested against by the next frame's culling (VKWORLD_OCCLUSION=0: off)
+    bool occlusion_ = true;
+    Image hiz_;                          // R32F, all levels (sampled by cull.comp)
+    std::vector<VkImageView> hizLevels_; // one per level (written, and read by the next level)
+    uint32_t hizWidth_ = 0, hizHeight_ = 0, hizMips_ = 0;
+    VkImageView hizDepthView_ = VK_NULL_HANDLE;   // the depth view its first level was made from (remade with it)
+    bool hizValid_ = false;              // holds a frame's depth (else: no occlusion culling)
+    bool hizLayoutReady_ = false;        // (GENERAL)
+    Mat4 hizViewProj_;                   // the camera it was made with
+    VkDescriptorSetLayout hizSetLayout_ = VK_NULL_HANDLE;
+    VkPipelineLayout hizLayout_ = VK_NULL_HANDLE;
+    VkPipeline hizDepthPipeline_ = VK_NULL_HANDLE, hizDepthMsPipeline_ = VK_NULL_HANDLE, hizReducePipeline_ = VK_NULL_HANDLE;
+    VkDescriptorPool hizPool_ = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> hizSets_;   // level k's: its source (depth or level k - 1) and itself
+    VkSampler hizSampler_ = VK_NULL_HANDLE;
+    void createHiz();
+    void destroyHiz();
+    void ensureHiz(const SceneRenderInfo& info);   // sized to the viewport (waits for the GPU when it changes)
+    void recordHiz(VkCommandBuffer cb, const SceneRenderInfo& info);
     // Anti-aliasing (renderer_taa.cpp): the pipelines that depend on the sample count, and the temporal pass
     void createSampledPipelines();
     void destroySampledPipelines();
@@ -246,7 +267,7 @@ private:
     void createShadowResources();   // the samplers (and the shadow maps)
     // Culls and batches the draw items into this frame's instance buffer (after its fence has been waited on)
     void prepareInstances(const SceneRenderInfo& info, bool gpuCulling = true);
-    void ensureInstanceCapacity(size_t count);
+    void ensureIndexCapacity(size_t count);   // this frame's instance index list
     void uploadJoints(const SceneRenderInfo& info);   // this frame's joint matrices into its storage buffer
     void uploadParticles(const SceneRenderInfo& info);   // sorted: see-through ones back to front, then additive
     uint32_t particleAlpha_ = 0, particleAdditive_ = 0;  // this frame's counts
@@ -282,6 +303,7 @@ private:
 
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props);
     Buffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, const void* data = nullptr);
+    Buffer createDeviceBuffer(VkDeviceSize size, VkBufferUsageFlags usage);   // GPU memory, not mapped
     void destroyBuffer(Buffer& b);
     Image createImage(VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect);   // screen-sized
     Image createImage(VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, uint32_t width,
@@ -372,7 +394,18 @@ private:
     VkDescriptorSet descSets_[MAX_FRAMES] = {};
 
     Buffer vertexBuffer_, indexBuffer_, ubo_[MAX_FRAMES];
-    Buffer instances_[MAX_FRAMES];   // InstanceData for every object drawn in the frame (storage buffer)
+    // Instance data (renderer_instances.cpp): one per draw item (then the outlined ones again), kept on the GPU
+    // between frames; only what changed since the last upload is copied up, from this frame's staging buffer at the
+    // start of whatever command buffer comes next (recordInstanceUpload). Batches list them by index (binding 13).
+    Buffer instanceStore_;                  // device-local (binding 2)
+    uint64_t instanceStoreGen_ = 1, storeBound_[MAX_FRAMES] = {};   // which store each frame's set points to
+    Buffer instanceStaging_[MAX_FRAMES];
+    std::vector<uint8_t> instanceMirror_;   // what instanceStore_ holds
+    std::vector<VkBufferCopy> pendingCopies_;
+    uint32_t uploadedInstances_ = 0;        // (stats: rewritten this frame)
+    uint32_t listedInstances_ = 0;          // entries in this frame's index list (GPU LOD regions follow them)
+    void ensureInstanceStore(size_t count);
+    void recordInstanceUpload(VkCommandBuffer cb);
     Buffer joints_[MAX_FRAMES];      // skinning matrices (storage buffer)
     Buffer particles_[MAX_FRAMES];   // particles to draw (storage buffer)
     VkPipeline particleAlphaPipeline_ = VK_NULL_HANDLE, particleAdditivePipeline_ = VK_NULL_HANDLE;
@@ -383,8 +416,11 @@ private:
     struct Batch {
         int mesh = 0;
         VkDescriptorSet texture = VK_NULL_HANDLE;
-        uint32_t first = 0, count = 0;
+        uint32_t first = 0, count = 0;   // its entries in the instance index list
+        int lod = 0;                     // which level of the mesh (assets/mesh_lod.h; 0: the mesh itself)
     };
+    MeshLod rangeOf(const Batch& b) const;   // the indices to draw for it
+    void drawBatch(VkCommandBuffer cb, const Batch& b);
     std::vector<Batch> sceneBatches_, outlineBatches_, transparentBatches_;   // (transparent: back to front)
     std::vector<Batch> shadowBatches_[kShadowLayers];         // per shadow layer: solid casters ...
     std::vector<Batch> shadowCutoutBatches_[kShadowLayers];   // ... and ones with holes (cut-outs, see-through)

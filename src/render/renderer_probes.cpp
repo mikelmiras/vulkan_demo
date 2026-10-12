@@ -63,6 +63,7 @@ bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, Ba
         uploadJoints(f);
 
         VkCommandBuffer cb = beginOneTimeCommands();
+        recordInstanceUpload(cb);
         if (msaa.image)
             imageBarrier(cb, msaa.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
@@ -116,8 +117,7 @@ bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, Ba
                 vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
                 bound = b.texture;
             }
-            const Mesh& mesh = meshes_->get(b.mesh);
-            vkCmdDrawIndexed(cb, mesh.indexCount, b.count, mesh.firstIndex, mesh.vertexOffset, b.first);
+            drawBatch(cb, b);
         };
         if (info.items) {
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);

@@ -19,7 +19,8 @@ find_program(GLSLC glslc HINTS $ENV{VULKAN_SDK}/bin $ENV{VULKAN_SDK}/Bin REQUIRE
 #  single-config builds and Visual Studio's <build>/Debug, <build>/Release folders)
 set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert shaders/outline.frag shaders/shadow.vert shaders/shadow_cutout.frag
                    shaders/post.vert shaders/bloom_down.frag shaders/bloom_up.frag shaders/composite.frag shaders/ssao.frag shaders/ssao_ms.frag
-                   shaders/particle.vert shaders/particle.frag shaders/sky.vert shaders/sky.frag shaders/taa.frag shaders/cull.comp)
+                   shaders/particle.vert shaders/particle.frag shaders/sky.vert shaders/sky.frag shaders/taa.frag shaders/cull.comp
+                   shaders/hiz_depth.comp shaders/hiz_depth_ms.comp shaders/hiz_reduce.comp)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -29,6 +30,7 @@ foreach(src ${SHADER_SOURCES})
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
     COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/${src} -o ${out}
     DEPENDS ${CMAKE_SOURCE_DIR}/${src} ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/ssao.glsl
+            ${CMAKE_SOURCE_DIR}/shaders/hiz.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
@@ -127,6 +129,7 @@ set(ENGINE_SOURCES
   src/render/scene_draw.cpp
   src/render/environment.cpp
   src/render/light_clusters.cpp
+  src/assets/mesh_lod.cpp
   src/render/renderer_lights.cpp
   src/render/renderer_environment.cpp
   src/render/renderer_probes.cpp
@@ -314,7 +317,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_joints.cpp
     tests/test_vehicles.cpp
     tests/test_reliability.cpp
-    tests/test_lights.cpp)
+    tests/test_lights.cpp
+    tests/test_lod.cpp)
   target_link_libraries(engine_tests PRIVATE engine)
   target_compile_definitions(engine_tests PRIVATE VKWORLD_TEST_ASSETS="${CMAKE_SOURCE_DIR}/tests/assets")
   if(VKWORLD_BUILD_EXAMPLES)   # the module tests load the sample game's module
