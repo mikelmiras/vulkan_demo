@@ -369,14 +369,14 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
                 list.push(std::move(o));
             }
             json::Value& tl = c.set("transitions", json::Value::array());
-            for (const AnimatorTransition& t : a.transitions) {
+            for (const AnimatorTransition& tr : a.transitions) {
                 json::Value o = json::Value::object();
-                o.set("from", t.from);
-                o.set("to", t.to);
-                o.set("parameter", t.parameter);
-                o.set("when", animatorConditionName(t.when));
-                o.set("value", t.value);
-                o.set("fade", t.fade);
+                o.set("from", tr.from);
+                o.set("to", tr.to);
+                o.set("parameter", tr.parameter);
+                o.set("when", animatorConditionName(tr.when));
+                o.set("value", tr.value);
+                o.set("fade", tr.fade);
                 tl.push(std::move(o));
             }
             if (!a.startState.empty()) c.set("startState", a.startState);
@@ -636,14 +636,14 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             a.states.push_back(std::move(s));
         }
         for (const json::Value& o : c["transitions"].elements()) {
-            AnimatorTransition t;
-            if (!o["from"].asString().empty()) t.from = o["from"].asString();
-            t.to = o["to"].asString();
-            t.parameter = o["parameter"].asString();
-            t.when = animatorConditionFromName(o["when"].asString());
-            t.value = o["value"].asFloat(t.value);
-            t.fade = o["fade"].asFloat(t.fade);
-            a.transitions.push_back(std::move(t));
+            AnimatorTransition tr;
+            if (!o["from"].asString().empty()) tr.from = o["from"].asString();
+            tr.to = o["to"].asString();
+            tr.parameter = o["parameter"].asString();
+            tr.when = animatorConditionFromName(o["when"].asString());
+            tr.value = o["value"].asFloat(tr.value);
+            tr.fade = o["fade"].asFloat(tr.fade);
+            a.transitions.push_back(std::move(tr));
         }
         a.startState = c["startState"].asString();
         for (const json::Value& o : c["layers"].elements()) {

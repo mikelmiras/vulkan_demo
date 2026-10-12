@@ -199,9 +199,9 @@ struct NavAgent : BehaviourBase<NavAgent> {
                 away.y = 0.f;
                 float d2 = dot(away, away);
                 if (d2 >= personalSpace * personalSpace) continue;
-                float d = std::sqrt(d2);
-                if (d < 1e-4f) away = {((self.id * 7919u) % 100) / 100.f - 0.5f, 0.f, 0.3f}, d = length(away);   // (on top of each other)
-                push = push + away * ((1.f - d / personalSpace) / d);
+                float gap = std::sqrt(d2);
+                if (gap < 1e-4f) away = {((self.id * 7919u) % 100) / 100.f - 0.5f, 0.f, 0.3f}, gap = length(away);   // (on top of each other)
+                push = push + away * ((1.f - gap / personalSpace) / gap);
             }
             delta = delta + push * (step * 0.8f);
         }

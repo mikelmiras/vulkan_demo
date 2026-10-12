@@ -20,7 +20,7 @@ uint32_t hash(uint32_t v) { return (v * 2654435761u) >> (32 - kHashBits); }
 // A length beyond what the token holds: 255s, then the rest
 void putLength(std::string& out, size_t n) {
     while (n >= 255) {
-        out += (char)255;
+        out += static_cast<char>(0xFF);
         n -= 255;
     }
     out += (char)n;

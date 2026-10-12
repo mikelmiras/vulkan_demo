@@ -132,7 +132,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
   (the stress scene's ~55 ms), the first scene of vkgame loads before the window opens, no load progress fraction,
   GPU uploads of new assets still happen in one frame. Module API 13.
 
-## Round 3 (next)
+## Round 3 (done)
 
 | # | Task | Why |
 |---|------|-----|
@@ -256,4 +256,20 @@ Working list for turning the renderer demo into a small game engine. Each task i
   code); CI exports single-file and packed on all three OSes and runs --check from an unrelated folder; standalone
   game executables delay-load vulkan-1.dll on MSVC. The sample game has an icon. Not done: code signing /
   notarisation, Windows icons for vkgame itself, installers.
+
+## Round 4 (next)
+
+| # | Task | Why |
+|---|------|-----|
+| 32 | Editor layout: Dear ImGui's docking branch (dockable, tear-off panels), the layout and editor preferences saved per user | Panels only resize; nothing about the editor's setup survives a restart |
+| 33 | Scripting: Lua behaviours (vendored Lua, fields, the GameContext API, hot reload on save) alongside C++ modules | Every bit of game logic needs a C++ rebuild |
+| 34 | Asset database: stable ids for assets (rename / move safe references), import settings per asset, an asset inspector | References are paths and names: moving a file or renaming a prefab breaks scenes |
+| 35 | Terrain: heightmap terrain with painted texture layers, sculpting tools in the editor, collision and navigation | Levels are built from boxes and imported meshes only |
+| 36 | Rendering: HDR skybox textures with prefiltered reflections, reflection probes, temporal anti-aliasing, GPU culling with indirect draws | The sky is a gradient; shiny things reflect nothing but it; MSAA only |
+| 37 | Animation: 2D blend spaces, additive layers, two-bone and look-at IK, events on blend trees | Characters can't aim, place feet on slopes or strafe smoothly |
+| 38 | Game UI layouts: anchored, nested UI elements (panels, lists, text fields, sliders) built in the editor, gamepad / keyboard navigation of menus | Game UI is immediate-mode code only; menus need a mouse |
+| 39 | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
+| 40 | Physics: vehicles (Jolt's wheeled vehicle), crouching / ladders / swimming for characters, debug drawing of contacts | Common game mechanics have to be hand-built |
+| 41 | Reliability: crash reports (stack traces into the log), chrome://tracing export of profiles, a performance regression check in CI | Crashes leave little to go on; performance drifts unnoticed |
+| 42 | Audio: sound occlusion by geometry, HRTF for headphones, a settings screen with saved volumes, music stingers / layers | Sounds come through walls; volume settings don't persist |
 

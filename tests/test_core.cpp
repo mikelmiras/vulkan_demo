@@ -79,7 +79,12 @@ TEST(profiler_scopes) {
             std::thread other([] { PROFILE_SCOPE("Other thread"); });
             other.join();
         }
-        { PROFILE_SCOPE("Render"); { PROFILE_SCOPE("Physics"); } }   // same name, another place
+        {
+            PROFILE_SCOPE("Render");
+            {
+                PROFILE_SCOPE("Physics");   // same name, another place
+            }
+        }
         profiler::endFrame();
     }
     const profiler::Frame& last = profiler::history().back();

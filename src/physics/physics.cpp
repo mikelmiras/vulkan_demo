@@ -937,9 +937,9 @@ CharacterMove Physics::moveCharacter(Scene& scene, const MeshLibrary& meshes, En
             result.displacement = {(float)(after.GetX() - before.GetX()), (float)(after.GetY() - before.GetY()),
                                    (float)(after.GetZ() - before.GetZ())};
             result.grounded = cv.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
-            for (const JPH::CharacterContact& c : cv.GetActiveContacts()) {
-                if (!c.mHadCollision) continue;
-                float ny = c.mSurfaceNormal.GetY();
+            for (const JPH::CharacterContact& contact : cv.GetActiveContacts()) {
+                if (!contact.mHadCollision) continue;
+                float ny = contact.mSurfaceNormal.GetY();
                 if (ny < -0.7f) result.hitCeiling = true;
                 else if (ny <= 0.7f) result.hitWall = true;
             }

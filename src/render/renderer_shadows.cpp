@@ -117,9 +117,9 @@ uint32_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
             static const Vec3 dirs[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
             static const Vec3 ups[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
             Mat4 proj = perspective(95.f * DEG2RAD, 1.f, 0.05f, std::max(l->range, 0.2f), true);
-            for (uint32_t f = 0; f < 6; ++f) {
-                u.shadowViewProj[first + f] = proj * lookAt(l->position, l->position + dirs[f], ups[f]);
-                layers |= 1u << (first + f);
+            for (uint32_t face = 0; face < 6; ++face) {
+                u.shadowViewProj[first + face] = proj * lookAt(l->position, l->position + dirs[face], ups[face]);
+                layers |= 1u << (first + face);
             }
             shadowLayer[i] = (int)first;
         }
