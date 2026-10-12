@@ -23,6 +23,11 @@
     "spanish": "Español",
     "name": "Your name",
     "quit": "Quit",
-    "hint": "Arrows / d-pad to choose, Enter / A to press"
+    "hint": "Arrows / d-pad to choose, Enter / A to press",
+    "settings": "Settings",
+    "volume": "Volume",
+    "effects": "Effects",
+    "headphones": "Headphones",
+    "back": "Back"
   }
 }

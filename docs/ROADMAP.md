@@ -257,7 +257,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
   game executables delay-load vulkan-1.dll on MSVC. The sample game has an icon. Not done: code signing /
   notarisation, Windows icons for vkgame itself, installers.
 
-## Round 4 (in progress)
+## Round 4 (done)
 
 | # | Task | Why |
 |---|------|-----|
@@ -271,7 +271,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 39 (done) | Multiplayer basics: client / server over UDP, replicated entities and behaviour fields, client input with prediction | Games are single-player only |
 | 40 (done) | Physics: vehicles (Jolt's wheeled vehicle), crouching / ladders / swimming for characters, debug drawing of contacts | Common game mechanics have to be hand-built |
 | 41 (done) | Reliability: crash reports (stack traces into the log), chrome://tracing export of profiles, a performance regression check in CI | Crashes leave little to go on; performance drifts unnoticed |
-| 42 | Audio: sound occlusion by geometry, HRTF for headphones, a settings screen with saved volumes, music stingers / layers | Sounds come through walls; volume settings don't persist |
+| 42 (done) | Audio: sound occlusion by geometry, HRTF for headphones, a settings screen with saved volumes, music stingers / layers | Sounds come through walls; volume settings don't persist |
 
 ### Round 4 notes
 - Task 32: third_party/imgui is now the v1.92.9b-docking release (the same version, plus docking; the vendored copy
@@ -454,3 +454,37 @@ Working list for turning the renderer demo into a small game engine. Each task i
   against tools/perf_baseline.json per runner OS; --write) as a CI step on all three platforms; the baseline holds
   numbers from CI's own runners. Not done: minidumps, symbol upload / symbolication of release builds, crash
   reports sent anywhere, a GPU crash (device lost) report, other threads' stacks, per-test-case performance history.
+- Task 42: spatial sounds now leave miniaudio's spatializer mono (distance, Doppler; its directional panning off)
+  for a node of their own (audio/audio.cpp SpatialNode, mono in, stereo out): occlusion (a one-pole low-pass
+  blending towards 600 Hz with the square root of the amount, and up to 9 dB quieter) and panning, equal power for
+  speakers or binaural with headphones: interaural delay up to 0.66 ms (fractional, from a 128-sample ring), the far
+  ear up to 5 dB quieter (the near one 2.6 dB louder) and low-passed towards 1.5 kHz, both towards 5 kHz behind. Targets (occlusion, pan,
+  behind) are atomics eased per block, gains ramp across a block (but start where they belong). Game::
+  occludeSounds casts a ray from the listener to every spatial sound each frame (ignoring the camera's nearest
+  ancestor with a collider, the sound's entity and its children, and the last half metre), scaled by AudioSource::
+  occlusion (scene format 31). Music: layers start together on a time scheduled 20 ms ahead on the engine's clock
+  (ma_sound_set_start_time_in_pcm_frames); layer volumes fade in update(); playMusic is one layer. Stingers: the
+  wait to the next beat / bar from the music's position (engine time since its start) and the tempo; scheduled the
+  same way; the layers dip under them. Settings: Game reads settings.json at start, puts settings.* into the state
+  (again over a loaded save game's), takes the state's changes every frame (paused too; clamped), applies them
+  (master volume, AudioEngine::setBusUserVolume on top of the game's bus volumes, headphones), saves a second
+  after a change and at stop. UI actions split on ";". The sample's menu has a Settings screen (volume, music,
+  effects, headphones, back). Tests point VKWORLD_SAVE_DIR at a temporary folder. Not done: occlusion through
+  partial openings (one ray, no diffraction), measured HRTFs (SOFA files), elevation cues, per-sound headphone
+  choice, a settings screen in the built-in PauseMenu, beat-synced layer changes, music transitions on bars.
+
+## Round 5 (next)
+
+| # | Task | Why |
+|---|------|-----|
+| 43 | Lighting at scale: clustered forward lighting (hundreds of point / spot lights), a shadow atlas for point and spot lights, light cookies | Light counts are capped and only a few lights cast shadows |
+| 44 | GPU-driven rendering: persistent instance data on the GPU (only changes uploaded), Hi-Z occlusion culling, mesh LODs chosen on the GPU | The CPU still writes every instance every frame; hidden objects behind walls are drawn |
+| 45 | Terrain and vegetation: terrain LOD, holes, heightmap import, instanced grass and foliage painted with a brush (wind, distance fade) | 256 x 256 terrains are 130k triangles; there's nothing to fill them with |
+| 46 | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
+| 47 | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
+| 48 | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
+| 49 | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
+| 50 | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
+| 51 | Editor: a docked game view next to the scene view while playing, undo for file operations, project templates (empty, first person, top-down) | Play takes over the viewport; deleting a file can't be undone |
+| 52 | Platform: Wayland, gamepad rumble and light bars, a mouse-free text-input keyboard for consoles-style UI, high-contrast / colour-blind UI options | X11 only; accessibility settings are missing |
+| 53 | Releases: versioned builds with symbols kept for crash reports (symbolicated stacks), an update check, packaging (AppImage, .dmg, installer) | Exports are folders; crash stacks from shipped builds are offsets |

@@ -440,6 +440,22 @@ WAV / MP3 / FLAC file.
 - **Reverb Zone** component: while the camera is inside one, effects and ambience echo (wet, room size, damping),
   easing in at its edge.
 - **Doppler**: moving 3D sounds (and a moving camera) shift in pitch.
+- **Occlusion**: a solid collider between the camera and a 3D sound muffles it (fewer highs, quieter), easing as
+  things move; the Audio Source's *Occlusion* says how much (0: heard through walls).
+- **Headphones**: binaural panning for 3D sounds, from a spherical-head model rather than measured HRTFs: the far
+  ear hears a sound up to 0.66 ms later and muffled by the head, and sounds behind are a little duller. It tells
+  left from right and front from back on headphones; on speakers (the default) sounds pan with equal power.
+- **Layered music and stingers**: `ctx.playMusicLayers({"music/base.ogg", "music/drums.ogg"}, {1.f, 0.f}, 1.f,
+  120.f)` starts stems of the same length together; `ctx.setMusicLayer(1, 1.f, 2.f)` fades the drums in (a fight
+  starting). `ctx.playStinger("music/hit.ogg", "beat")` plays a short phrase on the music's next beat (or "bar", or
+  "now"), with the music dipping under it. MusicPlayer has `layers` (comma-separated), `layerVolume`, `bpm` and
+  `beatsPerBar`; Lua has `game.playMusicLayers`, `game.setMusicLayer` and `game.playStinger`.
+- **Player settings**: master, music, effects, UI and ambience volumes and headphones live in `settings.json` in
+  the game's save folder, read when the game starts and saved a second after a change. They appear in the game
+  state as `settings.masterVolume`, `settings.musicVolume`, ..., `settings.headphones`, so a menu's sliders and
+  toggles (UI elements bound to those values) or a script change them, and the game applies them (on top of its
+  own bus volumes). The sample game's title menu has a Settings screen built that way; a button's action can now
+  be several, separated by `;` (`@hide Panel; @show Settings`).
 
 ## Collision
 

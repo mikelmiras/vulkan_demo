@@ -17,7 +17,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 30;  // 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 31;  // 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -327,6 +327,7 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         if (a.bus != "effects") c.set("bus", a.bus);
         if (a.stream) c.set("stream", true);
         if (a.doppler != 1.f) c.set("doppler", a.doppler);
+        if (a.occlusion != 1.f) c.set("occlusion", a.occlusion);
     }
     if (e.reverbZone) {
         const ReverbZone& z = *e.reverbZone;
@@ -707,6 +708,7 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         if (!c["bus"].asString().empty()) a.bus = c["bus"].asString();
         a.stream = c["stream"].asBool(false);
         a.doppler = c["doppler"].asFloat(1.f);
+        a.occlusion = c["occlusion"].asFloat(1.f);
         e.audioSource = a;
     }
     if (const json::Value& c = v["reverbZone"]; c.isObject()) {

@@ -1,7 +1,9 @@
 // audio/: the engine without an output device (mixed into a buffer), and the game's use of it
 #include "test.h"
 
+#include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 
 #include "audio/audio.h"
@@ -280,4 +282,225 @@ TEST(audio_zones_and_buses_in_game) {
     REQUIRE(loaded.findByName("Hall")->reverbZone);
     CHECK_NEAR(loaded.findByName("Hall")->reverbZone->wet, 0.5, 1e-6);
     CHECK(loaded.findByName("Radio")->audioSource->bus == "ambience");
+}
+
+namespace {
+
+// The next frames, as separate left / right channels
+void channels(AudioEngine& a, uint32_t frames, std::vector<float>& l, std::vector<float>& r) {
+    std::vector<float> buf(frames * 2);
+    a.readFrames(buf.data(), frames);
+    l.resize(frames);
+    r.resize(frames);
+    for (uint32_t i = 0; i < frames; ++i) {
+        l[i] = buf[i * 2];
+        r[i] = buf[i * 2 + 1];
+    }
+}
+float rms(const std::vector<float>& v) {
+    double s = 0;
+    for (float x : v) s += (double)x * x;
+    return (float)std::sqrt(s / std::max<size_t>(v.size(), 1));
+}
+float brightness(const std::vector<float>& v) {   // how much of it is high frequencies: RMS of the differences
+    double s = 0;
+    for (size_t i = 1; i < v.size(); ++i) s += (double)(v[i] - v[i - 1]) * (v[i] - v[i - 1]);
+    return (float)std::sqrt(s / std::max<size_t>(v.size(), 1)) / std::max(rms(v), 1e-9f);
+}
+
+}  // namespace
+
+// Occlusion muffles (less of the highs) and quietens a spatial sound
+TEST(audio_occlusion_muffles) {
+    auto listen = [](float occlusion, std::vector<float>& mono) {
+        AudioEngine a;
+        a.init(false);
+        a.setListener({0, 0, 0}, {0, 0, -1});
+        AudioEngine::PlayParams p;
+        p.spatial = true;
+        p.loop = true;
+        p.position = {0, 0, -2};
+        p.occlusion = occlusion;
+        AudioEngine::Sound s = a.play("Break", p);   // (noise: every frequency)
+        CHECK(a.occlusion(s) == occlusion);
+        std::vector<float> l, r;
+        channels(a, 8192, l, r);
+        mono = l;
+    };
+    std::vector<float> clear, walled;
+    listen(0.f, clear);
+    listen(1.f, walled);
+    CHECK(rms(walled) < rms(clear) * 0.5f);
+    CHECK(brightness(walled) < brightness(clear) * 0.5f);
+    AudioEngine a;
+    a.init(false);
+    CHECK(a.occlusion(a.play("Beep", {})) == -1.f);   // (not spatial: no occlusion)
+}
+
+// Headphones: a sound on the right reaches the left ear too, later and duller; speakers pan it right only.
+// Behind sounds duller than in front.
+TEST(audio_headphones_binaural) {
+    AudioEngine a;
+    REQUIRE(a.init(false));
+    a.setListener({0, 0, 0}, {0, 0, -1});
+    AudioEngine::PlayParams p;
+    p.spatial = true;
+    p.loop = true;
+    p.position = {3, 0, 0};   // right (+X, facing -Z)
+    AudioEngine::Sound s = a.play("Break", p);
+    std::vector<float> l, r;
+    channels(a, 8192, l, r);
+    CHECK(rms(r) > 0.01f);
+    CHECK(rms(l) < rms(r) * 0.01f);   // speakers: all on the right
+
+    a.setHeadphones(true);
+    CHECK(a.headphones());
+    channels(a, 4096, l, r);   // (easing into it)
+    channels(a, 8192, l, r);
+    CHECK(rms(l) > rms(r) * 0.2f && rms(l) < rms(r) * 0.8f);   // the far ear: quieter ...
+    CHECK(brightness(l) < brightness(r) * 0.8f);               // ... muffled by the head ...
+    int bestLag = 0;                                           // ... and later: about 0.66 ms (29 samples)
+    double best = -1e30;
+    for (int lag = 0; lag <= 60; ++lag) {
+        double c = 0;
+        for (size_t i = 100; i + lag < l.size(); ++i) c += (double)r[i] * l[i + (size_t)lag];
+        if (c > best) { best = c; bestLag = lag; }
+    }
+    CHECK(bestLag >= 24 && bestLag <= 36);
+
+    // In front and behind: about the same level, behind duller
+    a.setPosition(s, {0, 0, -3});
+    channels(a, 4096, l, r);
+    channels(a, 8192, l, r);
+    float front = brightness(l);
+    CHECK(std::fabs(rms(l) - rms(r)) < rms(l) * 0.05f);   // centred
+    a.setPosition(s, {0, 0, 3});
+    channels(a, 4096, l, r);
+    channels(a, 8192, l, r);
+    CHECK(brightness(l) < front * 0.8f);
+}
+
+// Layered music starts in step, layers fade on their own; stingers wait for the next beat or bar
+TEST(audio_music_layers_and_stingers) {
+    AudioEngine a;
+    REQUIRE(a.init(false));
+    float wait = -1.f;
+    a.playStinger("Beep", AudioEngine::Sync::Beat, 1.f, 0.5f, &wait);
+    CHECK(wait == 0.f);   // no music: at once
+    a.stopAll();
+    AudioEngine::Sound m = a.playMusicLayers({"Hum", "Hum"}, {1.f, 0.f}, 0.f, 120.f, 4);
+    REQUIRE(m);
+    CHECK(a.music() == m);
+    CHECK(a.musicLayers() == 2);
+    CHECK(a.musicLayerVolume(0) == 1.f && a.musicLayerVolume(1) == 0.f);
+    a.setMusicLayerVolume(1, 1.f, 0.5f);
+    a.update(0.25f);
+    CHECK_NEAR(a.musicLayerVolume(1), 0.5, 0.01);
+    a.update(0.5f);
+    CHECK(a.musicLayerVolume(1) == 1.f);
+    a.setMusicLayerVolume(0, 0.2f, 0.f);
+    CHECK(a.musicLayerVolume(0) == 0.2f);
+
+    level(a, (uint32_t)(44100 * 0.3f));   // 0.3 s in (it started 20 ms after it was asked: in step)
+    float at = a.musicPosition();
+    CHECK(at > 0.25f && at < 0.31f);
+    a.playStinger("Beep", AudioEngine::Sync::Beat, 1.f, 0.5f, &wait);   // beats every 0.5 s at 120 bpm
+    CHECK_NEAR(wait, 0.5f - at, 0.002);
+    a.playStinger("Beep", AudioEngine::Sync::Bar, 1.f, 0.5f, &wait);    // bars every 2 s
+    CHECK_NEAR(wait, 2.f - at, 0.002);
+    a.playStinger("Beep", AudioEngine::Sync::Now, 1.f, 0.5f, &wait);
+    CHECK(wait == 0.f);
+    a.stopMusic(0.f);
+    CHECK(a.musicLayers() == 0 && a.music() == 0);
+}
+
+// The player's settings: in the game state as settings.*, applied to the mixer, saved and read back
+TEST(audio_settings_saved_and_applied) {
+    test::ImGuiContextGuard imgui;
+    AudioEngine audio;
+    REQUIRE(audio.init(false));
+    MeshLibrary meshes = buildMeshLibrary();
+    std::filesystem::path dir = test::tempPath("settings_game");
+    auto run = [&](Game& g, int frames) {
+        for (int i = 0; i < frames; ++i) {
+            ImGui::NewFrame();
+            g.frame(1.f / 60.f, true, true);
+            ImGui::EndFrame();
+        }
+    };
+    {
+        Scene s;
+        s.create("Camera").camera = Camera{};
+        Game g;
+        g.setAudio(&audio);
+        g.setSaveDirectory(dir);
+        g.start(s, meshes);
+        CHECK(g.state().number("settings.musicVolume") == 1.f);
+        CHECK(!g.state().flag("settings.headphones"));
+        g.state().setNumber("settings.musicVolume", 0.3f);
+        g.state().setFlag("settings.headphones", true);
+        g.state().setNumber("settings.effectsVolume", 7.f);   // (clamped)
+        run(g, 2);
+        CHECK_NEAR(audio.busLevel(AudioBus::Music), 0.3, 1e-4);
+        CHECK_NEAR(audio.busLevel(AudioBus::Effects), 1.0, 1e-4);
+        CHECK(audio.headphones());
+        CHECK(!std::filesystem::exists(dir / "settings.json"));   // (saved a second later ...)
+        run(g, 70);
+        CHECK(std::filesystem::exists(dir / "settings.json"));
+        g.state().setNumber("settings.uiVolume", 0.5f);
+        run(g, 1);
+        g.stop();   // (... or when the game ends)
+    }
+    Scene s;
+    Game g;
+    g.setAudio(&audio);
+    g.setSaveDirectory(dir);
+    g.start(s, meshes);
+    CHECK_NEAR(g.state().number("settings.musicVolume"), 0.3, 1e-4);
+    CHECK_NEAR(g.state().number("settings.uiVolume"), 0.5, 1e-4);
+    CHECK(g.state().number("settings.effectsVolume") == 1.f);
+    CHECK(g.state().flag("settings.headphones"));
+    g.stop();
+    audio.setHeadphones(false);
+}
+
+// In a game: a wall between the camera and a sound muffles it (as much as its AudioSource says)
+TEST(audio_occlusion_in_game) {
+    test::ImGuiContextGuard imgui;
+    AudioEngine audio;
+    REQUIRE(audio.init(false));
+    MeshLibrary meshes = buildMeshLibrary();
+    Scene s;
+    s.create("Camera").camera = Camera{};   // at the origin, looking down -Z
+    Entity& src = s.create("Speaker");
+    src.transform.position[2] = -10.f;
+    src.audioSource = AudioSource{};
+    src.collider = Collider{};   // (its own collider doesn't count)
+    Entity& wall = s.create("Wall");
+    wall.transform.position[2] = -5.f;
+    wall.collider = Collider{};
+    wall.collider->size = {10, 10, 0.5f};
+    Game g;
+    g.setAudio(&audio);
+    g.start(s, meshes);
+    auto frame = [&] {
+        ImGui::NewFrame();
+        g.frame(1.f / 60.f, true, true);
+        ImGui::EndFrame();
+    };
+    frame();
+    REQUIRE(audio.spatialSounds().size() == 1);
+    AudioEngine::Sound sound = audio.spatialSounds()[0].sound;
+    CHECK(audio.occlusion(sound) == 1.f);
+    s.remove(s.findByName("Wall")->id);
+    frame();
+    CHECK(audio.occlusion(sound) == 0.f);
+    Entity& wall2 = s.create("Wall");
+    wall2.transform.position[2] = -5.f;
+    wall2.collider = Collider{};
+    wall2.collider->size = {10, 10, 0.5f};
+    s.findByName("Speaker")->audioSource->occlusion = 0.4f;
+    frame();
+    CHECK_NEAR(audio.occlusion(sound), 0.4, 1e-5);
+    g.stop();
 }

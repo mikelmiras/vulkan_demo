@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <unordered_map>
 
@@ -290,6 +291,21 @@ void GameContext::playMusic(const std::string& clip, float fadeSeconds, float vo
     if (audio_) audio_->playMusic(clip, fadeSeconds, volume);
 }
 
+void GameContext::playMusicLayers(const std::vector<std::string>& clips, const std::vector<float>& volumes,
+                                  float fadeSeconds, float bpm, int beatsPerBar) {
+    if (audio_) audio_->playMusicLayers(clips, volumes, fadeSeconds, bpm, beatsPerBar);
+}
+
+void GameContext::setMusicLayer(int layer, float volume, float fadeSeconds) {
+    if (audio_) audio_->setMusicLayerVolume(layer, volume, fadeSeconds);
+}
+
+void GameContext::playStinger(const std::string& clip, const std::string& sync, float volume) {
+    if (!audio_) return;
+    AudioEngine::Sync s = sync == "now" ? AudioEngine::Sync::Now : sync == "bar" ? AudioEngine::Sync::Bar : AudioEngine::Sync::Beat;
+    audio_->playStinger(clip, s, volume);
+}
+
 void GameContext::stopMusic(float fadeSeconds) {
     if (audio_) audio_->stopMusic(fadeSeconds);
 }
@@ -358,6 +374,8 @@ void Game::start(Scene& scene, const MeshLibrary& meshes) {
     paused_ = false;
     log_.clear();
     state_.clear();
+    loadSettings();
+    putSettings();
     pendingScene_.clear();
     pendingSave_.clear();
     pendingLoad_.clear();
@@ -415,12 +433,90 @@ void Game::begin(bool fresh, bool keepPhysics) {
 }
 
 void Game::stop() {
+    if (settingsSaveIn_ >= 0.f) saveSettings();
     loadingScene_.clear();
     for (Chunk& c : chunks_) c.cancelled = true;
     stopSounds();
     physics_.clear();
     scene_ = nullptr;
     particles_.clear();
+}
+
+const std::vector<std::pair<std::string, json::Value>>& Game::defaultSettings() {
+    static const std::vector<std::pair<std::string, json::Value>> defaults = {
+        {"settings.masterVolume", json::Value(1.0)}, {"settings.musicVolume", json::Value(1.0)},
+        {"settings.effectsVolume", json::Value(1.0)}, {"settings.uiVolume", json::Value(1.0)},
+        {"settings.ambienceVolume", json::Value(1.0)}, {"settings.headphones", json::Value(false)}};
+    return defaults;
+}
+
+void Game::loadSettings() {
+    settings_.clear();
+    for (const auto& [key, value] : defaultSettings()) settings_[key] = value;
+    std::filesystem::path file = (saveDir_.empty() ? project::saveDir("Untitled") : saveDir_) / "settings.json";
+    std::ifstream f(file, std::ios::binary);
+    if (!f) return;   // (none yet: the defaults)
+    std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()), error;
+    json::Value doc;
+    if (!json::parse(text, doc, error)) return;
+    using T = json::Value::Type;
+    for (auto& [key, value] : settings_) {
+        const json::Value& v = doc[key.substr(9)];   // (saved without the "settings." prefix)
+        if (v.type() == T::Number && value.type() == T::Number) value = json::Value(std::clamp(v.asNumber(), 0.0, 1.0));
+        else if (v.type() == T::Bool && value.type() == T::Bool) value = v;
+    }
+}
+
+void Game::putSettings() {
+    for (const auto& [key, value] : settings_) state_.set(key, value);
+}
+
+void Game::syncSettings(float dt) {
+    for (auto& [key, value] : settings_) {
+        const json::Value* now = state_.get(key);
+        if (!now) {   // (erased: back to what it was)
+            state_.set(key, value);
+            continue;
+        }
+        using T = json::Value::Type;
+        bool changed = value.type() == T::Bool ? now->type() == T::Bool && now->asBool() != value.asBool()
+                                               : now->type() == T::Number && now->asNumber() != value.asNumber();
+        if (changed) {
+            value = value.type() == T::Number ? json::Value(std::clamp(now->asNumber(), 0.0, 1.0)) : *now;
+            state_.set(key, value);   // (clamped)
+            settingsSaveIn_ = 1.f;
+        }
+    }
+    if (settingsSaveIn_ >= 0.f) {
+        settingsSaveIn_ -= std::max(dt, 0.f);
+        if (settingsSaveIn_ < 0.f) saveSettings();
+    }
+    if (!audio_ || !audio_->ready()) return;
+    audio_->setMasterVolume(settings_["settings.masterVolume"].asFloat(1.f));
+    audio_->setBusUserVolume(AudioBus::Music, settings_["settings.musicVolume"].asFloat(1.f));
+    audio_->setBusUserVolume(AudioBus::Effects, settings_["settings.effectsVolume"].asFloat(1.f));
+    audio_->setBusUserVolume(AudioBus::UI, settings_["settings.uiVolume"].asFloat(1.f));
+    audio_->setBusUserVolume(AudioBus::Ambience, settings_["settings.ambienceVolume"].asFloat(1.f));
+    audio_->setHeadphones(settings_["settings.headphones"].asBool(false));
+}
+
+void Game::saveSettings() {
+    settingsSaveIn_ = -1.f;
+    json::Value doc = json::Value::object();
+    for (const auto& [key, value] : settings_) doc.set(key.substr(9), value);
+    std::filesystem::path dir = saveDir_.empty() ? project::saveDir("Untitled") : saveDir_;
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    fs::path path = dir / "settings.json", temp = dir / "settings.json.tmp";
+    {
+        std::ofstream f(temp, std::ios::binary);
+        f << json::write(doc);
+        if (!f) {
+            ctx_.log("Couldn't save the settings in " + dir.u8string());
+            return;
+        }
+    }
+    fs::rename(temp, path, ec);
 }
 
 void Game::stopSounds() {
@@ -432,6 +528,7 @@ void Game::stopSounds() {
 
 void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     if (!running()) return;
+    syncSettings(dt);   // (paused too: a pause menu changes them)
     keyboard_ = keyboard;
     input_.beginFrame(keyboard && !uiController_.editingText(), mouse, mouseDelta);   // (typing isn't playing)
     pollLoads(false);
@@ -482,6 +579,23 @@ void Game::drawUI(GameUI& ui) {
 
 void Game::runUIAction(const UIAction& a) {
     if (a.action.empty()) return;
+    if (size_t semi = a.action.find(';'); semi != std::string::npos) {   // "@hide Menu; @show Settings": each in turn
+        size_t from = 0;
+        while (from <= a.action.size()) {
+            size_t to = a.action.find(';', from);
+            if (to == std::string::npos) to = a.action.size();
+            std::string one = a.action.substr(from, to - from);
+            one.erase(0, one.find_first_not_of(" \t"));
+            one.erase(one.find_last_not_of(" \t") + 1);
+            if (!one.empty()) {
+                UIAction part = a;
+                part.action = one;
+                runUIAction(part);
+            }
+            from = to + 1;
+        }
+        return;
+    }
     if (a.action[0] != '@') {   // a message, from the element
         Message m{a.action, a.element, a.value, a.text};
         if (a.target.empty()) ctx_.broadcast(m);
@@ -740,6 +854,7 @@ void Game::updateAudio(float dt) {
         listener_ = cam.position;
         haveListener_ = true;
     }
+    EntityId listenerEntity = cam.entity;
     for (auto it = attached_.begin(); it != attached_.end();) {
         const Entity* e = scene_->find(it->first);
         if (!e || !audio_->playing(it->second)) {   // destroyed entity or finished sound
@@ -755,6 +870,7 @@ void Game::updateAudio(float dt) {
         last = p;
         ++it;
     }
+    if (haveListener_) occludeSounds(listenerEntity);
     // Reverb: the zone the listener is deepest in (fading in over its blend distance at the edge)
     float bestWeight = 0.f;
     const ReverbZone* best = nullptr;
@@ -768,6 +884,37 @@ void Game::updateAudio(float dt) {
     if (best) audio_->setReverb(best->wet * bestWeight, best->roomSize, best->damping);
     else audio_->setReverb(0.f);
     audio_->update(dt);
+}
+
+// Occlusion: a ray from the listener to each spatial sound; a solid collider in between muffles it (by its
+// AudioSource's occlusion; one-shots fully). The listener's own body (the camera's nearest ancestor with a
+// collider) and whatever is within half a metre of the sound (its own collider) don't count.
+void Game::occludeSounds(EntityId listenerEntity) {
+    EntityId body = kNoEntity;
+    for (EntityId id = listenerEntity; id != kNoEntity;) {
+        const Entity* e = scene_->find(id);
+        if (!e) break;
+        if (e->collider) { body = id; break; }
+        id = e->parent;
+    }
+    std::unordered_map<AudioEngine::Sound, EntityId> owners;
+    for (const auto& [entity, sound] : attached_) owners[sound] = entity;
+    for (const AudioEngine::SpatialSound& s : audio_->spatialSounds()) {
+        float strength = 1.f;
+        EntityId owner = kNoEntity;
+        if (auto o = owners.find(s.sound); o != owners.end()) {
+            owner = o->second;
+            if (const Entity* e = scene_->find(owner); e && e->audioSource) strength = e->audioSource->occlusion;
+        }
+        float amount = 0.f;
+        Vec3 d = s.position - listener_;
+        float dist = length(d);
+        RaycastHit hit;
+        if (strength > 0.f && dist > 0.6f && physics_.raycast(listener_, d, dist - 0.5f, hit, body) &&
+            hit.entity != owner && !(owner != kNoEntity && scene_->isAncestor(owner, hit.entity)))
+            amount = strength;
+        audio_->setOcclusion(s.sound, amount);
+    }
 }
 
 void Game::playImpacts(const std::vector<Impact>& impacts) {
@@ -968,6 +1115,7 @@ bool Game::activeCamera(CameraView& out) const {
         out.fovY = e.camera->fovY;
         out.zNear = e.camera->zNear;
         out.zFar = e.camera->zFar;
+        out.entity = e.id;
         return true;
     }
     return false;
@@ -1100,6 +1248,7 @@ bool Game::loadGame(const std::string& slot, std::string& error) {
     tick_ = (unsigned long long)doc["tick"].asNumber(0);
     accumulator_ = 0.f;
     state_.fromJson(doc["state"]);
+    putSettings();   // (the player's settings now, not the ones the save was made with)
     begin(false);   // start() everything, then put back what it had built up
     for (const json::Value& rec : doc["behaviours"].elements()) {
         Entity* e = scene_->find((EntityId)rec["entity"].asNumber(0));

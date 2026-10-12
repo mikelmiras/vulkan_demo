@@ -23,6 +23,11 @@
     "spanish": "Español",
     "name": "Tu nombre",
     "quit": "Salir",
-    "hint": "Flechas / cruceta para elegir, Intro / A para pulsar"
+    "hint": "Flechas / cruceta para elegir, Intro / A para pulsar",
+    "settings": "Ajustes",
+    "volume": "Volumen",
+    "effects": "Efectos",
+    "headphones": "Auriculares",
+    "back": "Volver"
   }
 }

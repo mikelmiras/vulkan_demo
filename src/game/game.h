@@ -32,6 +32,7 @@ struct CameraView {
     Vec3 position;
     float fovY = 60.f * DEG2RAD;
     float zNear = 0.1f, zFar = 2000.f;
+    EntityId entity = kNoEntity;   // the camera's entity
 };
 
 class Game;
@@ -65,6 +66,7 @@ public:
     void setNumber(const std::string& key, float value) { values_[key] = value; }
     void setText(const std::string& key, const std::string& value) { values_[key] = value; }
     void setFlag(const std::string& key, bool value) { values_[key] = value; }
+    void set(const std::string& key, json::Value value) { values_[key] = std::move(value); }
     float add(const std::string& key, float amount) {   // number += amount; returns the new value
         setNumber(key, number(key) + amount);
         return number(key);
@@ -159,6 +161,12 @@ public:
     // Music: one track, streamed and looping on the music bus, cross-fading from the one before
     void playMusic(const std::string& clip, float fadeSeconds = 1.f, float volume = 1.f);
     void stopMusic(float fadeSeconds = 1.f);
+    // Layered music: stems started together (same length), each with a volume to fade (adaptive music: add drums
+    // in a fight); bpm / beatsPerBar time stingers, short phrases played over the music on its next beat or bar
+    void playMusicLayers(const std::vector<std::string>& clips, const std::vector<float>& volumes, float fadeSeconds = 1.f,
+                         float bpm = 0.f, int beatsPerBar = 4);
+    void setMusicLayer(int layer, float volume, float fadeSeconds = 1.f);
+    void playStinger(const std::string& clip, const std::string& sync = "beat", float volume = 1.f);   // "now", "beat", "bar"
     // The mixer's buses ("effects", "music", "ui", "ambience"): a volume, or lowered for a while (under a voice line)
     void setBusVolume(const std::string& bus, float volume);
 
@@ -266,6 +274,12 @@ public:
     const std::filesystem::path& saveDirectory() const { return saveDir_; }
     bool quitRequested() const { return quit_; }
     GameState& state() { return state_; }
+
+    // The player's settings: settings.json in the save folder, read at start(), and in the game state as
+    // settings.<name> (kSettings: volumes 0..1, headphones), so menus (UI sliders and toggles bound to them) and
+    // scripts change them; applied every frame, saved a second after a change and at stop()
+    static const std::vector<std::pair<std::string, json::Value>>& defaultSettings();
+    void saveSettings();
 
     // The same as the GameContext requests, done right away (between updates)
     bool changeScene(const std::string& path, std::string& error);
@@ -387,6 +401,12 @@ private:
     std::unordered_map<AudioEngine::Sound, Vec3> soundPos_;           // ... where they were last frame
     Vec3 listener_;
     bool haveListener_ = false;
+    std::map<std::string, json::Value> settings_;
+    float settingsSaveIn_ = -1.f;   // (>= 0: changed, saved when it runs out)
+    void loadSettings();
+    void putSettings();               // into the game state (at start, and over a loaded save game's)
+    void syncSettings(float dt);      // the state's edits taken, applied to the audio
+    void occludeSounds(EntityId listenerEntity);
     GameContext ctx_;
     std::vector<std::pair<float, std::string>> log_;
     float accumulator_ = 0.f, time_ = 0.f, updateMs_ = 0.f;

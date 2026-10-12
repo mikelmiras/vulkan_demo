@@ -531,6 +531,9 @@ void Editor::drawComponents(Entity& e) {
                 ImGui::SliderFloat("Doppler", &a.doppler, 0.f, 3.f, "%.2f");
                 track();
                 tooltip("How much its pitch shifts as it moves towards or away from the listener (0: none)");
+                ImGui::SliderFloat("Occlusion", &a.occlusion, 0.f, 1.f, "%.2f");
+                track();
+                tooltip("How muffled it gets with a wall (any solid collider) between it and the listener (0: heard through)");
             }
             int bus = (int)audioBusFromName(a.bus);
             const char* buses[] = {"effects", "music", "ui", "ambience"};

@@ -6,6 +6,15 @@
 // Sounds play on a bus (effects, music, UI, ambience), each with its own volume; a bus can be ducked (lowered for a
 // while, as under dialogue). Effects and ambience go through a room reverb (setReverb), off until a game turns it
 // up. Moving spatial sounds and listeners get a Doppler shift from their velocities.
+//
+// Spatial sounds go through a little filter of their own: occlusion (setOcclusion: muffled and quieter, as behind a
+// wall; the game sets it from rays through the scene) and the panning, either for speakers (equal-power) or, with
+// setHeadphones(true), binaural: a spherical-head model (the far ear hears it up to 0.66 ms later and muffled by
+// the head; sounds behind are a little duller), not measured HRTFs, but enough to tell left from right and front
+// from back on headphones.
+//
+// Music can be layered (stems started together, faded in and out on their own: setMusicLayerVolume) and have
+// stingers (short phrases) played over it on its next beat or bar.
 #pragma once
 
 #include <cstdint>
@@ -35,6 +44,7 @@ public:
         Vec3 velocity;               // spatial: m/s, for the Doppler shift
         float doppler = 1.f;         // how strong the Doppler shift is (0: none)
         float fadeIn = 0.f;          // seconds
+        float occlusion = 0.f;       // spatial: how muffled it starts (0..1; setOcclusion changes it)
     };
 
     AudioEngine();
@@ -63,6 +73,8 @@ public:
 
     // Mixer
     void setBusVolume(AudioBus bus, float volume);
+    // The player's own volume for a bus (a settings menu), on top of the game's setBusVolume
+    void setBusUserVolume(AudioBus bus, float volume);
     float busVolume(AudioBus bus) const;
     // Lowers the bus to `volume` (times its own) for `seconds`, easing down and back up over `fade` seconds
     void duck(AudioBus bus, float volume, float seconds, float fade = 0.25f);
@@ -72,6 +84,32 @@ public:
     Sound playMusic(const std::string& clip, float fadeSeconds = 1.f, float volume = 1.f);
     void stopMusic(float fadeSeconds = 1.f);
     Sound music() const { return music_; }
+    // A layered track: the clips (stems of the same length) start on the same sample and loop together; volumes[i]
+    // is layer i's (missing: 1). bpm / beatsPerBar: its tempo, for stingers (0: they play at once).
+    Sound playMusicLayers(const std::vector<std::string>& clips, const std::vector<float>& volumes, float fadeSeconds = 1.f,
+                          float bpm = 0.f, int beatsPerBar = 4);
+    void setMusicLayerVolume(int layer, float volume, float fadeSeconds = 1.f);
+    float musicLayerVolume(int layer) const;   // now (mid-fade: part way)
+    int musicLayers() const;
+    void setMusicTempo(float bpm, int beatsPerBar = 4);
+    float musicPosition() const;   // seconds into the current track (0: none)
+    // A stinger: a one-shot on the music bus, started on the music's next beat or bar (at once without a tempo or
+    // music), with the music ducked under it. Returns the sound; startsIn (if given) says how long until it plays.
+    enum class Sync { Now, Beat, Bar };
+    Sound playStinger(const std::string& clip, Sync sync = Sync::Beat, float volume = 1.f, float duckMusic = 0.5f,
+                      float* startsIn = nullptr);
+
+    // Spatial sounds: muffling by what's between them and the listener (0: clear .. 1: behind a wall)
+    void setOcclusion(Sound sound, float amount);
+    float occlusion(Sound sound) const;     // what it was set to (-1: not a spatial sound)
+    struct SpatialSound {
+        Sound sound;
+        Vec3 position;
+    };
+    std::vector<SpatialSound> spatialSounds() const;   // playing ones, for working out their occlusion
+    // Headphones: binaural panning (see above) for every spatial sound, playing ones too; off: speakers
+    void setHeadphones(bool on);
+    bool headphones() const;
 
     // The room the listener is in: how much reverb effects and ambience get (0: dry), how big and how muffled
     void setReverb(float wet, float roomSize = 0.7f, float damping = 0.5f);

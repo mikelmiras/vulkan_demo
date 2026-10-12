@@ -443,6 +443,7 @@ struct AudioSource {
     std::string bus = "effects";  // mixer bus: effects, music, ui, ambience (audio/audio.h)
     bool stream = false;          // decoded as it plays (long files: music, ambience) rather than all up front
     float doppler = 1.f;          // pitch shift as it moves relative to the listener (0: none)
+    float occlusion = 1.f;        // spatial: how much walls between it and the listener muffle it (0: not at all)
 };
 
 // A space with its own acoustics: while the listener is inside (within `radius`, easing in over `blend` metres at

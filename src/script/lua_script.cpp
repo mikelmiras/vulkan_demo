@@ -1014,6 +1014,36 @@ int gPlayMusic(lua_State* L) {
     context(L).playMusic(luaL_checkstring(L, 1), (float)luaL_optnumber(L, 2, 1.0), (float)luaL_optnumber(L, 3, 1.0));
     return 0;
 }
+// game.playMusicLayers({"a.ogg", "b.ogg"}, {1, 0}, fade, bpm, beatsPerBar)
+int gPlayMusicLayers(lua_State* L) {
+    luaL_checktype(L, 1, LUA_TTABLE);
+    std::vector<std::string> clips;
+    std::vector<float> volumes;
+    for (lua_Integer i = 1;; ++i) {
+        if (lua_rawgeti(L, 1, i) != LUA_TSTRING) { lua_pop(L, 1); break; }
+        clips.emplace_back(lua_tostring(L, -1));
+        lua_pop(L, 1);
+    }
+    if (lua_istable(L, 2))
+        for (lua_Integer i = 1; i <= (lua_Integer)clips.size(); ++i) {
+            lua_rawgeti(L, 2, i);
+            volumes.push_back(lua_isnumber(L, -1) ? (float)lua_tonumber(L, -1) : 1.f);
+            lua_pop(L, 1);
+        }
+    context(L).playMusicLayers(clips, volumes, (float)luaL_optnumber(L, 3, 1.0), (float)luaL_optnumber(L, 4, 0.0),
+                               (int)luaL_optinteger(L, 5, 4));
+    return 0;
+}
+// game.setMusicLayer(index, volume, fade): index from 1 (the first clip)
+int gSetMusicLayer(lua_State* L) {
+    context(L).setMusicLayer((int)luaL_checkinteger(L, 1) - 1, (float)luaL_checknumber(L, 2), (float)luaL_optnumber(L, 3, 1.0));
+    return 0;
+}
+// game.playStinger(clip, "beat" | "bar" | "now", volume)
+int gPlayStinger(lua_State* L) {
+    context(L).playStinger(luaL_checkstring(L, 1), luaL_optstring(L, 2, "beat"), (float)luaL_optnumber(L, 3, 1.0));
+    return 0;
+}
 int gStopMusic(lua_State* L) {
     context(L).stopMusic((float)luaL_optnumber(L, 1, 1.0));
     return 0;
@@ -1301,6 +1331,7 @@ lua_State* state() {
         {"cancel", gCancel},       {"send", gSend},               {"sendToTag", gSendToTag},
         {"broadcast", gBroadcast}, {"playSound", gPlaySound},     {"playSound2D", gPlaySound2D},
         {"playMusic", gPlayMusic}, {"stopMusic", gStopMusic},     {"setBusVolume", gSetBusVolume},
+        {"playMusicLayers", gPlayMusicLayers}, {"setMusicLayer", gSetMusicLayer}, {"playStinger", gPlayStinger},
         {"duck", gDuck},           {"text", gText},               {"format", gFormat},
         {"setLanguage", gSetLanguage}, {"language", gLanguage},   {"loadScene", gLoadScene},
         {"scenePath", gScenePath}, {"quit", gQuit},               {"saveGame", gSaveGame},

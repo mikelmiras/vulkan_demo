@@ -13,6 +13,20 @@
     "scene_copy": 0.715,
     "world_matrices": 0.16
   },
+  "Windows": {
+    "diff_scenes": 5.469,
+    "draw_items": 1.021,
+    "fixed_update_avg": 3.744,
+    "game_start": 62.119,
+    "navigation_bake": 1568.72,
+    "paths_100": 56.898,
+    "physics_make_bodies": 70.228,
+    "physics_sync": 0.763,
+    "raycasts_1000": 0.827,
+    "scene_change_sync": 155.21,
+    "scene_copy": 2.261,
+    "world_matrices": 0.289
+  },
   "macOS": {
     "diff_scenes": 2.226,
     "draw_items": 0.299,

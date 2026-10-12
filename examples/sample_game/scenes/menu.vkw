@@ -166,7 +166,7 @@
     },
     {
       "id": 9,
-      "name": "Music",
+      "name": "Settings Button",
       "parent": 7,
       "transform": {
         "position": [0, 0, 0],
@@ -174,7 +174,7 @@
         "scale": [1, 1, 1]
       },
       "ui": {
-        "kind": "slider",
+        "kind": "button",
         "anchorMin": [0, 0],
         "anchorMax": [0, 0],
         "offsetMin": [0, 0],
@@ -182,13 +182,11 @@
         "color": [0.12, 0.13, 0.16],
         "opacity": 0.85,
         "rounding": 8,
-        "text": "{@menu.music}",
+        "text": "{@menu.settings}",
         "textSize": 40,
         "textColor": [1, 1, 1],
-        "align": "left",
-        "value": "musicVolume",
-        "min": 0,
-        "max": 1
+        "align": "center",
+        "action": "@hide Panel; @show Settings"
       }
     },
     {
@@ -264,6 +262,162 @@
         "textColor": [1, 1, 1],
         "align": "center",
         "action": "@quit"
+      }
+    },
+    {
+      "id": 14,
+      "name": "Settings",
+      "parent": 5,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "list",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [120, 300],
+        "offsetMax": [680, 900],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0,
+        "rounding": 8,
+        "textSize": 36,
+        "textColor": [1, 1, 1],
+        "align": "center",
+        "spacing": 14
+      },
+      "visible": false
+    },
+    {
+      "id": 15,
+      "name": "Volume",
+      "parent": 14,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "slider",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.volume}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "left",
+        "value": "settings.masterVolume",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "id": 16,
+      "name": "Music",
+      "parent": 14,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "slider",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.music}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "left",
+        "value": "settings.musicVolume",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "id": 17,
+      "name": "Effects",
+      "parent": 14,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "slider",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.effects}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "left",
+        "value": "settings.effectsVolume",
+        "min": 0,
+        "max": 1
+      }
+    },
+    {
+      "id": 18,
+      "name": "Headphones",
+      "parent": 14,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "toggle",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.headphones}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "left",
+        "value": "settings.headphones"
+      }
+    },
+    {
+      "id": 19,
+      "name": "Back",
+      "parent": 14,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "ui": {
+        "kind": "button",
+        "anchorMin": [0, 0],
+        "anchorMax": [0, 0],
+        "offsetMin": [0, 0],
+        "offsetMax": [0, 64],
+        "color": [0.12, 0.13, 0.16],
+        "opacity": 0.85,
+        "rounding": 8,
+        "text": "{@menu.back}",
+        "textSize": 40,
+        "textColor": [1, 1, 1],
+        "align": "center",
+        "action": "@hide Settings; @show Panel"
       }
     },
     {
@@ -346,40 +500,7 @@
         "",
         ""
       ],
-      "collides": [
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295,
-        4294967295
-      ]
+      "collides": [4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295, 4294967295]
     },
     "input": [
       {

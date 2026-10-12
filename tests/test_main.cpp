@@ -1,6 +1,7 @@
 #include "test.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 
@@ -60,6 +61,14 @@ TextureLibrary& textures() {
 
 int main(int argc, char** argv) {
     const char* filter = argc > 1 ? argv[1] : nullptr;
+    {   // (games save settings and saves under the user's data folder: never the real one from tests)
+        std::string saves = test::tempPath("saves").u8string();
+#if defined(_WIN32)
+        _putenv_s("VKWORLD_SAVE_DIR", saves.c_str());
+#else
+        setenv("VKWORLD_SAVE_DIR", saves.c_str(), 1);
+#endif
+    }
     int run = 0, failed = 0;
     for (const test::Case& c : test::registry()) {
         if (filter && !std::strstr(c.name, filter)) continue;

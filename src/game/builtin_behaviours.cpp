@@ -719,14 +719,38 @@ struct MusicPlayer : BehaviourBase<MusicPlayer> {
     static constexpr const char* kTypeName = "MusicPlayer";
     std::string clip;
     float volume = 0.8f;
-    float fade = 1.5f;   // seconds of cross-fade
+    float fade = 1.5f;     // seconds of cross-fade
+    std::string layers;    // more stems played with it, in step ("drums.ogg, strings.ogg"), at layerVolume
+    float layerVolume = 0.f;   // (0: silent until ctx.setMusicLayer turns them up)
+    float bpm = 0.f;       // its tempo, for stingers on the beat (0: they play at once)
+    int beatsPerBar = 4;
     void fields(FieldVisitor& v) override {
         v.field("clip", clip, FieldRef::Sound);
         v.field("volume", volume, 0.01f, 0.f, 2.f);
         v.field("fade", fade, 0.05f, 0.f, 30.f);
+        v.field("layers", layers);
+        v.field("layerVolume", layerVolume, 0.01f, 0.f, 2.f);
+        v.field("bpm", bpm, 0.5f, 0.f, 400.f);
+        v.field("beatsPerBar", beatsPerBar, 1, 16);
     }
     void start(GameContext& ctx, Entity&) override {
-        if (!clip.empty()) ctx.playMusic(clip, fade, volume);
+        if (clip.empty()) return;
+        std::vector<std::string> clips{clip};
+        std::vector<float> volumes{volume};
+        size_t from = 0;
+        while (from < layers.size()) {   // comma-separated
+            size_t to = layers.find(',', from);
+            if (to == std::string::npos) to = layers.size();
+            std::string one = layers.substr(from, to - from);
+            one.erase(0, one.find_first_not_of(' '));
+            one.erase(one.find_last_not_of(' ') + 1);
+            if (!one.empty()) {
+                clips.push_back(one);
+                volumes.push_back(layerVolume);
+            }
+            from = to + 1;
+        }
+        ctx.playMusicLayers(clips, volumes, fade, bpm, beatsPerBar);
     }
 };
 

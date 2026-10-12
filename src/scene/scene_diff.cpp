@@ -45,7 +45,8 @@ bool eq(const Joint& a, const Joint& b) {
 bool eq(const AudioSource& a, const AudioSource& b) {
     return a.clip == b.clip && a.volume == b.volume && a.loop == b.loop && a.playOnStart == b.playOnStart &&
            a.playOnImpact == b.playOnImpact && a.spatial == b.spatial && a.minDistance == b.minDistance &&
-           a.maxDistance == b.maxDistance && a.bus == b.bus && a.stream == b.stream && a.doppler == b.doppler;
+           a.maxDistance == b.maxDistance && a.bus == b.bus && a.stream == b.stream && a.doppler == b.doppler &&
+           a.occlusion == b.occlusion;
 }
 bool eq(const ReverbZone& a, const ReverbZone& b) {
     return a.radius == b.radius && a.blend == b.blend && a.wet == b.wet && a.roomSize == b.roomSize && a.damping == b.damping;

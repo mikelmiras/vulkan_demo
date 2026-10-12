@@ -159,6 +159,107 @@ void reverbProcess(ma_node* node, const float** in, ma_uint32* inCount, float** 
 
 ma_node_vtable kReverbVtable = {reverbProcess, nullptr, 1, 1, 0};
 
+// ---- A spatial sound's own filter (mono in, stereo out): occlusion (a low-pass and a dip in volume), then
+// panning, for speakers or binaural for headphones. Targets are atomics set by the game; the audio thread eases
+// towards them a block at a time (gains ramp across the block: no clicks).
+struct SpatialNode {
+    ma_node_base base;   // (first)
+    std::atomic<float> occlusion{0.f}, pan{0.f}, behind{0.f};   // targets: 0..1, -1 (left)..1 (right), 0..1
+    const std::atomic<bool>* headphones = nullptr;
+    uint32_t rate = 44100;
+    // audio thread
+    float occ = 0.f, panNow = 0.f, back = 0.f;
+    float gainL = 0.70710678f, gainR = 0.70710678f;
+    float lpOcc = 0.f, lpBack = 0.f, lpFar = 0.f;
+    float delayNow = 0.f;
+    float ring[128] = {0};
+    uint32_t at = 0;
+    bool started = false;
+};
+
+// A one-pole low-pass's coefficient, from open (amount 0: passes everything, exactly) down to `cutoff` Hz (amount 1)
+float onePole(float cutoff, float amount, uint32_t rate) {
+    float a = 1.f - std::exp(-2.f * PI * cutoff / (float)rate);
+    return 1.f + (a - 1.f) * std::clamp(amount, 0.f, 1.f);
+}
+
+void spatialProcess(ma_node* node, const float** in, ma_uint32* inCount, float** out, ma_uint32* outCount) {
+    auto* n = reinterpret_cast<SpatialNode*>(node);
+    ma_uint32 frames = std::min(*inCount, *outCount);
+    *outCount = frames;
+    const float* src = in[0];
+    float* dst = out[0];
+    if (frames == 0) return;
+    // Ease the targets: about 80 ms for occlusion, 30 ms for direction
+    float block = (float)frames / (float)n->rate;
+    auto ease = [&](float& now, float target, float seconds) {
+        float k = n->started ? std::min(1.f, block / seconds) : 1.f;
+        now += (target - now) * k;
+    };
+    ease(n->occ, std::clamp(n->occlusion.load(std::memory_order_relaxed), 0.f, 1.f), 0.08f);
+    ease(n->panNow, std::clamp(n->pan.load(std::memory_order_relaxed), -1.f, 1.f), 0.03f);
+    ease(n->back, std::clamp(n->behind.load(std::memory_order_relaxed), 0.f, 1.f), 0.03f);
+    bool first = !n->started;
+    n->started = true;
+    bool binaural = n->headphones && n->headphones->load(std::memory_order_relaxed);
+    float side = std::fabs(n->panNow);
+    // Occlusion: from open (20 kHz) down to a wall's 600 Hz, and up to 9 dB quieter
+    float aOcc = onePole(600.f, std::sqrt(n->occ), n->rate);
+    float occGain = 1.f - 0.65f * n->occ;
+    float targetL, targetR, aBack = 1.f, aFar = 1.f, delay = 0.f;
+    if (!binaural) {   // equal power
+        float theta = (n->panNow + 1.f) * 0.25f * PI;
+        targetL = std::cos(theta);
+        targetR = std::sin(theta);
+    } else {
+        // The near ear a little louder, the far one quieter, later (up to 0.66 ms) and muffled by the head
+        float nearG = 0.70710678f + 0.25f * side, farG = 0.70710678f * (1.f - 0.45f * side);
+        targetL = n->panNow >= 0.f ? farG : nearG;
+        targetR = n->panNow >= 0.f ? nearG : farG;
+        aFar = onePole(1500.f, side, n->rate);
+        aBack = onePole(5000.f, n->back, n->rate);
+        delay = 0.00066f * side * (float)n->rate;
+    }
+    if (first) {   // (no ramp into where it starts)
+        n->gainL = targetL;
+        n->gainR = targetR;
+        n->delayNow = delay;
+    }
+    float startL = n->gainL, startR = n->gainR, startDelay = n->delayNow;
+    bool farIsLeft = n->panNow >= 0.f;
+    for (ma_uint32 f = 0; f < frames; ++f) {
+        float t = (float)(f + 1) / (float)frames;
+        float x = src[f];
+        n->lpOcc += (x - n->lpOcc) * aOcc;
+        float y = n->lpOcc * occGain;
+        float l, r;
+        if (!binaural) {
+            l = r = y;
+        } else {
+            n->lpBack += (y - n->lpBack) * aBack;
+            y = n->lpBack;
+            n->ring[n->at] = y;
+            float d = startDelay + (delay - startDelay) * t;   // (fractional, read between two samples)
+            float pos = (float)n->at - d;
+            while (pos < 0.f) pos += 128.f;
+            uint32_t i0 = (uint32_t)pos, i1 = (i0 + 1) & 127;
+            float frac = pos - (float)i0;
+            float delayed = n->ring[i0 & 127] * (1.f - frac) + n->ring[i1] * frac;
+            n->at = (n->at + 1) & 127;
+            n->lpFar += (delayed - n->lpFar) * aFar;
+            l = farIsLeft ? n->lpFar : y;
+            r = farIsLeft ? y : n->lpFar;
+        }
+        dst[f * 2] = l * (startL + (targetL - startL) * t);
+        dst[f * 2 + 1] = r * (startR + (targetR - startR) * t);
+    }
+    n->gainL = targetL;
+    n->gainR = targetR;
+    n->delayNow = delay;
+}
+
+ma_node_vtable kSpatialVtable = {spatialProcess, nullptr, 1, 1, 0};
+
 }  // namespace
 
 const char* audioBusName(AudioBus bus) {
@@ -190,6 +291,10 @@ struct AudioEngine::Impl {
         bool usesDecoder = false;
         bool loop = false;
         float stopIn = -1.f;         // fading out: released after this many seconds
+        std::unique_ptr<SpatialNode> spatial;   // spatial sounds: occlusion and panning
+        Vec3 position;
+        float volume = 1.f;          // as played
+        float gain = 1.f;            // the clip's import setting
     };
     std::map<Sound, std::unique_ptr<Playing>> sounds;   // pointers stay put: miniaudio holds on to them
     struct Clip {
@@ -209,19 +314,49 @@ struct AudioEngine::Impl {
     Sound next = 1;
     ma_sound_group buses[(int)AudioBus::Count]{};
     float busVolume[(int)AudioBus::Count] = {1.f, 1.f, 1.f, 1.f};
+    float userVolume[(int)AudioBus::Count] = {1.f, 1.f, 1.f, 1.f};
     struct Duck {
         float target = 1.f, level = 1.f, left = 0.f, rate = 4.f;
     } ducks[(int)AudioBus::Count];
     ReverbNode reverb{};
     std::chrono::steady_clock::time_point lastUpdate = std::chrono::steady_clock::now();
 
+    std::atomic<bool> headphones{false};
+    Vec3 listenerPos, listenerForward{0, 0, -1};
+    // Music layers (layer 0 is music_ itself) and their volume fades; the tempo, for stingers
+    struct Layer {
+        Sound sound = 0;
+        float volume = 1.f, target = 1.f, rate = 0.f;
+    };
+    std::vector<Layer> layers;
+    float duckLayers = 1.f, duckLayersLeft = 0.f, duckLayersLevel = 1.f;   // under a stinger
+    float bpm = 0.f;
+    int beatsPerBar = 4;
+    ma_uint64 musicStart = 0;   // engine time (frames) the music's first sample played
+
+    void aim(Playing& p) {   // the spatial node's direction from the listener
+        if (!p.spatial) return;
+        Vec3 d = p.position - listenerPos;
+        float len = length(d);
+        Vec3 f = normalize(listenerForward);
+        Vec3 right = normalize(cross(f, Vec3{0, 1, 0}));
+        if (len < 1e-4f || length(right) < 0.5f) {
+            p.spatial->pan.store(0.f);
+            p.spatial->behind.store(0.f);
+            return;
+        }
+        d = d * (1.f / len);
+        p.spatial->pan.store(dot(d, right));
+        p.spatial->behind.store(std::max(0.f, -dot(d, f)));
+    }
     void release(std::map<Sound, std::unique_ptr<Playing>>::iterator it) {
         ma_sound_uninit(&it->second->sound);
+        if (it->second->spatial) ma_node_uninit(it->second->spatial.get(), nullptr);
         if (it->second->usesRef) ma_audio_buffer_ref_uninit(&it->second->ref);
         if (it->second->usesDecoder) ma_decoder_uninit(&it->second->decoder);
         sounds.erase(it);
     }
-    void applyBus(int b) { ma_sound_group_set_volume(&buses[b], busVolume[b] * ducks[b].level); }
+    void applyBus(int b) { ma_sound_group_set_volume(&buses[b], busVolume[b] * userVolume[b] * ducks[b].level); }
 };
 
 AudioEngine::AudioEngine() : impl_(std::make_unique<Impl>()) {}
@@ -285,6 +420,37 @@ AudioEngine::Sound AudioEngine::play(const std::string& clip, const PlayParams& 
     auto s = std::make_unique<Impl::Playing>();
     ma_sound_group* group = &impl_->buses[std::clamp((int)p.bus, 0, (int)AudioBus::Count - 1)];
     ma_result r;
+    // Spatial sounds: mono out of miniaudio's spatializer (distance, Doppler) into their own node (occlusion,
+    // panning), then the bus. Others: straight into the bus.
+    auto initSound = [&](ma_data_source* source) -> ma_result {
+        if (!p.spatial) return ma_sound_init_from_data_source(&impl_->engine, source, 0, group, &s->sound);
+        s->spatial = std::make_unique<SpatialNode>();
+        SpatialNode& n = *s->spatial;
+        n.rate = ma_engine_get_sample_rate(&impl_->engine);
+        n.headphones = &impl_->headphones;
+        n.occlusion.store(std::clamp(p.occlusion, 0.f, 1.f));
+        ma_uint32 inChannels[1] = {1}, outChannels[1] = {2};
+        ma_node_config nc = ma_node_config_init();
+        nc.vtable = &kSpatialVtable;
+        nc.pInputChannels = inChannels;
+        nc.pOutputChannels = outChannels;
+        ma_result nr = ma_node_init(ma_engine_get_node_graph(&impl_->engine), &nc, nullptr, &n);
+        if (nr != MA_SUCCESS) {
+            s->spatial.reset();
+            return nr;
+        }
+        ma_node_attach_output_bus(&n, 0, group, 0);
+        ma_sound_config sc = ma_sound_config_init_2(&impl_->engine);
+        sc.pDataSource = source;
+        sc.pInitialAttachment = &n;
+        sc.channelsOut = 1;
+        ma_result sr = ma_sound_init_ex(&impl_->engine, &sc, &s->sound);
+        if (sr != MA_SUCCESS) {
+            ma_node_uninit(&n, nullptr);
+            s->spatial.reset();
+        }
+        return sr;
+    };
     auto c = impl_->clips.find(clip);
     if (c == impl_->clips.end() && p.stream) {
         // Streamed: the file's bytes stay with the sound, decoded a little at a time on the audio thread
@@ -300,7 +466,7 @@ AudioEngine::Sound AudioEngine::play(const std::string& clip, const PlayParams& 
             return 0;
         }
         s->usesDecoder = true;
-        r = ma_sound_init_from_data_source(&impl_->engine, &s->decoder, 0, group, &s->sound);
+        r = initSound(&s->decoder);
     } else {
         if (c == impl_->clips.end()) {
             // A file (relative to the project; from the game's pack if it has one): decoded once, then shared
@@ -327,7 +493,7 @@ AudioEngine::Sound AudioEngine::play(const std::string& clip, const PlayParams& 
                                      c->second.samples.size() / c->second.channels, &s->ref);
         if (r != MA_SUCCESS) return 0;
         s->usesRef = true;
-        r = ma_sound_init_from_data_source(&impl_->engine, &s->ref, 0, group, &s->sound);
+        r = initSound(&s->ref);
     }
     if (r != MA_SUCCESS) {
         if (s->usesRef) ma_audio_buffer_ref_uninit(&s->ref);
@@ -335,7 +501,11 @@ AudioEngine::Sound AudioEngine::play(const std::string& clip, const PlayParams& 
         error_ = clip + ": " + ma_result_description(r);
         return 0;
     }
-    ma_sound_set_volume(&s->sound, p.volume * impl_->gainOf(clip));
+    s->volume = p.volume;
+    s->gain = impl_->gainOf(clip);
+    ma_sound_set_volume(&s->sound, s->volume * s->gain);
+    s->position = p.position;
+    impl_->aim(*s);
     ma_sound_set_looping(&s->sound, p.loop);
     s->loop = p.loop;
     ma_sound_set_spatialization_enabled(&s->sound, p.spatial);
@@ -346,6 +516,7 @@ AudioEngine::Sound AudioEngine::play(const std::string& clip, const PlayParams& 
         ma_sound_set_attenuation_model(&s->sound, ma_attenuation_model_inverse);
         ma_sound_set_min_distance(&s->sound, p.minDistance);
         ma_sound_set_max_distance(&s->sound, p.maxDistance);
+        if (s->spatial) ma_sound_set_directional_attenuation_factor(&s->sound, 0.f);   // (the node pans: not this)
     }
     if (p.fadeIn > 0.f) ma_sound_set_fade_in_milliseconds(&s->sound, 0.f, 1.f, (ma_uint64)(p.fadeIn * 1000.f));   // (on top of its volume)
     ma_sound_start(&s->sound);
@@ -370,6 +541,9 @@ void AudioEngine::stop(Sound sound, float fadeSeconds) {
 
 void AudioEngine::stopAll() {
     while (!impl_->sounds.empty()) impl_->release(impl_->sounds.begin());
+    impl_->layers.clear();
+    impl_->duckLayersLeft = 0.f;
+    impl_->duckLayersLevel = 1.f;
     music_ = 0;
 }
 
@@ -385,7 +559,10 @@ bool AudioEngine::streaming(Sound sound) const {
 
 void AudioEngine::setPosition(Sound sound, Vec3 p) {
     auto it = impl_->sounds.find(sound);
-    if (it != impl_->sounds.end()) ma_sound_set_position(&it->second->sound, p.x, p.y, p.z);
+    if (it == impl_->sounds.end()) return;
+    ma_sound_set_position(&it->second->sound, p.x, p.y, p.z);
+    it->second->position = p;
+    impl_->aim(*it->second);
 }
 
 void AudioEngine::setVelocity(Sound sound, Vec3 v) {
@@ -398,6 +575,119 @@ void AudioEngine::setListener(Vec3 position, Vec3 forward, Vec3 velocity) {
     ma_engine_listener_set_position(&impl_->engine, 0, position.x, position.y, position.z);
     ma_engine_listener_set_direction(&impl_->engine, 0, forward.x, forward.y, forward.z);
     ma_engine_listener_set_velocity(&impl_->engine, 0, velocity.x, velocity.y, velocity.z);
+    impl_->listenerPos = position;
+    impl_->listenerForward = forward;
+    for (auto& [id, s] : impl_->sounds) impl_->aim(*s);
+}
+
+void AudioEngine::setOcclusion(Sound sound, float amount) {
+    auto it = impl_->sounds.find(sound);
+    if (it != impl_->sounds.end() && it->second->spatial) it->second->spatial->occlusion.store(std::clamp(amount, 0.f, 1.f));
+}
+
+float AudioEngine::occlusion(Sound sound) const {
+    auto it = impl_->sounds.find(sound);
+    return it != impl_->sounds.end() && it->second->spatial ? it->second->spatial->occlusion.load() : -1.f;
+}
+
+std::vector<AudioEngine::SpatialSound> AudioEngine::spatialSounds() const {
+    std::vector<SpatialSound> out;
+    for (const auto& [id, s] : impl_->sounds)
+        if (s->spatial && s->stopIn < 0.f) out.push_back({id, s->position});
+    return out;
+}
+
+void AudioEngine::setHeadphones(bool on) { impl_->headphones.store(on); }
+bool AudioEngine::headphones() const { return impl_->headphones.load(); }
+
+AudioEngine::Sound AudioEngine::playMusicLayers(const std::vector<std::string>& clips, const std::vector<float>& volumes,
+                                                float fadeSeconds, float bpm, int beatsPerBar) {
+    stopMusic(fadeSeconds);
+    if (!impl_->ready || clips.empty()) return 0;
+    // All of them start on the same sample: scheduled a little ahead on the engine's clock
+    ma_uint64 start = ma_engine_get_time_in_pcm_frames(&impl_->engine) + ma_engine_get_sample_rate(&impl_->engine) / 50;
+    for (size_t i = 0; i < clips.size(); ++i) {
+        PlayParams p;
+        p.volume = i < volumes.size() ? volumes[i] : 1.f;
+        p.loop = true;
+        p.bus = AudioBus::Music;
+        p.stream = true;
+        p.fadeIn = fadeSeconds;
+        Sound s = play(clips[i], p);
+        if (s) {
+            ma_sound_set_start_time_in_pcm_frames(&impl_->sounds[s]->sound, start);
+        }
+        Impl::Layer layer;
+        layer.sound = s;
+        layer.volume = layer.target = p.volume;
+        impl_->layers.push_back(layer);
+    }
+    music_ = impl_->layers.empty() ? 0 : impl_->layers[0].sound;
+    impl_->musicStart = start;
+    setMusicTempo(bpm, beatsPerBar);
+    return music_;
+}
+
+void AudioEngine::setMusicLayerVolume(int layer, float volume, float fadeSeconds) {
+    if (layer < 0 || layer >= (int)impl_->layers.size()) return;
+    Impl::Layer& l = impl_->layers[(size_t)layer];
+    l.target = std::max(volume, 0.f);
+    if (fadeSeconds <= 0.f) l.volume = l.target;   // (update() applies it)
+    l.rate = fadeSeconds > 0.f ? std::fabs(l.target - l.volume) / fadeSeconds : 0.f;
+}
+
+float AudioEngine::musicLayerVolume(int layer) const {
+    return layer >= 0 && layer < (int)impl_->layers.size() ? impl_->layers[(size_t)layer].volume : 0.f;
+}
+
+int AudioEngine::musicLayers() const { return (int)impl_->layers.size(); }
+
+void AudioEngine::setMusicTempo(float bpm, int beatsPerBar) {
+    impl_->bpm = std::max(bpm, 0.f);
+    impl_->beatsPerBar = std::max(beatsPerBar, 1);
+}
+
+float AudioEngine::musicPosition() const {
+    if (!impl_->ready || !music_ || !impl_->sounds.count(music_)) return 0.f;
+    ma_uint64 now = ma_engine_get_time_in_pcm_frames(&impl_->engine);
+    if (now <= impl_->musicStart) return 0.f;
+    return (float)(now - impl_->musicStart) / (float)ma_engine_get_sample_rate(&impl_->engine);
+}
+
+AudioEngine::Sound AudioEngine::playStinger(const std::string& clip, Sync sync, float volume, float duckMusic,
+                                            float* startsIn) {
+    if (startsIn) *startsIn = 0.f;
+    if (!impl_->ready) return 0;
+    float wait = 0.f;
+    if (sync != Sync::Now && impl_->bpm > 0.f && music_ && impl_->sounds.count(music_)) {
+        float unit = 60.f / impl_->bpm * (sync == Sync::Bar ? (float)impl_->beatsPerBar : 1.f);
+        float at = musicPosition();
+        wait = std::ceil(at / unit - 1e-4f) * unit - at;   // (on a beat already: now)
+        if (wait < 0.f) wait = 0.f;
+    }
+    PlayParams p;
+    p.volume = volume;
+    p.bus = AudioBus::Music;
+    Sound s = play(clip, p);
+    if (!s) return 0;
+    if (wait > 0.f) {
+        ma_sound_stop(&impl_->sounds[s]->sound);   // (from its first sample, on the beat)
+        ma_sound_seek_to_pcm_frame(&impl_->sounds[s]->sound, 0);
+        ma_sound_set_start_time_in_pcm_frames(&impl_->sounds[s]->sound,
+                                              ma_engine_get_time_in_pcm_frames(&impl_->engine) +
+                                                  (ma_uint64)(wait * (float)ma_engine_get_sample_rate(&impl_->engine)));
+        ma_sound_start(&impl_->sounds[s]->sound);
+    }
+    // The music dips under it while it plays (the stinger itself is on the music bus too, so it goes through the
+    // layers' volumes instead of the bus: just the track's sounds)
+    if (duckMusic < 1.f) {
+        float length = 0.f;
+        ma_sound_get_length_in_seconds(&impl_->sounds[s]->sound, &length);
+        impl_->duckLayers = std::clamp(duckMusic, 0.f, 1.f);
+        impl_->duckLayersLeft = wait + length;
+    }
+    if (startsIn) *startsIn = wait;
+    return s;
 }
 
 void AudioEngine::forgetImportSettings() { impl_->gains.clear(); }
@@ -412,11 +702,17 @@ void AudioEngine::setBusVolume(AudioBus bus, float volume) {
     if (impl_->ready) impl_->applyBus(b);
 }
 
+void AudioEngine::setBusUserVolume(AudioBus bus, float volume) {
+    int b = std::clamp((int)bus, 0, (int)AudioBus::Count - 1);
+    impl_->userVolume[b] = std::max(volume, 0.f);
+    if (impl_->ready) impl_->applyBus(b);
+}
+
 float AudioEngine::busVolume(AudioBus bus) const { return impl_->busVolume[std::clamp((int)bus, 0, (int)AudioBus::Count - 1)]; }
 
 float AudioEngine::busLevel(AudioBus bus) const {
     int b = std::clamp((int)bus, 0, (int)AudioBus::Count - 1);
-    return impl_->busVolume[b] * impl_->ducks[b].level;
+    return impl_->busVolume[b] * impl_->userVolume[b] * impl_->ducks[b].level;
 }
 
 void AudioEngine::duck(AudioBus bus, float volume, float seconds, float fade) {
@@ -427,19 +723,15 @@ void AudioEngine::duck(AudioBus bus, float volume, float seconds, float fade) {
 }
 
 AudioEngine::Sound AudioEngine::playMusic(const std::string& clip, float fadeSeconds, float volume) {
-    if (music_ && playing(music_)) stop(music_, fadeSeconds);
-    PlayParams p;
-    p.volume = volume;
-    p.loop = true;
-    p.bus = AudioBus::Music;
-    p.stream = true;
-    p.fadeIn = fadeSeconds;
-    music_ = play(clip, p);
-    return music_;
+    return playMusicLayers({clip}, {volume}, fadeSeconds, impl_->bpm, impl_->beatsPerBar);
 }
 
 void AudioEngine::stopMusic(float fadeSeconds) {
-    if (music_) stop(music_, fadeSeconds);
+    for (const Impl::Layer& l : impl_->layers)
+        if (l.sound) stop(l.sound, fadeSeconds);
+    impl_->layers.clear();
+    impl_->duckLayersLeft = 0.f;
+    impl_->duckLayersLevel = 1.f;
     music_ = 0;
 }
 
@@ -463,6 +755,19 @@ void AudioEngine::update(float dt) {
         float step = d.rate * dt;
         d.level = d.level < goal ? std::min(d.level + step, goal) : std::max(d.level - step, goal);
         impl_->applyBus(b);
+    }
+    // Music layers: fading towards their volumes, all dipped while a stinger plays
+    impl_->duckLayersLeft = std::max(impl_->duckLayersLeft - dt, 0.f);
+    float duckGoal = impl_->duckLayersLeft > 0.f ? impl_->duckLayers : 1.f;
+    float duckStep = dt * 4.f;
+    float& duckNow = impl_->duckLayersLevel;
+    duckNow = duckNow < duckGoal ? std::min(duckNow + duckStep, duckGoal) : std::max(duckNow - duckStep, duckGoal);
+    for (Impl::Layer& l : impl_->layers) {
+        float step = l.rate > 0.f ? l.rate * dt : 1e9f;
+        l.volume = l.volume < l.target ? std::min(l.volume + step, l.target) : std::max(l.volume - step, l.target);
+        auto it = impl_->sounds.find(l.sound);
+        if (it != impl_->sounds.end() && it->second->stopIn < 0.f)
+            ma_sound_set_volume(&it->second->sound, l.volume * duckNow * it->second->gain);
     }
     for (auto it = impl_->sounds.begin(); it != impl_->sounds.end();) {
         auto next = std::next(it);
