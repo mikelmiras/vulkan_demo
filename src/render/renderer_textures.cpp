@@ -2,6 +2,7 @@
 #include "render/renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 #include "imgui_impl_vulkan.h"
@@ -11,17 +12,25 @@ using namespace render_detail;
 
 // Uploads RGBA8 sRGB pixels to a device-local image with a full mip chain (when the format can be blitted)
 Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame,
-                                             bool mipmaps) {
+                                             bool mipmaps, uint32_t first) {
     const VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
     VkFormatProperties fp;
     vkGetPhysicalDeviceFormatProperties(gpu_, format, &fp);
     const VkFormatFeatureFlags blit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
                                       VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-    uint32_t mips = 1;
-    if (mipmaps && (fp.optimalTilingFeatures & blit) == blit)
-        while ((std::max(width, height) >> mips) > 0) ++mips;
+    bool chain = mipmaps && (fp.optimalTilingFeatures & blit) == blit;
+    const uint32_t fullMips = chain ? streaming::mipCount(width, height) : 1;
+    first = std::min(first, fullMips - 1);
+    std::vector<uint8_t> smaller;   // (streaming: the finest level held, box-filtered down from the whole image)
+    if (first > 0) {
+        smaller = streaming::downsample(rgba, width, height, first, width, height);
+        rgba = smaller.data();
+    }
+    uint32_t mips = fullMips - first;
 
     GpuTexture t;
+    t.first = first;
+    t.mips = fullMips;
     // Mutable format: an sRGB view for colour and a UNORM view of the same bytes for data (normal maps)
     t.image = createImage(format,
                           VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
@@ -95,10 +104,14 @@ void Renderer::reuploadChangedTextures() {
     vkDeviceWaitIdle(device_);
     for (size_t i : changed) {
         const Texture& tex = textures_->get((int)i);
+        GpuTexture old = gpuTextures_[i];
         destroyTexture(gpuTextures_[i]);
-        gpuTextures_[i] = createTexture(tex.rgba.data(), tex.width, tex.height, VK_NULL_HANDLE, tex.mipmaps);
+        gpuTextures_[i] = createTexture(tex.rgba.data(), tex.width, tex.height, VK_NULL_HANDLE, tex.mipmaps, old.first);
         gpuTextures_[i].revision = tex.revision;
         gpuTextures_[i].nearest = tex.nearest;
+        gpuTextures_[i].pinned = old.pinned || !tex.mipmaps;
+        gpuTextures_[i].wanted = old.wanted;
+        gpuTextures_[i].lastWanted = old.lastWanted;
         // The UI's set for it keeps its handle (this frame's UI already uses it) and now shows the new image
         if (auto it = uiSets_.find((int)i); it != uiSets_.end()) {
             VkDescriptorImageInfo info{VK_NULL_HANDLE, gpuTextures_[i].linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
@@ -119,12 +132,21 @@ void Renderer::reuploadChangedTextures() {
 void Renderer::uploadTextures(VkCommandBuffer frame) {
     const size_t kFrameBudget = 24u << 20;   // bytes of pixels per frame (at least one texture)
     size_t sent = 0;
+    for (GpuTexture& t : retiredTextures_[frame_]) destroyTexture(t);   // (replaced while this frame index was last
+    retiredTextures_[frame_].clear();                                   //  in flight: no frame uses them now)
     while ((int)gpuTextures_.size() < textures_->count() && (!frame || sent < kFrameBudget)) {
         const Texture& tex = textures_->get((int)gpuTextures_.size());
-        gpuTextures_.push_back(createTexture(tex.rgba.data(), tex.width, tex.height, frame, tex.mipmaps));
+        // Streamed: starting with the levels up to startSize across, the finer ones once something needs them
+        uint32_t first = streaming_ && tex.mipmaps ? streaming::levelForSize(tex.width, tex.height, streamSettings_.startSize) : 0;
+        gpuTextures_.push_back(createTexture(tex.rgba.data(), tex.width, tex.height, frame, tex.mipmaps, first));
         gpuTextures_.back().revision = tex.revision;
         gpuTextures_.back().nearest = tex.nearest;
-        sent += tex.rgba.size();
+        gpuTextures_.back().pinned = !tex.mipmaps;
+        sent += tex.rgba.size() >> (2 * first);
+    }
+    if (frame) {
+        if (streaming_) streamTextures(frame);   // (reads this frame's reports, then starts them again)
+        ensureFeedback(gpuTextures_.size());
     }
     // The shadow map starts out readable, so frames without shadows can still bind it
     if (!shadowMapReady_) {
@@ -143,6 +165,107 @@ void Renderer::uploadTextures(VkCommandBuffer frame) {
         endOneTimeCommands(cb);
         shadowMapReady_ = true;
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Texture streaming
+// ---------------------------------------------------------------------------------------------
+void Renderer::ensureFeedback(size_t textures) {
+    Buffer& b = feedback_[frame_];
+    size_t need = std::max<size_t>(textures, 1) * sizeof(uint32_t);
+    if (b.buffer && b.size >= need) return;
+    if (b.buffer) destroyBuffer(b);   // (this frame index's: its last use is done)
+    size_t capacity = 1024;
+    while (capacity * sizeof(uint32_t) < need) capacity *= 2;
+    b = createBuffer(capacity * sizeof(uint32_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    b.size = capacity * sizeof(uint32_t);
+    std::memset(b.mapped, 0xFF, b.size);   // (nothing reported)
+    VkDescriptorBufferInfo bi{b.buffer, 0, VK_WHOLE_SIZE};
+    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    w.dstSet = descSets_[frame_];
+    w.dstBinding = 19;
+    w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    w.pBufferInfo = &bi;
+    vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+}
+
+void Renderer::streamTextures(VkCommandBuffer cb) {
+    static const auto started = std::chrono::steady_clock::now();
+    const double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    const size_t n = gpuTextures_.size();
+    // What the shaders reported when this frame index was last drawn (its fence has passed), then a fresh start
+    if (Buffer& fb = feedback_[frame_]; fb.buffer) {
+        auto* reports = static_cast<uint32_t*>(fb.mapped);
+        size_t entries = std::min(n, (size_t)(fb.size / sizeof(uint32_t)));
+        for (size_t i = 0; i < entries; ++i)
+            if (reports[i] != ~0u) {
+                gpuTextures_[i].wanted = reports[i];
+                gpuTextures_[i].lastWanted = now;
+            }
+        for (size_t i = 0; i < n && i < streamLead_.size(); ++i) {   // (a material's other maps: as its main one)
+            int lead = streamLead_[i];
+            if (lead >= 0 && (size_t)lead < n && lead != (int)i && gpuTextures_[(size_t)lead].lastWanted == now) {
+                gpuTextures_[i].wanted = gpuTextures_[(size_t)lead].wanted;
+                gpuTextures_[i].lastWanted = now;
+            }
+        }
+        std::memset(reports, 0xFF, fb.size);
+    }
+    // What each should hold, and the changes: finer ones first, a few megabytes of pixels a frame
+    std::vector<streaming::TextureState> states(n);
+    for (size_t i = 0; i < n; ++i) {
+        const GpuTexture& g = gpuTextures_[i];
+        const Texture& tex = textures_->get((int)i);
+        streaming::TextureState& s = states[i];
+        s.width = tex.width;
+        s.height = tex.height;
+        s.mips = g.mips;
+        s.resident = g.first;
+        s.wanted = g.wanted == ~0u ? g.mips : g.wanted;
+        s.lastWanted = g.lastWanted;
+        s.pinned = g.pinned || g.mips <= 1;
+    }
+    std::vector<uint32_t> target = streaming::plan(states, streamSettings_, now);
+    std::vector<size_t> changes;
+    for (size_t i = 0; i < n; ++i)
+        if (target[i] != gpuTextures_[i].first) changes.push_back(i);
+    std::stable_sort(changes.begin(), changes.end(), [&](size_t a, size_t b) {
+        bool finerA = target[a] < gpuTextures_[a].first, finerB = target[b] < gpuTextures_[b].first;
+        return finerA != finerB ? finerA : target[a] < target[b];
+    });
+    const uint64_t kFrameBytes = 16u << 20;
+    uint64_t sent = 0;
+    for (size_t i : changes) {
+        if (sent > 0 && sent >= kFrameBytes) break;
+        const Texture& tex = textures_->get((int)i);
+        GpuTexture old = gpuTextures_[i];
+        GpuTexture fresh = createTexture(tex.rgba.data(), tex.width, tex.height, cb, tex.mipmaps, target[i]);
+        fresh.revision = old.revision;
+        fresh.nearest = old.nearest;
+        fresh.pinned = old.pinned;
+        fresh.wanted = old.wanted;
+        fresh.lastWanted = old.lastWanted;
+        gpuTextures_[i] = fresh;
+        retiredTextures_[frame_].push_back(old);   // (this frame's draws may still use it: gone when it comes round)
+        sent += streaming::chainBytes(tex.width, tex.height, target[i], fresh.mips);
+        // Material sets naming it are made again (pointing at the new image)
+        const uint64_t id = (uint64_t)(uint16_t)(i + 1);
+        for (auto* cache : {&materialSets_, &terrainSets_})
+            for (auto it = cache->begin(); it != cache->end();) {
+                uint64_t k = it->first;
+                bool uses = ((k >> 48) & 0xFFFF) == id || ((k >> 32) & 0xFFFF) == id || ((k >> 16) & 0xFFFF) == id ||
+                            (k & 0xFFFF) == id;
+                it = uses ? cache->erase(it) : std::next(it);
+            }
+    }
+    residentTextureBytes_ = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const Texture& tex = textures_->get((int)i);
+        residentTextureBytes_ += streaming::chainBytes(tex.width, tex.height, gpuTextures_[i].first, gpuTextures_[i].mips);
+    }
+    stats_.textureBytes = residentTextureBytes_;
+    stats_.textureBudget = streamSettings_.budget;
 }
 
 VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
@@ -164,6 +287,7 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
     if (vkAllocateDescriptorSets(device_, &dsai, &set) != VK_SUCCESS) {   // out of sets: reuse the plainest one
         return materialSets_.empty() ? VK_NULL_HANDLE : materialSets_.begin()->second;
     }
+    ++materialSetsMade_;
     auto pick = [&](int id, bool colour, const GpuTexture& fallback) {
         const GpuTexture& t = id >= 0 ? gpuTextures_[(size_t)id] : fallback;
         return VkDescriptorImageInfo{t.nearest ? nearestSampler_ : sampler_, colour ? t.image.view : t.linear,
@@ -191,6 +315,9 @@ ImTextureID Renderer::uiTexture(int id) const {
     // The ImGui backend takes its own kind of descriptor set (a sampled image; it brings the sampler): made for each
     // texture the first time the UI shows it, from the UNORM view (the UI's colours are already as they should look)
     if (id < 0 || id >= (int)gpuTextures_.size() || !imguiInitialized_) return (ImTextureID)0;
+    const GpuTexture& t = gpuTextures_[(size_t)id];
+    t.pinned = true;   // (whole from now on: the UI's descriptor keeps pointing at this image)
+    if (t.first != 0) return (ImTextureID)0;   // (streamed in smaller: the whole one comes in a frame or two)
     auto it = uiSets_.find(id);
     if (it == uiSets_.end())
         it = uiSets_.emplace(id, ImGui_ImplVulkan_AddTexture(gpuTextures_[(size_t)id].linear,

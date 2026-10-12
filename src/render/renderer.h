@@ -11,6 +11,7 @@
 
 #include "assets/meshes.h"
 #include "render/environment.h"
+#include "render/texture_streaming.h"
 #include "assets/textures.h"
 #include "core/vecmath.h"
 
@@ -132,6 +133,8 @@ struct RenderStats {
     uint32_t objects = 0;      // drawn in the main pass (after culling)
     uint32_t culled = 0;       // outside the view
     uint32_t shadowCasters = 0;
+    uint64_t textureBytes = 0;    // textures on the GPU (streaming keeps it under its budget)
+    uint64_t textureBudget = 0;
 };
 
 class Renderer {
@@ -210,8 +213,25 @@ private:
         VkImageView linear = VK_NULL_HANDLE;     // the same bytes as plain numbers (normal and metal/rough maps, UI)
         uint32_t revision = 0;                   // the Texture's when uploaded (a newer one: uploaded again)
         bool nearest = false;                    // sampled with nearestSampler_
+        // Streaming (texture_streaming.h): the image holds the full chain's levels from `first` down
+        uint32_t first = 0, mips = 1;            // (mips: the full chain's; 1 without mipmaps)
+        mutable bool pinned = false;             // always whole: no mipmaps, shown by the UI, a terrain's layer
+        uint32_t wanted = ~0u;                   // the finest level reported lately (~0: none)
+        double lastWanted = -1e9;
     };
     void reuploadChangedTextures();
+    // Texture streaming (renderer_textures.cpp): the shaders' reports (binding 19, one buffer per frame in flight),
+    // read back when the frame's buffer comes round again; textures remade with more or fewer levels a few at a
+    // time, the old images kept until the frames using them are done
+    bool streamingSupported_ = false, streaming_ = true;
+    streaming::Settings streamSettings_;
+    Buffer feedback_[MAX_FRAMES];
+    std::vector<GpuTexture> retiredTextures_[MAX_FRAMES];
+    std::vector<int> streamLead_;            // per texture: the one reported for it (its material's main map), or -1
+    uint64_t residentTextureBytes_ = 0;
+    uint32_t materialSetsMade_ = 0;          // (streaming leaves stale ones in the pool: emptied when it's nearly full)
+    void ensureFeedback(size_t textures);    // (frame_'s buffer: as many entries as textures, set 0 binding 19)
+    void streamTextures(VkCommandBuffer cb);
     // The sky image (renderer_environment.cpp)
     Image createFloatImage(const std::vector<const Environment::Level*>& levels);
     void createEnvironmentResources();
@@ -300,8 +320,9 @@ private:
     // Set 1 for a draw: albedo, normal, metal/rough and emissive maps (defaults where it has none), made on first use
     VkDescriptorSet materialSet(const DrawItem& item);
     // Records the upload into `frame` when given (its staging buffer retired with that frame), else uploads now
+    // `first`: the full chain's finest level to hold (texture streaming: smaller, the levels below it)
     GpuTexture createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame = VK_NULL_HANDLE,
-                             bool mipmaps = true);
+                             bool mipmaps = true, uint32_t first = 0);
     void destroyTexture(GpuTexture& t);
     VkCommandBuffer beginOneTimeCommands();
     void endOneTimeCommands(VkCommandBuffer cb);

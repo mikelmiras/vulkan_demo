@@ -84,6 +84,7 @@ struct Instance {
     vec4 material; // x = metallic, y = roughness, z = normal map strength (0: no normal map), w = alpha mode
                    // (0 opaque, 1 cut-out, 2 see-through); color.a = opacity
     vec4 emissive; // rgb = emitted light (linear, times its strength), w = alpha cutoff (cut-outs)
+    vec4 stream;   // texture streaming: x = the texture whose detail to report (-1: none), y = log2 of its size
 };
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
     Instance instances[];

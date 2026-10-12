@@ -24,6 +24,8 @@ layout(set = 0, binding = 12) uniform sampler2D probe3;
 layout(std430, set = 0, binding = 17) readonly buffer GiProbes { vec4 giProbes[]; };
 // Screen-space reflections: the last frame's picture (rgb) and each pixel's distance along its view (a)
 layout(set = 0, binding = 18) uniform sampler2D lastFrame;
+// Texture streaming: the finest mip level each texture was wanted at this frame (texture_streaming.h)
+layout(std430, set = 0, binding = 19) buffer TextureFeedback { uint wantedLevel[]; };
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (white if none)
 layout(set = 1, binding = 1) uniform sampler2D normalMap;      // tangent space (flat if none)
 layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness, b = metallic (white if none)
@@ -38,6 +40,7 @@ layout(location = 5) flat in vec4 vMaterial;
 layout(location = 6) flat in vec4 vEmissive;
 layout(location = 7) in vec4 vSplat;
 layout(location = 8) in float vHole;
+layout(location = 9) flat in vec4 vStream;
 
 layout(location = 0) out vec4 outColor;
 
@@ -300,6 +303,14 @@ vec3 terrainColor() {
 }
 
 void main() {
+    // Texture streaming: the finest level this texture is needed at, reported by one pixel in sixteen (a different
+    // one each frame), a level finer than its footprint (anisotropic filtering reaches further)
+    vec2 texels = vUV * exp2(vStream.y);
+    vec2 tdx = dFdx(texels), tdy = dFdy(texels);
+    if (vStream.x >= 0.0 && ((int(gl_FragCoord.x) + 4 * int(gl_FragCoord.y) + int(frame.time.y)) & 15) == 0) {
+        float lod = 0.5 * log2(max(max(dot(tdx, tdx), dot(tdy, tdy)), 1e-8)) - 1.0;
+        atomicMin(wantedLevel[uint(vStream.x)], uint(clamp(floor(lod), 0.0, 15.0)));
+    }
     vec3 base = vColor.rgb;
     float alpha = vColor.a;
     bool terrain = vParams.x > 1.5;

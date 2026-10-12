@@ -255,6 +255,25 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     // differ from what the store holds are uploaded
     const size_t total = items.size() + outlined;
     ensureInstanceStore(total);
+    // Texture streaming: the map each item reports on (its colour map, else the first it has), the others following
+    auto valid = [&](int id) { return id >= 0 && id < (int)gpuTextures_.size(); };
+    streamLead_.assign(gpuTextures_.size(), -1);
+    auto leadOf = [&](const DrawItem& o) {
+        if (o.terrain) return -1;
+        for (int id : {o.texture, o.normalTexture, o.metalRoughTexture, o.emissiveTexture})
+            if (valid(id)) return id;
+        return -1;
+    };
+    for (const DrawItem& o : items) {
+        if (o.terrain) {   // (terrains' layers: whole, they're tiled across everything)
+            for (int id : o.layerTextures)
+                if (valid(id)) gpuTextures_[(size_t)id].pinned = true;
+            continue;
+        }
+        int lead = leadOf(o);
+        for (int id : {o.normalTexture, o.metalRoughTexture, o.emissiveTexture})
+            if (valid(id) && id != lead) streamLead_[(size_t)id] = lead;
+    }
     auto instanceOf = [&](const DrawItem& o, Vec3 rgb) {
         bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
         InstanceData d{o.model, {rgb.x, rgb.y, rgb.z, 1.f},
@@ -262,6 +281,12 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
                        {o.metallic, o.roughness, o.normalTexture >= 0 ? o.normalScale : 0.f, (float)o.alphaMode},
                        {o.emissive.x, o.emissive.y, o.emissive.z, o.alphaCutoff}};
         d.color[3] = o.alphaMode == 2 ? o.opacity : 1.f;
+        int lead = streaming_ ? leadOf(o) : -1;
+        d.stream[0] = (float)lead;
+        if (lead >= 0) {
+            const Texture& t = textures_->get(lead);
+            d.stream[1] = std::log2((float)std::max(std::max(t.width, t.height), 1u));
+        }
         if (o.terrain) {   // (scene.frag's terrain mode: params.x = 2; w = -(its layers' matrix + 2), never skinned)
             d.params[0] = 2.f;
             d.params[1] = 1.f;

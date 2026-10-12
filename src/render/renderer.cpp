@@ -230,6 +230,8 @@ void Renderer::createDevice() {
         vkGetPhysicalDeviceProperties(gpu_, &props);
         maxAnisotropy_ = std::min(props.limits.maxSamplerAnisotropy, 8.f);
     }
+    if (supported.fragmentStoresAndAtomics) f2.features.fragmentStoresAndAtomics = VK_TRUE;   // (texture streaming)
+    streamingSupported_ = supported.fragmentStoresAndAtomics;
 
     std::vector<const char*> exts = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     // Portability drivers (MoltenVK etc.) require VK_KHR_portability_subset to be enabled when they expose it
@@ -585,7 +587,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[19] = {
+    VkDescriptorSetLayoutBinding frameBindings[20] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -605,9 +607,10 @@ void Renderer::createPipelines() {
         {16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},     // foliage instances
         {17, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // GI probes (renderer_gi.cpp)
         {18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // last frame (reflections)
+        {19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // texture streaming's reports
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 19;
+    dslci.bindingCount = 20;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -923,7 +926,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10 * MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 8 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
@@ -1031,9 +1034,15 @@ void Renderer::createResources(const MeshLibrary&) {
     createLightBuffers();
     createGi();
     writeSsrBinding();
+    // Texture streaming: on unless VKWORLD_TEXTURE_STREAMING=0; the budget from VKWORLD_TEXTURE_BUDGET (MB)
+    if (const char* v = std::getenv("VKWORLD_TEXTURE_STREAMING"); v && std::strcmp(v, "0") == 0) streaming_ = false;
+    if (!streamingSupported_) streaming_ = false;
+    if (const char* v = std::getenv("VKWORLD_TEXTURE_BUDGET"); v && std::atoi(v) > 0)
+        streamSettings_.budget = (uint64_t)std::atoi(v) << 20;
     ensureInstanceStore(1024);
     for (frame_ = 0; frame_ < MAX_FRAMES; ++frame_) {
         ensureIndexCapacity(1024);
+        ensureFeedback(256);
         SceneRenderInfo none;
         uploadJoints(none);      // small buffers, so bindings 3 and 4 are always valid
         uploadParticles(none);
@@ -1416,6 +1425,7 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     }
     static const auto started = std::chrono::steady_clock::now();
     u.time[0] = std::chrono::duration<float>(std::chrono::steady_clock::now() - started).count();
+    u.time[1] = (float)(frameCounter_ % 16);   // (texture streaming's reporting pixels move each frame)
 }
 
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
@@ -1457,6 +1467,13 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     for (size_t v = 0; v < viewCount; ++v) {
         fillFrameUBO((*info.views)[v], viewUbos[v], false);
         setProbeData(viewUbos[v]);
+    }
+    if (materialSetsMade_ > 3584) {   // (stale material sets from streamed textures: before any batch takes one)
+        vkDeviceWaitIdle(device_);
+        vkResetDescriptorPool(device_, materialPool_, 0);
+        materialSets_.clear();
+        terrainSets_.clear();
+        materialSetsMade_ = 0;
     }
     planGi(info);   // (probes' faces: before this view too)
     FrameUBO u{};
@@ -1578,6 +1595,9 @@ void Renderer::shutdown() {
         destroyBuffer(lights_[i]);
         destroyBuffer(clusters_[i]);
         destroyBuffer(plantBuffers_[i]);
+        if (feedback_[i].buffer) destroyBuffer(feedback_[i]);
+        for (GpuTexture& t : retiredTextures_[i]) destroyTexture(t);
+        retiredTextures_[i].clear();
     }
     destroyBuffer(vertexBuffer_);
     destroyBuffer(skinBuffer_);

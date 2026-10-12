@@ -73,7 +73,9 @@ struct InstanceData {
     float color[4];      // rgb (linear albedo; sRGB for the outline)
     float params[4];     // x = checker ground, y = texture tiling, z = textured, w = first joint matrix or -1
     float material[4];   // metallic, roughness, normal map strength (0: none), unused
-    float emissive[4];   // rgb (linear, times strength), unused
+    float emissive[4];   // rgb (linear, times strength), w = alpha cutoff
+    float stream[4];     // texture streaming: x = the texture to report the finest level wanted of (-1: none),
+                         // y = log2 of its larger side (texture_streaming.h)
 };
 
 // The six planes of a view-projection's frustum (Vulkan clip space: 0 <= z <= w), as (normal, distance)

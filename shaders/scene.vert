@@ -17,6 +17,7 @@ layout(location = 5) flat out vec4 vMaterial;
 layout(location = 6) flat out vec4 vEmissive;
 layout(location = 7) out vec4 vSplat;   // terrains: how much of each layer here (their skin weights)
 layout(location = 8) out float vHole;   // terrains: > 0 on triangles using a hole point (their first joint)
+layout(location = 9) flat out vec4 vStream;   // texture streaming (Instance.stream)
 
 void main() {
     Instance inst = instances[instanceIndex[gl_InstanceIndex]];
@@ -29,6 +30,7 @@ void main() {
     vParams = inst.params;
     vMaterial = inst.material;
     vEmissive = inst.emissive;
+    vStream = inst.stream;
     vSplat = inWeights;
     vHole = inst.params.x > 1.5 ? float(inJoints.x) : 0.0;
     gl_Position = frame.viewProj * world;

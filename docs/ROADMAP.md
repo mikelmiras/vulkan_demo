@@ -718,7 +718,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 |---|------|-----|
 | 54 (done) | Editor game view as its own render target (an ImGui image: bloom, temporal AA, any window layout), split-screen local multiplayer (several cameras, one pad each) | The game view shares the scene view's pass; local co-op isn't possible |
 | 55 (done) | Global illumination: dynamic diffuse GI from a probe grid updated over frames (DDGI-style), screen-space reflections | Indirect light only comes from baked reflection probes and an ambient term |
-| 56 | Texture streaming: mips loaded on demand under a memory budget, residency feedback from the GPU | Every texture is fully resident; big projects run out of memory |
+| 56 (done) | Texture streaming: mips loaded on demand under a memory budget, residency feedback from the GPU | Every texture is fully resident; big projects run out of memory |
 | 57 | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
 | 58 | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
 | 59 | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
@@ -777,4 +777,22 @@ Working list for turning the renderer demo into a small game engine. Each task i
   walls; DDGI's depth moments), relocating probes out of geometry, GI from emissive surfaces beyond what probes see,
   probes for the extra views' cameras, reflections in extra views and probe faces, hierarchical tracing (Hi-Z) for
   SSR, temporal accumulation and denoising of reflections, rough reflections from screen space.
+- Task 56: render/texture_streaming (plain functions, tested): mip counts and chain sizes, `plan` (pinned whole;
+  wanted lately, else the start level of 256 across; over the budget, the least recently wanted then largest lose a
+  level at a time, round after round, never past the start level), and `downsample` (2 x 2 boxes in linear light).
+  Each GpuTexture holds the full chain's levels from `first` (createTexture downsamples on the CPU to that level,
+  then blits the rest). Instances gained a `stream` vec4 (common.glsl / InstanceData): the texture an item reports
+  on (its colour map, else its first map) and log2 of its size; scene.frag takes the derivative of the UV in that
+  texture's full-size texels before anything branches, and one pixel in sixteen (rotating with frame.time.y)
+  atomicMin's floor(log2(footprint)) - 1 into a per-frame storage buffer (set 0, binding 19; needs
+  fragmentStoresAndAtomics). uploadTextures, once the frame's fence has passed, reads that frame's reports (two
+  frames old), copies them to the material's other maps (streamLead_, from prepareInstances), resets them, plans,
+  and remakes the textures that change (finer first, 16 MB of pixels a frame), the old images retired until that
+  frame index comes round and the material sets naming them dropped (the pool is emptied at the start of a frame
+  once 3584 sets were made). uiTexture pins a texture and returns 0 until it's whole; terrains pin their layers.
+  RenderStats has the resident bytes and the budget (the Inspector's Renderer section). Checked: a 2048 fine
+  checker near the camera streamed in to exactly the same picture as streaming off (no pixel differs), and
+  stays at its 256 level (blurred) with a 1 MB budget; validation clean. Not done: loading levels from disk (the
+  CPU keeps every image whole), compressed formats (BC / ASTC) and their transcoding, sparse residency (images are
+  remade, not grown in place), the device's own memory budget (VK_EXT_memory_budget), streaming meshes.
 

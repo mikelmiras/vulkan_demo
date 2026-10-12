@@ -345,6 +345,13 @@ dropping on the right.
   under 0.55) reflect what's on screen: each pixel's reflected ray is marched through the last frame's picture and
   distances, and what it meets is blended over the probe or sky reflection, fading at the picture's edges and with
   roughness. What's off screen or hidden falls back to the probes and the sky.
+- **Texture streaming**: textures go to the GPU at most 256 pixels across at first; the scene shader reports, per
+  texture, the finest mip level the screen needs (one pixel in sixteen, by its footprint), and the finer levels are
+  uploaded when something needs them, a few megabytes a frame. Under a budget (512 MB; `VKWORLD_TEXTURE_BUDGET=<MB>`)
+  the textures needed longest ago lose their finest levels first; ones not needed for three seconds go back to 256.
+  A material's other maps follow its colour map; textures shown in the UI, terrains' layers and ones without
+  mipmaps stay whole. The Inspector's Renderer section shows what's on the GPU. `VKWORLD_TEXTURE_STREAMING=0`
+  uploads everything whole. (The images stay whole in memory on the CPU side; this saves GPU memory.)
 - **Transparency** (glTF alpha modes): cut-out materials (Mask) have holes wherever their texture's alpha is below a
   cutoff (the built-in Grate texture has them); see-through ones (Blend) are drawn after everything solid, sorted
   back to front, with their opacity.
