@@ -481,7 +481,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 44 (done) | GPU-driven rendering: persistent instance data on the GPU (only changes uploaded), Hi-Z occlusion culling, mesh LODs chosen on the GPU | The CPU still writes every instance every frame; hidden objects behind walls are drawn |
 | 45 (done) | Terrain and vegetation: terrain LOD, holes, heightmap import, instanced grass and foliage painted with a brush (wind, distance fade) | 256 x 256 terrains are 130k triangles; there's nothing to fill them with |
 | 46 (done) | AI: behaviour trees (edited in the editor, run as a component), perception (sight cones, hearing from sounds), a blackboard | NavAgent walks to a target and nothing more |
-| 47 | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
+| 47 (done) | Multiplayer, solid: input replay on the client after corrections, lag compensation for hits, delta-compressed snapshots, interest management, late joiners getting the world | Basics only: snapping, full snapshots to everyone |
 | 48 | Physics, more: Jolt soft bodies (cloth, jelly), buoyancy for rigid bodies in Water volumes, pre-fractured destructibles | Rigid things only; water only for the player |
 | 49 | Animation: retargeting clips between skeletons, a ready-made foot-placement behaviour (IK onto the ground), animation compression | Every clip is tied to its own model's skeleton |
 | 50 | Scripting tools: a Lua debugger (breakpoints, stepping, watches over the Debug Adapter Protocol, so VS Code attaches), CPU time limits per script | Script bugs are found with print() |
@@ -560,4 +560,27 @@ Working list for turning the renderer demo into a small game engine. Each task i
   e:blackboard / e:setBlackboard. Module API 33. Not done: a graphical node editor, subtrees shared between
   brains, utility scoring, squads / shared blackboards, perception of non-tagged things, hearing blocked by walls,
   off-mesh link hops and agent avoidance in tree movement.
+- Task 47: protocol "VKN2". Snapshots are built per client as one payload (baseline tick, the client's last applied
+  input, the game state only when it changed, each relevant entity as "same as the baseline" or its blob, the
+  destructions it hasn't acknowledged), split into numbered parts of up to 1100 bytes; the client puts the parts
+  together, applies only whole snapshots (decoding omitted entities from its stored copy of the baseline, the last
+  32 kept) and acknowledges the latest in each input packet; the server keeps what it sent each client (up to 64
+  snapshots) and diffs against the acknowledged one. A blob carries how to make a prefab instance only when the
+  client's baseline lacks the entity (no more announcement counts). Interest: NetworkSettings::relevance (scene
+  format 35): per client, entities beyond that distance of its player are left out; the client hides what it showed
+  and no longer gets (destroyed ones are listed separately), and on the first snapshot of a scene marks every
+  replicated entity the server's (not simulated, hidden until sent). Late joiners: the server knows every entity of
+  its scene at hosting plus every replicated one it sent; any of them gone is a destruction each client is told
+  about until it acknowledges a snapshot listing it; Welcome carries the server's scene path (loaded when it
+  differs). Prediction: the client records its player's displacement per input (around each fixed update); a
+  snapshot's player transform after input n plus the moves after n is where the player should be (set when it's
+  off by over a centimetre; counted as a correction over 5 cm). Lag compensation: the server records replicated and
+  player colliders' transforms every update (a second's worth); Game's new rewind hooks, called around each entity a
+  remote player's input drives, move the others back by that client's round trip (Ping / Pong, smoothed) + its
+  input's wait + 0.1 s of smoothing, with Game::syncPhysics before and after. NetSession's clock is the frames'
+  time (deterministic with simulated latency); simulateNetwork(latency, loss) delays and drops this machine's sends.
+  Tested over the loopback: delta sizes, 25 % loss, interest, late joiners, prediction with latency and a server
+  correction, a hitscan hitting with compensation and missing without. Not done: field-level deltas and
+  quantisation inside a blob, reliable messages, scene changes after joining, server-side rewinding of animation
+  poses (only transforms), bandwidth limits per client, encryption.
 

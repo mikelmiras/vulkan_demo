@@ -212,6 +212,9 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
             tooltip("Each player who joins a hosted game gets one of these (and the host too), driven by their input");
             ImGui::DragFloat3("Spawn point", &n.spawnPoint.x, 0.05f, 0.f, 0.f, "%.2f");
             ImGui::DragFloat("Spawn spread", &n.spawnSpread, 0.05f, 0.f, 100.f, "%.2f m");
+            ImGui::DragFloat("Relevance", &n.relevance, 0.5f, 0.f, 10000.f, n.relevance > 0.f ? "%.0f m" : "everything",
+                             ImGuiSliderFlags_AlwaysClamp);
+            tooltip("Players only get the replicated entities this near them (less to send in big worlds; 0: all)");
         }
 
         ImGui::SeparatorText("Navigation");

@@ -313,6 +313,13 @@ public:
         beforeTick_ = std::move(before);
         afterTick_ = std::move(after);
     }
+    // Lag compensation: called around the update of each entity a remote player's input drives (begin gets that
+    // player's root), so the server can put the world back where that player saw it
+    void setRewindHooks(std::function<void(EntityId)> begin, std::function<void()> end) {
+        rewindBegin_ = std::move(begin);
+        rewindEnd_ = std::move(end);
+    }
+    void syncPhysics();   // the physics world brought up to date with entities moved by hand (no time passes)
     Scene* scene() { return scene_; }
     // Entities joining the scene at the next update, their behaviours started then (like spawns; their ids kept)
     void addEntities(std::vector<Entity> entities) {
@@ -365,6 +372,9 @@ private:
     EntityId localPlayer_ = kNoEntity;
     std::function<void()> beforeTick_, afterTick_;
     const InputMap* inputFor(const Entity& e) const;
+    EntityId inputRoot(const Entity& e) const;   // the root whose input source drives it (kNoEntity: this machine's)
+    std::function<void(EntityId)> rewindBegin_;
+    std::function<void()> rewindEnd_;
     bool keyboard_ = true;   // the last frame's: whether the UI may read keys
 
     Scene* scene_ = nullptr;

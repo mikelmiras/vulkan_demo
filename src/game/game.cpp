@@ -760,6 +760,18 @@ const InputMap* Game::inputFor(const Entity& e) const {
     return &input_;
 }
 
+EntityId Game::inputRoot(const Entity& e) const {
+    for (const Entity* p = &e; p; p = scene_->find(p->parent)) {
+        if (inputSources_.count(p->id)) return p->id;
+        if (p->parent == kNoEntity) break;
+    }
+    return kNoEntity;
+}
+
+void Game::syncPhysics() {
+    if (running()) physics_.step(*scene_, *meshes_, 0.f);
+}
+
 void Game::setInputSource(EntityId root, const InputMap* input) {
     if (input) inputSources_[root] = input;
     else inputSources_.erase(root);
@@ -811,9 +823,15 @@ void Game::fixedUpdate(float dt) {
         for (size_t i = 0; i < scene_->entities.size(); ++i) {
             Entity& e = scene_->entities[i];
             if (ctx_.isDestroyed(e.id) || (!notSimulated_.empty() && notSimulated_.count(e.id))) continue;
-            if (!inputSources_.empty()) ctx_.input_ = inputFor(e);   // (a remote player's entities: their input)
+            EntityId remote = kNoEntity;
+            if (!inputSources_.empty()) {   // (a remote player's entities: their input, and the world as they saw it)
+                ctx_.input_ = inputFor(e);
+                remote = rewindBegin_ && !e.behaviours.empty() ? inputRoot(e) : kNoEntity;
+                if (remote != kNoEntity) rewindBegin_(remote);
+            }
             for (size_t b = 0; b < scene_->entities[i].behaviours.size(); ++b)
                 scene_->entities[i].behaviours[b]->update(ctx_, scene_->entities[i]);
+            if (remote != kNoEntity && rewindEnd_) rewindEnd_();
         }
         ctx_.input_ = &input_;
         flushQueues();

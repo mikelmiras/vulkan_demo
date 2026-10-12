@@ -572,6 +572,7 @@ struct NetworkSettings {
     std::string playerPrefab;      // spawned for each client that joins ("": clients only watch)
     Vec3 spawnPoint{0, 1, 0};
     float spawnSpread = 2.f;       // players are spread around it, this far apart
+    float relevance = 0.f;         // clients only get replicated entities this near their player (0: all of them)
 };
 
 // Layers: up to 32, named per scene. Colliders on two layers only meet (collide, or set off triggers) when the

@@ -842,8 +842,7 @@ The basics of a networked game, over UDP: one machine **hosts** (the server runs
 ./vkgame path/to/MyGame --join 192.168.1.5    # (:port if not the default)
 ```
 
-In the editor, Game > Host a multiplayer game hosts while you play. Both sides load the same scene; a client
-joins once it has.
+In the editor, Game > Host a multiplayer game hosts while you play. A client loads the scene the host is playing.
 
 - **Players**: the scene's Multiplayer settings (Inspector, nothing selected) name a **player prefab**: each player
   who joins gets one (spread around a spawn point), and so does the host. On the server, a player's behaviours read
@@ -854,12 +853,22 @@ joins once it has.
   destroyed on the server appear and go on the clients too. The **game state** (`ctx.state()`) is shared the same
   way. Clients show replicated entities where the server has them (smoothed between updates) and don't simulate
   them; everything else runs on each machine as usual (effects, UI).
-- **Prediction**: a client moves its own player at once with its own input, and only puts it where the server has
-  it when they disagree by more than a metre.
+- **Delta snapshots**: a client acknowledges each snapshot it gets whole, and the next ones only carry what changed
+  since (an entity that didn't change costs its id); lost packets just mean the next snapshot carries a bit more.
+- **Interest**: set *Relevance* in the Multiplayer settings and a client only gets the replicated entities that
+  near its player (the others are hidden on it until they come near): big worlds send far less.
+- **Prediction**: a client moves its own player at once with its own input. When the server says where the player
+  was after input *n*, the client takes that and adds back what its later inputs (not yet seen by the server) did:
+  the server's corrections (a knock back, a wall the client didn't know about) show at once, without the player
+  jumping back to where it was.
+- **Lag compensation**: while a remote player's behaviours run on the server, the other replicated entities with
+  colliders are put back where that player saw them (its round trip, the time its input waited and the client's
+  smoothing ago), so a ray it fires at what was on its screen hits it.
+- **Joining late**: a player joining a game in progress gets the scene the host is in and everything destroyed
+  before they came (picked-up items stay picked up).
 
-Not there yet: scene changes and save games while connected, joining mid-game with history, lag compensation,
-replaying unacknowledged inputs, encryption and NAT punch-through. Messages between behaviours stay on the machine
-that sends them.
+Not there yet: scene changes and save games while connected (after joining), encryption and NAT punch-through,
+reliable messages between behaviours on different machines (messages stay on the machine that sends them).
 
 ### Lua scripting
 
