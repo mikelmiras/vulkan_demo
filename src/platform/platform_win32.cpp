@@ -9,6 +9,7 @@
 #include <commdlg.h>
 #include <shlobj.h>
 #include <shellapi.h>
+#include <objbase.h>
 #include <xinput.h>
 #include <winhttp.h>
 #include <dxgi1_6.h>
@@ -18,6 +19,7 @@
 #include "platform/platform.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -129,6 +131,11 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }  // namespace
 
 bool createWindow(const char* title, uint32_t width, uint32_t height) {
+    // COM on this (the UI) thread as a single-threaded apartment, before anything else asks for it: the shell's file
+    // and folder dialogs need one, and hang in a multithreaded apartment, which is what miniaudio would make this
+    // thread when the audio starts (its later call then just keeps this one)
+    HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (com == RPC_E_CHANGED_MODE) std::fprintf(stderr, "COM was already set up multithreaded: file dialogs may hang\n");
     ImGui_ImplWin32_EnableDpiAwareness();
     g_instance = GetModuleHandleW(nullptr);
 
