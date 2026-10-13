@@ -14,6 +14,7 @@ layout(push_constant) uniform Post {
               // y = output: 0 SDR (gamma-encoded), 1 HDR10 (PQ, Rec.2020), 2 scRGB (linear, 1 = 80 nits);
               // z = the display's peak, w = paper white (nits; HDR)
     vec4 d;   // with the UI layer (drawn over the whole picture): the scene's rectangle (x, y, w, h pixels)
+    vec4 e;   // x = tone mapper (0 PBR Neutral, 1 filmic), y = contrast, z = saturation, w = vignette
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -30,6 +31,34 @@ vec3 pbrNeutral(vec3 color) {
     color *= newPeak / peak;
     float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
     return mix(color, newPeak * vec3(1.0), g);
+}
+
+// Filmic: AgX (Troy Sobotka's; the polynomial fit of its contrast curve by Benjamin Wrensch): into its working
+// space, a log encoding over 16.5 stops, the curve, and back to linear. Highlights desaturate towards white as film's do.
+vec3 agx(vec3 c) {
+    const mat3 toAgx = mat3(0.842479062253094, 0.0423282422610123, 0.0423756549057051, 0.0784335999999992, 0.878468636469772,
+                            0.0784336, 0.0792237451477643, 0.0791661274605434, 0.879142973793104);
+    const mat3 fromAgx = mat3(1.19687900512017, -0.0528968517574562, -0.0529716355144438, -0.0980208811401368, 1.15190312990417,
+                              -0.0980434501171241, -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
+    const float minEv = -12.47393, maxEv = 4.026069;
+    vec3 x = clamp((log2(max(toAgx * c, vec3(1e-10))) - minEv) / (maxEv - minEv), 0.0, 1.0);
+    vec3 x2 = x * x, x4 = x2 * x2;
+    x = 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232;
+    return pow(max(fromAgx * x, vec3(0.0)), vec3(2.2));
+}
+
+// Grading in linear light: contrast around middle grey (in stops), saturation around the colour's luminance, and
+// the corners darkened (the vignette, by the distance from the picture's middle)
+vec3 grade(vec3 c, vec2 uv) {
+    float contrast = pc.e.y, saturation = pc.e.z, vignette = pc.e.w;
+    if (contrast != 1.0) c = 0.18 * pow(max(c, vec3(0.0)) / 0.18, vec3(contrast));
+    float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    c = max(mix(vec3(luma), c, saturation), vec3(0.0));
+    if (vignette > 0.0) {
+        vec2 v = (uv - 0.5) * vec2(pc.d.z / max(pc.d.w, 1.0), 1.0);
+        c *= 1.0 - vignette * smoothstep(0.35, 1.0, length(v) * 1.15);
+    }
+    return c;
 }
 
 // Daltonization (Fidaner, Lin, Ozguven): the colour as that eye sees it (simulated in LMS cone space), and what's
@@ -86,7 +115,7 @@ void main() {
     }
     if (output_ != 0) {   // HDR: highlights kept up to the display's peak, the UI at paper white, in linear light
         float peak = max(pc.c.z / pc.c.w, 1.0);   // (in paper whites)
-        vec3 t = pbrNeutral(c / peak) * peak;
+        vec3 t = grade(pbrNeutral(c / peak) * peak, (gl_FragCoord.xy - pc.d.xy) / max(pc.d.zw, vec2(1.0)));
         if (pc.c.x > 0.5) t = max(daltonize(t, int(pc.c.x + 0.5)), vec3(0.0));   // (in linear light, paper whites)
         t = mix(t, pow(pc.b.rgb, vec3(2.2)), outline);
         vec4 ui = pc.b.w > 0.5 ? texelFetch(uiLayer, px, 0) : vec4(0.0);
@@ -100,7 +129,9 @@ void main() {
         }
         return;
     }
-    c = pow(clamp(pbrNeutral(c), 0.0, 1.0), vec3(1.0 / 2.2));
+    c = pc.e.x > 0.5 ? agx(c) : pbrNeutral(c);
+    c = grade(c, (gl_FragCoord.xy - pc.d.xy) / max(pc.d.zw, vec2(1.0)));
+    c = pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
     if (pc.c.x > 0.5) c = clamp(daltonize(c, int(pc.c.x + 0.5)), 0.0, 1.0);
     c = mix(c, pc.b.rgb, outline);
     float noise = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;

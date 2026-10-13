@@ -681,6 +681,20 @@ struct RenderSettings {
     float giSpacing = 3.f;            // between the probes, m (the grid covers 8 x 4 x 8 of them)
     float giIntensity = 1.f;          // how strong the bounced light is
     bool reflections = false;         // screen-space reflections on smooth surfaces (else probes and the sky only)
+    // Shadows: how soft the sun's are (its size in the sky: 1 a slightly hazy sun's, sharp where they touch and
+    // softer further from what casts them; 0: as sharp as the shadow maps allow)
+    float shadowSoftness = 1.f;
+    // Volumetric fog: the fog lit by the sun (with its shadows: light shafts) and the lights (halos, beams), in a grid
+    // of cells through the view (render/volumetric_fog.h); else the fog is a plain colour by distance
+    bool volumetricFog = false;
+    float fogLight = 1.f;             // how strongly the fog shows the light passing through it
+    float fogAnisotropy = 0.5f;       // -1..1: how much light keeps going forward (0: every way alike; 0.5: haze)
+    float fogHeightFalloff = 0.f;     // thinner higher up: density halves every 0.69 / this metres (0: even)
+    // The picture: the tone mapper (0: PBR Neutral, colours as they are; 1: filmic, richer contrast and highlights
+    // that bleach like film's) and grading
+    int tonemapper = 0;
+    float contrast = 1.f, saturation = 1.f;
+    float vignette = 0.f;             // darker corners (0: none, 1: strong)
 };
 
 // A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.

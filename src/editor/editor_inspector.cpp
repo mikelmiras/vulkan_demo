@@ -179,6 +179,36 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::Checkbox("Screen-space reflections", &r.reflections);
         track();
         tooltip("Smooth surfaces reflect what's on screen (else only reflection probes and the sky)");
+        ImGui::SliderFloat("Shadow softness", &r.shadowSoftness, 0.f, 2.f, "%.2f");
+        track();
+        tooltip("How soft the sun's shadows are: 1 is about the real sun's (sharp where they touch, softer further from "
+                "what casts them); 0 as sharp as they go");
+        ImGui::Checkbox("Volumetric fog", &r.volumetricFog);
+        track();
+        tooltip("The fog lit by what passes through it: shafts of sunlight between buildings, halos round street lamps, "
+                "headlight beams. Uses the fog density above.");
+        if (r.volumetricFog) {
+            ImGui::SliderFloat("Fog light", &r.fogLight, 0.f, 8.f, "%.2f");
+            track();
+            tooltip("How strongly the fog shows the light in it");
+            ImGui::SliderFloat("Fog forward scattering", &r.fogAnisotropy, -0.9f, 0.9f, "%.2f");
+            track();
+            tooltip("How much the fog sends light on forwards: higher makes glows round lights you look towards brighter");
+            ImGui::SliderFloat("Fog height falloff", &r.fogHeightFalloff, 0.f, 1.f, "%.3f");
+            track();
+            tooltip("Thinner higher up (0: just as thick everywhere): low-lying mist");
+        }
+        ImGui::Combo("Tone mapper", &r.tonemapper, "Neutral (PBR Neutral)\0Filmic\0");
+        track();
+        tooltip("Neutral keeps colours as they are; filmic gives richer contrast, highlights that bleach towards white "
+                "like film's");
+        ImGui::SliderFloat("Contrast", &r.contrast, 0.5f, 2.f, "%.2f");
+        track();
+        ImGui::SliderFloat("Saturation", &r.saturation, 0.f, 2.f, "%.2f");
+        track();
+        ImGui::SliderFloat("Vignette", &r.vignette, 0.f, 1.f, "%.2f");
+        track();
+        tooltip("Darker corners, drawing the eye to the middle");
         // The sky image: a panorama that's the sky, the ambient light and what shiny things reflect
         ImGui::InputText("Sky image", &r.skyImage);
         track();

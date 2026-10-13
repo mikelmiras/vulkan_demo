@@ -289,6 +289,15 @@ SceneRenderInfo Editor::renderInfo() const {
     info.giSpacing = r.giSpacing;
     info.giIntensity = r.giIntensity;
     info.reflections = r.reflections;
+    info.shadowSoftness = r.shadowSoftness;
+    info.volumetricFog = r.volumetricFog;
+    info.fogLight = r.fogLight;
+    info.fogAnisotropy = r.fogAnisotropy;
+    info.fogHeightFalloff = r.fogHeightFalloff;
+    info.tonemapper = r.tonemapper;
+    info.contrast = r.contrast;
+    info.saturation = r.saturation;
+    info.vignette = r.vignette;
     if (playing()) info.colorFilter = game_.colorFilter();   // (the player's setting, as the game will look)
     if (!r.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
         std::string skyError;

@@ -1,0 +1,32 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+#include "fog.glsl"
+// Volumetric fog, second pass: each column of cells summed from the camera out, the light reaching the camera from
+// each slice dimmed by the fog in front of it. rgb = the light gathered up to the slice's far end, a = how much of
+// what's beyond still gets through (scene.frag: colour * a + rgb).
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(set = 1, binding = 0, rgba16f) uniform readonly image3D scatter;
+layout(set = 1, binding = 1, rgba16f) uniform writeonly image3D volume;
+
+void main() {
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(id, kFogCells.xy))) return;
+    vec2 ndc = (vec2(id) + 0.5) / vec2(kFogCells.xy) * 2.0 - 1.0;
+    float tanY = frame.camForward.w, aspect = frame.viewport.x / max(frame.viewport.y, 1.0);
+    float stretch = length(vec3(ndc.x * tanY * aspect, ndc.y * tanY, 1.0));   // (ray metres per metre along the view)
+    vec3 gathered = vec3(0.0);
+    float through = 1.0, from = 0.0;
+    for (int z = 0; z < kFogCells.z; ++z) {
+        float to = fogSliceDepth(float(z + 1));
+        float len = (to - from) * stretch;
+        vec4 s = imageLoad(scatter, ivec3(id, z));
+        float density = max(s.a, 1e-7);
+        float t = exp(-density * len);
+        gathered += through * s.rgb / density * (1.0 - t);   // (the slice's light, as much as leaves it, dimmed so far)
+        through *= t;
+        imageStore(volume, ivec3(id, z), vec4(gathered, through));
+        from = to;
+    }
+}

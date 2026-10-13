@@ -63,11 +63,18 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
     uint64_t layers = 0;
     shadowLayer.assign(lights.size(), -1);
     // ---- The sun (render/shadow_cascades.h)
+    float extent[kCascades][2] = {};
     auto cascades = [&](const SceneRenderInfo& v, float texels, Mat4* vps, float* splits) {
         shadows::sunCascades({v.camPos, v.camForward, v.fovY, v.aspect}, sunDir, shadowDistance(), texels,
-                             sunShadows ? vps : nullptr, splits);
+                             sunShadows ? vps : nullptr, splits, extent);
     };
     cascades(info, (float)kCascadeSize, u.shadowViewProj, u.cascadeSplits);
+    for (uint32_t c = 0; c < kCascades; ++c) {   // (the soft shadows' scale: penumbrae are sized in metres)
+        u.cascadeScale[c][0] = std::max(extent[c][0], 1e-3f);
+        u.cascadeScale[c][1] = std::max(extent[c][1], 1e-3f);
+        u.cascadeScale[c][2] = (float)kCascadeSize;
+    }
+    u.shadowParams[0] = info.shadowSoftness;
     if (sunShadows) layers |= (1ull << kCascades) - 1;
     // ---- Spot and point lights casting shadows, in view, most important first (the order given): a tile each
     // for spots, six for point lights (a cube around them, a little wider than 90 degrees per face, so filtering
@@ -178,7 +185,7 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
     // The previous frame's sampling must finish first; the old contents are discarded
     for (VkImage image : images)
         barrier(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, depthStages,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, depthStages,
                 VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
     auto drawView = [&](uint32_t layer, uint32_t x, uint32_t y, uint32_t size) {
         VkViewport vp{(float)x, (float)y, (float)size, (float)size, 0.f, 1.f};
@@ -244,6 +251,7 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
     }
     for (VkImage image : images)
         barrier(image, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,   // (the fog reads them too)
                 VK_ACCESS_SHADER_READ_BIT);
 }

@@ -189,6 +189,15 @@ TEST(materials_and_render_settings_saved) {
     s.render.giSpacing = 2.5f;
     s.render.giIntensity = 1.4f;
     s.render.reflections = true;
+    s.render.shadowSoftness = 1.7f;
+    s.render.volumetricFog = true;
+    s.render.fogLight = 2.5f;
+    s.render.fogAnisotropy = 0.3f;
+    s.render.fogHeightFalloff = 0.15f;
+    s.render.tonemapper = 1;
+    s.render.contrast = 1.2f;
+    s.render.saturation = 0.8f;
+    s.render.vignette = 0.4f;
     std::string error;
     auto path = test::tempPath("materials.vkw").string();
     REQUIRE(saveScene(path, s, meshes, textures(), error));
@@ -210,8 +219,14 @@ TEST(materials_and_render_settings_saved) {
     CHECK(loaded.render.gi && loaded.render.reflections);
     CHECK_NEAR(loaded.render.giSpacing, 2.5, 1e-6);
     CHECK_NEAR(loaded.render.giIntensity, 1.4, 1e-6);
+    CHECK(loaded.render.volumetricFog && loaded.render.tonemapper == 1);
+    CHECK_NEAR(loaded.render.shadowSoftness, 1.7, 1e-6);
+    CHECK_NEAR(loaded.render.fogLight, 2.5, 1e-6);
+    CHECK_NEAR(loaded.render.fogHeightFalloff, 0.15, 1e-6);
+    CHECK_NEAR(loaded.render.vignette, 0.4, 1e-6);
     CHECK(sameRenderSettings(loaded.render, s.render));
     Scene off;
+    CHECK(!off.render.volumetricFog && off.render.tonemapper == 0 && off.render.shadowSoftness == 1.f);
     CHECK(!off.render.gi && !off.render.reflections);   // (off unless asked for)
     CHECK(!sameRenderSettings(off.render, s.render));
     // A plain one keeps the defaults (and doesn't write them)

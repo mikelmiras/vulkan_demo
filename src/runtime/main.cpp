@@ -677,6 +677,15 @@ int main(int argc, char** argv) {
         info.giSpacing = scene.render.giSpacing;
         info.giIntensity = scene.render.giIntensity;
         info.reflections = scene.render.reflections;
+        info.shadowSoftness = scene.render.shadowSoftness;
+        info.volumetricFog = scene.render.volumetricFog;
+        info.fogLight = scene.render.fogLight;
+        info.fogAnisotropy = scene.render.fogAnisotropy;
+        info.fogHeightFalloff = scene.render.fogHeightFalloff;
+        info.tonemapper = scene.render.tonemapper;
+        info.contrast = scene.render.contrast;
+        info.saturation = scene.render.saturation;
+        info.vignette = scene.render.vignette;
         info.colorFilter = game.colorFilter();
         if (!scene.render.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
             std::string skyError;

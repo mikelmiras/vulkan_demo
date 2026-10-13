@@ -1016,7 +1016,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 70.1 (done) | Night Drive: a small example game (a taxi in a night city of Kenney's City Kit models and road tiles), and the bugs it turned up | Asked for during round 7: a showcase of the engine, and a scene to find what breaks |
 | 70.2 (done) | Windows: the file and folder dialogs froze the app | Found by testing on Windows: nothing set up COM on the UI thread |
 | 70.3 (done) | Performance: a depth prepass with early depth tests, cheaper screen-space reflection steps, light clusters fitted to what's in view, a project's default anti-aliasing and players' quality and anti-aliasing settings | Night Drive ran slowly on a GTX 1050 Ti, in the game and the editor |
-| 70.4 | Lighting and shadows: soft shadows (hardware-filtered PCF on a rotated disk, PCSS for the sun, blended cascades), volumetric fog lit by the sun and the lights, specular anti-aliasing, a filmic tone mapper and colour grading, Night Drive retuned with them | Asked for with 70.3: the games made with it should look more polished |
+| 70.4 (done) | Lighting and shadows: soft shadows (hardware-filtered PCF on a rotated disk, PCSS for the sun, blended cascades), volumetric fog lit by the sun and the lights, specular anti-aliasing, a filmic tone mapper and colour grading, Night Drive retuned with them | Asked for with 70.3: the games made with it should look more polished |
 | 71 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
 | 72 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
 | 73 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
@@ -1181,3 +1181,27 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   pictures with the prepass on and off within run-to-run noise in MSAA, TAA and no AA, validation (sync too) clean.
   Not done: a resolution scale (rendering the 3D picture smaller and scaling it up), half-resolution SSR, GPU
   timings on real hardware (none here: lavapipe's proportions only).
+- **70.4, lighting and shadows**: shadows: the cascades and the atlas are read through a comparison sampler
+  (bilinear-filtered, where the depth format allows) with 16 / 12 taps on a Poisson disk turned by interleaved
+  gradient noise (moving each frame for TAA); the sun's are PCSS: a 12-tap blocker search on the raw depths (binding
+  20) gives the distance to what casts it, the penumbra is that times the sun's size (RenderSettings::shadowSoftness:
+  1 is 0.04 m per m, a 2.3 degree sun: the real 0.53 softens edges too little to see; past 2 the 16 taps get too
+  sparse, so the slider stops there), cascades blend over their last 20 %. UBO: cascadeScale (each cascade's metres
+  across and deep), shadowParams, fogParams, fogRange. Volumetric fog (renderer_fog.cpp, fog_inject.comp,
+  fog_integrate.comp, fog.glsl; the maths' C++ reference and tests in render/volumetric_fog): per frame in flight a
+  160 x 90 x 64 RGBA16F scatter volume and an integrated one; inject: density (fogDensity, exp(-falloff x height)),
+  the fog colour + the sun (one raw cascade lookup) + the cell's light cluster's lights (in the fog with a falloff
+  halving at a fifth of their range, since the engine's own window has no inverse square: without it a lamp lit a
+  whole ball of air) through a Henyey-Greenstein phase; integrate: front to back, energy-conserving per slice;
+  scene.frag and sky.frag: colour x transmittance + gathered light (set 0 binding 21). The slices start at half the
+  fitted near distance (an overhead camera's slices were 9 m deep at the street: visible rings). Grading: AgX
+  (Sobotka; Wrensch's polynomial) as tonemapper 1, contrast in stops about 0.18, saturation about luminance, a
+  vignette, in the composite (push constants grew to 80 bytes), HDR output graded too. Specular AA (Tokuyoshi and
+  Kaplanyan) from the normal's screen derivatives. Scene format 41 (shadow softness, volumetric fog and its three
+  settings, tone mapper, contrast, saturation, vignette; older scenes get what they had), module API 46, Scene look
+  in the inspector. Night Drive: street mist (density 0.03, height falloff 0.15, fog light 3), filmic, contrast
+  1.15, saturation 1.1, vignette 0.3. Checked: the fog maths' tests (slices, phase normalised over the sphere, the
+  integration against exp(-density x distance)), settings saved and loaded, a pole's shadow at softness 0, 1 and 4,
+  the demo and Night Drive under validation with sync checks (fog 50 ms of ~900 on lavapipe). Not done: temporal
+  reprojection of the fog cells (it's steady but coarse: halos are ten pixels a cell), shadows for spot lights in
+  the fog, fog in split-screen views and particles, auto-exposure, contact shadows.

@@ -1,6 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+#include "fog.glsl"
 #ifdef EARLY_DEPTH
 // (scene_early.frag.spv: after the depth prepass, only the pixel in front is shaded; the depth test before the
 // shader, which its texture-streaming writes would otherwise put after it)
@@ -9,8 +10,10 @@ layout(early_fragment_tests) in;
 // Lit objects: metallic-roughness PBR (GGX), sun with shadows, point lights, hemisphere ambient, fog.
 // Writes linear HDR colour (alpha 1); the post pass adds bloom, tonemaps and gamma-encodes.
 
-layout(set = 0, binding = 1) uniform sampler2DArray shadowCascades;   // the sun's, 4 layers
-layout(set = 0, binding = 5) uniform sampler2D shadowAtlas;          // spot and point lights' (tiles)
+layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadowCascades;   // the sun's, 4 layers (comparing)
+layout(set = 0, binding = 5) uniform sampler2DShadow shadowAtlas;          // spot and point lights' (tiles; comparing)
+layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;        // the sun's again, as depths (PCSS)
+layout(set = 0, binding = 21) uniform sampler3D fogVolume;                 // volumetric fog, integrated (fog.glsl)
 layout(set = 0, binding = 6) uniform sampler2DArray cookies;          // spot lights' cookies
 // Point and spot lights, and the clusters of the view they reach (render/light_clusters.h)
 struct Light {
@@ -51,20 +54,50 @@ layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265;
 
-// 1 = lit, 0 = in shadow, for a point seen by a shadow camera (clip space); 3x3 samples soften the edge
-float shadowTest(sampler2DArray map, float layer, vec4 clip, float bias) {
-    vec3 proj = clip.xyz / clip.w;
-    vec2 uv = proj.xy * 0.5 + 0.5;
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0 || proj.z < 0.0) return 1.0;
-    vec2 texel = 1.0 / vec2(textureSize(map, 0).xy);
-    float lit = 0.0;
-    for (int y = -1; y <= 1; ++y)
-        for (int x = -1; x <= 1; ++x)
-            lit += proj.z - bias <= texture(map, vec3(uv + vec2(x, y) * texel, layer)).r ? 1.0 : 0.0;
-    return lit / 9.0;
+// Soft shadows: taps on a Poisson disk, turned by a per-pixel angle (interleaved gradient noise, moving each frame
+// so temporal AA averages it out), each one a hardware-filtered 2 x 2 comparison: smooth edges from few taps
+const vec2 kDisk[16] = vec2[](vec2(-0.94201624, -0.39906216), vec2(0.94558609, -0.76890725), vec2(-0.09418410, -0.92938870),
+    vec2(0.34495938, 0.29387760), vec2(-0.91588581, 0.45771432), vec2(-0.81544232, -0.87912464), vec2(-0.38277543, 0.27676845),
+    vec2(0.97484398, 0.75648379), vec2(0.44323325, -0.97511554), vec2(0.53742981, -0.47373420), vec2(-0.26496911, -0.41893023),
+    vec2(0.79197514, 0.19090188), vec2(-0.24188840, 0.99706507), vec2(-0.81409955, 0.91437590), vec2(0.19984126, 0.78641367),
+    vec2(0.14383161, -0.14100790));
+mat2 diskRotation() {
+    float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy + 5.588238 * frame.time.y, vec2(0.06711056, 0.00583715))));
+    float a = n * 6.2831853;
+    return mat2(cos(a), sin(a), -sin(a), cos(a));
 }
 
-// The same in a tile of the atlas (`view`'s rectangle), its 3x3 samples kept inside the tile
+// The sun's cascade `c` at `p` (world): the blockers' average depth around it (PCSS), how wide the penumbra is from
+// that and the sun's size, then the disk filtered at that width (at least a texel and a half: no stair steps)
+float cascadeShadow(int c, vec3 p, float bias) {
+    vec3 proj = (frame.shadowViewProj[c] * vec4(p, 1.0)).xyz;   // (orthographic: no divide)
+    vec2 uv = proj.xy * 0.5 + 0.5;
+    float z = proj.z - bias;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0 || proj.z < 0.0) return 1.0;
+    vec4 scale = frame.cascadeScale[c];
+    float texel = 1.0 / scale.z;
+    mat2 rot = diskRotation();
+    // A penumbra grows this many metres per metre behind what casts it: softness 1 is a sun about 2.3 degrees
+    // across (a hazy one; the real sun's 0.53 makes edges too sharp to see soften)
+    float size = 0.04 * frame.shadowParams.x;
+    float radius = 1.5 * texel;
+    if (size > 0.0) {
+        float search = clamp(size * 20.0 / scale.x, 2.0 * texel, 64.0 * texel);   // (casters up to ~20 m away)
+        float sum = 0.0, n = 0.0;
+        for (int i = 0; i < 12; ++i) {
+            float d = textureLod(cascadeDepths, vec3(uv + rot * kDisk[i] * search, float(c)), 0.0).r;
+            if (d < z) { sum += d; n += 1.0; }
+        }
+        if (n == 0.0) return 1.0;   // (nothing between it and the sun)
+        float behind = (z - sum / n) * scale.y;   // metres from the blockers
+        radius = clamp(behind * size / scale.x, 1.5 * texel, 64.0 * texel);
+    }
+    float lit = 0.0;
+    for (int i = 0; i < 16; ++i) lit += texture(shadowCascades, vec4(uv + rot * kDisk[i] * radius, float(c), z));
+    return lit / 16.0;
+}
+
+// The same in a tile of the atlas (`view`'s rectangle), a fixed width, its taps kept inside the tile
 float atlasShadow(int view, vec3 p, float bias) {
     vec4 clip = frame.shadowViewProj[view] * vec4(p, 1.0);
     vec3 proj = clip.xyz / clip.w;
@@ -74,14 +107,15 @@ float atlasShadow(int view, vec3 p, float bias) {
     vec2 texel = 1.0 / vec2(textureSize(shadowAtlas, 0));
     vec2 lo = rect.xy + texel * 0.5, hi = rect.xy + rect.zw - texel * 0.5;
     vec2 at = rect.xy + uv * rect.zw;
+    mat2 rot = diskRotation();
     float lit = 0.0;
-    for (int y = -1; y <= 1; ++y)
-        for (int x = -1; x <= 1; ++x)
-            lit += proj.z - bias <= texture(shadowAtlas, clamp(at + vec2(x, y) * texel, lo, hi)).r ? 1.0 : 0.0;
-    return lit / 9.0;
+    for (int i = 0; i < 12; ++i)
+        lit += texture(shadowAtlas, vec3(clamp(at + rot * kDisk[i] * texel * 1.75, lo, hi), proj.z - bias));
+    return lit / 12.0;
 }
 
-// The sun: the cascade covering this distance from the camera (beyond the last one: lit)
+// The sun: the cascade covering this distance from the camera (beyond the last one: lit), blended into the next
+// over the last part of each, so where one hands over to the next doesn't show
 float sunVisibility(vec3 N, vec3 L) {
     if (frame.sunDir.w < 0.5) return 1.0;
     float d = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
@@ -89,9 +123,17 @@ float sunVisibility(vec3 N, vec3 L) {
     while (c < 4 && d > frame.cascadeSplits[c]) ++c;
     if (c >= 4) return 1.0;
     // Nudged along the normal and towards the light (more for the bigger, coarser cascades): no shadow acne
-    vec3 p = vWorldPos + N * (0.03 + 0.03 * float(c)) + L * 0.02;
+    float NdotL = clamp(dot(N, L), 0.0, 1.0);
+    vec3 p = vWorldPos + N * (0.03 + 0.03 * float(c)) * (1.5 - NdotL) + L * 0.02;
     if (frame.viewport.w > 0.5) return atlasShadow(c, p + N * 0.03, 0.0005);   // (a split-screen view's: coarser tiles)
-    return shadowTest(shadowCascades, float(c), frame.shadowViewProj[c] * vec4(p, 1.0), 0.0005);
+    float vis = cascadeShadow(c, p, 0.0005);
+    float start = c == 0 ? 0.0 : frame.cascadeSplits[c - 1], end = frame.cascadeSplits[c];
+    float blend = smoothstep(0.8, 1.0, (d - start) / max(end - start, 1e-3));
+    if (blend > 0.0) {
+        vec3 q = vWorldPos + N * (0.03 + 0.03 * float(c + 1)) * (1.5 - NdotL) + L * 0.02;
+        vis = mix(vis, c + 1 < 4 ? cascadeShadow(c + 1, q, 0.0005) : 1.0, blend);
+    }
+    return vis;
 }
 
 // Normal mapping without stored tangents: the frame comes from screen-space derivatives (Schueler 2013)
@@ -356,6 +398,14 @@ void main() {
     vec3 N = normalize(vNormal);
     if (!gl_FrontFacing && vParams.x > -0.5) N = -N;   // (two-sided surfaces; foliage keeps its normals)
     if (vMaterial.z > 0.0) N = perturbNormal(N, vMaterial.z);
+    // Specular anti-aliasing (Tokuyoshi & Kaplanyan): where the normal changes within a pixel, the highlight is
+    // widened to match, so small shiny bumps and distant wet ground don't sparkle and crawl
+    {
+        vec3 du = dFdx(N), dv = dFdy(N);
+        float variance = 0.25 * (dot(du, du) + dot(dv, dv));
+        float a = rough * rough;
+        rough = sqrt(sqrt(clamp(a * a + min(2.0 * variance, 0.18), 0.0, 1.0)));
+    }
     vec3 V = normalize(frame.camPos.xyz - vWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
 
@@ -418,9 +468,16 @@ void main() {
 
     if (!terrain) color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;
 
-    float dist = length(frame.camPos.xyz - vWorldPos);
-    float fog = 1.0 - exp(-pow(dist * frame.fogColor.w, 2.0));
-    color = mix(color, frame.fogColor.rgb, fog);
+    if (frame.fogParams.x > 0.5) {   // volumetric: what the fog in front lets through, and the light it adds
+        vec4 c = frame.viewProj * vec4(vWorldPos, 1.0);
+        float depth = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
+        vec4 f = texture(fogVolume, vec3(c.xy / c.w * 0.5 + 0.5, fogVolumeZ(depth)));
+        color = color * f.a + f.rgb;
+    } else {
+        float dist = length(frame.camPos.xyz - vWorldPos);
+        float fog = 1.0 - exp(-pow(dist * frame.fogColor.w, 2.0));
+        color = mix(color, frame.fogColor.rgb, fog);
+    }
     // See-through: premultiplied (the blend adds what's behind, times 1 - alpha); alpha stays the outline marker
     outColor = alphaMode == 2 ? vec4(color * alpha, alpha) : vec4(color, 1.0);
 }

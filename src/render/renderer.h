@@ -116,6 +116,11 @@ struct SceneRenderInfo {
     bool gi = false;
     float giSpacing = 3.f, giIntensity = 1.f;
     bool reflections = false;   // screen-space reflections (from the last frame's picture)
+    float shadowSoftness = 1.f;   // the sun's shadows (RenderSettings::shadowSoftness)
+    bool volumetricFog = false;   // RenderSettings::volumetricFog and its settings
+    float fogLight = 1.f, fogAnisotropy = 0.5f, fogHeightFalloff = 0.f;
+    int tonemapper = 0;           // 0 PBR Neutral, 1 filmic
+    float contrast = 1.f, saturation = 1.f, vignette = 0.f;
     // A colour-blindness filter over the picture (the player's settings.colorBlind, Game::colorFilter()): 0 none,
     // 1 protanopia, 2 deuteranopia, 3 tritanopia. Daltonized: what that eye can't tell apart is moved into
     // differences it can see.
@@ -473,7 +478,8 @@ private:
     void writeLights(const SceneRenderInfo& info, const std::vector<const LightInfo*>& lights,
                      const std::vector<int>& shadowView, render_detail::FrameUBO& u, bool clustered);
     bool frameShadows_ = false;     // the sun casts shadows this frame
-    VkSampler shadowSampler_ = VK_NULL_HANDLE;
+    VkSampler shadowSampler_ = VK_NULL_HANDLE;   // (nearest: raw depths)
+    VkSampler shadowCompareSampler_ = VK_NULL_HANDLE;   // (comparing, bilinear: filtered shadow lookups)
     VkPipeline shadowPipeline_ = VK_NULL_HANDLE;
     VkPipeline shadowCutoutPipeline_ = VK_NULL_HANDLE;   // with a fragment shader dropping the holes
 
@@ -503,6 +509,24 @@ private:
     VkPipeline prepassPipeline_ = VK_NULL_HANDLE, prepassFoliagePipeline_ = VK_NULL_HANDLE;
     VkPipeline sceneEarlyPipeline_ = VK_NULL_HANDLE, foliageEarlyPipeline_ = VK_NULL_HANDLE;
     bool prepass_ = true;
+    // Volumetric fog (renderer_fog.cpp): per frame in flight, the cells' in-scattered light and the volume summed
+    // from the camera out (scene.frag / sky.frag's binding 21)
+    struct FogImages { Image scatter, volume; };
+    FogImages fog_[MAX_FRAMES];
+    VkDescriptorSetLayout fogSetLayout_ = VK_NULL_HANDLE;
+    VkPipelineLayout fogLayout_ = VK_NULL_HANDLE;
+    VkPipeline fogInjectPipeline_ = VK_NULL_HANDLE, fogIntegratePipeline_ = VK_NULL_HANDLE;
+    VkDescriptorPool fogPool_ = VK_NULL_HANDLE;
+    VkDescriptorSet fogSets_[MAX_FRAMES] = {};
+    VkSampler fogSampler_ = VK_NULL_HANDLE;
+    bool fogOn_ = false;      // this frame draws it
+    float fogFar_ = 200.f;    // its last slice's end: the far end of what's in view (as the light clusters')
+    float fogNear_ = 0.1f;    // ... and the near end (the slices start at half of it: from high up, little air is
+                              // in the way, and the slices are thinner where the light is)
+    Image createVolume();
+    void createFog();
+    void destroyFog();
+    void recordFog(VkCommandBuffer cb);
     Quality quality_ = Quality::High;
     float shadowDistance() const { return quality_ == Quality::High ? kShadowDistance : quality_ == Quality::Medium ? 100.f : 60.f; }
     bool reflectionsOn(const SceneRenderInfo& info) const { return info.reflections && quality_ != Quality::Low; }

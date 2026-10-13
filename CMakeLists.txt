@@ -36,7 +36,8 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/post.vert shaders/bloom_down.frag shaders/bloom_up.frag shaders/composite.frag shaders/ssao.frag shaders/ssao_ms.frag
                    shaders/particle.vert shaders/particle.frag shaders/sky.vert shaders/sky.frag shaders/taa.frag shaders/cull.comp
                    shaders/hiz_depth.comp shaders/hiz_depth_ms.comp shaders/hiz_reduce.comp shaders/foliage.vert
-                   shaders/gi_project.comp shaders/ssr_capture.frag shaders/ssr_capture_ms.frag shaders/depth_prepass.frag)
+                   shaders/gi_project.comp shaders/ssr_capture.frag shaders/ssr_capture_ms.frag shaders/depth_prepass.frag
+                   shaders/fog_inject.comp shaders/fog_integrate.comp)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -46,7 +47,7 @@ foreach(src ${SHADER_SOURCES})
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
     COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/${src} -o ${out}
     DEPENDS ${CMAKE_SOURCE_DIR}/${src} ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/ssao.glsl ${CMAKE_SOURCE_DIR}/shaders/ssr_capture.glsl
-            ${CMAKE_SOURCE_DIR}/shaders/hiz.glsl
+            ${CMAKE_SOURCE_DIR}/shaders/hiz.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
@@ -56,7 +57,7 @@ add_custom_command(
   OUTPUT ${out}
   COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
   COMMAND ${GLSLC} -DEARLY_DEPTH ${CMAKE_SOURCE_DIR}/shaders/scene.frag -o ${out}
-  DEPENDS ${CMAKE_SOURCE_DIR}/shaders/scene.frag ${CMAKE_SOURCE_DIR}/shaders/common.glsl
+  DEPENDS ${CMAKE_SOURCE_DIR}/shaders/scene.frag ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
   COMMENT "Compiling scene_early.frag")
 list(APPEND SPIRV_OUTPUTS ${out})
 add_custom_target(shaders ALL DEPENDS ${SPIRV_OUTPUTS})
@@ -199,6 +200,8 @@ set(ENGINE_SOURCES
   src/render/renderer_gi.cpp
   src/render/texture_streaming.cpp
   src/render/shadow_cascades.cpp
+  src/render/renderer_fog.cpp
+  src/render/volumetric_fog.cpp
   src/render/display.cpp
   src/app/application.cpp
   src/app/export.cpp
@@ -421,6 +424,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_hdr_image.cpp
     tests/test_color_glyphs.cpp
     tests/test_line_break.cpp
+    tests/test_volumetric_fog.cpp
     tests/test_display.cpp
     tests/test_module.cpp
     tests/test_scene_flow.cpp

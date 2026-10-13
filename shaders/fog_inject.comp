@@ -1,0 +1,75 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+#include "fog.glsl"
+// Volumetric fog, first pass: each cell's density and the light it scatters towards the camera, from the fog's own
+// colour (the sky's light all around), the sun (where its cascades say it reaches: light shafts) and the point and
+// spot lights in the cell's light cluster (halos, beams). rgb = in-scattered light x density, a = density.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+struct Light {
+    vec4 posRange;
+    vec4 color;
+    vec4 dir;
+    vec4 params;
+};
+layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; };
+layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]; };
+layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;
+layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D scatter;
+
+// Is p lit by the sun? (One look at its cascade: the cells blur it enough.)
+float sunLight(vec3 p, float depth) {
+    if (frame.sunDir.w < 0.5) return 1.0;
+    int c = 0;
+    while (c < 4 && depth > frame.cascadeSplits[c]) ++c;
+    if (c >= 4) return 1.0;
+    vec3 proj = (frame.shadowViewProj[c] * vec4(p, 1.0)).xyz;
+    vec2 uv = proj.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) return 1.0;
+    return proj.z - 0.001 <= textureLod(cascadeDepths, vec3(uv, float(c)), 0.0).r ? 1.0 : 0.0;
+}
+
+void main() {
+    ivec3 id = ivec3(gl_GlobalInvocationID);
+    if (any(greaterThanEqual(id, kFogCells))) return;
+    vec2 uv = (vec2(id.xy) + 0.5) / vec2(kFogCells.xy);
+    vec2 ndc = uv * 2.0 - 1.0;
+    float tanY = frame.camForward.w, aspect = frame.viewport.x / max(frame.viewport.y, 1.0);
+    vec3 dir = frame.camForward.xyz + frame.camRight.xyz * (ndc.x * tanY * aspect) - frame.camUp.xyz * (ndc.y * tanY);
+    float depth = fogSliceDepth(float(id.z) + 0.5);
+    vec3 p = frame.camPos.xyz + dir * depth;   // (dir is 1 along the view: `depth` metres in front)
+    vec3 view = normalize(dir);
+    float density = frame.fogColor.w * exp(-frame.fogParams.w * max(p.y, 0.0));
+    float g = frame.fogParams.z, strength = frame.fogParams.y;
+
+    vec3 light = frame.fogColor.rgb;   // (the plain fog's colour: what it shows with no light of its own)
+    light += frame.sunColor.rgb * sunLight(p, depth) * fogPhase(frame.sunDir.xyz, view, g) * strength;
+    // The lights of the cluster this cell is in (as scene.frag finds them)
+    vec4 c = frame.viewProj * vec4(p, 1.0);
+    if (c.w > 1e-4) {
+        vec2 cuv = clamp(c.xy / c.w * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
+        int slice = depth <= frame.clusterDepth.x ? 0 : int(log(depth / frame.clusterDepth.x) * frame.clusterDepth.y);
+        slice = clamp(slice, 0, int(frame.clusterGrid.z) - 1);
+        ivec2 tile = ivec2(cuv * frame.clusterGrid.xy);
+        uint cluster = uint((slice * int(frame.clusterGrid.y) + tile.y) * int(frame.clusterGrid.x) + tile.x);
+        uint headers = uint(frame.clusterGrid.x * frame.clusterGrid.y * frame.clusterGrid.z) * 2u;
+        uint first = headers + clusters[cluster * 2u], count = clusters[cluster * 2u + 1u];
+        for (uint k = 0u; k < count; ++k) {
+            Light li = lights[clusters[first + k]];
+            vec3 d = p - li.posRange.xyz;
+            float dist = length(d), range = li.posRange.w;
+            if (dist >= range) continue;
+            vec3 travel = d / max(dist, 1e-4);
+            float window = clamp(1.0 - (dist * dist) / (range * range), 0.0, 1.0);
+            // (in the fog, mostly near the light, as light falls off with the square of the distance; halfway at a
+            // fifth of its range: a glow round the lamp, not a lit ball of air)
+            float q = dist / (0.2 * range);
+            float l = window * window / (1.0 + q * q);
+            if (li.color.w > 0.5) l *= smoothstep(li.dir.w, li.params.x, dot(travel, li.dir.xyz));   // (a spot's cone)
+            light += li.color.rgb * l * fogPhase(travel, view, g) * strength;
+        }
+    }
+    imageStore(scatter, id, vec4(light * density, density));
+}

@@ -287,7 +287,7 @@ entity("Camera", (start[0] + 20, 25, start[2] + 20), camera={"fov": 20, "near": 
 
 scene = {
     "format": "vkworld-scene",
-    "version": 40,
+    "version": 41,
     "meshes": [{"name": n, "source": meshes_used[n]} for n in sorted(meshes_used)],
     "textures": [{"name": "City colours", "source": "models/city/Textures/colormap.png"},
                  {"name": "City windows", "source": "models/city/Textures/night-windows.png"},
@@ -296,9 +296,13 @@ scene = {
     "settings": {
         "render": {
             "sky": [0.02, 0.024, 0.04], "zenith": [0.004, 0.005, 0.012], "ground": [0.01, 0.01, 0.012],
-            "fogDensity": 0.009, "ambient": 0.1, "exposure": 1.0,
+            "ambient": 0.1, "exposure": 1.15,
             "bloomStrength": 0.16, "bloomThreshold": 0.7, "aoStrength": 0.8, "aoRadius": 0.8,
             "reflections": True,
+            # Street-level mist (thinning with height: from above, the rooftops stay clear) lit by the lamps, the
+            # neon and the headlights; a filmic tone mapper and a little grading for the night look
+            "volumetricFog": True, "fogDensity": 0.03, "fogHeightFalloff": 0.15, "fogLight": 3.0, "fogAnisotropy": 0.4,
+            "tonemapper": "filmic", "contrast": 1.15, "saturation": 1.1, "vignette": 0.3, "shadowSoftness": 1.0,
         }
     },
 }

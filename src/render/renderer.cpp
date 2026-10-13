@@ -707,8 +707,9 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
-    VkDescriptorSetLayoutBinding frameBindings[20] = {
-        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+    const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
+    VkDescriptorSetLayoutBinding frameBindings[22] = {
+        {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // joint matrices (and terrains' layers)
@@ -722,15 +723,17 @@ void Renderer::createPipelines() {
         {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},   // instance indices (GPU culling)
-        {14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // point and spot lights
-        {15, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // their clusters
+        {14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, fragFog, nullptr},   // point and spot lights
+        {15, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, fragFog, nullptr},   // their clusters
         {16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},     // foliage instances
         {17, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // GI probes (renderer_gi.cpp)
         {18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // last frame (reflections)
         {19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // texture streaming's reports
+        {20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // the sun's cascades' depths
+        {21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // volumetric fog
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 20;
+    dslci.bindingCount = 22;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -768,7 +771,7 @@ void Renderer::createPipelines() {
     dslci.bindingCount = 4;
     dslci.pBindings = postBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &postSetLayout_));
-    VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 64};
+    VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 80};
     VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     pl.setLayoutCount = 1;
     pl.pSetLayouts = &postSetLayout_;
@@ -987,6 +990,15 @@ void Renderer::createShadowResources() {
     sci.magFilter = sci.minFilter = VK_FILTER_NEAREST;   // the shader compares and filters itself
     sci.addressModeU = sci.addressModeV = sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &shadowSampler_));
+    // ... and comparing in hardware, with bilinear filtering of the results (each tap a 2 x 2 PCF)
+    VkFormatProperties shadowProps;
+    vkGetPhysicalDeviceFormatProperties(gpu_, shadowFormat_, &shadowProps);
+    bool linear = (shadowProps.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0;
+    sci.magFilter = sci.minFilter = linear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;   // (where the format allows it)
+    sci.compareEnable = VK_TRUE;
+    sci.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &shadowCompareSampler_));
+    sci.compareEnable = VK_FALSE;
 
     // Textures: trilinear, repeating, anisotropic where available
     sci.magFilter = sci.minFilter = VK_FILTER_LINEAR;
@@ -1057,7 +1069,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10 * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 13 * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1114,6 +1126,7 @@ void Renderer::createResources(const MeshLibrary&) {
     VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
+    createFog();   // (its volumes: in the frame sets below)
     for (int i = 0; i < MAX_FRAMES; ++i) {
         if (!uboStride_) {   // (slots: this view's, then the extra views'; each at an offset the device allows)
             VkPhysicalDeviceProperties props;
@@ -1136,8 +1149,9 @@ void Renderer::createResources(const MeshLibrary&) {
         w[0].descriptorCount = 1;
         w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         w[0].pBufferInfo = &bi;
-        VkDescriptorImageInfo cascadeInfo{shadowSampler_, cascades_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo spotInfo{shadowSampler_, atlas_.layers[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo cascadeInfo{shadowCompareSampler_, cascades_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo spotInfo{shadowCompareSampler_, atlas_.layers[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo cascadeDepthInfo{shadowSampler_, cascades_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         w[1].dstSet = descSets_[i];
         w[1].dstBinding = 1;
         w[1].descriptorCount = 1;
@@ -1150,7 +1164,14 @@ void Renderer::createResources(const MeshLibrary&) {
         w[3] = w[1];
         w[3].dstBinding = 6;
         w[3].pImageInfo = &pointInfo;
+        VkWriteDescriptorSet more[2] = {w[1], w[1]};
+        more[0].dstBinding = 20;
+        more[0].pImageInfo = &cascadeDepthInfo;
+        VkDescriptorImageInfo fogInfo{fogSampler_, fog_[i].volume.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        more[1].dstBinding = 21;
+        more[1].pImageInfo = &fogInfo;
         vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 2, more, 0, nullptr);
 
         VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &imageAvailable_[i]));
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
@@ -1289,6 +1310,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
     timestamp(cb, "Shadows");
+    recordFog(cb);   // (after the shadows: it looks up the sun's)
+    if (fogOn_) timestamp(cb, "Volumetric fog");
 
     // ---- Global illumination: the probes due this frame, drawn and projected
     recordGi(cb, info);
@@ -1691,6 +1714,18 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     fillFrameUBO(info, u, true);
     setProbeData(u);
     finishGi(u);
+    // Volumetric fog: the main view's (only with something to draw and its shadows worked out)
+    fogOn_ = info.volumetricFog && info.items && fogInjectPipeline_ && info.fogDensity > 0.f;
+    if (fogOn_) {
+        const float far = std::clamp(fogFar_, 10.f, 1000.f), near = std::clamp(fogNear_ * 0.5f, 0.5f, far * 0.25f);
+        u.fogParams[3] = info.fogHeightFalloff;
+        u.fogParams[2] = std::clamp(info.fogAnisotropy, -0.95f, 0.95f);
+        u.fogParams[1] = info.fogLight;
+        u.fogParams[0] = 1.f;
+        u.fogRange[0] = near;
+        u.fogRange[1] = 64.f / std::log(far / near);
+        u.fogRange[2] = far;
+    }
     if (reflectionsOn(info) && ssrValid_) {   // the last frame's camera, for rays into its picture
         u.prevViewProj = ssrViewProj_;
         u.prevCamPos[0] = ssrCamPos_.x, u.prevCamPos[1] = ssrCamPos_.y, u.prevCamPos[2] = ssrCamPos_.z, u.prevCamPos[3] = 1.f;
@@ -1780,6 +1815,7 @@ void Renderer::shutdown() {
     vkDeviceWaitIdle(device_);
     for (ViewImage& v : viewImages_) destroyViewImage(v);   // (their textures: before the ImGui backend goes)
     destroyGi();
+    destroyFog();
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
@@ -1808,6 +1844,7 @@ void Renderer::shutdown() {
     destroyProbes();
     destroyCulling();
     vkDestroySampler(device_, shadowSampler_, nullptr);
+    vkDestroySampler(device_, shadowCompareSampler_, nullptr);
     destroyShadowArray(cascades_);
     destroyShadowArray(atlas_);
     destroyImage(cookies_);

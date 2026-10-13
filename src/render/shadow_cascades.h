@@ -17,7 +17,9 @@ struct Camera {
 constexpr int kCascades = 4;
 
 // `splits`: each slice's far end along the view (metres). `viewProj`: each cascade's camera, for a map `texels`
-// across (only when `viewProj` isn't null)
-void sunCascades(const Camera& camera, Vec3 sunDir, float distance, float texels, Mat4* viewProj, float* splits);
+// across (only when `viewProj` isn't null); `extent` (optional): each one's metres across and metres of depth
+constexpr float kBehind = 120.f;   // room behind each slice for things between it and the sun, metres
+void sunCascades(const Camera& camera, Vec3 sunDir, float distance, float texels, Mat4* viewProj, float* splits,
+                 float (*extent)[2] = nullptr);
 
 }  // namespace shadows

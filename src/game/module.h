@@ -21,7 +21,7 @@
 
 #include "scene/behaviour.h"
 
-#define VKWORLD_MODULE_API_VERSION 45  // bump when Behaviour, GameContext or the scene types change layout
+#define VKWORLD_MODULE_API_VERSION 46  // bump when Behaviour, GameContext or the scene types change layout
 
 #if defined(_WIN32)
 #define VKWORLD_MODULE_EXPORT extern "C" __declspec(dllexport)

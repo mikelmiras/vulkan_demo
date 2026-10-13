@@ -232,7 +232,9 @@ bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
            a.bloomStrength == b.bloomStrength && a.bloomThreshold == b.bloomThreshold && a.aoStrength == b.aoStrength &&
            a.aoRadius == b.aoRadius && a.skyImage == b.skyImage && a.skyIntensity == b.skyIntensity &&
            a.skyRotation == b.skyRotation && a.gi == b.gi && a.giSpacing == b.giSpacing && a.giIntensity == b.giIntensity &&
-           a.reflections == b.reflections;
+           a.reflections == b.reflections && a.shadowSoftness == b.shadowSoftness && a.volumetricFog == b.volumetricFog &&
+           a.fogLight == b.fogLight && a.fogAnisotropy == b.fogAnisotropy && a.fogHeightFalloff == b.fogHeightFalloff &&
+           a.tonemapper == b.tonemapper && a.contrast == b.contrast && a.saturation == b.saturation && a.vignette == b.vignette;
 }
 
 bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b) {

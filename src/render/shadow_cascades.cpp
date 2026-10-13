@@ -5,7 +5,8 @@
 
 namespace shadows {
 
-void sunCascades(const Camera& camera, Vec3 sunDir, float distance, float texels, Mat4* viewProj, float* splits) {
+void sunCascades(const Camera& camera, Vec3 sunDir, float distance, float texels, Mat4* viewProj, float* splits,
+                 float (*extent)[2]) {
     Vec3 fwd = normalize(camera.forward);
     Vec3 right = std::fabs(fwd.y) > 0.999f ? Vec3{1, 0, 0} : normalize(cross(fwd, {0, 1, 0}));
     Vec3 up = cross(right, fwd);
@@ -28,7 +29,8 @@ void sunCascades(const Camera& camera, Vec3 sunDir, float distance, float texels
                         r = std::max(r, length(corner - center));
                     }
             r = std::ceil(r * 16.f) / 16.f;
-            const float behind = 120.f;
+            const float behind = kBehind;
+            if (extent) extent[c][0] = 2.f * r, extent[c][1] = 2.f * r + behind;
             Vec3 sunUp = std::fabs(sunDir.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
             Mat4 view = lookAt(center - sunDir * (r + behind), center, sunUp);
             Mat4 proj = orthographic(-r, r, -r, r, 0.1f, 2.f * r + behind);

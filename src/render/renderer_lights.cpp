@@ -174,6 +174,8 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
         }
         if (info.plants && !info.plants->empty()) boxes.clear();   // (plants aren't items: the whole range then)
         fitDepthRange(info.viewProj, info.camPos, info.camForward, boxes, near, far);
+        fogFar_ = far;   // (the volumetric fog's cells reach as far, from about half as near)
+        fogNear_ = near;
     }
     u.clusterGrid[0] = (float)kClusterX;
     u.clusterGrid[1] = (float)kClusterY;

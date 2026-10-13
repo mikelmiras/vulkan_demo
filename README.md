@@ -393,8 +393,13 @@ dropping on the right.
 - **Shadows**: the sun's are 4 cascades (2048x2048 each) covering 160 m of the view, closer ones sharper, each
   snapped to texels so edges don't shimmer. Spot and point lights cast shadows into a **shadow atlas** (one 4096 x
   4096 image cut into tiles): those in view nearest the camera get the biggest tiles (1024, then 512, then 256; a
-  point light's six cube faces half that), up to 48 views a frame. Filtered 3x3. Cut-outs cast shadows with their holes; see-through
-  materials cast one only where they're mostly opaque (glass: none).
+  point light's six cube faces half that), up to 44 views a frame. **Soft**: each shadow lookup is 12 to 16 taps on
+  a Poisson disk turned per pixel (temporal AA smooths the grain), each a hardware-filtered comparison; the sun's
+  are **PCSS** (percentage-closer soft shadows): sharp where an object meets the ground, softer further from it,
+  as wide as the sun's size says (Scene look > *Shadow softness*: 1 a slightly hazy sun, 0 as sharp as the maps
+  allow), and cascades blend into each other over the last fifth of each, so where one takes over doesn't show.
+  Cut-outs cast shadows with their holes; see-through materials cast one only where they're mostly opaque (glass:
+  none).
 - **Ambient occlusion**: corners, creases and the ground under things darken a little (screen-space, from the
   depth, at half resolution; strength and radius in the scene's look settings).
 - **Sky**: a gradient from the horizon (also the fog colour) to the zenith, the ground below, and the sun's disc
@@ -460,6 +465,18 @@ dropping on the right.
   pixel in front (a city's ground, roads, sidewalks and buildings stacked on each other are lit once, not four
   times). `VKWORLD_PREPASS=0` turns it off. Point lights are clustered over the depth range of what's in view.
 - Distance fog, the selection outline (kept out of tonemapping), and a little dithering against banding.
+- **Volumetric fog** (Scene look > *Volumetric fog*): the fog lit by what passes through it, shafts of sunlight
+  between buildings (it looks up the sun's shadows), halos round street lamps and neon, headlight beams. A grid of
+  160 x 90 x 64 cells through the view (slices spaced logarithmically over the depth of what's in view) is filled
+  with each cell's density and in-scattered light (the fog's own colour, the sun, the point and spot lights of its
+  light cluster, a Henyey-Greenstein phase: *forward scattering* makes glows round lights you look towards
+  brighter), then summed from the camera out; surfaces and the sky are dimmed by what's in front and get its light.
+  *Fog light* scales the lights' share, *height falloff* thins it with height (low-lying mist). Two compute passes,
+  a few percent of a frame. The main view only (split-screen views and probes keep the plain fog).
+- **Tone mapping and grading**: PBR Neutral (colours as they are) or **filmic** (AgX: richer contrast, highlights
+  bleaching towards white as film's do), then contrast, saturation and a vignette (Scene look).
+- **Specular anti-aliasing**: where the normal changes within a pixel (small curved things, distant bumpy ground),
+  highlights are widened to match, so they don't sparkle and crawl.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
   (joint matrices in a storage buffer, up to 4 joints per vertex) in every pass, shadows and outline included.
 - **Batching and culling**: objects are drawn instanced, one draw call per mesh + material. Each object's data

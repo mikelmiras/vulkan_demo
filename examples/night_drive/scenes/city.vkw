@@ -1,6 +1,6 @@
 {
  "format": "vkworld-scene",
- "version": 40,
+ "version": 41,
  "meshes": [
   {
    "name": "building-a",
@@ -28627,14 +28627,23 @@
     0.01,
     0.012
    ],
-   "fogDensity": 0.009,
    "ambient": 0.1,
-   "exposure": 1.0,
+   "exposure": 1.15,
    "bloomStrength": 0.16,
    "bloomThreshold": 0.7,
    "aoStrength": 0.8,
    "aoRadius": 0.8,
-   "reflections": true
+   "reflections": true,
+   "volumetricFog": true,
+   "fogDensity": 0.03,
+   "fogHeightFalloff": 0.15,
+   "fogLight": 3.0,
+   "fogAnisotropy": 0.4,
+   "tonemapper": "filmic",
+   "contrast": 1.15,
+   "saturation": 1.1,
+   "vignette": 0.3,
+   "shadowSoftness": 1.0
   }
  }
 }
