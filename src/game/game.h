@@ -196,7 +196,8 @@ public:
     // Removes the entity (and its children) once every behaviour has run this update, so references stay valid
     void destroy(EntityId id);
     // Breaks a pre-fractured entity (a Fracture component) into its pieces: rigid bodies flying apart from where it
-    // was (cleared away after its pieceLife); without one (or its pieces not made yet), just destroys it
+    // was (cleared away after its pieceLife), or held together by joints if it's set to; without one (or its pieces
+    // not made yet), just destroys it
     void shatter(EntityId id);
     bool isDestroyed(EntityId id) const;   // queued this update
     void log(const std::string& message);  // shown in the viewport and printed to stdout

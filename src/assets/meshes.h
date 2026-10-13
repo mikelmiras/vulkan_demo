@@ -36,6 +36,9 @@ struct Mesh {
     std::string name;
     std::string source;          // file it was imported from ("model.obj", "model.glb#2.0"); empty for built-ins
     bool skinned = false;        // has joint weights (deformed by a Skin component)
+    // Moving (dynamic) colliders of this mesh: these meshes' convex hulls together, when it isn't convex itself (a
+    // fractured concave piece: physics/fracture.h); empty: its own convex hull
+    std::vector<int> convexParts;
 };
 
 // Built-in meshes: their ids in the library. Imported meshes get ids from MeshKind::Count up.

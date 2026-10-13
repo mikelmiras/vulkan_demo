@@ -721,7 +721,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 56 (done) | Texture streaming: mips loaded on demand under a memory budget, residency feedback from the GPU | Every texture is fully resident; big projects run out of memory |
 | 57 (done) | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
 | 58 (done) | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
-| 59 | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
+| 59 (done) | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
 | 60 | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
 | 61 | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
 | 62 | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
@@ -834,3 +834,31 @@ Working list for turning the renderer demo into a small game engine. Each task i
   different bone lengths for IK targets (feet sliding), twist bones, mirrored clips, editing event timing by
   scrubbing while playing, particle bursts and camera shakes as event actions, blend tree events' sounds by weight.
 
+- Task 59: concave fracture (physics/fracture.cpp): split now caps each side along its own open outline (the
+  piece's edges that only one of its triangles has, on the plane: a triangle lying in the plane goes to the side
+  behind it, so a cut along a face leaves that side less to close), crossing points worked out the same way from
+  either triangle of an edge so the outlines meet exactly; the edges are chained into loops, loops inside an odd
+  number of others become holes bridged into their outer loop, and each outline is ear-clipped. isConvex (every
+  corner behind every plane, sampled past ~2000) and convexParts (a concave piece halved across its longest side
+  until its parts are convex, at most 8): each part becomes a mesh ("<name>k part j") and Mesh::convexParts lists
+  them, so a moving piece's collider is a StaticCompound of their hulls. Tearing: SoftBody::tearStretch; a cloth
+  that tears is drawn with a vertex per triangle corner (no shared ones), so a torn triangle folds into a point and
+  the mesh keeps its size (rewritten in place); after each step softbody::tearing finds triangles with an edge past
+  tearStretch times its rest length, their indices go into SoftBody::torn (runtime) and the Jolt body is made again
+  without them: constraints from the rest shape, then the shared settings' vertices set to where the particles are
+  and how fast they go before it's made (Jolt's collision bounds come from them: copying into the made body left
+  them at rest and the cloth fell through the floor). Soft bodies in water: SoftBody::buoyancy; how much of it is
+  under (each particle counted by depth over the first quarter of its height) gives one lift and one drag on its
+  average velocity, the same for every particle (lifting each submerged particle on its own pulled meshes out of
+  shape, their particles bunched at the poles, and set them swimming off sideways). Fracture::holdTogether /
+  holdStrength: the pieces spawn without the burst, each with a fixed Joint to a touching piece (bounds meeting,
+  searched outwards from the first: a tree), breakForce = holdStrength; a held piece's life starts once its joint
+  breaks (or what it hangs on is gone); the tree's roots stay. Scene format 40, module API 40. Checked: an L cut
+  across both arms and a frame cut through its hole and across both sides (the volumes exact), the L's convex
+  parts; a cloth tearing (the drawn mesh's torn triangle a point, the cloth landing on the floor and staying
+  there); an inflated ball floating up and settling at the surface, one without buoyancy on the bottom; a held
+  crate landing in one piece, a weakly held one knocked apart and its loose pieces cleared; the new fields saved,
+  diffed; screenshots with validation of a cloth torn at a corner and the held and unheld crates. Not done: tearing
+  mesh soft bodies, tears that cut across triangles (they go whole), water currents and waves, one joint per
+  piece pair (a tree: a broken joint drops the whole branch), pieces of crates with the same name sharing joints
+  (joints find pieces by name), a proper convex decomposition (V-HACD) for very concave meshes.

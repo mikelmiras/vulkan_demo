@@ -28,6 +28,7 @@
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/GroupFilterTable.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
@@ -255,9 +256,12 @@ struct Physics::Impl {
         uint64_t key = 0;
         bool seen = false;
         std::vector<Vec3> positions;
+        std::vector<Vec3> rest;        // the particles at rest (entity space), and their triangles (a cloth that tears)
+        std::vector<uint32_t> faces;
     };
     std::unordered_map<EntityId, SoftState> softBodies;
     void removeSoft(SoftState& s) {
+        if (s.id.IsInvalid()) return;   // (torn to nothing)
         bi().RemoveBody(s.id);
         bi().DestroyBody(s.id);
     }
@@ -273,54 +277,72 @@ struct Physics::Impl {
         for (int i = 0; i < 16; ++i) f(std::round(world.m[i] * 1000.f));   // (moved by hand: made again there)
         return k;
     }
-    void syncSoftBodies(const Scene& scene, const MeshLibrary& meshes, const std::vector<Mat4>& worlds) {
+    // A Jolt soft body for the entity's SoftBody, without its torn triangles; its particles at rest, or where `was`
+    // has them (a cloth made again as it tears: its constraints still from the rest shape)
+    bool makeSoft(const Entity& e, const MeshLibrary& meshes, const Mat4& world, SoftState& out,
+                  const JPH::Array<JPH::SoftBodyVertex>* was = nullptr) {
+        softbody::Build b;
+        int mesh = e.meshRenderer ? e.meshRenderer->mesh : -1;
+        if (!softbody::build(*e.softBody, meshes, mesh, b)) return false;
+        const SoftBody& sb = *e.softBody;
+        Placement p = place(world);
+        JPH::Ref<JPH::SoftBodySharedSettings> shared = new JPH::SoftBodySharedSettings;
+        for (size_t k = 0; k < b.particles.size(); ++k) {
+            Vec3 q = b.particles[k];
+            shared->mVertices.push_back(JPH::SoftBodySharedSettings::Vertex(
+                JPH::Float3(q.x * p.scale.x, q.y * p.scale.y, q.z * p.scale.z), JPH::Float3(0, 0, 0), b.invMass[k]));
+        }
+        for (size_t f = 0; f + 2 < b.faces.size(); f += 3)
+            if (!std::binary_search(sb.torn.begin(), sb.torn.end(), (uint32_t)(f / 3)))
+                shared->AddFace(JPH::SoftBodySharedSettings::Face(b.faces[f], b.faces[f + 1], b.faces[f + 2]));
+        if (shared->mFaces.empty()) return false;
+        // Stiffness and bending as compliances (0: rigid); a limp cloth has no bend constraints at all
+        float soft = 1.f - std::clamp(sb.stiffness, 0.f, 1.f), bend = std::clamp(sb.bendiness, 0.f, 1.f);
+        JPH::SoftBodySharedSettings::VertexAttributes attributes(
+            soft * soft * soft * 0.01f, soft * soft * soft * 0.01f, bend >= 0.999f ? FLT_MAX : bend * bend * bend * 0.1f);
+        shared->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
+        if (sb.pressure > 0.f) shared->CalculateVolumeConstraintVolumes();
+        shared->Optimize();
+        if (was && was->size() == shared->mVertices.size())   // (set before it's made: Jolt's bounds come from them)
+            for (size_t k = 0; k < was->size(); ++k) {
+                (*was)[k].mPosition.StoreFloat3(&shared->mVertices[k].mPosition);
+                (*was)[k].mVelocity.StoreFloat3(&shared->mVertices[k].mVelocity);
+            }
+        JPH::SoftBodyCreationSettings cs(shared, JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation),
+                                         objectLayer(e.layer, true));
+        cs.mPressure = std::max(sb.pressure, 0.f);
+        cs.mLinearDamping = std::max(sb.damping, 0.f);
+        cs.mFriction = std::max(sb.friction, 0.f);
+        cs.mUpdatePosition = false;   // (its particles move; the body stays where the entity is)
+        cs.mNumIterations = 8;
+        cs.mUserData = e.id;
+        JPH::Body* body = bi().CreateSoftBody(cs);
+        if (!body) return false;
+        bi().AddBody(body->GetID(), JPH::EActivation::Activate);
+        out.id = body->GetID();
+        out.rest = b.particles;
+        out.faces = b.faces;
+        return true;
+    }
+    void syncSoftBodies(Scene& scene, const MeshLibrary& meshes, const std::vector<Mat4>& worlds) {
         for (auto& [id, s] : softBodies) s.seen = false;
         for (size_t i = 0; i < scene.entities.size(); ++i) {
-            const Entity& e = scene.entities[i];
+            Entity& e = scene.entities[i];
             if (!e.softBody || !scene.visibleInHierarchy(e.id)) continue;
             int mesh = e.meshRenderer ? e.meshRenderer->mesh : -1;
             uint64_t key = softKey(*e.softBody, mesh, worlds[i]);
             auto it = softBodies.find(e.id);
-            if (it != softBodies.end() && it->second.key != key) {
+            if (it != softBodies.end() && it->second.key != key) {   // (made again whole)
                 removeSoft(it->second);
                 softBodies.erase(it);
                 it = softBodies.end();
+                e.softBody->torn.clear();
             }
             if (it == softBodies.end()) {
-                softbody::Build b;
-                if (!softbody::build(*e.softBody, meshes, mesh, b)) continue;
-                const SoftBody& sb = *e.softBody;
-                Placement p = place(worlds[i]);
-                JPH::Ref<JPH::SoftBodySharedSettings> shared = new JPH::SoftBodySharedSettings;
-                for (size_t k = 0; k < b.particles.size(); ++k) {
-                    Vec3 q = b.particles[k];
-                    shared->mVertices.push_back(JPH::SoftBodySharedSettings::Vertex(
-                        JPH::Float3(q.x * p.scale.x, q.y * p.scale.y, q.z * p.scale.z), JPH::Float3(0, 0, 0), b.invMass[k]));
-                }
-                for (size_t f = 0; f + 2 < b.faces.size(); f += 3)
-                    shared->AddFace(JPH::SoftBodySharedSettings::Face(b.faces[f], b.faces[f + 1], b.faces[f + 2]));
-                // Stiffness and bending as compliances (0: rigid); a limp cloth has no bend constraints at all
-                float soft = 1.f - std::clamp(sb.stiffness, 0.f, 1.f), bend = std::clamp(sb.bendiness, 0.f, 1.f);
-                JPH::SoftBodySharedSettings::VertexAttributes attributes(
-                    soft * soft * soft * 0.01f, soft * soft * soft * 0.01f, bend >= 0.999f ? FLT_MAX : bend * bend * bend * 0.1f);
-                shared->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
-                if (sb.pressure > 0.f) shared->CalculateVolumeConstraintVolumes();
-                shared->Optimize();
-                JPH::SoftBodyCreationSettings cs(shared, JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation),
-                                                 objectLayer(e.layer, true));
-                cs.mPressure = std::max(sb.pressure, 0.f);
-                cs.mLinearDamping = std::max(sb.damping, 0.f);
-                cs.mFriction = std::max(sb.friction, 0.f);
-                cs.mUpdatePosition = false;   // (its particles move; the body stays where the entity is)
-                cs.mNumIterations = 8;
-                cs.mUserData = e.id;
-                JPH::Body* body = bi().CreateSoftBody(cs);
-                if (!body) continue;
-                bi().AddBody(body->GetID(), JPH::EActivation::Activate);
-                SoftState s;
-                s.id = body->GetID();
-                s.key = key;
-                it = softBodies.emplace(e.id, std::move(s)).first;
+                SoftState st;
+                if (!makeSoft(e, meshes, worlds[i], st)) continue;
+                st.key = key;
+                it = softBodies.emplace(e.id, std::move(st)).first;
             }
             it->second.seen = true;
         }
@@ -348,7 +370,33 @@ struct Physics::Impl {
         }
     }
 
-    // ---- Buoyancy: dynamic bodies in trigger volumes tagged "Water" float (or sink) by their RigidBody's buoyancy
+    // Cloths stretched past their tearStretch lose those triangles: made again without them, their particles carried
+    // over where they are, as fast as they were going
+    void tearSoftBodies(Scene& scene, const MeshLibrary& meshes) {
+        for (auto& [id, s] : softBodies) {
+            Entity* e = scene.find(id);
+            if (!e || !e->softBody || e->softBody->shape != SoftBody::Shape::Cloth || e->softBody->tearStretch <= 0.f) continue;
+            std::vector<uint32_t> fresh = softbody::tearing(s.rest, s.positions, s.faces, e->softBody->torn, e->softBody->tearStretch);
+            if (fresh.empty()) continue;
+            std::vector<uint32_t>& torn = e->softBody->torn;
+            torn.insert(torn.end(), fresh.begin(), fresh.end());
+            std::sort(torn.begin(), torn.end());
+            torn.erase(std::unique(torn.begin(), torn.end()), torn.end());
+            JPH::Array<JPH::SoftBodyVertex> was;
+            {
+                JPH::BodyLockRead lock(system.GetBodyLockInterface(), s.id);
+                if (!lock.Succeeded()) continue;
+                was = static_cast<const JPH::SoftBodyMotionProperties*>(lock.GetBody().GetMotionProperties())->GetVertices();
+            }
+            SoftState made;
+            bool any = makeSoft(*e, meshes, scene.worldMatrix(id), made, &was);
+            removeSoft(s);
+            s.id = any ? made.id : JPH::BodyID();   // (invalid: nothing left of it)
+        }
+    }
+
+    // ---- Buoyancy: dynamic bodies in trigger volumes tagged "Water" float (or sink) by their RigidBody's buoyancy;
+    // soft bodies by how much of them is under (their SoftBody's buoyancy, every particle alike)
     void applyBuoyancy(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 gravity, float dt) {
         struct Water {
             Vec3 lo, hi;
@@ -380,6 +428,49 @@ struct Physics::Impl {
                 break;
             }
         }
+        std::vector<JPH::BodyID> woken;
+        for (auto& [id, s] : softBodies) {
+            const Entity* e = scene.find(id);
+            if (!e || !e->softBody || e->softBody->buoyancy <= 0.f || s.id.IsInvalid()) continue;
+            JPH::BodyLockWrite lock(system.GetBodyLockInterface(), s.id);
+            if (!lock.Succeeded()) continue;
+            JPH::Body& body = lock.GetBody();
+            auto* mp = static_cast<JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+            JPH::RMat44 com = body.GetCenterOfMassTransform();
+            JPH::Vec3 lift = com.Multiply3x3Transposed(toJ(gravity)) * (-e->softBody->buoyancy * dt);   // (body space)
+            // How much of it is under the surface (each particle counted in by depth over the first quarter of its
+            // height), as one lift and one drag on its average velocity for all its particles: it bobs as a whole
+            // rather than being pulled out of shape (a mesh's particles bunch where its triangles are small)
+            auto& vertices = mp->GetVertices();
+            float lowest = 1e30f, highest = -1e30f;
+            for (const JPH::SoftBodyVertex& v : vertices) {
+                float y = (float)(com * JPH::RVec3(v.mPosition)).GetY();
+                lowest = std::min(lowest, y);
+                highest = std::max(highest, y);
+            }
+            float ramp = std::max((highest - lowest) * 0.25f, 0.01f), under = 0.f;
+            JPH::Vec3 velocity = JPH::Vec3::sZero();
+            int moving = 0;
+            for (const JPH::SoftBodyVertex& v : vertices) {
+                if (v.mInvMass <= 0.f) continue;
+                ++moving;
+                velocity += v.mVelocity;
+                JPH::RVec3 q = com * JPH::RVec3(v.mPosition);
+                Vec3 at{(float)q.GetX(), (float)q.GetY(), (float)q.GetZ()};
+                for (const Water& w : water)
+                    if (at.x >= w.lo.x && at.x <= w.hi.x && at.z >= w.lo.z && at.z <= w.hi.z && at.y >= w.lo.y && at.y <= w.hi.y) {
+                        under += std::min((w.hi.y - at.y) / ramp, 1.f);
+                        break;
+                    }
+            }
+            if (moving == 0 || under <= 0.f) continue;
+            float wetness = under / (float)moving;
+            JPH::Vec3 change = lift * wetness - velocity / (float)moving * std::min(6.f * dt * wetness, 1.f);
+            for (JPH::SoftBodyVertex& v : vertices)
+                if (v.mInvMass > 0.f) v.mVelocity += change;
+            if (!body.IsActive()) woken.push_back(s.id);
+        }
+        for (JPH::BodyID id : woken) bi().ActivateBody(id);   // (outside the locks)
     }
     void removeVehicle(VehicleState& v) {
         system.RemoveStepListener(v.constraint);
@@ -785,7 +876,23 @@ struct Physics::Impl {
                 const Vertex* v = &meshes.vertices[(size_t)m.vertexOffset];
                 const uint32_t* idx = &meshes.indices[m.firstIndex];
                 auto scaled = [&](uint32_t i) { return JPH::Float3(v[i].pos.x * s.x, v[i].pos.y * s.y, v[i].pos.z * s.z); };
-                if (dynamic) {   // moving meshes collide as their convex hull
+                if (dynamic && !m.convexParts.empty()) {   // a concave piece: its convex parts' hulls together
+                    JPH::StaticCompoundShapeSettings compound;
+                    for (int part : m.convexParts) {
+                        if (part < 0 || part >= meshes.count()) continue;
+                        const Mesh& pm = meshes.get(part);
+                        JPH::Array<JPH::Vec3> points;
+                        for (uint32_t i = 0; i < pm.indexCount; ++i) {
+                            const Vertex& pv = meshes.vertices[(size_t)pm.vertexOffset + meshes.indices[pm.firstIndex + i]];
+                            points.push_back(JPH::Vec3(pv.pos.x * s.x, pv.pos.y * s.y, pv.pos.z * s.z));
+                        }
+                        auto r = JPH::ConvexHullShapeSettings(points).Create();
+                        if (!r.HasError()) compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), r.Get());
+                    }
+                    auto r = compound.Create();
+                    if (r.HasError()) return nullptr;
+                    inner = r.Get();
+                } else if (dynamic) {   // moving meshes collide as their convex hull
                     JPH::Array<JPH::Vec3> points;
                     for (uint32_t i = 0; i < m.indexCount; ++i) {
                         JPH::Float3 f = scaled(idx[i]);
@@ -1136,6 +1243,7 @@ std::vector<Impact> Physics::step(Scene& scene, const MeshLibrary& meshes, float
 
     im.writeVehicles(scene);
     im.readSoftBodies(scene);
+    im.tearSoftBodies(scene, meshes);
 
     // ---- Joints pulled harder than they hold come apart
     for (auto it = im.joints.begin(); it != im.joints.end();) {

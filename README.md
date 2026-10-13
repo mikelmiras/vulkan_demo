@@ -640,13 +640,17 @@ colliders draws them all (blue = solid, green = trigger).
 - **Soft bodies**: a **Soft Body** component makes **cloth** (a sheet of particles, pinned along its top edge, at
   its top corners or nowhere; how stiff and how freely it folds) or turns the entity's mesh into a **squashy**
   volume (jelly, a cushion; *Pressure* inflates it into a firm ball). Simulated by Jolt with everything else (it
-  collides, things land on it); drawn with the Mesh Renderer's look, its mesh following the particles.
+  collides, things land on it); drawn with the Mesh Renderer's look, its mesh following the particles. A cloth
+  with *Tears at* set (1.5: an edge stretched half again its length) tears: those triangles go, the rest carries
+  on. In water a soft body's own *Buoyancy* pushes up the particles under the surface (1 hovers, more floats).
 - **Buoyancy**: rigid bodies in a Water volume (a trigger box tagged **Water**) float or sink by their Rigid Body's
   *Buoyancy* (1: neither; a cork 2, a stone 0.4), with drag in the water.
 - **Fracture**: a **Fracture** component cuts the mesh into pieces ahead of time (as many as set; another *Seed*,
   other cuts). It breaks into them on an impact faster than its *Break speed*, when a Destructible on it runs out
   of hits, or on `ctx.shatter(id)`: rigid pieces (tagged Debris) flying apart, cleared away after their *Piece life*.
-  Convex meshes (boxes, rocks) cut cleanly; a concave mesh's cut faces may cross its gaps.
+  Concave meshes cut cleanly too (the cut faces follow the outline, holes kept), and a concave piece collides as
+  several convex parts. With *Hold together* it cracks instead: the pieces stay joined (each by a fixed joint to one
+  it touches) until a force past *Hold strength* knocks them off; a piece's life starts once it's off.
 - Everything (queries, triggers, characters, bodies) is one Jolt world, kept up to date with the scene each update.
 - Mesh colliders test real triangles, so they're the most expensive: prefer boxes and spheres for big scenes.
 

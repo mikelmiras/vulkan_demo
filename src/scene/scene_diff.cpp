@@ -58,11 +58,12 @@ bool eq(const ReverbZone& a, const ReverbZone& b) {
 bool eq(const SoftBody& a, const SoftBody& b) {
     return a.shape == b.shape && a.width == b.width && a.height == b.height && a.resolution == b.resolution &&
            a.pinned == b.pinned && a.mass == b.mass && a.stiffness == b.stiffness && a.bendiness == b.bendiness &&
-           a.pressure == b.pressure && a.damping == b.damping && a.friction == b.friction;
+           a.pressure == b.pressure && a.damping == b.damping && a.friction == b.friction &&
+           a.tearStretch == b.tearStretch && a.buoyancy == b.buoyancy;
 }
 bool eq(const Fracture& a, const Fracture& b) {
     return a.pieces == b.pieces && a.seed == b.seed && a.breakSpeed == b.breakSpeed && a.burst == b.burst &&
-           a.pieceLife == b.pieceLife;
+           a.pieceLife == b.pieceLife && a.holdTogether == b.holdTogether && a.holdStrength == b.holdStrength;
 }
 bool eq(const AIBrain& a, const AIBrain& b) {
     if (a.nodes.size() != b.nodes.size()) return false;

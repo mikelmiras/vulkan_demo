@@ -469,6 +469,10 @@ void Editor::drawComponents(Entity& e) {
                 }
                 ImGui::SliderFloat("Bendiness", &sb.bendiness, 0.f, 1.f, "%.2f");
                 track();
+                ImGui::DragFloat("Tears at", &sb.tearStretch, 0.01f, 0.f, 10.f, sb.tearStretch > 0.f ? "%.2fx stretch" : "never",
+                                 ImGuiSliderFlags_AlwaysClamp);
+                track();
+                tooltip("A triangle tears once one of its edges is stretched this many times its length (1.5: half again)");
             } else {
                 ImGui::DragFloat("Pressure", &sb.pressure, 10.f, 0.f, 1e6f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
                 track();
@@ -483,6 +487,9 @@ void Editor::drawComponents(Entity& e) {
             track();
             ImGui::SliderFloat("Friction", &sb.friction, 0.f, 1.f, "%.2f");
             track();
+            ImGui::DragFloat("Buoyancy", &sb.buoyancy, 0.01f, 0.f, 10.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            tooltip("In water (trigger boxes tagged Water): 1 hovers, more floats, 0 sinks as if there were none");
             ImGui::TextDisabled("Simulated while playing; drawn with the Mesh Renderer's look.");
         }
     }
@@ -504,6 +511,13 @@ void Editor::drawComponents(Entity& e) {
             ImGui::DragFloat("Piece life", &f.pieceLife, 0.1f, 0.f, 600.f, f.pieceLife > 0.f ? "%.1f s" : "forever",
                              ImGuiSliderFlags_AlwaysClamp);
             track();
+            ImGui::Checkbox("Hold together", &f.holdTogether);
+            track();
+            tooltip("Cracks instead of breaking: the pieces stay joined until knocked apart");
+            if (f.holdTogether) {
+                ImGui::DragFloat("Hold strength", &f.holdStrength, 10.f, 1.f, 1e7f, "%.0f N", ImGuiSliderFlags_AlwaysClamp);
+                track();
+            }
             ImGui::TextDisabled("%d pieces made. Breaks on a hard impact, a Destructible\nrunning out of hits, or ctx.shatter().",
                                 (int)f.pieceMeshes.size());
             if (!e.meshRenderer) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a mesh renderer (its mesh is cut)");

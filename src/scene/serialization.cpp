@@ -19,7 +19,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 39;  // 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 40;  // 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -520,6 +520,8 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("pressure", sb.pressure);
         c.set("damping", sb.damping);
         c.set("friction", sb.friction);
+        c.set("tearStretch", sb.tearStretch);
+        c.set("buoyancy", sb.buoyancy);
     }
     if (e.fracture) {
         const Fracture& f = *e.fracture;
@@ -529,6 +531,8 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("breakSpeed", f.breakSpeed);
         c.set("burst", f.burst);
         c.set("pieceLife", f.pieceLife);
+        c.set("holdTogether", f.holdTogether);
+        c.set("holdStrength", f.holdStrength);
     }
     if (e.brain) {
         const AIBrain& b = *e.brain;
@@ -948,6 +952,8 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         sb.pressure = c["pressure"].asFloat(sb.pressure);
         sb.damping = c["damping"].asFloat(sb.damping);
         sb.friction = c["friction"].asFloat(sb.friction);
+        sb.tearStretch = c["tearStretch"].asFloat(sb.tearStretch);
+        sb.buoyancy = c["buoyancy"].asFloat(sb.buoyancy);
         e.softBody = sb;
     }
     if (const json::Value& c = v["fracture"]; c.isObject()) {
@@ -957,6 +963,8 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         f.breakSpeed = c["breakSpeed"].asFloat(f.breakSpeed);
         f.burst = c["burst"].asFloat(f.burst);
         f.pieceLife = c["pieceLife"].asFloat(f.pieceLife);
+        f.holdTogether = c["holdTogether"].asBool(f.holdTogether);
+        f.holdStrength = c["holdStrength"].asFloat(f.holdStrength);
         e.fracture = f;
     }
     if (const json::Value& c = v["brain"]; c.isObject()) {

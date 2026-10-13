@@ -381,13 +381,51 @@ void GameContext::shatter(EntityId id) {
     Vec3 velocity = whole.rigidBody ? whole.rigidBody->velocity : Vec3{};
     float mass = whole.rigidBody ? whole.rigidBody->mass : 1.f;
     const Fracture& f = *whole.fracture;
+    // Held together: each piece joined to one it touches (their bounds meeting), found outwards from the first, so the
+    // joints make a tree through all of them
+    std::vector<int> heldTo(f.pieceMeshes.size(), -1);
+    std::vector<Vec3> anchors(f.pieceMeshes.size());
+    if (f.holdTogether) {
+        auto bounds = [&](size_t k, Vec3& lo, Vec3& hi) {
+            int mesh = f.pieceMeshes[k];
+            if (mesh < 0 || mesh >= meshes_->count()) return false;
+            lo = meshes_->get(mesh).boundsMin;
+            hi = meshes_->get(mesh).boundsMax;
+            return true;
+        };
+        std::vector<bool> reached(f.pieceMeshes.size(), false);
+        for (size_t root = 0; root < f.pieceMeshes.size(); ++root) {
+            if (reached[root]) continue;
+            reached[root] = true;
+            std::vector<size_t> open{root};
+            while (!open.empty()) {
+                size_t a = open.back();
+                open.pop_back();
+                Vec3 alo, ahi;
+                if (!bounds(a, alo, ahi)) continue;
+                float slack = length(ahi - alo) * 0.02f;
+                for (size_t b = 0; b < f.pieceMeshes.size(); ++b) {
+                    Vec3 blo, bhi;
+                    if (reached[b] || !bounds(b, blo, bhi)) continue;
+                    Vec3 lo{std::max(alo.x, blo.x), std::max(alo.y, blo.y), std::max(alo.z, blo.z)};
+                    Vec3 hi{std::min(ahi.x, bhi.x), std::min(ahi.y, bhi.y), std::min(ahi.z, bhi.z)};
+                    if (lo.x > hi.x + slack || lo.y > hi.y + slack || lo.z > hi.z + slack) continue;
+                    reached[b] = true;
+                    heldTo[b] = (int)a;
+                    anchors[b] = (lo + hi) * 0.5f;
+                    open.push_back(b);
+                }
+            }
+        }
+    }
+    auto pieceName = [&](size_t k) { return whole.name + " piece " + std::to_string(k + 1); };
     for (size_t k = 0; k < f.pieceMeshes.size(); ++k) {
         int mesh = f.pieceMeshes[k];
         if (mesh < 0 || mesh >= meshes_->count()) continue;
         const Mesh& pm = meshes_->get(mesh);
         Entity piece;
         piece.id = scene_->reserveId();
-        piece.name = whole.name + " piece " + std::to_string(k + 1);
+        piece.name = pieceName(k);
         piece.layer = whole.layer;
         piece.tags = {"Debris"};
         piece.transform.setMatrix(world);   // (a root: where the whole was in the world)
@@ -399,8 +437,17 @@ void GameContext::shatter(EntityId id) {
         piece.rigidBody->kinematic = false;
         piece.rigidBody->mass = std::max(mass / (float)f.pieceMeshes.size(), 0.01f);
         Vec3 out = transformPoint(world, (pm.boundsMin + pm.boundsMax) * 0.5f) - centre;
-        piece.rigidBody->velocity = velocity + (length(out) > 1e-4f ? normalize(out) : Vec3{0, 1, 0}) * f.burst;
-        if (f.pieceLife > 0.f) game_->debris_.emplace_back(piece.id, time_ + f.pieceLife);
+        piece.rigidBody->velocity = velocity + (length(out) > 1e-4f ? normalize(out) : Vec3{0, 1, 0}) * (f.holdTogether ? 0.f : f.burst);
+        if (heldTo[k] >= 0) {
+            piece.joint = Joint{};
+            piece.joint->type = Joint::Type::Fixed;
+            piece.joint->connectedTo = pieceName((size_t)heldTo[k]);
+            piece.joint->anchor = anchors[k];
+            piece.joint->breakForce = std::max(f.holdStrength, 1e-3f);
+        }
+        // (a held piece's time starts once it's knocked off, a negative time until then; what they hang on stays)
+        if (f.pieceLife > 0.f && heldTo[k] >= 0) game_->debris_.emplace_back(piece.id, -f.pieceLife);
+        else if (f.pieceLife > 0.f && !f.holdTogether) game_->debris_.emplace_back(piece.id, time_ + f.pieceLife);
         spawnQueue_.push_back(std::move(piece));
     }
     destroy(id);
@@ -972,7 +1019,12 @@ void Game::fixedUpdate(float dt) {
         for (Entity& e : scene_->entities)   // soft bodies: where their particles went
             if (e.softBody && physics_.softBodyPositions(e.id, e.softBody->positions)) ++e.softBody->positionsVersion;
         for (auto it = debris_.begin(); it != debris_.end();) {   // pieces whose time is up
-            if (time_ >= it->second) {
+            if (it->second < 0.f) {   // (held on: its time starts when its joint breaks)
+                const Entity* e = scene_->find(it->first);
+                if (e && (!e->joint || e->joint->broken || !scene_->findByName(e->joint->connectedTo)))
+                    it->second = time_ - it->second;
+                ++it;
+            } else if (time_ >= it->second) {
                 ctx_.destroy(it->first);
                 it = debris_.erase(it);
             } else {

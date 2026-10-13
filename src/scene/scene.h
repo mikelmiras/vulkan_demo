@@ -119,11 +119,15 @@ struct SoftBody {
     float pressure = 0.f;              // mesh: inflation (0: none; a few thousand: a firm ball)
     float damping = 0.1f;
     float friction = 0.5f;
-    // Runtime (not saved): the drawn mesh, deformed in place; the particles' positions (entity space) as simulated
+    float tearStretch = 0.f;           // cloth: a triangle tears once an edge is this many times its length (0: never)
+    float buoyancy = 0.f;              // in water (as RigidBody's): 1 hovers, more floats, 0: the water doesn't hold it
+    // Runtime (not saved): the drawn mesh, deformed in place; the particles' positions (entity space) as simulated;
+    // the cloth's torn triangles (by index, in softbody::build's faces)
     int mesh = -1;
     int meshVertices = 0, meshSource = -1;
     std::vector<Vec3> positions;
     uint64_t positionsVersion = 0, meshVersion = 0;   // (the drawn mesh shows the particles of meshVersion)
+    std::vector<uint32_t> torn;
 };
 
 // Pre-fractured: breaks into pieces (cut from its mesh, the same ones every time: physics/fracture.h) on a hard
@@ -134,6 +138,10 @@ struct Fracture {
     float breakSpeed = 6.f;     // impacts this fast (m/s) break it (0: only ctx.shatter / Destructible)
     float burst = 2.f;          // how fast the pieces fly apart (m/s)
     float pieceLife = 8.f;      // seconds before the pieces are cleared away (0: they stay)
+    // Held together: it cracks instead, its pieces joined (fixed joints, each to a touching one) until a force past
+    // holdStrength (N) knocks them apart; a held piece is only cleared away once it's off
+    bool holdTogether = false;
+    float holdStrength = 2000.f;
     // Runtime: the pieces' meshes in the library (made by fracture::syncMeshes)
     std::vector<int> pieceMeshes;
     uint64_t piecesKey = 0;
