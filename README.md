@@ -985,8 +985,33 @@ In the editor, Game > Host a multiplayer game hosts while you play. A client loa
 - **Joining late**: a player joining a game in progress gets the scene the host is in and everything destroyed
   before they came (picked-up items stay picked up).
 
-Not there yet: scene changes and save games while connected (after joining), encryption and NAT punch-through,
-reliable messages between behaviours on different machines (messages stay on the machine that sends them).
+- **Dedicated servers**: `vkgame path/to/MyGame --server` (or `--server 4000`) runs the game with no window and no
+  GPU (a server machine needs neither), at 60 updates a second, with no player of its own: everyone who joins is a
+  client. It logs who joins and leaves; Ctrl+C (or SIGTERM) stops it, saying goodbye to the players.
+- **Lobbies and NAT traversal** through a **relay**: `vkrelay` (built with the engine, in the releases; standalone,
+  no GPU or engine library) is a small server for a machine with a public UDP port (27100 by default:
+  `vkrelay [port]`). Name it in `project.json` (`"relay": "relay.example.com"`, or `--relay host[:port]`) and a host
+  (`--host`, `--server`, the editor's Game > Host) lists its game there and gets a six-letter **lobby code**, shown in
+  its status (`--lobby "name"` names the lobby, `--max-players N` says how many it takes). Players join with
+  `--join-lobby K7QX2M`, list the game's lobbies with `vkgame path/to/MyGame --lobbies`, or do either from the game's
+  menus (below). The relay tells host and player where each other is as the internet sees them and both punch
+  through their NATs (most home routers then let the game's packets straight through); if nothing gets through
+  directly within 2 s, everything between them goes through the relay instead (only between peers it introduced).
+- **From the game's menus**: UI actions `@host [port]`, `@join address`, `@joinlobby code` (formatted like texts:
+  `@joinlobby {codeField}` takes a text field's value), `@lobbies` and `@leave`; vkgame reports back in the game state:
+  `net.status`, `net.active`, `net.hosting`, `net.connected`, `net.code` (a host's lobby code), `net.searching`,
+  `net.lobbiesError`, and the lobbies last listed: `net.lobbies` (how many), `net.lobby.0.name`, `.code`, `.players`
+  ("2 / 8") and so on (a List of buttons with `@joinlobby {net.lobby.0.code}` makes a lobby browser).
+
+```sh
+./vkrelay                                                  # on a server with a public address
+./vkgame MyGame --server --relay relay.example.com --lobby "Friday night"   # lists "Friday night": code K7QX2M
+./vkgame MyGame --relay relay.example.com --join-lobby K7QX2M
+```
+
+Not there yet: scene changes and save games while connected (after joining), encryption (and authentication on the
+relay: anyone can list and join lobbies), reliable messages between behaviours on different machines (messages stay
+on the machine that sends them), IPv6, a lobby's password or private lobbies.
 
 ### Lua scripting
 
@@ -1127,7 +1152,8 @@ Includes are relative to `src/`.
 | `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
 | `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
 | `src/script/`              | `lua_script.*`: Lua behaviours (the scripts/ folder, the Lua API, hot reload)   |
-| `src/net/`                 | `udp.*` sockets, `net_session.*` multiplayer: hosting, joining, replication, remote input |
+| `src/net/`                 | `udp.*` sockets, `net_session.*` multiplayer: hosting, joining, replication, remote input; `relay.*` lobbies, NAT traversal |
+| `src/relay/main.cpp`       | The relay server (`vkrelay`)                                    |
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_asset_db.cpp` asset inspector, moving / renaming assets, `editor_terrain.cpp` terrain tool, `editor_prefs.cpp` preferences saved per user |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |

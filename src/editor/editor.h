@@ -165,6 +165,7 @@ private:
     void drawGameView();
     void startPlay();
     void stopPlay();
+    void hostGame();
     void togglePause();
 
     // ---- Operations

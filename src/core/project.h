@@ -24,6 +24,9 @@ struct Settings {
     // settings.checkUpdates): JSON {"version": "1.1.0", "url": "...", "notes": "..."}, or a GitHub API "releases/latest"
     // URL. Empty: no check.
     std::string updateUrl;
+    // The relay server its multiplayer lobbies are on ("relay.example.com[:27100]", net/relay.h; vkrelay runs one).
+    // Empty: games are joined by address only.
+    std::string relay;
 };
 
 void setRoot(const std::filesystem::path& root);

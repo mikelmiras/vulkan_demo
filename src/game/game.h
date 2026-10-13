@@ -275,6 +275,12 @@ public:
     void setGamepadOutput(GamepadOutput output) { gamepadOut_ = std::move(output); }
     // Optional: opens a web page (the UI action "@open <url>"; the host's platform::openWithSystem)
     void setUrlOpener(std::function<void(const std::string& url)> open) { urlOpener_ = std::move(open); }
+    // Multiplayer from the game's menus: the UI actions "@host [port]", "@join address", "@joinlobby code",
+    // "@lobbies" (list the relay's) and "@leave" go to whatever runs the session (vkgame), which reports back in the
+    // game state (net.status, net.code, net.lobbies, net.lobby.<i>.name / code / players: see the README)
+    void setNetworkHandler(std::function<void(const std::string& verb, const std::string& arg)> handler) {
+        networkHandler_ = std::move(handler);
+    }
     struct Rumble {
         float low = 0.f, high = 0.f, seconds = 0.f;
     };
@@ -449,6 +455,7 @@ private:
     AudioEngine* audio_ = nullptr;
     GamepadOutput gamepadOut_;
     std::function<void(const std::string&)> urlOpener_;
+    std::function<void(const std::string&, const std::string&)> networkHandler_;
     Rumble lastRumble_;
     Vec3 light_;
     bool hasLight_ = false;

@@ -370,10 +370,18 @@ void Editor::startPlay() {
     game_.setSaveDirectory(project::saveDir(project_.name));
     game_.start(scene_, meshes_);
     setStatus("Playing. Ctrl+P stops and restores the scene.");
-    if (hostMultiplayer_) {
-        std::string error;
-        if (!net_.host(game_, NetSession::kDefaultPort, error)) setStatus("Can't host: " + error);
+    if (hostMultiplayer_) hostGame();
+}
+
+// Hosting while playing: on the default port, and in a lobby on the project's relay if it names one
+void Editor::hostGame() {
+    std::string error;
+    if (!net_.host(game_, NetSession::kDefaultPort, error)) {
+        setStatus("Can't host: " + error);
+        return;
     }
+    if (!project_.relay.empty() && !net_.advertise(project_.relay, project_.name, project_.name + " (editor)", 16, error))
+        setStatus("Can't list the game on the relay: " + error);
 }
 
 void Editor::stopPlay() {

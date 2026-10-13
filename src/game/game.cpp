@@ -776,6 +776,10 @@ void Game::runUIAction(const UIAction& a) {
     else if (verb == "@open") {   // "@open {update.url}": a page in the browser (formatted like texts)
         std::string url = ctx_.format(arg);
         if (urlOpener_ && !url.empty()) urlOpener_(url);
+    } else if (verb == "@host" || verb == "@join" || verb == "@joinlobby" || verb == "@lobbies" || verb == "@leave") {
+        // ("@joinlobby {code}": formatted like texts, so a text field's value can be joined)
+        if (networkHandler_) networkHandler_(verb.substr(1), ctx_.format(arg));
+        else ctx_.log("UI: " + verb + ": no multiplayer here");
     } else if (verb == "@set" || verb == "@cycle") {   // "@set key value", "@cycle key a b c": a game state value
         std::vector<std::string> words;
         for (size_t at = 0; at < arg.size();) {

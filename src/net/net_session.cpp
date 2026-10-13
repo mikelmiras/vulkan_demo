@@ -1,6 +1,7 @@
 #include "net/net_session.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -135,8 +136,9 @@ void NetSession::hookGame() {
     if (server_) game_->setRewindHooks([this](EntityId player) { rewind(player); }, [this] { unrewind(); });
 }
 
-bool NetSession::host(Game& game, uint16_t port, std::string& error) {
+bool NetSession::host(Game& game, uint16_t port, std::string& error, bool dedicated) {
     stop();
+    dedicated_ = dedicated;
     if (!game.running()) { error = "start the game first"; return false; }
     if (!socket_.open(port, error)) return false;
     game_ = &game;
@@ -149,12 +151,12 @@ bool NetSession::host(Game& game, uint16_t port, std::string& error) {
     destroyed_.clear();
     for (const Entity& e : scene.entities) known_.insert(e.id);
     scenePath_ = game.scenePath();
-    // The host plays too: its own player from the prefab, if the scene names one
-    if (!scene.network.playerPrefab.empty()) {
+    // The host plays too (unless it's a dedicated server): its own player from the prefab, if the scene names one
+    if (!dedicated && !scene.network.playerPrefab.empty()) {
         localPlayer_ = game.context().spawn(scene.network.playerPrefab, scene.network.spawnPoint);
         game.setLocalPlayer(localPlayer_);
     }
-    status_ = "Hosting on port " + std::to_string(socket_.port());
+    status_ = std::string(dedicated ? "Serving" : "Hosting") + " on port " + std::to_string(socket_.port());
     logLine("multiplayer: %s", status_.c_str());
     return true;
 }
@@ -175,16 +177,53 @@ bool NetSession::join(Game& game, const std::string& address, std::string& error
     return true;
 }
 
+bool NetSession::advertise(const std::string& relayAddress, const std::string& game, const std::string& name,
+                           int maxPlayers, std::string& error) {
+    if (!server_ || !socket_.isOpen()) { error = "host a game first"; return false; }
+    if (!net::resolve(relayAddress, relay::kDefaultPort, relay_, error)) return false;
+    useRelay_ = true;
+    lobbyGame_ = game;
+    lobbyName_ = name;
+    lobbyMax_ = std::clamp(maxPlayers, 1, 255);
+    lobbyToken_ = std::random_device{}() | 1u;
+    lobbyCode_.clear();
+    registerAt_ = -1e9;   // (registers on the next update)
+    return true;
+}
+
+bool NetSession::joinLobby(Game& game, const std::string& relayAddress, const std::string& code, std::string& error) {
+    net::Address relayAt;
+    if (!net::resolve(relayAddress, relay::kDefaultPort, relayAt, error)) return false;
+    if (!join(game, relayAddress, error)) return false;   // (the socket and the client's state; the server's found next)
+    relay_ = relayAt;
+    useRelay_ = true;
+    serverAddress_ = {};
+    joinCode_ = code;
+    for (char& c : joinCode_) c = (char)std::toupper((unsigned char)c);
+    finding_ = true;
+    lobbyFailed_ = false;
+    connectAt_ = -1e9;
+    status_ = "Finding lobby " + joinCode_ + "...";
+    return true;
+}
+
 void NetSession::stop() {
     if (!socket_.isOpen()) return;
+    if (useRelay_ && server_ && !lobbyName_.empty()) {   // (the lobby goes at once, not after the relay's timeout)
+        relay::Message bye;
+        bye.type = relay::Type::Unregister;
+        bye.token = lobbyToken_;
+        sendRelay(bye);
+    }
     Writer bye(kBye);
     bye.put(clientId_);
     if (server_) {
-        for (const Client& c : clients_) socket_.send(c.address, bye.bytes.data(), bye.bytes.size());
+        for (const Client& c : clients_) send(c.address, bye.bytes);
         while (!clients_.empty()) dropClient(clients_.size() - 1, "the server stopped");
-    } else {
-        socket_.send(serverAddress_, bye.bytes.data(), bye.bytes.size());
+    } else if (serverAddress_.port) {
+        send(serverAddress_, bye.bytes);
     }
+    flushDelayed();
     if (game_) {
         game_->setTickHooks(nullptr, nullptr);
         game_->setRewindHooks(nullptr, nullptr);
@@ -197,6 +236,12 @@ void NetSession::stop() {
     moves_.clear();
     delayed_.clear();
     history_.clear();
+    useRelay_ = finding_ = dedicated_ = false;
+    relayed_.clear();
+    punching_.clear();
+    lobbyName_.clear();
+    lobbyCode_.clear();
+    joinCode_.clear();
     status_ = "Offline";
 }
 
@@ -205,12 +250,122 @@ void NetSession::simulateNetwork(float latency, float loss) {
     loss_ = std::clamp(loss, 0.f, 1.f);
 }
 
-// Every packet goes through here: counted, and (when simulating a network) delayed or lost
+// Every packet goes through here: counted, wrapped for the relay when a peer is only reached through it, and (when
+// simulating a network) delayed or lost
 void NetSession::send(const net::Address& to, const std::vector<uint8_t>& bytes) {
-    bytesSent_ += bytes.size();
+    const net::Address* dest = &to;
+    std::vector<uint8_t> wrapped;
+    if (useRelay_ && to != relay_ && relayed(to)) {
+        relay::Message m;
+        m.type = relay::Type::Forward;
+        m.address = to;
+        m.payload = bytes;
+        wrapped = relay::encode(m);
+        dest = &relay_;
+    } else if (strictNat_ && to != relay_) {
+        return;   // (simulated: nothing goes straight through)
+    }
+    const std::vector<uint8_t>& out = wrapped.empty() ? bytes : wrapped;
+    bytesSent_ += out.size();
     if (loss_ > 0.f && std::uniform_real_distribution<float>(0.f, 1.f)(lossRng_) < loss_) return;
-    if (latency_ > 0.f) delayed_.push_back({clock_ + latency_, to, bytes});
-    else socket_.send(to, bytes.data(), bytes.size());
+    if (latency_ > 0.f) delayed_.push_back({clock_ + latency_, *dest, out});
+    else socket_.send(*dest, out.data(), out.size());
+}
+
+void NetSession::sendRelay(const relay::Message& m) {
+    if (useRelay_) send(relay_, relay::encode(m));
+}
+
+// A packet from the relay: a lobby's code, a peer to punch through to (or the server found), a peer's packet
+// forwarded (that peer is reached through the relay from now on)
+void NetSession::relayReceive(const uint8_t* data, size_t size) {
+    relay::Message m;
+    if (!relay::decode(data, size, m)) return;
+    switch (m.type) {
+    case relay::Type::Registered:
+        if (!server_ || m.token != lobbyToken_) break;
+        if (lobbyCode_ != m.code) logLine("multiplayer: lobby %s on the relay %s (seen from %s)", m.code.c_str(), relay_.str().c_str(),
+                                          m.address.str().c_str());
+        lobbyCode_ = m.code;
+        publicAddress_ = m.address;
+        break;
+    case relay::Type::Peer:
+        if (server_ && m.host) {   // someone joining: punch through to them (their Hello comes either way)
+            punching_.push_back({m.address, clock_ + 3.0});
+            punchAt_ = -1e9;
+        } else if (!server_ && !m.host && finding_ && m.code == joinCode_) {   // the server: Hello, straight to it
+            finding_ = false;
+            serverAddress_ = m.address;
+            peerAt_ = clock_;
+            helloAt_ = -1.0;
+            heardAt_ = clock_;
+            punching_.push_back({m.address, clock_ + 3.0});
+            punchAt_ = -1e9;
+            status_ = "Joining lobby " + joinCode_ + " (" + serverAddress_.str() + ")...";
+        }
+        break;
+    case relay::Type::NoLobby:
+        if (!server_ && finding_ && m.code == joinCode_) {
+            finding_ = false;
+            lobbyFailed_ = true;
+            status_ = "No lobby " + joinCode_;
+            logLine("multiplayer: %s", status_.c_str());
+        }
+        break;
+    case relay::Type::Forwarded:
+        if (!m.payload.empty() && !relay::isRelayPacket(m.payload.data(), m.payload.size())) {
+            if (!relayed(m.address)) logLine("multiplayer: reaching %s through the relay", m.address.str().c_str());
+            relayed_.insert(addressKey(m.address));
+            receive(m.payload.data(), m.payload.size(), m.address);
+        }
+        break;
+    default: break;
+    }
+}
+
+void NetSession::receive(const uint8_t* data, size_t size, const net::Address& from) {
+    if (server_) serverReceive(data, size, from);
+    else if (from == serverAddress_) clientReceive(data, size);
+}
+
+// Keeping the lobby, punching, finding the lobby, and giving up on a direct way
+void NetSession::updateRelay() {
+    if (!useRelay_) return;
+    if (server_ && !lobbyName_.empty() && clock_ - registerAt_ > (lobbyCode_.empty() ? 0.5 : 2.0)) {
+        relay::Message m;   // (again every 2 s: the relay keeps the lobby, and its player count, up to date)
+        m.type = relay::Type::Register;
+        m.token = lobbyToken_;
+        m.game = lobbyGame_;
+        m.name = lobbyName_;
+        m.players = (int)clients_.size() + (dedicated_ ? 0 : 1);
+        m.maxPlayers = lobbyMax_;
+        sendRelay(m);
+        registerAt_ = clock_;
+    }
+    if (!server_ && finding_ && clock_ - connectAt_ > 0.5) {
+        relay::Message m;
+        m.type = relay::Type::Connect;
+        m.code = joinCode_;
+        sendRelay(m);
+        connectAt_ = clock_;
+        if (clock_ > 10.0 && !lobbyFailed_) status_ = "No answer from the relay " + relay_.str();
+    }
+    punching_.erase(std::remove_if(punching_.begin(), punching_.end(), [&](const auto& p) { return clock_ > p.second; }),
+                    punching_.end());
+    if (!punching_.empty() && clock_ - punchAt_ > 0.2) {   // (a few: the first may die at the other's NAT)
+        relay::Message m;
+        m.type = relay::Type::Punch;
+        for (const auto& [to, until] : punching_)
+            if (!relayed(to)) send(to, relay::encode(m));
+        punchAt_ = clock_;
+    }
+    // A client the server hasn't answered directly in 2 s: through the relay from now on
+    if (!server_ && !finding_ && !welcomed_ && serverAddress_.port && !relayed(serverAddress_) && clock_ - peerAt_ > 2.0) {
+        relayed_.insert(addressKey(serverAddress_));
+        helloAt_ = -1.0;
+        status_ = "Joining lobby " + joinCode_ + " through the relay...";
+        logLine("multiplayer: no direct way to %s: through the relay", serverAddress_.str().c_str());
+    }
 }
 
 void NetSession::flushDelayed() {
@@ -230,9 +385,14 @@ void NetSession::update(float dt) {
     uint8_t buf[2048];
     net::Address from;
     for (size_t n; (n = socket_.receive(from, buf, sizeof(buf))) > 0;) {
-        if (server_) serverReceive(buf, n, from);
-        else if (from == serverAddress_) clientReceive(buf, n);
+        if (useRelay_ && from == relay_) relayReceive(buf, n);
+        else if (relay::isRelayPacket(buf, n)) continue;   // (a peer's punch: it opened the way, nothing to do)
+        else {
+            if (relayed(from)) relayed_.erase(addressKey(from));   // (it came straight here: no need for the relay)
+            receive(buf, n, from);
+        }
     }
+    updateRelay();
     if (server_) {
         for (size_t i = clients_.size(); i-- > 0;)
             if (clock_ - clients_[i].heard > kTimeout) dropClient(i, "timed out");
@@ -241,10 +401,11 @@ void NetSession::update(float dt) {
             snapshotTimer_ = 0.f;
             sendSnapshots();
         }
-        status_ = "Hosting on port " + std::to_string(socket_.port()) + ": " + std::to_string(clients_.size()) +
-                  (clients_.size() == 1 ? " player joined" : " players joined");
+        status_ = std::string(dedicated_ ? "Serving" : "Hosting") + " on port " + std::to_string(socket_.port()) + ": " +
+                  std::to_string(clients_.size()) + (clients_.size() == 1 ? " player joined" : " players joined") +
+                  (lobbyCode_.empty() ? "" : ", lobby " + lobbyCode_);
     } else {
-        if (!welcomed_ && clock_ - helloAt_ > 0.5) {   // (until the server answers)
+        if (!welcomed_ && !finding_ && serverAddress_.port && clock_ - helloAt_ > 0.5) {   // (until the server answers)
             Writer hello(kHello);
             hello.str("player");
             send(serverAddress_, hello.bytes);
@@ -257,7 +418,8 @@ void NetSession::update(float dt) {
             send(serverAddress_, ping.bytes);
             pingAt_ = clock_;
         }
-        if (clock_ - heardAt_ > kTimeout) status_ = welcomed_ ? "Lost the server" : "No answer from " + serverAddress_.str();
+        if (!finding_ && !lobbyFailed_ && clock_ - heardAt_ > kTimeout)
+            status_ = welcomed_ ? "Lost the server" : "No answer from " + serverAddress_.str();
         smooth(dt);
     }
     flushDelayed();
@@ -595,7 +757,7 @@ void NetSession::clientReceive(const uint8_t* data, size_t size) {
         }
         welcomed_ = true;
         game_->setLocalPlayer(localPlayer_);
-        status_ = "Playing on " + serverAddress_.str();
+        status_ = "Playing on " + serverAddress_.str() + (relayed(serverAddress_) ? " (through the relay)" : "");
         return;
     }
     if (type == kPong) {

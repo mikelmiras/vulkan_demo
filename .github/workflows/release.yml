@@ -76,14 +76,14 @@ jobs:
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
 
-      # The distribution: the editor, vkgame and the engine, the shaders, the sample game (with its built module),
+      # The distribution: the editor, vkgame, vkrelay and the engine, the shaders, the sample game (with its built module),
       # the tools and the docs; then the symbols split off into their own archive
       - name: Gather
         shell: bash
         run: |
           B=build; [ -d build/Release ] && B=build/Release
           mkdir -p "dist/$DIST" symbols
-          cp -R "$B"/vkworld* "$B"/vkgame* "dist/$DIST/"
+          cp -R "$B"/vkworld* "$B"/vkgame* "$B"/vkrelay* "dist/$DIST/"
           cp "$B"/libengine.* "$B"/engine.dll "dist/$DIST/" 2>/dev/null || true
           cp -R build/shaders "dist/$DIST/shaders"
           mkdir -p "dist/$DIST/examples" && cp -R examples/sample_game "dist/$DIST/examples/sample_game"
@@ -91,7 +91,7 @@ jobs:
           cp -R tools docs README.md AGENTS.md "dist/$DIST/"
           rm -f "dist/$DIST"/*.pdb "dist/$DIST"/*.ilk "dist/$DIST"/*.exp "dist/$DIST"/*.lib
           PY=python3; [ "$RUNNER_OS" = "Windows" ] && PY=python
-          FILES=$(find "dist/$DIST" -maxdepth 1 -type f \( -name 'vkworld*' -o -name 'vkgame*' -o -name 'libengine*' -o -name 'engine.dll' \))
+          FILES=$(find "dist/$DIST" -maxdepth 1 -type f \( -name 'vkworld*' -o -name 'vkgame*' -o -name 'vkrelay*' -o -name 'libengine*' -o -name 'engine.dll' \))
           FILES="$FILES $(find "dist/$DIST/examples" -name '*.so' -o -name '*.dylib' -o -name '*.dll' -o -name '*_game' -o -name '*_game.exe')"
           if [ "$RUNNER_OS" = "Windows" ]; then cp "$B"/*.pdb . 2>/dev/null || true; for f in $FILES; do p="$(basename "${f%.*}").pdb"; [ -f "$p" ] && cp "$p" "$(dirname "$f")/"; done; fi
           $PY tools/symbols.py split --out "symbols/$DIST-symbols" $FILES

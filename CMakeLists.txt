@@ -178,6 +178,7 @@ set(ENGINE_SOURCES
   src/net/udp.cpp
   src/net/tcp.cpp
   src/net/net_session.cpp
+  src/net/relay.cpp
   ${LUA_SOURCES})
 if(WIN32)
   list(APPEND ENGINE_SOURCES src/platform/platform_win32.cpp)
@@ -285,6 +286,13 @@ target_compile_definitions(vkworld PRIVATE VKWORLD_BUILD_DIR="${CMAKE_BINARY_DIR
 add_executable(vkgame src/runtime/main.cpp)
 target_link_libraries(vkgame PRIVATE engine)
 
+# The relay server for lobbies and NAT traversal (net/relay.h): standalone, without the engine (runs on any server)
+add_executable(vkrelay src/relay/main.cpp src/net/relay.cpp src/net/udp.cpp)
+target_include_directories(vkrelay PRIVATE src)
+if(WIN32)
+  target_link_libraries(vkrelay PRIVATE ws2_32)
+endif()
+
 # Benchmark: times the CPU side of a frame on a large generated scene (engine_bench [statics] [bodies] [triggers] [ticks])
 add_executable(engine_bench bench/bench_main.cpp)
 target_link_libraries(engine_bench PRIVATE engine)
@@ -359,6 +367,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_animation_ik.cpp
     tests/test_ui_layout.cpp
     tests/test_network.cpp
+    tests/test_relay.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

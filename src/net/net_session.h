@@ -19,8 +19,15 @@
 //   - Late joiners get the scene the server is in (loaded before they play) and every replicated or scene entity
 //     destroyed before they came (until they acknowledge it).
 //
+//   - Dedicated servers (vkgame --server): a host with no player of its own, nothing drawn.
+//   - Lobbies (net/relay.h): a host can advertise its game on a relay server and gets a code; players join by the
+//     code: the relay introduces them, they punch through their NATs to each other, and when no packet gets
+//     through directly in a couple of seconds, everything between them goes through the relay instead.
+//
 //   NetSession net;
 //   net.host(game, 27015, error);           // or net.join(game, "192.168.1.5:27015", error)
+//   net.advertise("relay.example.com", "My Game", "Mikel's room", 8, error);   // (optional) -> net.lobbyCode()
+//   net.joinLobby(game, "relay.example.com", "K7QX2M", error);                 // (another machine)
 //   every frame, after game.frame(): net.update(dt);
 #pragma once
 
@@ -32,6 +39,7 @@
 #include <vector>
 
 #include "game/game.h"
+#include "net/relay.h"
 #include "net/udp.h"
 
 class NetSession {
@@ -43,8 +51,15 @@ public:
     NetSession& operator=(const NetSession&) = delete;
     ~NetSession() { stop(); }
 
-    bool host(Game& game, uint16_t port, std::string& error);   // port 0: any free one (port() tells)
+    // port 0: any free one (port() tells); dedicated: no player of its own (a server nobody plays on)
+    bool host(Game& game, uint16_t port, std::string& error, bool dedicated = false);
     bool join(Game& game, const std::string& address, std::string& error);   // "host[:port]"
+    // A host's game listed on a relay ("host[:port]") as `name` among `game`'s lobbies, up to maxPlayers; its code
+    // comes back in a moment (lobbyCode()). Kept there until stop().
+    bool advertise(const std::string& relayAddress, const std::string& game, const std::string& name, int maxPlayers,
+                   std::string& error);
+    // Joins the lobby with that code through the relay (directly if the NATs let it, else through the relay)
+    bool joinLobby(Game& game, const std::string& relayAddress, const std::string& code, std::string& error);
     void stop();   // says goodbye; the game goes on alone
     // Once per rendered frame, after game.frame(): sends and receives, applies what came in
     void update(float dt);
@@ -56,10 +71,17 @@ public:
     int clients() const { return (int)clients_.size(); }
     EntityId localPlayer() const { return localPlayer_; }
     const std::string& status() const { return status_; }   // "Hosting on port 27015: 2 players", "Lost the server"
+    bool dedicated() const { return dedicated_; }
+    const std::string& lobbyCode() const { return lobbyCode_; }   // (a host on a relay, once it answered)
+    net::Address publicAddress() const { return publicAddress_; } // ... and where the relay sees it from
+    bool throughRelay() const { return !server_ && relayed(serverAddress_); }   // (a client: no direct way)
+    bool lobbyFailed() const { return lobbyFailed_; }   // (a client: the relay knows no such lobby)
 
     // Testing and tuning: every packet this machine sends waits `latency` seconds and is lost with probability
     // `loss` (a fixed random sequence); lag compensation can be turned off
     void simulateNetwork(float latency, float loss);
+    // ... and no packet goes directly to another peer (a NAT that can't be punched through): only via the relay
+    void simulateStrictNat(bool on) { strictNat_ = on; }
     void setLagCompensation(bool on) { lagCompensation_ = on; }
     uint64_t bytesSent() const { return bytesSent_; }
     float roundTrip() const { return rtt_; }   // a client's measured round trip (seconds)
@@ -106,6 +128,12 @@ private:
     };
 
     void send(const net::Address& to, const std::vector<uint8_t>& bytes);
+    void sendRelay(const relay::Message& m);
+    void relayReceive(const uint8_t* data, size_t size);
+    void receive(const uint8_t* data, size_t size, const net::Address& from);
+    void updateRelay();
+    static uint64_t addressKey(const net::Address& a) { return (uint64_t)a.ip << 16 | a.port; }
+    bool relayed(const net::Address& a) const { return relayed_.count(addressKey(a)) > 0; }
     void flushDelayed();
     void serverReceive(const uint8_t* data, size_t size, const net::Address& from);
     void clientReceive(const uint8_t* data, size_t size);
@@ -146,6 +174,23 @@ private:
     std::map<EntityId, uint64_t> destroyed_;   // ... and gone since, with the snapshot they went in
     std::string scenePath_;
     bool lagCompensation_ = true;
+    bool dedicated_ = false;
+    // Relay (net/relay.h): where it is; the peers only reached through it; peers being punched through to (until)
+    net::Address relay_;
+    bool useRelay_ = false, strictNat_ = false;
+    std::set<uint64_t> relayed_;
+    std::vector<std::pair<net::Address, double>> punching_;
+    double punchAt_ = 0.0;
+    // ... a host's lobby
+    std::string lobbyGame_, lobbyName_, lobbyCode_;
+    int lobbyMax_ = 0;
+    uint32_t lobbyToken_ = 0;
+    double registerAt_ = -1e9;
+    net::Address publicAddress_;
+    // ... a client finding one
+    std::string joinCode_;
+    bool finding_ = false, lobbyFailed_ = false;
+    double connectAt_ = -1e9, peerAt_ = 0.0;
     struct Pose {
         float time;
         std::map<EntityId, Transform> transforms;

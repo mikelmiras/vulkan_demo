@@ -722,7 +722,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 57 (done) | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
 | 58 (done) | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
 | 59 (done) | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
-| 60 | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
+| 60 (done) | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
 | 61 | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
 | 62 | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
 | 63 | Text: complex scripts and right-to-left (HarfBuzz shaping), font fallback for CJK and emoji | Latin text only renders correctly |
@@ -862,3 +862,29 @@ Working list for turning the renderer demo into a small game engine. Each task i
   mesh soft bodies, tears that cut across triangles (they go whole), water currents and waves, one joint per
   piece pair (a tree: a broken joint drops the whole branch), pieces of crates with the same name sharing joints
   (joints find pieces by name), a proper convex decomposition (V-HACD) for very concave meshes.
+- Task 60: dedicated servers: NetSession::host(..., dedicated) spawns no host player; `vkgame --server [port]` runs
+  the game with no Application (no window, no Vulkan): an ImGui context that's never drawn (behaviours and the
+  input map read its state), the scene loaded synchronously, 60 fixed frames a second with sleep_until (falling
+  behind: no catching up), the fracture / soft body / terrain meshes kept up to date as the renderer's loop does,
+  SIGINT / SIGTERM say goodbye and stop; `--seconds N` for scripted runs. The relay (net/relay.{h,cpp}, own
+  protocol "VKR1", no engine dependencies: vkrelay is relay.cpp + udp.cpp; in the release packages): lobbies by a
+  six-character code (no look-alike characters), kept by the host's Register every 2 s (players and maximum), gone
+  after 10 s or on Unregister; List by game name (the project's); Connect by code sends each side a Peer with the
+  other's public address (as the relay sees it) and records the pair; Forward / Forwarded only between recorded
+  pairs (60 s without traffic: forgotten). NetSession: advertise(relay, game, name, max) and joinLobby(relay,
+  code); every send goes through send(), which wraps a packet for the relay when the peer is in relayed_; a
+  packet Forwarded from a peer puts it there, a direct one takes it out; both sides send Punch packets for 3 s
+  after the introduction; a client not welcomed within 2 s of the Peer goes through the relay (status says so).
+  simulateStrictNat drops direct sends (tests). Games' menus: UI actions @host, @join, @joinlobby, @lobbies,
+  @leave go to Game::setNetworkHandler (vkgame's: a relay::LobbyQuery in the background), which publishes net.*
+  in the game state when it changes (module API 41: Game grew); project.json's "relay" (--relay overrides),
+  --lobby, --max-players, --join-lobby, --lobbies; the editor's Host lists the game when the project names a relay.
+  Checked: the protocol's encodings (and a truncated packet refused), lobbies listed per game with their player
+  counts, joining by code straight through (nothing forwarded), an unknown code, the lobby gone at once on stop;
+  strict NATs on both sides: no connection in the first 2 s, then connected through the relay with inputs,
+  snapshots and the goodbye forwarded; a dedicated server without a player; the UI actions formatted and passed
+  on. End to end with processes: vkrelay, a dedicated vkgame --server without a display, --lobbies listing it, a
+  windowed client (validation on) joining by the code in lower case and leaving, the server stopped by SIGINT
+  taking its lobby with it. Not done: hole punching with port prediction for symmetric NATs (they fall back to
+  the relay), IPv6, relay authentication / rate limits (anyone may register or list), private or password-protected
+  lobbies, several relays, a server browser that pings lobbies, a Windows service / systemd unit for --server.

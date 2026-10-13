@@ -176,14 +176,13 @@ void Editor::drawMenuBar() {
         ImGui::Separator();
         if (ImGui::MenuItem("Host a multiplayer game", nullptr, &hostMultiplayer_)) {
             if (playing() && hostMultiplayer_ && !net_.active()) {
-                std::string error;
-                if (!net_.host(game_, NetSession::kDefaultPort, error)) setStatus("Can't host: " + error);
+                hostGame();
             } else if (!hostMultiplayer_) {
                 net_.stop();
             }
         }
-        tooltip("While playing, others can join with vkgame --join <this machine>:27015 (the scene's Network "
-                "settings say what player they get)");
+        tooltip("While playing, others can join with vkgame --join <this machine>:27015, or by the lobby code in the "
+                "status bar when project.json names a relay (the scene's Network settings say what player they get)");
         if (ImGui::BeginMenu("Language")) {   // the project's: what the game starts in (strings/<language>.json)
             std::vector<std::string> langs = StringTable::languages(project::root());
             if (langs.empty()) ImGui::TextDisabled("No string tables (strings/<language>.json)");

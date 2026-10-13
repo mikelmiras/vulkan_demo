@@ -1,9 +1,11 @@
 // The standalone game: plays a scene without the editor.
 //
 //   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--aa msaa|taa|off]
-//          [--host [port] | --join address[:port]] [--screenshot out.png [--frames N]] [--trace out.json]
-//          [--lua-debug [port]]
+//          [--host [port] | --join address[:port] | --join-lobby CODE] [--relay host[:port]] [--lobby "name"]
+//          [--max-players N] [--screenshot out.png [--frames N]] [--trace out.json] [--lua-debug [port]]
 //          [--check]   (loads everything but opens no window: for testing an exported game anywhere)
+//          [--server [port] [--seconds N]]   (a dedicated multiplayer server: no window, no GPU; N: stop after)
+//          [--lobbies]   (lists the game's lobbies on the relay, and exits)
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
 // directory or the executable's folder), then scene.vkw in those folders, and falls back to the built-in demo. The mouse is captured for the game: Esc releases it, a click takes it back.
@@ -11,12 +13,16 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cctype>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <thread>
 
 #include "app/application.h"
 #include "app/profiler_view.h"
@@ -34,6 +40,7 @@
 #include "script/lua_script.h"
 #include "assets/asset_db.h"
 #include "net/net_session.h"
+#include "net/relay.h"
 #include "scene/terrain.h"
 #include "render/environment.h"
 #include "game/module.h"
@@ -81,6 +88,125 @@ std::string findScene(int argc, char** argv) {
     return {};
 }
 
+std::atomic<bool> g_stopServer{false};
+void onStopSignal(int) { g_stopServer = true; }
+
+// Where a multiplayer session stands, for the game's menus (the game state's net.* values); and the lobbies last
+// listed by "@lobbies"
+void publishNetwork(Game& game, const NetSession& net, const relay::LobbyQuery& query, const std::vector<relay::Lobby>& lobbies,
+                    std::string& published) {
+    std::string now = (net.active() ? net.status() : "") + "|" + net.lobbyCode() + "|" + (query.busy() ? "1" : "0") + query.error();
+    for (const relay::Lobby& l : lobbies) now += "|" + l.code + std::to_string(l.players);
+    if (now == published) return;   // (only when something changed)
+    published = now;
+    GameState& st = game.state();
+    st.set("net.active", json::Value(net.active()));
+    st.set("net.hosting", json::Value(net.active() && net.isServer()));
+    st.set("net.connected", json::Value(net.connected()));
+    st.set("net.status", json::Value(net.active() ? net.status() : std::string("Offline")));
+    st.set("net.code", json::Value(net.lobbyCode()));
+    st.set("net.searching", json::Value(query.busy()));
+    st.set("net.lobbiesError", json::Value(query.error()));
+    st.set("net.lobbies", json::Value((double)lobbies.size()));
+    for (size_t i = 0; i < lobbies.size(); ++i) {
+        std::string k = "net.lobby." + std::to_string(i) + ".";
+        st.set(k + "code", json::Value(lobbies[i].code));
+        st.set(k + "name", json::Value(lobbies[i].name));
+        st.set(k + "players", json::Value(std::to_string(lobbies[i].players) + " / " + std::to_string(lobbies[i].maxPlayers)));
+    }
+}
+
+// --server: the game alone, without a window or a GPU, as a dedicated server (no player of its own; a lobby on the
+// relay when there is one), at a steady 60 updates a second until Ctrl+C / SIGTERM (or `seconds`)
+int runServer(Game& game, Scene& scene, MeshLibrary& meshes, const std::string& path, uint16_t port,
+              const std::string& relayAddress, const std::string& lobbyGame, const std::string& lobbyName, int maxPlayers,
+              double seconds) {
+    if (path.empty()) {
+        logLine("server: no scene to serve (a project or a scene file)");
+        return 1;
+    }
+    ImGui::CreateContext();   // (behaviours and the input map read ImGui's state: an empty one, never drawn)
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(1280, 720);
+    io.IniFilename = nullptr;
+    unsigned char* pixels;
+    int w, h;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
+    game.start(scene, meshes);
+    game.loadScene(project::toStored(path));
+    game.finishLoading();
+    if (!game.loadError().empty()) {
+        logLine("server: %s", game.loadError().c_str());
+        ImGui::DestroyContext();
+        return 1;
+    }
+    NetSession net;
+    std::string error;
+    if (!net.host(game, port, error, true)) {
+        logLine("server: %s", error.c_str());
+        ImGui::DestroyContext();
+        return 1;
+    }
+    if (!relayAddress.empty() && !net.advertise(relayAddress, lobbyGame, lobbyName, maxPlayers, error))
+        logLine("server: the relay: %s", error.c_str());
+    std::signal(SIGINT, onStopSignal);
+    std::signal(SIGTERM, onStopSignal);
+    const auto step = std::chrono::microseconds(16667);
+    auto next = std::chrono::steady_clock::now();
+    std::string said;
+    double elapsed = 0.0;
+    while (!g_stopServer && !game.quitRequested() && (seconds <= 0.0 || elapsed < seconds)) {
+        const float dt = 1.f / 60.f;
+        io.DeltaTime = dt;
+        ImGui::NewFrame();
+        game.frame(dt, false, false, ImVec2(0, 0));
+        ImGui::EndFrame();
+        net.update(dt);
+        terrain::syncMeshes(scene, meshes);   // (pieces and soft bodies need their meshes here too)
+        softbody::syncMeshes(scene, meshes);
+        fracture::syncMeshes(scene, meshes);
+        scripting::debugger::poll();
+        if (net.status() != said) {   // (what's going on, when it changes)
+            said = net.status();
+            logLine("server: %s", said.c_str());
+        }
+        elapsed += dt;
+        next += step;
+        std::this_thread::sleep_until(next);
+        if (std::chrono::steady_clock::now() - next > std::chrono::milliseconds(250)) next = std::chrono::steady_clock::now();   // (fell behind: no rush to catch up)
+    }
+    logLine("server: stopping");
+    net.stop();
+    game.stop();
+    ImGui::DestroyContext();
+    return 0;
+}
+
+// --lobbies: the game's lobbies on the relay, printed (CODE, players, name)
+int listLobbies(const std::string& relayAddress, const std::string& game) {
+    if (relayAddress.empty()) {
+        std::fprintf(stderr, "lobbies: no relay (project.json's \"relay\", or --relay host[:port])\n");
+        return 1;
+    }
+    relay::LobbyQuery query;
+    std::string error;
+    if (!query.start(relayAddress, game, error)) {
+        std::fprintf(stderr, "lobbies: %s\n", error.c_str());
+        return 1;
+    }
+    while (!query.done()) {
+        query.update(0.01f);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    if (!query.error().empty()) {
+        std::fprintf(stderr, "lobbies: %s\n", query.error().c_str());
+        return 1;
+    }
+    std::printf("%zu lobbies of %s on %s\n", query.lobbies().size(), game.c_str(), relayAddress.c_str());
+    for (const relay::Lobby& l : query.lobbies()) std::printf("  %s  %d/%d  %s\n", l.code.c_str(), l.players, l.maxPlayers, l.name.c_str());
+    return 0;
+}
+
 // Messages logged by behaviours (fading out) and the mouse hint
 void drawHud(const Game& game, bool captured, float scale) {
     ImGuiIO& io = ImGui::GetIO();
@@ -119,6 +245,12 @@ int main(int argc, char** argv) {
     bool check = false;     // --check: load the game (pack, project, module, start scene) without a window, and exit
     std::string aa;         // --aa msaa | taa | off: anti-aliasing (the renderer's default: MSAA)
     std::string host, join; // --host [port] / --join address[:port]: a multiplayer game (net/net_session.h)
+    std::string joinLobby;  // --join-lobby CODE: a game listed on the relay (net/relay.h)
+    std::string relayAddress, lobbyName;   // --relay host[:port] (else project.json's), --lobby "name" (what it's listed as)
+    int maxPlayers = 16;    // --max-players N: what a lobby says it takes
+    std::string server;     // --server [port]: a dedicated server, headless
+    double serverSeconds = 0.0;   // --seconds N: ... stopping after N seconds (tests)
+    bool lobbies = false;   // --lobbies: list the relay's lobbies of this game and exit
     std::string trace;      // --trace out.json: every frame's profile, saved as a Chrome trace on exit
     int luaDebugPort = 0;   // --lua-debug [port]: the Lua debugger listens there (script/lua_debugger.h)
     {
@@ -129,6 +261,14 @@ int main(int argc, char** argv) {
             else if (!std::strcmp(argv[i], "--host"))
                 host = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? argv[++i] : "27015";
             else if (!std::strcmp(argv[i], "--join") && i + 1 < argc) join = argv[++i];
+            else if (!std::strcmp(argv[i], "--join-lobby") && i + 1 < argc) joinLobby = argv[++i];
+            else if (!std::strcmp(argv[i], "--relay") && i + 1 < argc) relayAddress = argv[++i];
+            else if (!std::strcmp(argv[i], "--lobby") && i + 1 < argc) lobbyName = argv[++i];
+            else if (!std::strcmp(argv[i], "--max-players") && i + 1 < argc) maxPlayers = std::max(std::atoi(argv[++i]), 1);
+            else if (!std::strcmp(argv[i], "--server"))
+                server = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? argv[++i] : "27015";
+            else if (!std::strcmp(argv[i], "--seconds") && i + 1 < argc) serverSeconds = std::atof(argv[++i]);
+            else if (!std::strcmp(argv[i], "--lobbies")) lobbies = true;
             else if (!std::strcmp(argv[i], "--check")) check = true;
             else if (!std::strcmp(argv[i], "--lua-debug"))
                 luaDebugPort = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? std::atoi(argv[++i]) : 4711;
@@ -186,6 +326,9 @@ int main(int argc, char** argv) {
         for (const std::string& e : scripting::errors()) std::printf("check: script error: %s\n", e.c_str());
         return missing || !scripting::errors().empty() ? 1 : 0;
     }
+    if (relayAddress.empty()) relayAddress = settings.relay;
+    if (lobbyName.empty()) lobbyName = settings.name;
+    if (lobbies) return listLobbies(relayAddress, settings.name);
     if (stress) {
         scene = buildStressScene();
     } else if (path.empty()) {
@@ -201,6 +344,20 @@ int main(int argc, char** argv) {
     if (!crash::previousReport().empty()) logLine("The last run crashed: %s", crash::previousReport().u8string().c_str());
     std::printf("Playing %s\n", stress ? "the stress test scene" : path.empty() ? "the built-in demo scene" : path.c_str());
     logfile::write("Playing " + (stress ? std::string("the stress test scene") : path.empty() ? std::string("the built-in demo scene") : path));
+
+    if (!server.empty()) {   // (a dedicated server: the game without a window, then out)
+        Game game;
+        game.setAssetLibraries(meshes, textures);
+        game.setLanguage(language.empty() ? settings.language : language);
+        game.setScenePath(path.empty() ? "" : project::toStored(path));
+        game.setSaveDirectory(project::saveDir(settings.name.empty() ? "Untitled" : settings.name));
+        if (luaDebugPort > 0) {
+            std::string debugError;
+            if (!scripting::debugger::listen((uint16_t)luaDebugPort, debugError)) logLine("lua debugger: %s", debugError.c_str());
+        }
+        return runServer(game, scene, meshes, path, (uint16_t)std::atoi(server.c_str()), relayAddress, settings.name, lobbyName,
+                         maxPlayers, serverSeconds);
+    }
 
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
@@ -248,6 +405,28 @@ int main(int argc, char** argv) {
         updateCheck.start(settings.updateUrl, settings.gameVersion);
 
     NetSession net;
+    // The game's menus can host, join and list lobbies (UI actions: Game::setNetworkHandler)
+    relay::LobbyQuery lobbyQuery;
+    std::vector<relay::Lobby> lobbyList;
+    std::string netPublished = "-";
+    auto startHosting = [&](uint16_t port) {
+        std::string netError;
+        if (!net.host(game, port, netError)) logLine("multiplayer: %s", netError.c_str());
+        else if (!relayAddress.empty() && !net.advertise(relayAddress, settings.name, lobbyName, maxPlayers, netError))
+            logLine("multiplayer: the relay: %s", netError.c_str());
+    };
+    game.setNetworkHandler([&](const std::string& verb, const std::string& arg) {
+        std::string netError;
+        bool ok = true;
+        if (verb == "host") startHosting(arg.empty() ? NetSession::kDefaultPort : (uint16_t)std::atoi(arg.c_str()));
+        else if (verb == "join") ok = net.join(game, arg, netError);
+        else if (verb == "joinlobby") ok = !relayAddress.empty() ? net.joinLobby(game, relayAddress, arg, netError)
+                                                                 : (netError = "no relay to find lobbies on", false);
+        else if (verb == "leave") net.stop();
+        else if (verb == "lobbies") ok = !relayAddress.empty() ? lobbyQuery.start(relayAddress, settings.name, netError)
+                                                               : (netError = "no relay to find lobbies on", false);
+        if (!ok) logLine("multiplayer: %s", netError.c_str());
+    });
     float dt = 0.f;
     bool firstLoad = !path.empty();
     bool showProfiler = false;   // F3
@@ -273,12 +452,17 @@ int main(int argc, char** argv) {
                 return 1;
             }
         }
-        if (!firstLoad && !net.active() && (!host.empty() || !join.empty())) {   // (once the scene is in)
+        if (!firstLoad && !net.active() && (!host.empty() || !join.empty() || !joinLobby.empty())) {   // (once the scene is in)
             std::string netError;
-            bool ok = !host.empty() ? net.host(game, (uint16_t)std::atoi(host.c_str()), netError) : net.join(game, join, netError);
+            bool ok = true;
+            if (!host.empty()) startHosting((uint16_t)std::atoi(host.c_str()));
+            else if (!join.empty()) ok = net.join(game, join, netError);
+            else if (relayAddress.empty()) ok = (netError = "--join-lobby needs a relay (--relay, or project.json's)", false);
+            else ok = net.joinLobby(game, relayAddress, joinLobby, netError);
             if (!ok) logLine("multiplayer: %s", netError.c_str());
             host.clear();
             join.clear();
+            joinLobby.clear();
         }
         ImGuiIO& io = ImGui::GetIO();
         if (platform::cursorCaptured() && (uiWantsCursor || ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
@@ -298,6 +482,11 @@ int main(int argc, char** argv) {
             game.frame(dt, !io.WantTextInput, true, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
         }
         net.update(dt);   // (multiplayer: sends and receives after the game's updates)
+        if (lobbyQuery.busy()) {
+            lobbyQuery.update(dt);
+            if (lobbyQuery.done()) lobbyList = lobbyQuery.lobbies();
+        }
+        publishNetwork(game, net, lobbyQuery, lobbyList, netPublished);
         scripting::debugger::poll();
 
         uint32_t w = 0, h = 0;
