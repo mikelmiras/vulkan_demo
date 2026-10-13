@@ -18,6 +18,7 @@
 #include "core/project.h"
 #include "core/version.h"
 #include "scene/project_templates.h"
+#include "script/lua_script.h"
 #include "scene/serialization.h"
 
 namespace fs = std::filesystem;
@@ -456,5 +457,36 @@ TEST(export_shipping_build_info) {
     std::string plist((std::istreambuf_iterator<char>(p)), std::istreambuf_iterator<char>());
     CHECK(plist.find("CFBundleShortVersionString") != std::string::npos);
 #endif
+}
+#endif
+
+#ifdef VKWORLD_SAMPLE_GAME
+// The Night Drive example loads: its scene, its taxi (a vehicle with a driver), its camera script
+TEST(night_drive_example_loads) {
+    namespace fs = std::filesystem;
+    fs::path dir = fs::u8path(VKWORLD_SAMPLE_GAME).parent_path() / "night_drive";
+    REQUIRE(fs::is_regular_file(dir / "project.json"));
+    fs::path previous = project::root();
+    project::setRoot(dir);
+    CHECK(scripting::loadProject(dir) == 1);
+    MeshLibrary meshes = buildMeshLibrary();
+    TextureLibrary texs = buildTextureLibrary();
+    Scene scene;
+    std::string error;
+    REQUIRE(loadScene((dir / "scenes" / "city.vkw").u8string(), scene, meshes, texs, error));
+    const Entity* taxi = scene.findByName("Taxi");
+    REQUIRE(taxi && taxi->vehicle && taxi->rigidBody);
+    CHECK(taxi->vehicle->wheels.size() == 4);
+    CHECK(taxi->behaviours.size() == 1 && std::string(taxi->behaviours[0]->typeName()) == "VehicleDriver");
+    const Entity* cam = scene.findByName("Camera");
+    REQUIRE(cam && cam->camera && cam->behaviours.size() == 1);
+    CHECK(std::string(cam->behaviours[0]->typeName()) == "ChaseCamera");
+    CHECK(!dynamic_cast<const MissingBehaviour*>(cam->behaviours[0].get()));
+    CHECK(scene.render.reflections);
+    int lights = 0;
+    for (const Entity& e : scene.entities) lights += e.light ? 1 : 0;
+    CHECK(lights > 50);
+    scripting::reset();
+    project::setRoot(previous);
 }
 #endif

@@ -1250,6 +1250,7 @@ Includes are relative to `src/`.
 | `src/editor/`              | Editor app: `editor.cpp` frame/play/operations/undo, `editor_panels.cpp` menus, toolbar, status bar and dialogs, `editor_outliner.cpp`, `editor_inspector.cpp`, `editor_viewport.cpp` navigation/gizmos/picking, `editor_assets.cpp` project, asset browser, game module and export, `editor_asset_db.cpp` asset inspector, moving / renaming assets, `editor_terrain.cpp` terrain tool, `editor_prefs.cpp` preferences saved per user |
 | `tests/`                   | Engine unit tests (`test.h` is the tiny framework)              |
 | `examples/sample_game/`    | A project with its own game module (`src/`), scene and `project.json` |
+| `examples/night_drive/`    | A small Lua-only game: a taxi in a night city of Kenney's City Kit models |
 | `tools/`                   | `check_screenshot.py` (CI smoke test), `check_perf.py`, `symbols.py` (keep a release's symbols aside), `symbolicate.py` (read crash reports), `vscode-vkworld-lua` |
 | `bench/`                   | `engine_bench`: CPU timings on the stress scene (`scene/stress_scene.*`) |
 | `shaders/common.glsl`      | Frame data (camera, sun, light clusters, shadow cameras) and per-object instance data shared by the shaders |
