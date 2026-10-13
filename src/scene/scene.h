@@ -119,7 +119,8 @@ struct SoftBody {
     float pressure = 0.f;              // mesh: inflation (0: none; a few thousand: a firm ball)
     float damping = 0.1f;
     float friction = 0.5f;
-    float tearStretch = 0.f;           // cloth: a triangle tears once an edge is this many times its length (0: never)
+    float tearStretch = 0.f;           // a triangle tears once an edge is this many times its length (0: never); a
+                                       // mesh torn open can't hold its pressure
     float buoyancy = 0.f;              // in water (as RigidBody's): 1 hovers, more floats, 0: the water doesn't hold it
     // Runtime (not saved): the drawn mesh, deformed in place; the particles' positions (entity space) as simulated;
     // the cloth's torn triangles (by index, in softbody::build's faces)
@@ -128,6 +129,23 @@ struct SoftBody {
     std::vector<Vec3> positions;
     uint64_t positionsVersion = 0, meshVersion = 0;   // (the drawn mesh shows the particles of meshVersion)
     std::vector<uint32_t> torn;
+};
+
+// A body of water (scene/water.h): a level surface `width` x `length` (along the entity's x and z, its top at the
+// entity's height), `depth` deep, moved by waves (three Gerstner waves from the main one) and flowing with a current.
+// What floats in it (RigidBody / SoftBody buoyancy) rides its waves and is carried along; it's drawn see-through and
+// reflective, with foam on the crests.
+struct Water {
+    float width = 20.f, length = 20.f, depth = 4.f;   // m
+    float waveHeight = 0.25f;     // the main wave's height above the level, m (0: flat)
+    float waveLength = 8.f;       // from one crest to the next, m
+    float waveDirection = 0.f;    // where the waves run, degrees round the vertical from the entity's +x
+    float choppiness = 0.5f;      // 0 rounded swells .. 1 sharp crests
+    Vec3 current{0.f, 0.f, 0.f};  // the water's flow, m/s (world): floating things are carried along
+    Vec3 color{0.05f, 0.2f, 0.24f};   // sRGB, its colour in the depths
+    float clarity = 0.5f;         // 0 opaque .. 1 clear: how much of what's under shows through
+    // Runtime (not saved): the drawn grid (water::syncMeshes)
+    int mesh = -1;
 };
 
 // Pre-fractured: breaks into pieces (cut from its mesh, the same ones every time: physics/fracture.h) on a hard
@@ -599,6 +617,7 @@ struct Entity {
     std::optional<ParticleEmitter> particleEmitter;
     std::optional<Terrain> terrain;
     std::optional<ReflectionProbe> reflectionProbe;
+    std::optional<Water> water;
     std::optional<UIElement> ui;
     std::optional<Replicated> replicated;
     std::optional<Vehicle> vehicle;

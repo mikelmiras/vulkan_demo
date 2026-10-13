@@ -48,6 +48,7 @@ foreach(src ${SHADER_SOURCES})
     COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/${src} -o ${out}
     DEPENDS ${CMAKE_SOURCE_DIR}/${src} ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/ssao.glsl ${CMAKE_SOURCE_DIR}/shaders/ssr_capture.glsl
             ${CMAKE_SOURCE_DIR}/shaders/hiz.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
+            ${CMAKE_SOURCE_DIR}/shaders/water.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
@@ -164,6 +165,7 @@ set(ENGINE_SOURCES
   src/scene/scene.cpp
   src/scene/project_templates.cpp
   src/scene/terrain.cpp
+  src/scene/water.cpp
   src/scene/serialization.cpp
   src/scene/prefab_sync.cpp
   src/scene/scene_diff.cpp

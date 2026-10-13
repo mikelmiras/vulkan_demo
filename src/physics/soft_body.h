@@ -17,13 +17,13 @@ struct Build {
     std::vector<uint32_t> indices;
     std::vector<uint32_t> particleOf;  // drawn vertex -> its particle
     std::vector<float> side;           // drawn vertex: 1, or -1 for a cloth's back face (its normal turned round)
-    std::vector<int> faceOf;           // drawn vertex -> the face it's a corner of (a cloth that tears: none shared)
+    std::vector<int> faceOf;           // drawn vertex -> the face it's a corner of (one that tears: none shared)
 };
 
 // Cloth: a grid; Mesh: the mesh's vertices welded by position into particles (needs `mesh`). False if there's
 // nothing to build (no mesh, too few particles).
 bool build(const SoftBody& s, const MeshLibrary& meshes, int mesh, Build& out);
-// A cloth's triangles stretched past tearStretch (not already torn), given its particles' rest and current positions
+// The triangles stretched past tearStretch (not already torn), given the particles' rest and current positions
 std::vector<uint32_t> tearing(const std::vector<Vec3>& rest, const std::vector<Vec3>& now, const std::vector<uint32_t>& faces,
                               const std::vector<uint32_t>& torn, float tearStretch);
 // Smooth normals of the particles from their triangles

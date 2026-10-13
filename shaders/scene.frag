@@ -410,7 +410,8 @@ void main() {
     }
     vec3 base = vColor.rgb;
     float alpha = vColor.a;
-    bool terrain = vParams.x > 1.5;
+    bool water = vParams.x > 2.5;   // (water: shaders/water.glsl moved its grid; its waves in vEmissive)
+    bool terrain = vParams.x > 1.5 && !water;
     if (terrain && vHole > 0.001) discard;   // a hole in the ground
     if (terrain) {
         base = terrainColor();
@@ -421,7 +422,7 @@ void main() {
     }
     int alphaMode = int(vMaterial.w + 0.5);
     if (alphaMode == 1 && alpha < vEmissive.w) discard;   // a hole in a cut-out
-    bool ground = vParams.x > 0.5 && !terrain;
+    bool ground = vParams.x > 0.5 && !terrain && !water;
     vec4 mr = terrain ? vec4(1.0) : texture(metalRoughMap, vUV);
     float metallic = clamp(vMaterial.x * mr.b, 0.0, 1.0);
     float rough = clamp(vMaterial.y * mr.g, 0.02, 1.0);
@@ -441,6 +442,27 @@ void main() {
     vec3 N = normalize(vNormal);
     if (!gl_FrontFacing && vParams.x > -0.5) N = -N;   // (two-sided surfaces; foliage keeps its normals)
     if (vMaterial.z > 0.0) N = perturbNormal(N, vMaterial.z);
+    if (water) {
+        // Ripples on the waves (small ones, drifting with the current), foam where a crest peaks, and the surface
+        // more mirror than window at a glancing angle (Fresnel)
+        vec2 p = vWorldPos.xz, flow = vStream.zw;
+        float t = vStream.y;
+        vec2 slope = vec2(0.0);
+        const vec3 kRipples[4] = vec3[](vec3(0.8, 0.6, 1.9), vec3(-0.5, 0.86, 3.1), vec3(0.97, -0.26, 4.7), vec3(-0.71, -0.71, 7.3));
+        for (int i = 0; i < 4; ++i) {
+            vec2 d = kRipples[i].xy;
+            float f = kRipples[i].z;
+            slope += d * cos(dot(d, p - flow * t) * f + t * sqrt(9.81 * f)) * (0.06 / sqrt(f));
+        }
+        N = normalize(N - vec3(slope.x, 0.0, slope.y));
+        float crest = clamp(vSplat.x, 0.0, 1.0);
+        float foam = smoothstep(0.6, 0.95, crest) * clamp(vEmissive.w, 0.0, 1.0);
+        base = mix(base, vec3(0.85), foam * 0.7);
+        rough = mix(rough, 0.6, foam);
+        float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(N, normalize(frame.camPos.xyz - vWorldPos)), 0.0), 5.0);
+        alpha = clamp(mix(alpha, 1.0, fresnel) + foam * 0.5, 0.0, 1.0);
+        metallic = 0.0;
+    }
     // Specular anti-aliasing (Tokuyoshi & Kaplanyan): where the normal changes within a pixel, the highlight is
     // widened to match, so small shiny bumps and distant wet ground don't sparkle and crawl
     {
@@ -509,7 +531,7 @@ void main() {
         color += shade(N, V, Lp, li.color.rgb * light, base, metallic, rough);
     }
 
-    if (!terrain) color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;
+    if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;   // (water: its waves there)
 
     if (frame.fogParams.x > 0.5) {   // volumetric: what the fog in front lets through, and the light it adds
         vec4 c = frame.viewProj * vec4(vWorldPos, 1.0);

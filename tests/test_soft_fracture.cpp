@@ -11,6 +11,7 @@
 #include "physics/soft_body.h"
 #include "scene/scene_diff.h"
 #include "scene/serialization.h"
+#include "scene/water.h"
 
 namespace {
 
@@ -316,6 +317,101 @@ TEST(buoyancy_in_water) {
     g.stop();
 }
 
+// Water's waves (scene/water.h): the normal is the moved surface's (by finite differences), the height over a point
+// is where the surface point that moves there ends up, still water is flat
+TEST(water_waves) {
+    Water w;
+    w.waveHeight = 0.6f;
+    w.waveLength = 9.f;
+    w.waveDirection = 30.f;
+    w.choppiness = 0.7f;
+    const float t = 3.7f, yaw = 0.4f;
+    auto moved = [&](float x, float z) {
+        water::Sample s = water::sample(w, yaw, x, z, t);
+        return Vec3{x, 0.f, z} + s.offset;
+    };
+    for (Vec3 at : {Vec3{0.3f, 0.f, -1.2f}, Vec3{5.f, 0.f, 2.f}, Vec3{-7.5f, 0.f, 4.4f}}) {
+        const float e = 1e-3f;
+        Vec3 dx = moved(at.x + e, at.z) - moved(at.x - e, at.z), dz = moved(at.x, at.z + e) - moved(at.x, at.z - e);
+        Vec3 fd = normalize(cross(dz, dx));
+        water::Sample s = water::sample(w, yaw, at.x, at.z, t);
+        CHECK(dot(fd, s.normal) > 0.999f);
+        Vec3 p = moved(at.x, at.z);
+        CHECK_NEAR(water::heightAt(w, yaw, p.x, p.z, t), p.y, 0.02f);
+        CHECK(std::fabs(s.offset.y) <= w.waveHeight * 1.66f);
+        // (the velocity is the motion's: the point a moment later)
+        water::Sample later = water::sample(w, yaw, at.x, at.z, t + e);
+        Vec3 v = (later.offset - s.offset) * (1.f / e);
+        CHECK(length(v - s.velocity) < 0.05f * std::max(1.f, length(v)));
+    }
+    Water still;
+    still.waveHeight = 0.f;
+    water::Sample flat = water::sample(still, 0.f, 3.f, 4.f, 10.f);
+    CHECK(length(flat.offset) == 0.f && flat.normal.y == 1.f);
+    CHECK(water::heightAt(still, 0.f, 1.f, 1.f, 5.f) == 0.f);
+}
+
+// Floating in a Water component: carried along by its current; riding its waves (a box on rough water bobs, one on
+// still water settles); the settings saved and loaded
+TEST(water_floats_and_carries) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary lib = buildMeshLibrary();
+    Scene s;
+    floor(s, -6.f);
+    auto pool = [&](const char* name, float x, float waves, Vec3 current) {
+        Entity& p = s.create(name);
+        p.transform.position[0] = x;
+        p.water = Water{};
+        p.water->width = 18.f;
+        p.water->length = 18.f;
+        p.water->depth = 6.f;
+        p.water->waveHeight = waves;
+        p.water->waveLength = 6.f;
+        p.water->current = current;
+    };
+    pool("Calm", -20.f, 0.f, {0.f, 0.f, 0.f});
+    pool("Rough", 0.f, 0.5f, {0.f, 0.f, 0.f});
+    pool("River", 20.f, 0.f, {1.5f, 0.f, 0.f});
+    auto box = [&](const char* name, float x) {
+        Entity& b = s.create(name);
+        b.transform.position[0] = x;
+        b.transform.position[1] = -1.f;
+        b.collider = Collider{};
+        b.rigidBody = RigidBody{};
+        b.rigidBody->buoyancy = 2.f;
+    };
+    box("OnCalm", -20.f);
+    box("OnRough", 0.f);
+    box("Drifting", 16.f);
+    Game g;
+    g.start(s, lib);
+    run(g, 600);   // (ten seconds: the drop into the water dies down)
+    auto y = [&](const char* name) { return s.findByName(name)->transform.position[1]; };
+    float calm0 = y("OnCalm"), lo = 1e9f, hi = -1e9f, calmLo = 1e9f, calmHi = -1e9f;
+    for (int i = 0; i < 60; ++i) {   // (a second: the rough one rides up and down, the calm one stays)
+        run(g, 1);
+        lo = std::min(lo, y("OnRough")), hi = std::max(hi, y("OnRough"));
+        calmLo = std::min(calmLo, y("OnCalm")), calmHi = std::max(calmHi, y("OnCalm"));
+    }
+    CHECK(calm0 > -0.8f && calm0 < 0.6f);   // (afloat at the level)
+    CHECK(hi - lo > 0.5f);
+    CHECK(calmHi - calmLo < (hi - lo) * 0.2f);
+    CHECK(s.findByName("Drifting")->transform.position[0] > 18.f);   // (carried downstream)
+    g.stop();
+
+    std::string path = test::tempPath("water.vkw").u8string(), error;
+    REQUIRE(saveScene(path, s, lib, buildTextureLibrary(), error));
+    Scene loaded;
+    MeshLibrary lib2 = buildMeshLibrary();
+    TextureLibrary textures = buildTextureLibrary();
+    REQUIRE(loadScene(path, loaded, lib2, textures, error));
+    const Entity* river = loaded.findByName("River");
+    REQUIRE(river && river->water);
+    CHECK(river->water->width == 18.f && river->water->depth == 6.f && river->water->waveLength == 6.f);
+    CHECK_NEAR(river->water->current.x, 1.5f, 1e-6f);
+    CHECK(loaded.findByName("Rough")->water->waveHeight == 0.5f);
+}
+
 // A cloth that tears: triangles stretched past tearStretch go (the drawn mesh folds them away, its size kept), the
 // rest carries on where it was (and lands on the floor); one that doesn't tear keeps them all
 TEST(softbody_cloth_tears) {
@@ -417,6 +513,49 @@ TEST(softbody_buoyancy) {
     run(g, 300);
     CHECK(height("Float") > -0.5f && height("Float") < 0.6f);   // up at the surface, settled
     CHECK(height("Sink") < -5.f);                               // on the bottom
+    g.stop();
+}
+
+// Mesh soft bodies tear too: an inflated ball dropped on the floor tears where its skin stretches too far (triangles
+// torn, each drawn on its own so a torn one folds away; open, it holds no air), one that doesn't tear stays whole
+TEST(softbody_mesh_tears) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary lib = buildMeshLibrary();
+    SoftBody skin;
+    skin.shape = SoftBody::Shape::Mesh;
+    skin.tearStretch = 1.15f;
+    softbody::Build b;
+    REQUIRE(softbody::build(skin, lib, (int)MeshKind::Sphere, b));
+    CHECK(b.vertices.size() == b.faces.size());   // (three drawn corners per triangle: one that tears shares none)
+    for (size_t i = 0; i < b.faceOf.size(); ++i) CHECK(b.faceOf[i] == (int)(i / 3));
+
+    Scene s;
+    floor(s, 0.f);
+    auto ball = [&](const char* name, float x, float tear) {
+        Entity& e = s.create(name);
+        e.transform.position[0] = x;
+        e.transform.position[1] = 5.f;
+        e.meshRenderer = MeshRenderer{};
+        e.meshRenderer->mesh = (int)MeshKind::Sphere;
+        e.softBody = SoftBody{};
+        e.softBody->shape = SoftBody::Shape::Mesh;
+        e.softBody->stiffness = 0.5f;
+        e.softBody->pressure = 3000.f;
+        e.softBody->tearStretch = tear;   // (dropped: the impact stretches the skin where it lands)
+    };
+    ball("Burst", -2.f, 2.4f);   // (blown up, its edges are about twice their length: past that, where it lands)
+    ball("Whole", 2.f, 0.f);
+    Game g;
+    g.start(s, lib);
+    run(g, 180);
+    size_t faces = b.faces.size() / 3;
+    const SoftBody& burst = *s.findByName("Burst")->softBody;
+    CHECK(s.findByName("Whole")->softBody->torn.empty());
+    REQUIRE(!burst.torn.empty());
+    CHECK(burst.torn.size() <= faces);
+    softbody::syncMeshes(s, lib);   // (a torn triangle drawn folded into a point, as a cloth's)
+    const Vertex* v = &lib.vertices[(size_t)lib.get(burst.mesh).vertexOffset + (size_t)burst.torn[0] * 3];
+    CHECK(length(v[0].pos - v[1].pos) < 1e-6f && length(v[1].pos - v[2].pos) < 1e-6f);
     g.stop();
 }
 

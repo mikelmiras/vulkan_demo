@@ -31,6 +31,7 @@
 #include "core/json.h"
 #include "script/lua_debugger.h"
 #include "physics/fracture.h"
+#include "scene/water.h"
 #include "physics/soft_body.h"
 #include "core/log.h"
 #include "core/profiler.h"
@@ -168,6 +169,7 @@ int runServer(Game& game, Scene& scene, MeshLibrary& meshes, const std::string& 
         terrain::syncMeshes(scene, meshes);   // (pieces and soft bodies need their meshes here too)
         softbody::syncMeshes(scene, meshes);
         fracture::syncMeshes(scene, meshes);
+        water::syncMeshes(scene, meshes);
         scripting::debugger::poll();
         if (net.status() != said) {   // (what's going on, when it changes)
             said = net.status();
@@ -648,6 +650,7 @@ int main(int argc, char** argv) {
         terrain::syncMeshes(scene, meshes);
         softbody::syncMeshes(scene, meshes);
         fracture::syncMeshes(scene, meshes);
+        water::syncMeshes(scene, meshes);
         std::vector<DrawItem> items = collectDrawItems(scene, worlds, kNoEntity, &joints, &meshes);
         std::vector<LightInfo> lights = collectLights(scene, worlds);
         std::vector<PlantSet> plants = collectPlants(scene, worlds, meshes);
@@ -686,6 +689,7 @@ int main(int argc, char** argv) {
         info.contrast = scene.render.contrast;
         info.saturation = scene.render.saturation;
         info.vignette = scene.render.vignette;
+        info.waterTime = game.physics().time();   // (the waves as the physics has them: what floats rides them)
         info.colorFilter = game.colorFilter();
         if (!scene.render.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
             std::string skyError;

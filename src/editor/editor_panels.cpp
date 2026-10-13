@@ -493,6 +493,7 @@ void Editor::drawAddMenuItems() {
     if (ImGui::MenuItem("Camera")) addCamera();
     if (ImGui::MenuItem("Terrain")) addTerrain();
     if (ImGui::MenuItem("Reflection probe")) addReflectionProbe();
+    if (ImGui::MenuItem("Water")) addWater();
     if (ImGui::BeginMenu("UI")) {
         const char* names[] = {"Panel", "Text", "Image", "Button", "Slider", "Toggle", "Text field", "List"};
         for (int i = 0; i < 8; ++i)

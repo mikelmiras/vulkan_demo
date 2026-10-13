@@ -1,6 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+#include "water.glsl"
 
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
@@ -34,6 +35,14 @@ void main() {
     vEmissive = inst.emissive;
     vStream = inst.stream;
     vSplat = inWeights;
-    vHole = inst.params.x > 1.5 ? float(inJoints.x) : 0.0;
+    vHole = inst.params.x > 1.5 && inst.params.x < 2.5 ? float(inJoints.x) : 0.0;
+    if (inst.params.x > 2.5) {   // water: its grid moved by the waves (rest positions in the world), how high a crest is
+        vec3 offset, normal;
+        gerstner(world.xz, inst.stream.y, inst.emissive, offset, normal);
+        world.xyz += offset;
+        vWorldPos = world.xyz;
+        vNormal = normal;
+        vSplat = vec4(offset.y / max(inst.emissive.x * 1.65, 1e-3), 0.0, 0.0, 0.0);   // (1: the highest a crest goes)
+    }
     gl_Position = frame.viewProj * world;
 }

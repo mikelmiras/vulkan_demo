@@ -157,7 +157,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         if (gpu && o.alphaMode != 2) visible.push_back(i);
         else if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) (o.alphaMode == 2 ? transparent : visible).push_back(i);
         else stats_.culled++;
-        for (size_t k = 0; k < shadowViews.size(); ++k)   // each shadow camera: what it sees
+        for (size_t k = 0; k < shadowViews.size() && !o.water; ++k)   // each shadow camera: what it sees (water casts none)
             if (skinned || shadowViews[k].visible(o.model, mesh.boundsMin, mesh.boundsMax)) casters[k].push_back(i);
     }
     std::stable_sort(visible.begin(), visible.end(), [&](uint32_t a, uint32_t b) {
@@ -286,6 +286,18 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         if (lead >= 0) {
             const Texture& t = textures_->get(lead);
             d.stream[1] = std::log2((float)std::max(std::max(t.width, t.height), 1u));
+        }
+        if (o.water) {   // (water: params.x = 3; its waves in emissive, the clock and the current in stream.yzw)
+            d.params[0] = 3.f;
+            d.params[3] = -1.f;
+            d.emissive[0] = o.waveHeight;
+            d.emissive[1] = o.waveLength;
+            d.emissive[2] = o.waveDirection;
+            d.emissive[3] = o.choppiness;
+            d.stream[0] = -1.f;
+            d.stream[1] = info.waterTime;
+            d.stream[2] = o.current.x;
+            d.stream[3] = o.current.z;
         }
         if (o.terrain) {   // (scene.frag's terrain mode: params.x = 2; w = -(its layers' matrix + 2), never skinned)
             d.params[0] = 2.f;

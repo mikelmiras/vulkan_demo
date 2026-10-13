@@ -13,7 +13,7 @@ layout(location = 6) flat in vec4 vEmissive;
 layout(location = 8) in float vHole;
 
 void main() {
-    bool terrain = vParams.x > 1.5;
+    bool terrain = vParams.x > 1.5 && vParams.x < 2.5;
     if (terrain && vHole > 0.001) discard;
     if (!terrain && int(vMaterial.w + 0.5) == 1) {   // a cut-out
         float alpha = vColor.a * (vParams.z > 0.5 ? texture(albedoMap, vUV).a : 1.0);

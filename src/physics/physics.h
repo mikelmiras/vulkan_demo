@@ -60,6 +60,8 @@ public:
     // One fixed update; returns the impacts (new contacts closing faster than 1.5 m/s, one per body at most). With
     // dt = 0 it only brings the bodies up to date with the scene (making them all, the first time).
     std::vector<Impact> step(Scene& scene, const MeshLibrary& meshes, float dt, const DynamicsSettings& settings = {});
+    // Simulated seconds so far: the clock of Water components' waves (draw them at this time to match what floats)
+    float time() const;
     void clear();                 // forget everything (the scene was replaced)
     void swap(Physics& other);    // trade worlds (one made on a loading thread, say)
     // The scene's mesh ids changed (old id -> map[old id]): mesh colliders keep their bodies

@@ -40,6 +40,31 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
                 items.push_back(d);
             }
         }
+        if (e.water && e.water->mesh >= 0 && (!meshes || e.water->mesh < meshes->count()) && scene.visibleInHierarchy(e.id)) {
+            // Water (scene/water.h): its grid, the size of its surface, at the entity's place and turn (not its scale)
+            const Water& w = *e.water;
+            const Mat4& m = worlds[i];
+            float yaw = std::atan2(-m.m[2], m.m[0]);
+            Mat4 size;
+            size.m[0] = w.width;
+            size.m[10] = w.length;
+            DrawItem d;
+            d.model = translate({m.m[12], m.m[13], m.m[14]}) * rotateAxis({0.f, 1.f, 0.f}, yaw) * size;
+            d.mesh = w.mesh;
+            d.color = w.color;
+            d.roughness = 0.04f;
+            d.alphaMode = 2;
+            d.opacity = 1.f - std::clamp(w.clarity, 0.f, 1.f) * 0.85f;
+            d.water = true;
+            d.waveHeight = std::max(w.waveHeight, 0.f);
+            d.waveLength = std::max(w.waveLength, 0.05f);
+            d.waveDirection = w.waveDirection * DEG2RAD - yaw;
+            d.choppiness = std::clamp(w.choppiness, 0.f, 1.f);
+            d.current = w.current;
+            d.outlined = (e.id == outlined && outlined != kNoEntity) ||
+                         (alsoOutlined && std::find(alsoOutlined->begin(), alsoOutlined->end(), e.id) != alsoOutlined->end());
+            items.push_back(d);
+        }
         if (!e.meshRenderer || !scene.visibleInHierarchy(e.id)) continue;
         DrawItem d;
         d.model = worlds[i];

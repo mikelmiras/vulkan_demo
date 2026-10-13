@@ -82,6 +82,28 @@ bool build(const SoftBody& s, const MeshLibrary& meshes, int mesh, Build& out) {
             uint32_t a = out.particleOf[out.indices[f]], b = out.particleOf[out.indices[f + 1]], c = out.particleOf[out.indices[f + 2]];
             if (a != b && b != c && a != c) out.faces.insert(out.faces.end(), {a, b, c});
         }
+        if (s.tearStretch > 0.f) {   // (one that tears: as a tearing cloth, each triangle its own drawn corners)
+            std::vector<Vertex> shared = out.vertices;
+            std::vector<uint32_t> sharedIndices = out.indices, sharedParticle = out.particleOf;
+            out.vertices.clear();
+            out.indices.clear();
+            out.particleOf.clear();
+            out.side.clear();
+            out.faceOf.clear();
+            int face = 0;
+            for (size_t f = 0; f + 2 < sharedIndices.size(); f += 3) {
+                uint32_t p[3] = {sharedParticle[sharedIndices[f]], sharedParticle[sharedIndices[f + 1]], sharedParticle[sharedIndices[f + 2]]};
+                if (p[0] == p[1] || p[1] == p[2] || p[0] == p[2]) continue;   // (as the faces above skipped it)
+                for (int k = 0; k < 3; ++k) {
+                    out.indices.push_back((uint32_t)out.vertices.size());
+                    out.vertices.push_back(shared[sharedIndices[f + (size_t)k]]);
+                    out.particleOf.push_back(p[k]);
+                    out.side.push_back(1.f);
+                    out.faceOf.push_back(face);
+                }
+                ++face;
+            }
+        }
     }
     // Mass shared out among the particles that aren't pinned
     size_t free = (size_t)std::count_if(out.invMass.begin(), out.invMass.end(), [](float m) { return m > 0.f; });

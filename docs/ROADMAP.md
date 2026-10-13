@@ -1017,7 +1017,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 70.2 (done) | Windows: the file and folder dialogs froze the app | Found by testing on Windows: nothing set up COM on the UI thread |
 | 70.3 (done) | Performance: a depth prepass with early depth tests, cheaper screen-space reflection steps, light clusters fitted to what's in view, a project's default anti-aliasing and players' quality and anti-aliasing settings | Night Drive ran slowly on a GTX 1050 Ti, in the game and the editor |
 | 70.4 (done) | Lighting and shadows: soft shadows (hardware-filtered PCF on a rotated disk, PCSS for the sun, blended cascades), volumetric fog lit by the sun and the lights, specular anti-aliasing, a filmic tone mapper and colour grading, Night Drive retuned with them | Asked for with 70.3: the games made with it should look more polished |
-| 71 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
+| 71 (done) | Physics: tearing mesh soft bodies, water with waves and currents (a V-HACD-style decomposition and tears across triangles left for later) | Concave pieces split by halving; only cloth tears; still water only |
 | 72 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
 | 73 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
 | 74 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
@@ -1222,3 +1222,22 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   of the same place's value last frame (reprojected with last frame's camera and slices, the other frame in flight's
   scatter volume as history: set 1 binding 2), so edges average out over a few frames (a car's beam lags under
   2 m at speed). Night Drive's low beams are aimed lower (14 degrees), wider (50) and softer (0.8).
+- **71, water and tearing meshes**: a **Water** component (scene/water.{h,cpp}): a box of water (width, length,
+  depth below the entity) with three Gerstner waves (the set direction, then turned 35 and -25 degrees, lengths 1,
+  0.57 and 0.31 of the wave length, heights 1, 0.45, 0.2; deep-water speed sqrt(g / k); steepness from choppiness,
+  kept under the crests' folding point), a current and a colour / clarity. water::sample gives the surface's offset,
+  exact normal (the cross product of the displaced surface's tangents) and its particles' velocity; heightAt finds
+  the height at a point (a horizontally moved surface: two fixed-point steps). shaders/water.glsl is the same maths:
+  scene.vert displaces a 128 x 128 grid (water::syncMeshes) when params.x is 3, the wave parameters riding in the
+  instance's emissive and stream (time from Physics::time(), so playing and paused agree); scene.frag adds small
+  ripples scrolling with the current, foam on crests by choppiness, Fresnel opacity over the clarity. Water casts no
+  shadow. Physics: buoyancy pools come from Water components as well as Water-tagged boxes, and use the wave surface
+  (depth below it, the normal tilting the push) and the water's velocity (current + waves) for the drag, so things
+  bob and drift. Mesh soft bodies with Tears at now tear (the torn mesh is rebuilt from its current shape, its
+  pressure goes, velocities carried over are capped at 20 m/s; its drawn triangles get their own corners so a torn
+  edge isn't stretched across). Scene format 42, module API 47. Checked: waves' normal against finite differences,
+  heightAt, crates in calm, rough and flowing water (rough ones bob over 0.5 m, calm under a fifth of that, a 0.5 m/s
+  current carries one over 18 m), save / load, a sea with crates under validation with sync checks. Not done: a
+  V-HACD-style decomposition (concave pieces are still split by halving), tears across triangles (whole triangles
+  go), an over-inflated mesh bursting (its pieces scatter chaotically), refraction and depth-based absorption under
+  the surface, waves wrapping around obstacles or shores.

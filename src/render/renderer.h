@@ -41,6 +41,10 @@ struct DrawItem {
     bool terrain = false;
     int layerTextures[4] = {-1, -1, -1, -1};
     int terrainLayers = -1;     // its layers' tints and tilings (a matrix, column per layer) in SceneRenderInfo::joints
+    // A water surface (scene/water.h): its grid moved by the waves in the vertex shader (shaders/water.glsl)
+    bool water = false;
+    float waveHeight = 0.f, waveLength = 8.f, waveDirection = 0.f, choppiness = 0.f;   // (direction: world, radians)
+    Vec3 current;
 };
 
 // One particle to draw: a camera-facing dot
@@ -117,6 +121,7 @@ struct SceneRenderInfo {
     float giSpacing = 3.f, giIntensity = 1.f;
     bool reflections = false;   // screen-space reflections (from the last frame's picture)
     float shadowSoftness = 1.f;   // the sun's shadows (RenderSettings::shadowSoftness)
+    float waterTime = 0.f;        // the waves' clock (Physics::time() while playing: what's drawn matches what floats)
     bool volumetricFog = false;   // RenderSettings::volumetricFog and its settings
     float fogLight = 1.f, fogAnisotropy = 0.5f, fogHeightFalloff = 0.f;
     int tonemapper = 0;           // 0 PBR Neutral, 1 filmic

@@ -1,5 +1,6 @@
 #include "physics/physics.h"
 #include "physics/soft_body.h"
+#include "scene/water.h"
 #include "scene/terrain.h"
 
 #include <algorithm>
@@ -296,21 +297,30 @@ struct Physics::Impl {
             if (!std::binary_search(sb.torn.begin(), sb.torn.end(), (uint32_t)(f / 3)))
                 shared->AddFace(JPH::SoftBodySharedSettings::Face(b.faces[f], b.faces[f + 1], b.faces[f + 2]));
         if (shared->mFaces.empty()) return false;
+        // A mesh made again as it tears: its constraints from the shape it has now (an inflated skin, stretched, would
+        // otherwise snap back to its rest lengths all at once with no air to hold it)
+        if (was && sb.shape == SoftBody::Shape::Mesh && was->size() == shared->mVertices.size())
+            for (size_t k = 0; k < was->size(); ++k) (*was)[k].mPosition.StoreFloat3(&shared->mVertices[k].mPosition);
         // Stiffness and bending as compliances (0: rigid); a limp cloth has no bend constraints at all
         float soft = 1.f - std::clamp(sb.stiffness, 0.f, 1.f), bend = std::clamp(sb.bendiness, 0.f, 1.f);
         JPH::SoftBodySharedSettings::VertexAttributes attributes(
             soft * soft * soft * 0.01f, soft * soft * soft * 0.01f, bend >= 0.999f ? FLT_MAX : bend * bend * bend * 0.1f);
         shared->CreateConstraints(&attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
-        if (sb.pressure > 0.f) shared->CalculateVolumeConstraintVolumes();
+        const float pressure = sb.torn.empty() ? std::max(sb.pressure, 0.f) : 0.f;   // (torn open: it can't hold air)
+        if (pressure > 0.f) shared->CalculateVolumeConstraintVolumes();
         shared->Optimize();
         if (was && was->size() == shared->mVertices.size())   // (set before it's made: Jolt's bounds come from them)
             for (size_t k = 0; k < was->size(); ++k) {
                 (*was)[k].mPosition.StoreFloat3(&shared->mVertices[k].mPosition);
-                (*was)[k].mVelocity.StoreFloat3(&shared->mVertices[k].mVelocity);
+                // (as fast as they were going, up to 20 m/s: particles freed as triangles tear can carry the speed of
+                // a stretched skin letting go)
+                JPH::Vec3 v = (*was)[k].mVelocity;
+                if (v.Length() > 20.f) v = v.Normalized() * 20.f;
+                v.StoreFloat3(&shared->mVertices[k].mVelocity);
             }
         JPH::SoftBodyCreationSettings cs(shared, JPH::RVec3(p.position.x, p.position.y, p.position.z), toJ(p.rotation),
                                          objectLayer(e.layer, true));
-        cs.mPressure = std::max(sb.pressure, 0.f);
+        cs.mPressure = pressure;
         cs.mLinearDamping = std::max(sb.damping, 0.f);
         cs.mFriction = std::max(sb.friction, 0.f);
         cs.mUpdatePosition = false;   // (its particles move; the body stays where the entity is)
@@ -370,12 +380,12 @@ struct Physics::Impl {
         }
     }
 
-    // Cloths stretched past their tearStretch lose those triangles: made again without them, their particles carried
-    // over where they are, as fast as they were going
+    // Soft bodies (cloths and meshes) stretched past their tearStretch lose those triangles: made again without them,
+    // their particles carried over where they are, as fast as they were going (a mesh torn open loses its pressure)
     void tearSoftBodies(Scene& scene, const MeshLibrary& meshes) {
         for (auto& [id, s] : softBodies) {
             Entity* e = scene.find(id);
-            if (!e || !e->softBody || e->softBody->shape != SoftBody::Shape::Cloth || e->softBody->tearStretch <= 0.f) continue;
+            if (!e || !e->softBody || e->softBody->tearStretch <= 0.f) continue;
             std::vector<uint32_t> fresh = softbody::tearing(s.rest, s.positions, s.faces, e->softBody->torn, e->softBody->tearStretch);
             if (fresh.empty()) continue;
             std::vector<uint32_t>& torn = e->softBody->torn;
@@ -395,17 +405,57 @@ struct Physics::Impl {
         }
     }
 
-    // ---- Buoyancy: dynamic bodies in trigger volumes tagged "Water" float (or sink) by their RigidBody's buoyancy;
-    // soft bodies by how much of them is under (their SoftBody's buoyancy, every particle alike)
+    // ---- Buoyancy: dynamic bodies in water float (or sink) by their RigidBody's buoyancy; soft bodies by how much of
+    // them is under (their SoftBody's buoyancy, every particle alike). Water: Water components (their waves' surface,
+    // carried along by their current and the waves' own motion), or trigger boxes tagged "Water" (level, still)
+    float time = 0.f;   // (simulated seconds: the waves' clock, Physics::time())
+    struct Pool {
+        Vec3 lo, hi;                     // (bounds; a box's top is its surface)
+        const ::Water* water = nullptr;  // (a Water component: its surface moves)
+        Vec3 origin;                     // (where its level's middle is)
+        float yaw = 0.f;
+        // Inside it (horizontally), and its surface over (x, z): height, normal, the water's velocity there
+        bool covers(float x, float z) const {
+            if (!water) return x >= lo.x && x <= hi.x && z >= lo.z && z <= hi.z;
+            float dx = x - origin.x, dz = z - origin.z, c = std::cos(yaw), s = std::sin(yaw);
+            float lx = c * dx - s * dz, lz = s * dx + c * dz;
+            return std::fabs(lx) <= water->width * 0.5f && std::fabs(lz) <= water->length * 0.5f;
+        }
+        float surface(float x, float z, float t, Vec3* normal = nullptr, Vec3* flow = nullptr) const {
+            if (!water) {
+                if (normal) *normal = {0.f, 1.f, 0.f};
+                if (flow) *flow = {};
+                return hi.y;
+            }
+            float h = water::heightAt(*water, yaw, x, z, t);
+            if (normal || flow) {
+                water::Sample s = water::sample(*water, yaw, x, z, t);
+                if (normal) *normal = s.normal;
+                if (flow) *flow = water->current + s.velocity;
+            }
+            return origin.y + h;
+        }
+    };
     void applyBuoyancy(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 gravity, float dt) {
-        struct Water {
-            Vec3 lo, hi;
-        };
-        std::vector<Water> water;
+        time += dt;
+        std::vector<Pool> water;
         for (size_t i = 0; i < scene.entities.size(); ++i) {
             const Entity& e = scene.entities[i];
+            if (e.water) {
+                Pool w;
+                w.water = &*e.water;
+                const Mat4& m = worlds[i];
+                w.origin = {m.m[12], m.m[13], m.m[14]};
+                w.yaw = std::atan2(-m.m[2], m.m[0]);
+                float r = 0.5f * std::sqrt(e.water->width * e.water->width + e.water->length * e.water->length);
+                float wave = e.water->waveHeight * 1.7f;
+                w.lo = {w.origin.x - r, w.origin.y - std::max(e.water->depth, 0.f), w.origin.z - r};
+                w.hi = {w.origin.x + r, w.origin.y + wave, w.origin.z + r};
+                water.push_back(w);
+                continue;
+            }
             if (!e.collider || !e.collider->trigger || e.collider->shape != Collider::Shape::Box || !e.hasTag("Water")) continue;
-            Water w{{1e30f, 1e30f, 1e30f}, {-1e30f, -1e30f, -1e30f}};
+            Pool w{{1e30f, 1e30f, 1e30f}, {-1e30f, -1e30f, -1e30f}};
             Vec3 c = e.collider->center, h = e.collider->size * 0.5f;
             for (int k = 0; k < 8; ++k) {
                 Vec3 q = transformPoint(worlds[i], c + Vec3{k & 1 ? h.x : -h.x, k & 2 ? h.y : -h.y, k & 4 ? h.z : -h.z});
@@ -421,10 +471,12 @@ struct Physics::Impl {
             if (!e || !e->rigidBody) continue;
             JPH::RVec3 p = bi().GetCenterOfMassPosition(t.id);
             Vec3 at{(float)p.GetX(), (float)p.GetY(), (float)p.GetZ()};
-            for (const Water& w : water) {
-                if (at.x < w.lo.x || at.x > w.hi.x || at.z < w.lo.z || at.z > w.hi.z || at.y < w.lo.y - 2.f || at.y > w.hi.y + 2.f) continue;
-                bi().ApplyBuoyancyImpulse(t.id, JPH::RVec3(at.x, w.hi.y, at.z), JPH::Vec3(0, 1, 0), e->rigidBody->buoyancy,
-                                          0.5f, 0.05f, JPH::Vec3::sZero(), toJ(gravity), dt);
+            for (const Pool& w : water) {
+                if (!w.covers(at.x, at.z) || at.y < w.lo.y - 2.f || at.y > w.hi.y + 2.f) continue;
+                Vec3 normal, flow;
+                float level = w.surface(at.x, at.z, time, &normal, &flow);
+                bi().ApplyBuoyancyImpulse(t.id, JPH::RVec3(at.x, level, at.z), toJ(normal), e->rigidBody->buoyancy, 0.5f, 0.05f,
+                                          toJ(flow), toJ(gravity), dt);
                 break;
             }
         }
@@ -457,11 +509,13 @@ struct Physics::Impl {
                 velocity += v.mVelocity;
                 JPH::RVec3 q = com * JPH::RVec3(v.mPosition);
                 Vec3 at{(float)q.GetX(), (float)q.GetY(), (float)q.GetZ()};
-                for (const Water& w : water)
-                    if (at.x >= w.lo.x && at.x <= w.hi.x && at.z >= w.lo.z && at.z <= w.hi.z && at.y >= w.lo.y && at.y <= w.hi.y) {
-                        under += std::min((w.hi.y - at.y) / ramp, 1.f);
-                        break;
-                    }
+                for (const Pool& w : water) {
+                    if (!w.covers(at.x, at.z) || at.y < w.lo.y) continue;
+                    float level = w.surface(at.x, at.z, time);
+                    if (at.y > level) continue;
+                    under += std::min((level - at.y) / ramp, 1.f);
+                    break;
+                }
             }
             if (moving == 0 || under <= 0.f) continue;
             float wetness = under / (float)moving;
@@ -1030,6 +1084,8 @@ void Physics::setRecordContacts(bool on) {
 }
 
 const std::vector<Physics::ContactPoint>& Physics::contacts() const { return impl_->contacts.points; }
+
+float Physics::time() const { return impl_ ? impl_->time : 0.f; }
 
 bool Physics::softBodyPositions(EntityId id, std::vector<Vec3>& out) const {
     auto it = impl_->softBodies.find(id);

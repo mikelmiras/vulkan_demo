@@ -472,6 +472,37 @@ void Editor::drawComponents(Entity& e) {
                     "around it changes)");
         }
     }
+    if (e.water) {
+        if (!componentHeader("Water", open)) { pushUndo(); e.water.reset(); }
+        else if (open) {
+            Water& w = *e.water;
+            ImGui::DragFloat("Width", &w.width, 0.1f, 0.1f, 100000.f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::DragFloat("Length", &w.length, 0.1f, 0.1f, 100000.f, "%.1f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::DragFloat("Depth", &w.depth, 0.05f, 0.f, 10000.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            tooltip("Its surface is the entity's height; things float in it down to this deep (along its x and z: width, length)");
+            ImGui::DragFloat("Wave height", &w.waveHeight, 0.01f, 0.f, 50.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            ImGui::DragFloat("Wave length", &w.waveLength, 0.05f, 0.1f, 1000.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+            track();
+            tooltip("From one crest to the next: longer waves run faster (as in deep water)");
+            ImGui::SliderFloat("Wave direction", &w.waveDirection, -180.f, 180.f, "%.0f deg");
+            track();
+            ImGui::SliderFloat("Choppiness", &w.choppiness, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("0: rounded swells; 1: sharp crests, with foam");
+            ImGui::DragFloat3("Current", &w.current.x, 0.02f, -50.f, 50.f, "%.2f m/s");
+            track();
+            tooltip("The water's flow: floating things are carried along, ripples drift with it");
+            ImGui::ColorEdit3("Colour", &w.color.x);
+            track();
+            ImGui::SliderFloat("Clarity", &w.clarity, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("How much of what's under shows through (looking straight down; at a glancing angle it reflects)");
+        }
+    }
     if (e.terrain) {
         if (!componentHeader("Terrain", open)) { pushUndo(); e.terrain.reset(); }
         else if (open) drawTerrainInspector(e);
@@ -507,6 +538,11 @@ void Editor::drawComponents(Entity& e) {
                 ImGui::DragFloat("Pressure", &sb.pressure, 10.f, 0.f, 1e6f, "%.0f", ImGuiSliderFlags_AlwaysClamp);
                 track();
                 tooltip("Inflates a closed mesh (a ball, a cushion): a few thousand holds it firm");
+                ImGui::DragFloat("Tears at", &sb.tearStretch, 0.01f, 0.f, 10.f, sb.tearStretch > 0.f ? "%.2fx stretch" : "never",
+                                 ImGuiSliderFlags_AlwaysClamp);
+                track();
+                tooltip("A triangle tears once one of its edges is stretched this many times its length; torn open, "
+                        "it holds no pressure (a burst balloon)");
                 if (!e.meshRenderer) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "Needs a mesh renderer (its mesh)");
             }
             ImGui::DragFloat("Mass", &sb.mass, 0.05f, 0.01f, 10000.f, "%.2f kg", ImGuiSliderFlags_AlwaysClamp);
@@ -965,6 +1001,7 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Animator", nullptr, false, !e.animator)) { pushUndo(); e.animator = Animator{}; }
         if (ImGui::MenuItem("Particle Emitter", nullptr, false, !e.particleEmitter)) { pushUndo(); e.particleEmitter = ParticleEmitter{}; }
         if (ImGui::MenuItem("Reflection Probe", nullptr, false, !e.reflectionProbe)) { pushUndo(); e.reflectionProbe = ReflectionProbe{}; }
+        if (ImGui::MenuItem("Water", nullptr, false, !e.water)) { pushUndo(); e.water = Water{}; }
         if (ImGui::MenuItem("UI Element", nullptr, false, !e.ui)) { pushUndo(); e.ui = UIElement{}; }
         if (ImGui::MenuItem("Replicated", nullptr, false, !e.replicated)) { pushUndo(); e.replicated = Replicated{}; }
         if (ImGui::MenuItem("Terrain", nullptr, false, !e.terrain)) {

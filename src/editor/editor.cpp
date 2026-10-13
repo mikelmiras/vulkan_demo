@@ -1,6 +1,7 @@
 #include "editor/editor.h"
 #include "script/lua_debugger.h"
 #include "physics/fracture.h"
+#include "scene/water.h"
 #include "physics/soft_body.h"
 #include "scene/stress_scene.h"
 
@@ -230,6 +231,7 @@ void Editor::buildDrawItems() {
     terrain::syncMeshes(scene_, meshes_);   // (terrains changed since: their meshes again)
     softbody::syncMeshes(scene_, meshes_);  // (soft bodies: as their particles moved)
     fracture::syncMeshes(scene_, meshes_);  // (pre-fractured: their pieces, ready to break)
+    water::syncMeshes(scene_, meshes_);     // (water: its drawn grid)
     const Entity* previewed = playing() ? nullptr : scene_.find(animPreview_.entity);
     const AnimationClip* clip = previewed && previewed->animator ? meshes_.findAnimation(previewed->animator->clip) : nullptr;
     if (clip) {   // pose the clip just for drawing, then put the transforms back
@@ -298,6 +300,8 @@ SceneRenderInfo Editor::renderInfo() const {
     info.contrast = r.contrast;
     info.saturation = r.saturation;
     info.vignette = r.vignette;
+    // The waves: as the game's physics has them while playing; moving on the clock in the editor
+    info.waterTime = playing() ? game_.physics().time() : (float)ImGui::GetTime();
     if (playing()) info.colorFilter = game_.colorFilter();   // (the player's setting, as the game will look)
     if (!r.skyImage.empty()) {   // (loaded and prefiltered once, then cached)
         std::string skyError;
@@ -639,6 +643,16 @@ void Editor::addEmpty() {
     e.transform.position[0] = p.x; e.transform.position[1] = p.y; e.transform.position[2] = p.z;
     select(e.id);
     setStatus("Added " + e.name + " (an empty: group objects under it in the outliner)");
+}
+
+void Editor::addWater() {
+    pushUndo();
+    Entity& e = scene_.create(scene_.uniqueName("Water"));
+    Vec3 p = spawnPoint(0.f);
+    e.transform.position[0] = p.x; e.transform.position[1] = p.y; e.transform.position[2] = p.z;
+    e.water = Water{};
+    select(e.id);
+    setStatus("Added water: 20 x 20 m, its surface at the entity's height; waves, current and look in the inspector");
 }
 
 void Editor::addReflectionProbe() {

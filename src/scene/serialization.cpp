@@ -19,7 +19,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 41;  // 41: shadow softness, volumetric fog, tone mapper and grading; 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 42;  // 42: water (waves, currents); 41: shadow softness, volumetric fog, tone mapper and grading; 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -623,6 +623,20 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         c.set("resolution", e.reflectionProbe->resolution);
         c.set("boxProjection", e.reflectionProbe->boxProjection);
     }
+    if (e.water) {
+        const Water& w = *e.water;
+        json::Value& c = v.set("water", json::Value::object());
+        c.set("width", w.width);
+        c.set("length", w.length);
+        c.set("depth", w.depth);
+        c.set("waveHeight", w.waveHeight);
+        c.set("waveLength", w.waveLength);
+        c.set("waveDirection", w.waveDirection);
+        c.set("choppiness", w.choppiness);
+        c.set("current", vec3(w.current));
+        c.set("color", vec3(w.color));
+        c.set("clarity", w.clarity);
+    }
     if (e.particleEmitter) {
         const ParticleEmitter& p = *e.particleEmitter;
         json::Value& c = v.set("particles", json::Value::object());
@@ -1053,6 +1067,20 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         p.resolution = std::clamp(c["resolution"].asInt(p.resolution), 16, 1024);
         p.boxProjection = c["boxProjection"].asBool(p.boxProjection);
         e.reflectionProbe = p;
+    }
+    if (const json::Value& c = v["water"]; c.isObject()) {   // (42)
+        Water w;
+        w.width = std::clamp(c["width"].asFloat(w.width), 0.1f, 100000.f);
+        w.length = std::clamp(c["length"].asFloat(w.length), 0.1f, 100000.f);
+        w.depth = std::clamp(c["depth"].asFloat(w.depth), 0.f, 10000.f);
+        w.waveHeight = std::clamp(c["waveHeight"].asFloat(w.waveHeight), 0.f, 50.f);
+        w.waveLength = std::clamp(c["waveLength"].asFloat(w.waveLength), 0.1f, 1000.f);
+        w.waveDirection = c["waveDirection"].asFloat(w.waveDirection);
+        w.choppiness = std::clamp(c["choppiness"].asFloat(w.choppiness), 0.f, 1.f);
+        w.current = readVec3(c["current"], w.current);
+        w.color = readVec3(c["color"], w.color);
+        w.clarity = std::clamp(c["clarity"].asFloat(w.clarity), 0.f, 1.f);
+        e.water = w;
     }
     if (const json::Value& c = v["particles"]; c.isObject()) {
         ParticleEmitter p;
