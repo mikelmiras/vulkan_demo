@@ -1001,19 +1001,23 @@ Working list for turning the renderer demo into a small game engine. Each task i
 
 ## Round 7 (planned)
 
-Mostly what round 6 left out (its notes' "Not done"), plus the editor catching up with the game's text and input.
+First the editor's power use, projects and builds (asked for after round 6), then mostly what round 6 left out (its
+notes' "Not done"), plus the editor catching up with the game's text and input.
 
 | # | Task | Why |
 |---|------|-----|
-| 65 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
-| 66 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
-| 67 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
-| 68 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
-| 69 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
-| 70 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
-| 71 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
-| 72 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
-| 73 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
-| 74 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
+| 65 | Editor power use: redraw only when something changes (input, edits, animations, playing), throttled while unfocused or idle, a frame-rate cap, a "realtime viewport" toggle, the integrated GPU on dual-GPU Macs | The editor renders the whole scene at the display's refresh rate even when idle: a laptop heats up with nothing happening |
+| 66 | Projects: a project launcher at startup (recent projects, new from a template, open), a Project Settings window for everything in project.json, the engine version a project was made with, generated files kept apart from the project's own | The editor opens straight into the demo; project.json is edited by hand |
+| 67 | Builds: a Build Settings window with per-platform profiles, per-game executable metadata (Windows version resources, macOS bundle id and version), assets cooked at export (compressed textures with baked mips, binary models, compiled shaders), a shipping configuration without editor or debug code | Exports are vkgame renamed with the project's source files beside it |
+| 68 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
+| 69 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
+| 70 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
+| 71 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
+| 72 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
+| 73 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
+| 74 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
+| 75 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
+| 76 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
+| 77 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
 
 ### Round 7 notes
