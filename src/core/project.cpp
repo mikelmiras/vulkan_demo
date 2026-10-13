@@ -5,8 +5,9 @@
 #include <fstream>
 #include <sstream>
 
-#include "core/vfs.h"
 #include "core/json.h"
+#include "core/version.h"
+#include "core/vfs.h"
 
 namespace fs = std::filesystem;
 
@@ -102,6 +103,7 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     s.updateUrl = doc["updateUrl"].asString();
     s.relay = doc["relay"].asString();
     s.crashReportUrl = doc["crashReportUrl"].asString();
+    s.engineVersion = doc["engineVersion"].asString();
     out = s;
     return true;
 }
@@ -120,10 +122,34 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     if (!settings.updateUrl.empty()) doc.set("updateUrl", settings.updateUrl);
     if (!settings.relay.empty()) doc.set("relay", settings.relay);
     if (!settings.crashReportUrl.empty()) doc.set("crashReportUrl", settings.crashReportUrl);
+    doc.set("engineVersion", std::string(version::string()));   // (the engine saving it)
     std::ofstream f(dir / "project.json", std::ios::binary);
     if (!f) { error = "cannot write " + (dir / "project.json").u8string(); return false; }
     f << json::write(doc);
     return (bool)f;
+}
+
+EngineMatch engineMatch(const std::string& projectVersion, const std::string& engineVersion) {
+    if (projectVersion.empty()) return EngineMatch::Unknown;   // (from before engines recorded it)
+    int c = version::compare(projectVersion, engineVersion);
+    return c == 0 ? EngineMatch::Same : c < 0 ? EngineMatch::Older : EngineMatch::Newer;
+}
+
+Info describe(const fs::path& dir) {
+    Info info;
+    info.dir = dir;
+    Settings s;
+    std::error_code ec;
+    if (!fs::is_directory(dir, ec)) {
+        info.error = "not there any more";
+        return info;
+    }
+    if (!load(dir, s, info.error)) return info;
+    info.found = true;
+    info.name = s.name;
+    info.gameVersion = s.gameVersion;
+    info.engineVersion = s.engineVersion;
+    return info;
 }
 
 }  // namespace project

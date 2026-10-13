@@ -222,6 +222,11 @@ bool create(const fs::path& dir, Template t, const std::string& projectName, std
     fs::create_directories(dir / "scenes", ec);
     static const TextureLibrary textures = buildTextureLibrary();
     if (!saveScene((dir / "scenes" / "main.vkw").u8string(), scene, builtins(), textures, error)) return false;
+    // What the engine makes in a project, kept out of version control: the game module's build output, an update
+    // being installed, the editor's caches
+    if (!writeText(dir / ".gitignore", "# Made by the engine and its tools (not the project's own files)\n/bin/\n/build/\n/.vkworld/\n"
+                                       "/.update/\n*.old-update\n*.vkwupdate\n", error))
+        return false;
     return project::save(dir, settings, error);
 }
 

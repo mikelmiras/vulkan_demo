@@ -14,6 +14,8 @@
 
 #include "core/png.h"
 #include "core/project.h"
+#include "core/version.h"
+#include "scene/project_templates.h"
 #include "scene/serialization.h"
 
 namespace fs = std::filesystem;
@@ -330,4 +332,31 @@ TEST(frame_pacing) {
     p.maxFps = 0.f;
     d = Application::decide(p, 10.0, 11.0, 9.0, true);    // no cap, in front
     CHECK(d.draw && d.sleep == 0.0);
+}
+
+// project.json records the engine that saved it; projects at a glance for the launcher; new projects ignore what
+// the engine generates
+TEST(project_engine_version_and_launcher_info) {
+    namespace fs = std::filesystem;
+    fs::path dir = test::tempPath("launcher-project");
+    fs::remove_all(dir);
+    std::string error;
+    REQUIRE(project_templates::create(dir, project_templates::Template::Empty, "Launch Test", error));
+    project::Info info = project::describe(dir);
+    CHECK(info.found && info.name == "Launch Test" && info.gameVersion == "1.0.0");
+    CHECK(info.engineVersion == version::string());
+    project::Settings s;
+    REQUIRE(project::load(dir, s, error));
+    CHECK(s.engineVersion == version::string());
+    CHECK(project::engineMatch(s.engineVersion, version::string()) == project::EngineMatch::Same);
+    CHECK(project::engineMatch("0.0.1", version::string()) == project::EngineMatch::Older);
+    CHECK(project::engineMatch("999.0", version::string()) == project::EngineMatch::Newer);
+    CHECK(project::engineMatch("", version::string()) == project::EngineMatch::Unknown);
+    std::ifstream ignore(dir / ".gitignore");
+    std::string text((std::istreambuf_iterator<char>(ignore)), std::istreambuf_iterator<char>());
+    CHECK(text.find("/bin/") != std::string::npos && text.find("/.vkworld/") != std::string::npos);
+    project::Info gone = project::describe(dir / "nothing");
+    CHECK(!gone.found && !gone.error.empty());
+    fs::create_directories(dir / "not-a-project");
+    CHECK(!project::describe(dir / "not-a-project").found);
 }

@@ -95,6 +95,15 @@ each OS you ship for.
 `"Sample Game" --check` loads an exported game (pack, project, game code, start scene) without opening a window
 and reports what it found: CI runs it on every export, on Linux, Windows and macOS.
 
+**Projects**: a project is a folder with a `project.json` (its name, start scene, version, game module, icon,
+language, update URL, relay, crash report URL, and the engine version that last saved it). Started without one,
+the editor shows its **project launcher**: recent projects (with their versions; ones that moved can be forgotten),
+a new project from a template, opening a folder, or just the demo scene (File > Project launcher brings it back;
+`vkworld --launcher` shows it anyway). **File > Project settings** edits everything in `project.json`, with pickers
+for the scene, icon and language and checks before saving. Opening a project made with a newer engine logs a
+warning. New projects get a `.gitignore` for what the engine generates in them (`bin/`, `.vkworld/`, updates), so
+the rest (scenes, scripts, assets and their `.meta` files) goes into version control.
+
 **Packages to hand out** (File > Export game > *And make an AppImage / a .dmg / an installer*, or `--package`):
 next to the export, `<game>-<version>` made into an **AppImage** on Linux (one file that runs on any distribution;
 needs [appimagetool](https://github.com/AppImage/appimagetool) on the PATH or in `VKWORLD_APPIMAGETOOL`), a

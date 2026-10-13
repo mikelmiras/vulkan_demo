@@ -1007,7 +1007,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | # | Task | Why |
 |---|------|-----|
 | 65 (done) | Editor power use: redraw only when something changes (input, edits, animations, playing), throttled while unfocused or idle, a frame-rate cap, a "realtime viewport" toggle, the integrated GPU on dual-GPU Macs | The editor renders the whole scene at the display's refresh rate even when idle: a laptop heats up with nothing happening |
-| 66 | Projects: a project launcher at startup (recent projects, new from a template, open), a Project Settings window for everything in project.json, the engine version a project was made with, generated files kept apart from the project's own | The editor opens straight into the demo; project.json is edited by hand |
+| 66 (done) | Projects: a project launcher at startup (recent projects, new from a template, open), a Project Settings window for everything in project.json, the engine version a project was made with, generated files kept apart from the project's own | The editor opens straight into the demo; project.json is edited by hand |
 | 67 | Builds: a Build Settings window with per-platform profiles, per-game executable metadata (Windows version resources, macOS bundle id and version), assets cooked at export (compressed textures with baked mips, binary models, compiled shaders), a shipping configuration without editor or debug code | Exports are vkgame renamed with the project's source files beside it |
 | 68 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
 | 69 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
@@ -1042,3 +1042,19 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   parts that changed (the UI over a cached scene), lower viewport quality while the camera moves, an energy readout,
   the game slowing down in the background (vkgame isn't paced), automatic graphics switching in the macOS app's
   Info.plist.
+- Task 66: project::Settings::engineVersion (project.json "engineVersion": save() writes the running engine's),
+  engineMatch (Same / Older / Newer / Unknown through version::compare), describe() (a folder at a glance: found,
+  name, versions, why not). Editor (editor_project.cpp): the launcher, drawn over the whole window instead of the
+  panels and docks (the dockspace kept alive), focused every frame: recent projects from the editor's prefs, read
+  when it opens (missing ones greyed with Forget), a new project (a name, a template, a folder: an empty one, or a
+  new folder named after the project inside a non-empty one), Open a project folder, Just the demo scene. main
+  shows it when no project or scene was given or found (not in screenshot, stress or play runs; --launcher forces
+  it). Project Settings: a draft of project_ edited (name, version, start scene from the project's .vkw files,
+  icon from its PNGs, language from strings/, module, module build, update URL, relay, crash report URL), problems
+  listed and Save disabled until there are none (a name, a numeric version, a start scene that exists, http(s)
+  URLs). openProject logs projects from newer engines. Templates write a .gitignore (bin/, build/, .vkworld/,
+  .update/, *.old-update, *.vkwupdate). The sample project records its engine version. Checked: versions written and
+  compared, describe() for a project, a missing folder and a folder without a project, the template's .gitignore;
+  screenshots of the launcher with a recent project and of Project Settings (validation clean). Not done: thumbnails
+  of projects, removing a project from disk, project-wide search, migrating projects from older engines (nothing to
+  migrate yet), an editor cache in .vkworld/ (thumbnails are made in memory each session).

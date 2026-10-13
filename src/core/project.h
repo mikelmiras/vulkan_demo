@@ -30,7 +30,22 @@ struct Settings {
     // Where crash reports go when a player agrees to send them (app/crash_reports.h): an http(s) URL taking a POST of
     // the report's text. Empty: they stay on the player's machine.
     std::string crashReportUrl;
+    // The engine version that last saved project.json (save() writes the running engine's): opening a project made
+    // with a newer engine warns that this one may not read everything in it
+    std::string engineVersion;
 };
+
+// A project folder at a glance (the editor's launcher): whether it's there and a project, its name and versions
+struct Info {
+    std::filesystem::path dir;
+    bool found = false;         // a folder with a readable project.json
+    std::string name, gameVersion, engineVersion, error;
+};
+Info describe(const std::filesystem::path& dir);
+
+// How the project's engine version compares with this engine's
+enum class EngineMatch { Same, Older, Newer, Unknown };   // (Older: made with an older engine, fine to open)
+EngineMatch engineMatch(const std::string& projectVersion, const std::string& engineVersion);
 
 void setRoot(const std::filesystem::path& root);
 const std::filesystem::path& root();

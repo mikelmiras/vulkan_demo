@@ -18,7 +18,7 @@ const char* name(Template t);
 const char* description(Template t);
 
 // Writes the project into `dir` (created if missing; it must not hold a project already). `projectName` "": the
-// folder's name.
+// folder's name. With a .gitignore for what the engine generates there (bin/, .vkworld/, updates).
 bool create(const std::filesystem::path& dir, Template t, const std::string& projectName, std::string& error);
 
 }  // namespace project_templates

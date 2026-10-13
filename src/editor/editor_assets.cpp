@@ -12,6 +12,8 @@
 
 #include "app/export.h"
 #include "assets/asset_db.h"
+#include "core/log.h"
+#include "core/version.h"
 #include "script/lua_script.h"
 #include "editor/editor_ui.h"
 #include "platform/platform.h"
@@ -123,7 +125,11 @@ void Editor::openProject(const fs::path& dir) {
         if (!project::save(dir, settings, error)) { setStatus(error); return; }
     }
     project_ = settings;
+    showLauncher_ = false;
     editor_prefs::addRecent(recentProjects_, project::root().u8string());
+    if (project::engineMatch(project_.engineVersion, version::string()) == project::EngineMatch::Newer)
+        logLine("project %s was made with a newer engine (%s) than this one (%s): some of it may not load",
+                project_.name.c_str(), project_.engineVersion.c_str(), version::string());
     assetdb::open(project::root(), true);
     selectedAsset_.clear();
     loadScripts();

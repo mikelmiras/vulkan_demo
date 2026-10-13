@@ -36,9 +36,10 @@ int main(int argc, char** argv) {
     const char* selectName = nullptr;
     const char* exportDir = nullptr;
     ExportOptions exportOptions;
-    bool play = false, stress = false, gameView = false;
+    bool play = false, stress = false, gameView = false, launcher = false;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--play")) play = true;
+        else if (!std::strcmp(argv[i], "--launcher")) launcher = true;   // (the project launcher even with a project)
         else if (!std::strcmp(argv[i], "--game-view")) gameView = true;
         else if (!std::strcmp(argv[i], "--stress")) stress = true;
         else if (!std::strcmp(argv[i], "--select") && i + 1 < argc) selectName = argv[++i];
@@ -92,6 +93,9 @@ int main(int argc, char** argv) {
     if (stress) editor.newStressScene();
     if (selectName && !editor.selectByName(selectName)) std::fprintf(stderr, "no entity named %s\n", selectName);
     if (gameView) editor.setGameView(true);
+    // Nothing to open (no project or scene given, none found): the project launcher, as other engines start
+    if (launcher || (!projectArg && !scenePath && !stress && !play && !project::exists(project::root()) && options.screenshotPath.empty()))
+        editor.showLauncher();
     if (play) editor.play();
     if (!crash::previousReport().empty())
         editor.showStatus("The last session crashed. Its report: " + crash::previousReport().u8string());

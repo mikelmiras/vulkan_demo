@@ -289,6 +289,7 @@ add_executable(vkworld
   src/editor/editor_terrain.cpp
   src/editor/editor_ai.cpp
   src/editor/editor_ui_layout.cpp
+  src/editor/editor_project.cpp
   src/editor/editor_prefs.cpp)
 target_link_libraries(vkworld PRIVATE engine)
 # Help > Check for updates asks here (GitHub's latest release of the engine; only when asked)

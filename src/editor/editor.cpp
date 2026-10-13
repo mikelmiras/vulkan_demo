@@ -135,7 +135,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     float toolbarH = ImGui::GetFrameHeight() + style.WindowPadding.y * 2.f;
     topH_ = menuH + toolbarH;
     statusH_ = ImGui::GetTextLineHeight() + style.WindowPadding.y * 2.f;
-    bool panels = !(playing() && maximizeOnPlay_);
+    bool panels = !(playing() && maximizeOnPlay_) && !showLauncher_;   // (the launcher: nothing else until a choice)
     drawDockspace(panels);
     savePrefsIfChanged(dt);
     updateView();
@@ -155,6 +155,8 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawGameView();
     if (showProfiler_) drawProfilerWindow(&showProfiler_, project::saveDir("Editor").parent_path() / "traces");
     drawAssetDialogs();
+    drawProjectSettings();
+    drawLauncher();   // (last: over everything)
 
     handleNavigation(dt);
     bool brushing = handleTerrainTool(dt);

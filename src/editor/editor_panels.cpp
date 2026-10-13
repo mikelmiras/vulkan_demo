@@ -75,6 +75,8 @@ void Editor::drawMenuBar() {
             }
             ImGui::EndMenu();
         }
+        if (ImGui::MenuItem("Project launcher...")) showLauncher();
+        if (ImGui::MenuItem("Project settings...", nullptr, false, project::exists(project::root()))) showProjectSettings();
         if (ImGui::MenuItem("Open project folder...")) {
             std::filesystem::path dir = platform::openFolderDialog("Open project folder");
             ImGui::GetIO().ClearInputKeys();

@@ -60,6 +60,10 @@ public:
     void openScene(const std::string& path);   // like File > Load
     // Makes `dir` the current project (creating its project.json if it has none) and opens its start scene
     void openProject(const std::filesystem::path& dir);
+    // The project launcher (editor_project.cpp): over the whole window until a project is chosen (or the demo);
+    // File > Project launcher. Project Settings: File > Project settings.
+    void showLauncher();
+    void showProjectSettings();
     void play() { startPlay(); }
     void newStressScene();   // the demo plus thousands of objects: for measuring performance
     void setUiTextures(GameUI::TextureLookup lookup) {
@@ -207,6 +211,13 @@ private:
     EditorPrefs savedPrefs_;      // as last written
     float prefsTimer_ = 0.f;
     std::vector<std::string> recentProjects_;   // File > Recent projects (newest first)
+    bool showLauncher_ = false, showProjectSettings_ = false;
+    std::vector<project::Info> launcherInfo_;   // (the recent projects, read when the launcher opens)
+    std::string newProjectName_;
+    int newProjectTemplate_ = 1;
+    project::Settings projectDraft_;            // (Project Settings: the edits until saved)
+    void drawLauncher();
+    void drawProjectSettings();
     Renderer* renderer_ = nullptr;
     int antialiasing_ = -1;   // the one picked in View > Anti-aliasing (Renderer::Antialiasing; -1: the default)
     void select(EntityId id);
