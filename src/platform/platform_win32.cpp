@@ -47,8 +47,7 @@ using XInputSetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_VIBRATION*);
 XInputGetStateFn g_xinputGetState = nullptr;
 XInputSetStateFn g_xinputSetState = nullptr;
 bool g_xinputTried = false;
-int g_rumblePad = -1;
-ULONGLONG g_rumbleUntil = 0;   // (XInput has no duration: stopped by pollEvents)
+ULONGLONG g_rumbleUntil[XUSER_MAX_COUNT] = {};   // (XInput has no duration: each pad's stopped by pollEvents)
 
 bool loadXInput() {
     if (g_xinputTried) return g_xinputSetState != nullptr;
@@ -173,14 +172,16 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
 
 void destroyWindow() {
     setCursorCaptured(false);
-    if (g_rumbleUntil) gamepadRumble(0.f, 0.f, 0.f);
+    for (int i = 0; i < XUSER_MAX_COUNT; ++i)
+        if (g_rumbleUntil[i]) gamepadRumble(i, 0.f, 0.f, 0.f);
     DestroyWindow(g_hwnd);
     UnregisterClassW(kClassName, g_instance);
     g_hwnd = nullptr;
 }
 
 void pollEvents() {
-    if (g_rumbleUntil && GetTickCount64() >= g_rumbleUntil) gamepadRumble(0.f, 0.f, 0.f);
+    for (int i = 0; i < XUSER_MAX_COUNT; ++i)
+        if (g_rumbleUntil[i] && GetTickCount64() >= g_rumbleUntil[i]) gamepadRumble(i, 0.f, 0.f, 0.f);
     MSG msg;
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
@@ -234,27 +235,81 @@ void setFullscreen(bool fullscreen) {
 
 bool isFullscreen() { return g_fullscreen; }
 
-bool gamepadRumble(float low, float high, float seconds) {
+bool gamepadRumble(float low, float high, float seconds) { return gamepadRumble(-1, low, high, seconds); }
+
+bool gamepadRumble(int pad, float low, float high, float seconds) {
     if (!loadXInput()) return false;
     bool stop = seconds <= 0.f || (low <= 0.f && high <= 0.f);
-    if (!stop || g_rumblePad < 0) {
-        g_rumblePad = -1;
-        for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) {
+    if (pad < 0) {   // the first one connected (stopping: every one rumbling)
+        if (stop) {
+            bool ok = true;
+            for (int i = 0; i < XUSER_MAX_COUNT; ++i)
+                if (g_rumbleUntil[i]) ok = gamepadRumble(i, 0.f, 0.f, 0.f) && ok;
+            return ok;
+        }
+        for (DWORD i = 0; i < XUSER_MAX_COUNT && pad < 0; ++i) {
             XINPUT_STATE state{};
-            if (g_xinputGetState(i, &state) == ERROR_SUCCESS) {
-                g_rumblePad = (int)i;
-                break;
-            }
+            if (g_xinputGetState(i, &state) == ERROR_SUCCESS) pad = (int)i;
         }
     }
-    if (g_rumblePad < 0) return false;
+    if (pad < 0 || pad >= XUSER_MAX_COUNT) return false;
     XINPUT_VIBRATION v{};
     if (!stop) {   // (left: the heavy motor, right: the light one)
         v.wLeftMotorSpeed = (WORD)(std::clamp(low, 0.f, 1.f) * 65535.f);
         v.wRightMotorSpeed = (WORD)(std::clamp(high, 0.f, 1.f) * 65535.f);
     }
-    g_rumbleUntil = stop ? 0 : GetTickCount64() + (ULONGLONG)(seconds * 1000.f);
-    return g_xinputSetState((DWORD)g_rumblePad, &v) == ERROR_SUCCESS;
+    g_rumbleUntil[pad] = stop ? 0 : GetTickCount64() + (ULONGLONG)(seconds * 1000.f);
+    return g_xinputSetState((DWORD)pad, &v) == ERROR_SUCCESS;
+}
+
+// XInput's four pads, one by one (Dear ImGui's backend gives it the first connected; all Xbox-like)
+std::vector<GamepadState> gamepads() {
+    std::vector<GamepadState> out(XUSER_MAX_COUNT);
+    if (!loadXInput()) return out;
+    static ULONGLONG retry[XUSER_MAX_COUNT] = {};   // (asking an empty slot is slow: those only every 2 s)
+    ULONGLONG now = GetTickCount64();
+    for (DWORD i = 0; i < XUSER_MAX_COUNT; ++i) {
+        if (retry[i] > now) continue;
+        XINPUT_STATE st{};
+        if (g_xinputGetState(i, &st) != ERROR_SUCCESS) {
+            retry[i] = now + 2000;
+            continue;
+        }
+        retry[i] = 0;
+        GamepadState& p = out[i];
+        p.connected = true;
+        p.type = PadType::Xbox;
+        p.name = "XInput pad " + std::to_string(i + 1);
+        const XINPUT_GAMEPAD& g = st.Gamepad;
+        auto button = [&](ImGuiKey k, WORD bit) { p.set(k, (g.wButtons & bit) ? 1.f : 0.f); };
+        button(ImGuiKey_GamepadStart, XINPUT_GAMEPAD_START);
+        button(ImGuiKey_GamepadBack, XINPUT_GAMEPAD_BACK);
+        button(ImGuiKey_GamepadFaceDown, XINPUT_GAMEPAD_A);
+        button(ImGuiKey_GamepadFaceRight, XINPUT_GAMEPAD_B);
+        button(ImGuiKey_GamepadFaceLeft, XINPUT_GAMEPAD_X);
+        button(ImGuiKey_GamepadFaceUp, XINPUT_GAMEPAD_Y);
+        button(ImGuiKey_GamepadDpadLeft, XINPUT_GAMEPAD_DPAD_LEFT);
+        button(ImGuiKey_GamepadDpadRight, XINPUT_GAMEPAD_DPAD_RIGHT);
+        button(ImGuiKey_GamepadDpadUp, XINPUT_GAMEPAD_DPAD_UP);
+        button(ImGuiKey_GamepadDpadDown, XINPUT_GAMEPAD_DPAD_DOWN);
+        button(ImGuiKey_GamepadL1, XINPUT_GAMEPAD_LEFT_SHOULDER);
+        button(ImGuiKey_GamepadR1, XINPUT_GAMEPAD_RIGHT_SHOULDER);
+        button(ImGuiKey_GamepadL3, XINPUT_GAMEPAD_LEFT_THUMB);
+        button(ImGuiKey_GamepadR3, XINPUT_GAMEPAD_RIGHT_THUMB);
+        auto trigger = [](BYTE v) { return v <= XINPUT_GAMEPAD_TRIGGER_THRESHOLD ? 0.f : (v - XINPUT_GAMEPAD_TRIGGER_THRESHOLD) / (255.f - XINPUT_GAMEPAD_TRIGGER_THRESHOLD); };
+        p.set(ImGuiKey_GamepadL2, trigger(g.bLeftTrigger));
+        p.set(ImGuiKey_GamepadR2, trigger(g.bRightTrigger));
+        auto stick = [&](ImGuiKey negative, ImGuiKey positive, SHORT raw, bool flip) {
+            float v = (flip ? -raw : raw) / 32767.f, dead = (float)XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE / 32767.f;
+            p.set(negative, std::clamp((-v - dead) / (1.f - dead), 0.f, 1.f));
+            p.set(positive, std::clamp((v - dead) / (1.f - dead), 0.f, 1.f));
+        };
+        stick(ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight, g.sThumbLX, false);
+        stick(ImGuiKey_GamepadLStickUp, ImGuiKey_GamepadLStickDown, g.sThumbLY, true);   // (XInput's y is up)
+        stick(ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight, g.sThumbRX, false);
+        stick(ImGuiKey_GamepadRStickUp, ImGuiKey_GamepadRStickDown, g.sThumbRY, true);
+    }
+    return out;
 }
 
 bool setGamepadLight(float, float, float) { return false; }   // (XInput has no light bars)

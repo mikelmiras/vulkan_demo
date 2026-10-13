@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "scene/input_bindings.h"
+
 namespace platform {
 
 bool createWindow(const char* title, uint32_t width, uint32_t height);
@@ -40,6 +42,10 @@ bool isFullscreen();
 // OS or permissions don't allow it (Windows: no light bars through XInput; Linux: the LEDs are often root's).
 bool gamepadRumble(float low, float high, float seconds);
 bool setGamepadLight(float r, float g, float b);
+// Gamepads one by one: up to four slots (a pad keeps its slot while it's connected), what each has down and what
+// kind it is. Dear ImGui still gets them all together (menus answer any pad). macOS: the GameController framework's.
+std::vector<GamepadState> gamepads();
+bool gamepadRumble(int pad, float low, float high, float seconds);   // a pad's own (its slot; -1: the first)
 
 // Content scale of the window's monitor (1.0 = 96 DPI on Windows, always 1.0 on X11)
 float dpiScale();

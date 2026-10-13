@@ -249,7 +249,7 @@ TEST(gameplay_gamepad_feedback) {
     std::vector<Game::Rumble> rumbles;
     std::vector<Vec3> lights;
     Game g;
-    g.setGamepadOutput({[&](float low, float high, float seconds) { rumbles.push_back({low, high, seconds}); },
+    g.setGamepadOutput({[&](int pad, float low, float high, float seconds) { rumbles.push_back({low, high, seconds, pad}); },
                         [&](Vec3 c) { lights.push_back(c); }});
     g.start(s, meshes());
     g.context().rumble(0.5f, 1.5f, 0.3f);

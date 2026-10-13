@@ -189,9 +189,8 @@ static GCController* firstPad() {
     return GCController.controllers.firstObject;
 }
 
-bool gamepadRumble(float low, float high, float seconds) {
+static bool rumbleOn(GCController* pad, float low, float high, float seconds) {
     if (@available(macOS 11.0, *)) {
-        GCController* pad = firstPad();
         if (!pad || !pad.haptics) return false;
         if (pad != g_hapticPad || !g_hapticEngine) {
             g_hapticPlayer = nil;
@@ -228,6 +227,62 @@ bool gamepadRumble(float low, float high, float seconds) {
         return true;
     }
     return false;
+}
+
+bool gamepadRumble(float low, float high, float seconds) { return rumbleOn(firstPad(), low, high, seconds); }
+
+// (one haptics engine at a time: rumbling another pad moves it there)
+bool gamepadRumble(int pad, float low, float high, float seconds) {
+    NSArray<GCController*>* pads = GCController.controllers;
+    if (pad < 0) return gamepadRumble(low, high, seconds);
+    return pad < (int)pads.count && rumbleOn(pads[(NSUInteger)pad], low, high, seconds);
+}
+
+// The GameController framework's pads, one by one (in its order; Dear ImGui's backend reads the current one)
+std::vector<GamepadState> gamepads() {
+    std::vector<GamepadState> out;
+    for (GCController* c in GCController.controllers) {
+        if (out.size() >= 4) break;
+        GamepadState p;
+        GCExtendedGamepad* g = c.extendedGamepad;
+        if (!g) {
+            out.push_back(p);
+            continue;
+        }
+        p.connected = true;
+        std::string category = c.productCategory ? c.productCategory.UTF8String : "", vendor = c.vendorName ? c.vendorName.UTF8String : "";
+        p.name = vendor.empty() ? category : vendor;
+        p.type = padTypeOf(0, category + " " + vendor);
+        auto press = [&](ImGuiKey k, GCControllerButtonInput* b) { if (b) p.set(k, b.value); };
+        press(ImGuiKey_GamepadFaceDown, g.buttonA);   // (by place: A is the bottom one)
+        press(ImGuiKey_GamepadFaceRight, g.buttonB);
+        press(ImGuiKey_GamepadFaceLeft, g.buttonX);
+        press(ImGuiKey_GamepadFaceUp, g.buttonY);
+        press(ImGuiKey_GamepadL1, g.leftShoulder);
+        press(ImGuiKey_GamepadR1, g.rightShoulder);
+        press(ImGuiKey_GamepadL2, g.leftTrigger);
+        press(ImGuiKey_GamepadR2, g.rightTrigger);
+        press(ImGuiKey_GamepadL3, g.leftThumbstickButton);
+        press(ImGuiKey_GamepadR3, g.rightThumbstickButton);
+        press(ImGuiKey_GamepadStart, g.buttonMenu);
+        press(ImGuiKey_GamepadBack, g.buttonOptions);
+        press(ImGuiKey_GamepadDpadLeft, g.dpad.left);
+        press(ImGuiKey_GamepadDpadRight, g.dpad.right);
+        press(ImGuiKey_GamepadDpadUp, g.dpad.up);
+        press(ImGuiKey_GamepadDpadDown, g.dpad.down);
+        auto stick = [&](ImGuiKey negative, ImGuiKey positive, float v) {
+            const float dead = 0.15f;
+            p.set(negative, std::clamp((-v - dead) / (1.f - dead), 0.f, 1.f));
+            p.set(positive, std::clamp((v - dead) / (1.f - dead), 0.f, 1.f));
+        };
+        stick(ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight, g.leftThumbstick.xAxis.value);
+        stick(ImGuiKey_GamepadLStickUp, ImGuiKey_GamepadLStickDown, -g.leftThumbstick.yAxis.value);   // (its y is up)
+        stick(ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight, g.rightThumbstick.xAxis.value);
+        stick(ImGuiKey_GamepadRStickUp, ImGuiKey_GamepadRStickDown, -g.rightThumbstick.yAxis.value);
+        out.push_back(p);
+    }
+    while (out.size() < 4) out.emplace_back();
+    return out;
 }
 
 bool setGamepadLight(float r, float g, float b) {

@@ -18,6 +18,7 @@
 #include "core/vecmath.h"
 #include "game/behaviour_tree.h"
 #include "game/input.h"
+#include "game/prompts.h"
 #include "game/navigation.h"
 #include "game/scene_loader.h"
 #include "game/strings.h"
@@ -83,8 +84,11 @@ public:
     std::string format(const std::string& text) const;
     void erase(const std::string& key) { values_.erase(key); }
     void clear() { values_.clear(); }
+    // The game's values, for save games and multiplayer snapshots: without this machine's own (isLocal: the
+    // player's settings.*, input.*, net.*), which loading keeps as they are
     json::Value toJson() const;
     void fromJson(const json::Value& v);
+    static bool isLocal(const std::string& key);
 
 private:
     std::map<std::string, json::Value> values_;
@@ -165,7 +169,11 @@ public:
     void makeNoise(Vec3 position, float loudness = 1.f, EntityId source = kNoEntity);
     // Gamepad feedback: rumble (the heavy and light motors 0..1, for `seconds`; 0 stops it; nothing while the
     // player's settings.rumble is off) and the colour of a light bar (DualShock 4, DualSense; sRGB 0..1)
+    // (local multiplayer: the pad of the player whose behaviour asks)
     void rumble(float low, float high, float seconds);
+    // What to press for an action, as a prompt for GameUI's text (glyphs: game/prompts.h), on the device the player
+    // used last; texts get the same from "{button:jump}" ("{button:jump:pad}", "{button:jump:keyboard}": that one)
+    std::string prompt(const std::string& action) const;
     void setGamepadLight(Vec3 color);
     // An AI brain's blackboard (nullptr: no AIBrain on it)
     json::Value* blackboard(EntityId id);
@@ -269,7 +277,8 @@ public:
     // Optional: where gamepad feedback goes (the host's platform::gamepadRumble / setGamepadLight). Requests are
     // remembered either way (tests): the last rumble asked for, and the light's colour.
     struct GamepadOutput {
-        std::function<void(float low, float high, float seconds)> rumble;
+        // `pad`: the slot in gamepads() (a player's own pad), or -1: the first one
+        std::function<void(int pad, float low, float high, float seconds)> rumble;
         std::function<void(Vec3 color)> light;
     };
     void setGamepadOutput(GamepadOutput output) { gamepadOut_ = std::move(output); }
@@ -283,6 +292,7 @@ public:
     }
     struct Rumble {
         float low = 0.f, high = 0.f, seconds = 0.f;
+        int pad = -1;   // (the asking behaviour's player's pad, or -1: the first)
     };
     const Rumble& lastRumble() const { return lastRumble_; }
     const Vec3* gamepadLight() const { return hasLight_ ? &light_ : nullptr; }
@@ -329,6 +339,31 @@ public:
     // components, game/ui_layout.h), between ui.begin() and ui.end()
     void drawUI(GameUI& ui);
     const UIController& uiController() const { return uiController_; }
+
+    // ---- Local players (split screen: cameras with Camera::player 1..4) and gamepads
+    // The pads connected now (the host's platform::gamepads(), each frame before frame()). With two or more player
+    // cameras, player 1 plays with the keyboard, the mouse and the first pad, player n with the n-th pad, and the
+    // behaviours under a player camera's root (its topmost ancestor) read that player's input as ctx.input().
+    // Otherwise (and without pads) every pad is everyone's, through Dear ImGui.
+    void setGamepads(std::vector<GamepadState> pads) { pads_ = std::move(pads); }
+    const std::vector<GamepadState>& gamepads() const { return pads_; }
+    const InputMap& playerInput(int player) const { return players_[std::clamp(player, 0, kMaxPlayers - 1)]; }
+    int playerPad(int player) const;   // the slot (in gamepads()) of the pad player n (0-based) plays with; -1: none
+    // What was used last (button prompts show it): the keyboard and mouse, or a pad, and which kind
+    prompts::Device lastDevice() const { return lastDevice_; }
+    PadType lastPadType() const { return lastPad_; }
+    // An action's binding as a prompt (glyphs: game/prompts.h) on the device used last, or on `device`
+    std::string prompt(const std::string& action) const { return prompt(action, lastDevice_); }
+    std::string prompt(const std::string& action, prompts::Device device) const;
+    // Rebinding (the UI action "@rebind jump"): the next press on `device` (keys and mouse buttons, or a pad's
+    // buttons and sticks) becomes the action's binding there, saved in the player's settings (settings.bind.<action>:
+    // game/input_bindings.h's format); Esc or 10 s cancels. The game state's input.rebinding names the action
+    // while it waits (menus say "Press a button..."); the UI doesn't take input meanwhile.
+    void rebind(const std::string& action, prompts::Device device);
+    bool rebinding() const { return !rebind_.action.empty(); }
+    void resetBindings(const std::string& action = "");   // the scene's bindings back: all, or one action's
+    const std::vector<InputAction>& bindings() const { return actions_; }   // the scene's, with the player's own
+    static constexpr int kMaxPlayers = 4;
 
     // ---- Multiplayer (net/net_session.h)
     // The behaviours of `root` and everything under it read `input` (a remote player's) instead of this machine's;
@@ -456,6 +491,25 @@ private:
     GamepadOutput gamepadOut_;
     std::function<void(const std::string&)> urlOpener_;
     std::function<void(const std::string&, const std::string&)> networkHandler_;
+    // Local players and pads
+    std::vector<GamepadState> pads_;
+    InputMap players_[kMaxPlayers];
+    std::vector<EntityId> playerRoots_;   // (2+ player cameras) each player's camera's root
+    std::vector<int> playerPads_;         // ... and the pad slot each plays with
+    std::vector<InputAction> actions_;    // the scene's bindings with the player's own
+    prompts::Device lastDevice_ = prompts::Device::Keyboard;
+    PadType lastPad_ = PadType::Generic;
+    struct Rebind {
+        std::string action;
+        prompts::Device device = prompts::Device::Keyboard;
+        float waited = 0.f;
+        bool released = false;   // (everything let go since it was asked: the press that asked doesn't count)
+    } rebind_;
+    void applyBindings();        // actions_ from the scene and settings, into every InputMap
+    void beginInput(bool keyboard, bool mouse, ImVec2 mouseDelta);
+    void endInputStep();
+    void trackDevice();
+    void updateRebind(float dt);
     Rumble lastRumble_;
     Vec3 light_;
     bool hasLight_ = false;

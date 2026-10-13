@@ -380,7 +380,7 @@ int main(int argc, char** argv) {
     if (!audio.init()) std::fprintf(stderr, "%s\n", audio.error().c_str());
     Game game;
     game.setAudio(&audio);
-    game.setGamepadOutput({[](float low, float high, float seconds) { platform::gamepadRumble(low, high, seconds); },
+    game.setGamepadOutput({[](int pad, float low, float high, float seconds) { platform::gamepadRumble(pad, low, high, seconds); },
                            [](Vec3 c) { platform::setGamepadLight(c.x, c.y, c.z); }});
     game.setUrlOpener([](const std::string& url) { platform::openWithSystem(fs::u8path(url)); });
     game.setAssetLibraries(meshes, textures);
@@ -479,6 +479,7 @@ int main(int argc, char** argv) {
         scripting::poll();   // (scripts edited on disk while it runs: reloaded, keeping their state)
         {
             PROFILE_SCOPE("Game");
+            game.setGamepads(platform::gamepads());   // (local players: a pad each)
             game.frame(dt, !io.WantTextInput, true, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
         }
         net.update(dt);   // (multiplayer: sends and receives after the game's updates)

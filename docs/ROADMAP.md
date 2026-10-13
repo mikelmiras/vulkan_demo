@@ -724,7 +724,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 59 (done) | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
 | 60 (done) | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
 | 61 (done) | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
-| 62 | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
+| 62 (done) | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
 | 63 | Text: complex scripts and right-to-left (HarfBuzz shaping), font fallback for CJK and emoji | Latin text only renders correctly |
 | 64 | Shipping, more: an auto-updater (download, verify, swap), crash report upload (opt-in), code signing and notarization in the release workflow | Updates are announced, not applied; crashes stay on players' machines |
 
@@ -910,3 +910,35 @@ Working list for turning the renderer demo into a small game engine. Each task i
   an editor screenshot with the callbacks in the profiler. Not done: setting variables, data breakpoints (a field
   changing), coroutines as threads, function breakpoints, wall-clock sampling (a sampler thread), per-line
   sampling, the profiler's script stats in vkgame's F3 overlay.
+- Task 62: platform::gamepads(): four slots of GamepadState (scene/input_bindings.h: connected, PadType, name, ImGui's
+  gamepad keys' values from ImGuiKey_GamepadStart). Linux opens up to four js nodes (a free slot each, rescanned
+  every 2 s), reads each pad's JSIOCGNAME, its USB vendor from sysfs, and its button and axis code maps
+  (JSIOCGBTNMAP / JSIOCGAXMAP; xpad's order without them), and maps codes through linuxPadButton / linuxPadAxis
+  (tested): positional face buttons, where xpad's BTN_X / BTN_Y are left / top but hid-playstation's and
+  hid-nintendo's BTN_NORTH / BTN_WEST (the same codes) are top / left; Dear ImGui gets every pad's maximum, only on
+  change. Windows: XInputGetState for four pads (empty slots asked every 2 s: the call is slow), Xbox type,
+  rumble per pad (each with its own stop time). macOS: GCController.controllers' extended gamepads (by place;
+  type from productCategory and vendorName), rumble per pad by moving the one haptics engine. Game: setGamepads
+  each frame (vkgame, the editor); with two or more player cameras, players_[k] (InputMap::Sources: the keyboard
+  and mouse for player 1, the k-th connected pad's state) and playerRoots_ (each camera's topmost ancestor), which
+  inputFor() checks after remote players, for updates and drawUI; ctx.rumble picks the pad of the player whose map
+  is in ctx (GamepadOutput.rumble takes a pad; module API 42). Prompts (game/prompts.*): pad glyphs as private-use
+  characters (U+E000 + type * 32 + key), keycaps between U+E100 and U+E101; GameUI::text / textWidth split text into
+  runs and draw glyphs as ImDrawList shapes (circles with coloured letters, PlayStation's shapes, a d-pad cross with
+  the arm lit, stick rings with an arrow, pills for shoulders, triggers and menu buttons). The device used last:
+  a keyboard key, a click or a 6-pixel mouse move, or a pad control past 0.6 (with its type). Formatting expands
+  {button:action[:pad|keyboard]} before the state's {keys}; ctx.prompt / Lua input.prompt. Rebinding: @rebind (on
+  the device used last) waits until that device is let go, then takes its first press (pads: any control past 0.6,
+  sticks too; keys: any but Esc, or a mouse button), replaces that device's part of the action, keeps the other's,
+  saves settings.bind.<action> (bindingString / parseBinding) and applies it (InputMap::setActions keeps actions'
+  state by name); the UI isn't interactive meanwhile; Esc / 10 s cancel; @resetbindings. GameState's toJson /
+  fromJson leave out and keep this machine's own keys (settings.*, input.*, net.*): save games and snapshots no
+  longer carry (or overwrite) players' settings, bindings included. Checked: binding strings, pad kinds, Linux codes
+  per driver family, glyph splitting and labels per pad kind, two players each moved by their own pad (and the
+  keyboard player 1's only) with rumble on the right pad, one player answering any pad, prompts switching between
+  keycaps and a PlayStation pad's glyphs, rebinding a key and a pad button (the other kept, saved, back next run,
+  reset), Esc cancelling; a screenshot of every glyph of every pad kind and prompts from bindings. Not done: real
+  pads on any platform (none on the build machine: the Linux mapping is from the drivers' sources), DualSense /
+  Switch pads on Windows (XInput only sees Xbox ones: Steam Input or HID would), stable slots on macOS (its
+  controllers' order), players joining by pressing Start, glyphs from the platform's own (SF Symbols, Steam's),
+  rebinding a stick axis as a whole, conflicts between bindings (two actions on one key are allowed).

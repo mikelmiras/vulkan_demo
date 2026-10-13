@@ -145,6 +145,7 @@ set(ENGINE_SOURCES
   src/game/behaviour_tree.cpp
   src/game/module.cpp
   src/game/ui.cpp
+  src/game/prompts.cpp
   src/game/ui_layout.cpp
   src/game/animation.cpp
   src/game/particles.cpp
@@ -368,6 +369,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_ui_layout.cpp
     tests/test_network.cpp
     tests/test_relay.cpp
+    tests/test_gamepads.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

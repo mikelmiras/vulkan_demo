@@ -29,7 +29,7 @@ Editor::Editor(MeshLibrary& meshes, TextureLibrary& textures, AudioEngine* audio
     : meshes_(meshes), textures_(textures), audio_(audio), uiScale_(uiScale), scene_(buildDefaultScene()) {
     game_.setAudio(audio);
     if (persistent)   // (a real editor: screenshot runs and tests don't rumble pads)
-        game_.setGamepadOutput({[](float low, float high, float seconds) { platform::gamepadRumble(low, high, seconds); },
+        game_.setGamepadOutput({[](int pad, float low, float high, float seconds) { platform::gamepadRumble(pad, low, high, seconds); },
                            [](Vec3 c) { platform::setGamepadLight(c.x, c.y, c.z); }});
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     persistent_ = persistent;
@@ -94,6 +94,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     game_.setRecordContacts(showContacts_);
     scripting::debugger::poll();   // (an attached editor's requests: breakpoints set while the game runs)
     bool gameMouse = gameViewShown() ? gameViewHovered_ : viewportHovered();   // (over whichever shows the game)
+    if (persistent_) game_.setGamepads(platform::gamepads());   // (local players: a pad each; not in screenshot runs)
     game_.frame(dt, !io.WantTextInput, captured || gameMouse, captured ? ImVec2(mdx, mdy) : io.MouseDelta);
     net_.update(dt);
     uiWantsCursor_ = false;

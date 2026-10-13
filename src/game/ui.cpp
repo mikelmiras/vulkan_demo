@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "game/fonts.h"
+#include "game/prompts.h"
 
 void GameUI::begin(ImDrawList* dl, float x, float y, float w, float h, bool mouse) {
     dl_ = dl;
@@ -36,7 +37,12 @@ void GameUI::border(float x, float y, float w, float h, Color color, float thick
 float GameUI::textWidth(const std::string& text, float size, const std::string& fontFile) const {
     ImFont* font = gamefonts::font(fontFile);
     if (!font) return 0.f;
-    return font->CalcTextSizeA(size * scale_, FLT_MAX, 0.f, text.c_str()).x / scale_;
+    if (!prompts::hasGlyphs(text)) return font->CalcTextSizeA(size * scale_, FLT_MAX, 0.f, text.c_str()).x / scale_;
+    float w = 0.f;   // (button prompts: the runs of text and the glyphs between them)
+    for (const prompts::Piece& p : prompts::split(text))
+        w += p.kind == prompts::Piece::Text ? font->CalcTextSizeA(size * scale_, FLT_MAX, 0.f, p.text.c_str()).x
+                                            : prompts::glyphWidth(p, size * scale_, font);
+    return w / scale_;
 }
 
 void GameUI::text(float x, float y, const std::string& text, float size, Color color, Align align, const std::string& fontFile) {
@@ -47,8 +53,21 @@ void GameUI::text(float x, float y, const std::string& text, float size, Color c
     ImFont* font = gamefonts::font(fontFile);
     float px = size * scale_, off = std::max(1.f, size * 0.06f) * scale_;
     ImVec2 p = toScreen(x, y);
-    dl_->AddText(font, px, ImVec2(p.x + off, p.y + off), rgba({0.f, 0.f, 0.f, color.a * 0.6f}), text.c_str());
-    dl_->AddText(font, px, p, rgba(color), text.c_str());
+    if (!prompts::hasGlyphs(text)) {
+        dl_->AddText(font, px, ImVec2(p.x + off, p.y + off), rgba({0.f, 0.f, 0.f, color.a * 0.6f}), text.c_str());
+        dl_->AddText(font, px, p, rgba(color), text.c_str());
+        return;
+    }
+    for (const prompts::Piece& piece : prompts::split(text)) {   // (the glyphs drawn in their own colours)
+        if (piece.kind == prompts::Piece::Text) {
+            dl_->AddText(font, px, ImVec2(p.x + off, p.y + off), rgba({0.f, 0.f, 0.f, color.a * 0.6f}), piece.text.c_str());
+            dl_->AddText(font, px, p, rgba(color), piece.text.c_str());
+            p.x += font ? font->CalcTextSizeA(px, FLT_MAX, 0.f, piece.text.c_str()).x : 0.f;
+        } else {
+            prompts::drawGlyph(dl_, font, p, px, piece, color.a);
+            p.x += prompts::glyphWidth(piece, px, font);
+        }
+    }
 }
 
 void GameUI::bar(float x, float y, float w, float h, float fraction, Color fill, Color back) {

@@ -17,6 +17,15 @@ public:
     // movement this frame (raw while the cursor is captured). Edges and mouse movement are latched until the next
     // fixed update consumes them, so a press is never lost or seen twice whatever the frame rate.
     void beginFrame(bool keyboard, bool mouse, ImVec2 mouseDelta);
+    // What a player reads (local multiplayer: each their own pad): the keyboard, the mouse, a gamepad: one pad's
+    // state, or (padState null) Dear ImGui's, which is every pad together
+    struct Sources {
+        bool keys = true, mouse = true, pad = true;
+        const GamepadState* padState = nullptr;
+    };
+    void beginFrame(const Sources& sources, ImVec2 mouseDelta);
+    // New bindings (a player rebinding a control): the actions by name keep their state
+    void setActions(std::vector<InputAction> actions);
     void endFixedStep();   // after each fixed update
 
     bool down(const std::string& action) const;

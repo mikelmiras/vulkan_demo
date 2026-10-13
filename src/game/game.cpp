@@ -65,15 +65,22 @@ std::string GameState::format(const std::string& text) const {
     return out;
 }
 
+bool GameState::isLocal(const std::string& key) {
+    return key.rfind("settings.", 0) == 0 || key.rfind("input.", 0) == 0 || key.rfind("net.", 0) == 0;
+}
+
 json::Value GameState::toJson() const {
     json::Value v = json::Value::object();
-    for (const auto& [key, value] : values_) v.set(key, value);
+    for (const auto& [key, value] : values_)
+        if (!isLocal(key)) v.set(key, value);
     return v;
 }
 
 void GameState::fromJson(const json::Value& v) {
-    values_.clear();
-    for (const auto& [key, value] : v.members()) values_[key] = value;
+    for (auto it = values_.begin(); it != values_.end();)   // (this machine's own values stay)
+        it = isLocal(it->first) ? std::next(it) : values_.erase(it);
+    for (const auto& [key, value] : v.members())
+        if (!isLocal(key)) values_[key] = value;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -185,7 +192,22 @@ std::string GameContext::text(const std::string& key, const std::string& fallbac
 }
 
 std::string GameContext::format(const std::string& text) const {
-    return game_->state_.format(game_->strings_.translate(text));
+    std::string t = game_->strings_.translate(text);
+    // Button prompts first: "{button:jump}", "{button:jump:pad}", "{button:jump:keyboard}"
+    for (size_t at = t.find("{button:"); at != std::string::npos; at = t.find("{button:", at)) {
+        size_t end = t.find('}', at);
+        if (end == std::string::npos) break;
+        std::string spec = t.substr(at + 8, end - at - 8), device;
+        if (size_t colon = spec.find(':'); colon != std::string::npos) {
+            device = spec.substr(colon + 1);
+            spec = spec.substr(0, colon);
+        }
+        std::string glyphs = device == "pad" ? game_->prompt(spec, prompts::Device::Pad)
+                             : device == "keyboard" ? game_->prompt(spec, prompts::Device::Keyboard) : prompt(spec);
+        t.replace(at, end - at + 1, glyphs);
+        at += glyphs.size();
+    }
+    return game_->state_.format(t);
 }
 
 void GameContext::setLanguage(const std::string& language) { game_->setLanguage(language); }
@@ -330,8 +352,17 @@ void GameContext::rumble(float low, float high, float seconds) {
     low = std::clamp(low, 0.f, 1.f);
     high = std::clamp(high, 0.f, 1.f);
     seconds = std::max(seconds, 0.f);
-    g.lastRumble_ = {low, high, seconds};
-    if (g.gamepadOut_.rumble) g.gamepadOut_.rumble(low, high, seconds);
+    int pad = -1;   // (a local player's behaviour: that player's pad)
+    for (size_t k = 0; k < g.playerPads_.size(); ++k)
+        if (input_ == &g.players_[k]) pad = g.playerPads_[k];
+    g.lastRumble_ = {low, high, seconds, pad};
+    if (g.gamepadOut_.rumble) g.gamepadOut_.rumble(pad, low, high, seconds);
+}
+
+std::string GameContext::prompt(const std::string& action) const {
+    for (size_t k = 0; k < game_->playerPads_.size(); ++k)   // (a local player's: their own pad's look)
+        if (input_ == &game_->players_[k] && k > 0) return game_->prompt(action, prompts::Device::Pad);
+    return game_->prompt(action);
 }
 
 void GameContext::setGamepadLight(Vec3 color) {
@@ -532,7 +563,7 @@ void Game::begin(bool fresh, bool keepPhysics) {
     triggerPairs_.clear();
     ctx_.spawnQueue_.clear();
     ctx_.destroyQueue_.clear();
-    input_ = InputMap(scene_->inputActions);
+    applyBindings();
     if (fresh)   // (a loaded save game has its animators' state already)
         for (Entity& e : scene_->entities)
             if (e.animator && e.animator->playOnStart) {
@@ -573,9 +604,10 @@ void Game::begin(bool fresh, bool keepPhysics) {
 
 void Game::stop() {
     if (settingsSaveIn_ >= 0.f) saveSettings();
-    if (lastRumble_.seconds > 0.f && gamepadOut_.rumble) gamepadOut_.rumble(0.f, 0.f, 0.f);   // (no rumbling on)
+    if (lastRumble_.seconds > 0.f && gamepadOut_.rumble) gamepadOut_.rumble(lastRumble_.pad, 0.f, 0.f, 0.f);   // (no rumbling on)
     lastRumble_ = {};
     hasLight_ = false;
+    rebind_ = {};
     loadingScene_.clear();
     for (Chunk& c : chunks_) c.cancelled = true;
     stopSounds();
@@ -605,6 +637,8 @@ int Game::colorFilter() const {
 void Game::loadSettings() {
     settings_.clear();
     for (const auto& [key, value] : defaultSettings()) settings_[key] = value;
+    if (scene_)   // (the player's own bindings: "" for the scene's)
+        for (const InputAction& a : scene_->inputActions) settings_["settings.bind." + a.name] = json::Value("");
     std::filesystem::path file = (saveDir_.empty() ? project::saveDir("Untitled") : saveDir_) / "settings.json";
     std::ifstream f(file, std::ios::binary);
     if (!f) return;   // (none yet: the defaults)
@@ -625,6 +659,7 @@ void Game::putSettings() {
 }
 
 void Game::syncSettings(float dt) {
+    bool rebound = false;
     for (auto& [key, value] : settings_) {
         const json::Value* now = state_.get(key);
         if (!now) {   // (erased: back to what it was)
@@ -639,11 +674,13 @@ void Game::syncSettings(float dt) {
             value = value.type() == T::Number ? json::Value(std::clamp(now->asNumber(), 0.0, 1.0)) : *now;
             state_.set(key, value);   // (clamped)
             settingsSaveIn_ = 1.f;
+            if (key.rfind("settings.bind.", 0) == 0) rebound = true;
         }
     }
+    if (rebound) applyBindings();
     if (!settings_["settings.rumble"].asBool(true) && lastRumble_.seconds > 0.f) {   // (turned off while rumbling)
         lastRumble_ = {};
-        if (gamepadOut_.rumble) gamepadOut_.rumble(0.f, 0.f, 0.f);
+        if (gamepadOut_.rumble) gamepadOut_.rumble(-1, 0.f, 0.f, 0.f);
     }
     if (settingsSaveIn_ >= 0.f) {
         settingsSaveIn_ -= std::max(dt, 0.f);
@@ -688,15 +725,16 @@ void Game::frame(float dt, bool keyboard, bool mouse, ImVec2 mouseDelta) {
     if (!running()) return;
     syncSettings(dt);   // (paused too: a pause menu changes them)
     keyboard_ = keyboard;
-    input_.beginFrame(keyboard && !uiController_.editingText(), mouse, mouseDelta);   // (typing isn't playing)
+    updateRebind(dt);
+    beginInput(keyboard, mouse, mouseDelta);
     pollLoads(false);
     if (loader_.busy()) {   // the next scene is loading: this one waits, frozen
-        input_.endFixedStep();
+        endInputStep();
         updateAudio(dt);
         return;
     }
     if (paused_) {   // nothing consumes the latched presses: drop them, so they don't all fire on resume
-        input_.endFixedStep();
+        endInputStep();
         return;
     }
     accumulator_ += dt;
@@ -715,15 +753,18 @@ void Game::drawUI(GameUI& ui) {
     for (size_t i = 0; i < scene_->entities.size(); ++i) {   // by index: a UI may request changes, not make them
         Entity& e = scene_->entities[i];
         if (e.behaviours.empty() || !scene_->visibleInHierarchy(e.id)) continue;
+        if (!playerRoots_.empty()) ctx_.input_ = inputFor(e);
         for (size_t b = 0; b < e.behaviours.size(); ++b) e.behaviours[b]->drawUI(ctx_, e, ui);
     }
+    ctx_.input_ = &input_;
     // The UI layouts (on top): drawn, clicked, navigated; what their buttons do happens now
     if (!loader_.busy()) {
         UILayout layout = layoutUI(*scene_, ui.width());
         UIController::Frame f;   // (also with nothing to show: the controller forgets the last menu)
         f.state = &state_;
         f.format = [this](const std::string& t) { return ctx_.format(t); };
-        f.keyboard = keyboard_;
+        f.keyboard = keyboard_ && !rebinding();   // (waiting for a press to bind: the menu doesn't take it)
+        f.interactive = !rebinding();
         f.highContrast = settings_["settings.highContrast"].asBool(false);
         std::vector<UIAction> actions;
         uiController_.frame(ui, *scene_, layout, f, actions);
@@ -767,6 +808,8 @@ void Game::runUIAction(const UIAction& a) {
     if (verb == "@resume") paused_ = false;
     else if (verb == "@pause") paused_ = true;
     else if (verb == "@quit") ctx_.quit();
+    else if (verb == "@rebind") rebind(arg, lastDevice_);   // (on the device that pressed the button)
+    else if (verb == "@resetbindings") resetBindings(arg);
     else if (verb == "@load") { paused_ = false; ctx_.loadScene(arg); }
     else if (verb == "@save") ctx_.saveGame(arg.empty() ? "quicksave" : arg);
     else if (verb == "@loadgame") { paused_ = false; ctx_.loadGame(arg.empty() ? "quicksave" : arg); }
@@ -809,6 +852,204 @@ void Game::runUIAction(const UIAction& a) {
         }
         state_.set(words[0], parse(words[pick]));
     } else ctx_.log("UI: unknown action " + a.action);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Input: bindings, local players' pads, the device used last, rebinding
+// ---------------------------------------------------------------------------------------------
+void Game::applyBindings() {
+    actions_ = scene_ ? scene_->inputActions : defaultInputActions();
+    for (InputAction& a : actions_) {
+        auto it = settings_.find("settings.bind." + a.name);
+        if (it != settings_.end() && !it->second.asString().empty()) parseBinding(it->second.asString(), a);
+    }
+    input_.setActions(actions_);
+    for (InputMap& m : players_) m.setActions(actions_);
+}
+
+int Game::playerPad(int player) const {
+    if (player < 0 || player >= (int)playerPads_.size()) return -1;
+    return playerPads_[(size_t)player];
+}
+
+void Game::beginInput(bool keyboard, bool mouse, ImVec2 mouseDelta) {
+    bool held = rebinding();   // (the press being waited for isn't play)
+    bool keys = keyboard && !uiController_.editingText() && !held;   // (typing isn't playing)
+    input_.beginFrame(keys, mouse && !held, mouseDelta);
+    // Local players: the cameras numbered for players, the pads connected in order
+    playerRoots_.clear();
+    playerPads_.clear();
+    std::vector<std::pair<int, EntityId>> cams;
+    if (scene_)
+        for (const Entity& e : scene_->entities)
+            if (e.camera && e.camera->player > 0 && scene_->visibleInHierarchy(e.id)) cams.push_back({e.camera->player, e.id});
+    if (cams.size() >= 2) {
+        std::stable_sort(cams.begin(), cams.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        if (cams.size() > (size_t)kMaxPlayers) cams.resize(kMaxPlayers);
+        std::vector<int> connected;
+        for (size_t i = 0; i < pads_.size(); ++i)
+            if (pads_[i].connected) connected.push_back((int)i);
+        for (size_t k = 0; k < cams.size(); ++k) {
+            const Entity* root = scene_->find(cams[k].second);
+            while (root && root->parent != kNoEntity) root = scene_->find(root->parent);
+            playerRoots_.push_back(root ? root->id : cams[k].second);
+            playerPads_.push_back(k < connected.size() ? connected[k] : -1);
+        }
+    }
+    for (int k = 0; k < kMaxPlayers; ++k) {
+        InputMap::Sources src;
+        int slot = k < (int)playerPads_.size() ? playerPads_[(size_t)k] : -1;
+        src.keys = k == 0 && keys;
+        src.mouse = k == 0 && mouse && !held;
+        src.padState = slot >= 0 ? &pads_[(size_t)slot] : nullptr;
+        src.pad = keys && (slot >= 0 || (k == 0 && pads_.empty()));   // (no pads known: player 1 has ImGui's)
+        players_[k].beginFrame(src, k == 0 ? mouseDelta : ImVec2(0, 0));
+    }
+    trackDevice();
+}
+
+void Game::endInputStep() {
+    input_.endFixedStep();
+    for (InputMap& m : players_) m.endFixedStep();
+}
+
+// The device used last: a key, a click or a real mouse move, or a pad's button or stick pushed
+void Game::trackDevice() {
+    ImGuiIO& io = ImGui::GetIO();
+    for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_GamepadStart; ++k) {   // (the keyboard's keys come first)
+        if (ImGui::IsKeyPressed((ImGuiKey)k, false)) {
+            lastDevice_ = prompts::Device::Keyboard;
+            return;
+        }
+    }
+    for (int b = 0; b < ImGuiMouseButton_COUNT; ++b)
+        if (ImGui::IsMouseClicked(b)) {
+            lastDevice_ = prompts::Device::Keyboard;
+            return;
+        }
+    if (std::fabs(io.MouseDelta.x) + std::fabs(io.MouseDelta.y) > 6.f) lastDevice_ = prompts::Device::Keyboard;
+    for (const GamepadState& p : pads_) {
+        if (!p.connected) continue;
+        for (float v : p.values)
+            if (v > 0.6f) {
+                lastDevice_ = prompts::Device::Pad;
+                lastPad_ = p.type;
+                return;
+            }
+    }
+    if (pads_.empty())   // (no pads known one by one: Dear ImGui's)
+        for (int k = ImGuiKey_GamepadStart; k <= ImGuiKey_GamepadRStickDown; ++k)
+            if (io.KeysData[k - ImGuiKey_NamedKey_BEGIN].AnalogValue > 0.6f) {
+                lastDevice_ = prompts::Device::Pad;
+                return;
+            }
+}
+
+std::string Game::prompt(const std::string& action, prompts::Device device) const {
+    PadType type = lastPad_;
+    if (device == prompts::Device::Pad && lastDevice_ != prompts::Device::Pad)   // (the pad plugged in, if any)
+        for (const GamepadState& p : pads_)
+            if (p.connected) {
+                type = p.type;
+                break;
+            }
+    for (const InputAction& a : actions_)
+        if (a.name == action) return prompts::forAction(a, device, type);
+    return {};
+}
+
+void Game::rebind(const std::string& action, prompts::Device device) {
+    bool known = false;
+    for (const InputAction& a : actions_) known = known || a.name == action;
+    if (!known) {
+        ctx_.log("UI: @rebind: no action " + action);
+        return;
+    }
+    rebind_ = {action, device, 0.f, false};
+    state_.set("input.rebinding", json::Value(action));
+    state_.set("input.rebindingDevice", json::Value(device == prompts::Device::Pad ? "pad" : "keyboard"));
+}
+
+void Game::resetBindings(const std::string& action) {
+    for (auto& [key, value] : settings_)
+        if (key.rfind("settings.bind.", 0) == 0 && (action.empty() || key == "settings.bind." + action)) {
+            value = json::Value("");
+            state_.set(key, value);
+        }
+    settingsSaveIn_ = 1.f;
+    applyBindings();
+}
+
+void Game::updateRebind(float dt) {
+    if (!rebinding()) return;
+    ImGuiIO& io = ImGui::GetIO();
+    rebind_.waited += std::max(dt, 0.f);
+    auto done = [&] {
+        rebind_ = {};
+        state_.set("input.rebinding", json::Value(""));
+    };
+    if (rebind_.waited > 10.f || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        done();
+        return;
+    }
+    bool pad = rebind_.device == prompts::Device::Pad;
+    // What's held of that device: the first press after everything was let go is the one
+    auto padValue = [&](ImGuiKey k) {
+        float v = 0.f;
+        for (const GamepadState& p : pads_)
+            if (p.connected) v = std::max(v, p.value(k));
+        if (pads_.empty()) v = io.KeysData[k - ImGuiKey_NamedKey_BEGIN].AnalogValue;
+        return v;
+    };
+    ImGuiKey pressedKey = ImGuiKey_None;
+    int pressedMouse = -1;
+    bool anyDown = false;
+    if (pad) {
+        for (int k = ImGuiKey_GamepadStart; k <= ImGuiKey_GamepadRStickDown; ++k) {
+            float v = padValue((ImGuiKey)k);
+            if (v > 0.3f) anyDown = true;
+            if (v > 0.6f && pressedKey == ImGuiKey_None) pressedKey = (ImGuiKey)k;
+        }
+    } else {
+        for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_GamepadStart; ++k) {
+            if (k == ImGuiKey_Escape) continue;   // (it cancels)
+            if (ImGui::IsKeyDown((ImGuiKey)k)) {
+                anyDown = true;
+                if (pressedKey == ImGuiKey_None) pressedKey = (ImGuiKey)k;
+            }
+        }
+        for (int b = 0; b < 5; ++b)
+            if (ImGui::IsMouseDown(b)) {
+                anyDown = true;
+                if (pressedMouse < 0 && pressedKey == ImGuiKey_None) pressedMouse = b;
+            }
+    }
+    if (!rebind_.released) {
+        rebind_.released = !anyDown;
+        return;
+    }
+    if (pressedKey == ImGuiKey_None && pressedMouse < 0) return;
+    // The new binding there; the action's others (the other device's) stay
+    for (const InputAction& a : actions_) {
+        if (a.name != rebind_.action) continue;
+        InputAction b = a;
+        b.keys.clear();
+        for (ImGuiKey k : a.keys)
+            if (isGamepadKey(k) != pad) b.keys.push_back(k);
+        if (pad) {
+            b.keys.push_back(pressedKey);
+        } else {
+            b.mouseButton = pressedMouse;
+            if (pressedKey != ImGuiKey_None) b.keys.insert(b.keys.begin(), pressedKey);
+        }
+        std::string key = "settings.bind." + a.name;
+        settings_[key] = json::Value(bindingString(b));
+        state_.set(key, settings_[key]);
+        settingsSaveIn_ = 1.f;
+        break;
+    }
+    done();
+    applyBindings();
 }
 
 void Game::step() {
@@ -919,6 +1160,8 @@ const InputMap* Game::inputFor(const Entity& e) const {
     for (const Entity* p = &e; p; p = scene_->find(p->parent)) {
         auto it = inputSources_.find(p->id);
         if (it != inputSources_.end()) return it->second;
+        for (size_t k = 0; k < playerRoots_.size(); ++k)
+            if (playerRoots_[k] == p->id) return &players_[k];
         if (p->parent == kNoEntity) break;
     }
     return &input_;
@@ -999,6 +1242,7 @@ void Game::fixedUpdate(float dt) {
             Entity& e = scene_->entities[i];
             if (ctx_.isDestroyed(e.id) || (!notSimulated_.empty() && notSimulated_.count(e.id))) continue;
             EntityId remote = kNoEntity;
+            if (!playerRoots_.empty()) ctx_.input_ = inputFor(e);   // (local players: each their own)
             if (!inputSources_.empty()) {   // (a remote player's entities: their input, and the world as they saw it)
                 ctx_.input_ = inputFor(e);
                 remote = rewindBegin_ && !e.behaviours.empty() ? inputRoot(e) : kNoEntity;
@@ -1046,7 +1290,7 @@ void Game::fixedUpdate(float dt) {
         updateTriggers();
     }
     flushQueues();
-    input_.endFixedStep();
+    endInputStep();
     if (afterTick_) afterTick_();
     applyRequests();
     float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count();

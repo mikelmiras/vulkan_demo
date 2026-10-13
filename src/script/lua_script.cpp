@@ -1258,6 +1258,10 @@ int iSetLight(lua_State* L) {   // input.setLight(vec3(r, g, b)) or input.setLig
     context(L).setGamepadLight(c);
     return 0;
 }
+int iPrompt(lua_State* L) {   // input.prompt("jump"): what to press, as glyphs for ui.text
+    lua_pushstring(L, context(L).prompt(luaL_checkstring(L, 1)).c_str());
+    return 1;
+}
 int iMouseDelta(lua_State* L) {
     ImVec2 d = context(L).input().mouseDelta();
     lua_pushnumber(L, d.x);
@@ -1473,7 +1477,7 @@ lua_State* state() {
     const luaL_Reg input[] = {{"down", iDown},   {"pressed", iPressed}, {"released", iReleased},
                               {"pressedThisFrame", iPressedThisFrame}, {"value", iValue},
                               {"axis", iAxis},   {"mouseDelta", iMouseDelta}, {"rumble", iRumble},
-                              {"setLight", iSetLight}, {nullptr, nullptr}};
+                              {"setLight", iSetLight}, {"prompt", iPrompt}, {nullptr, nullptr}};
     setFunctions(L, input);
     lua_setglobal(L, "input");
 

@@ -270,8 +270,10 @@ occlusion, anti-aliasing, the player's colour filter), so it can go anywhere, ev
 **Split screen**: give two to four cameras a *Split-screen player* (1-4, Inspector > Camera) and vkgame shares the
 screen between them: two side by side, three or four in quarters, by player number (`Game::cameras()` lists them
 with their parts of the screen). Player 1's view is drawn as usual and the others each whole into an image of their
-own; they share the sun's shadows (its cascades follow player 1) and the lights. Gamepads per player aren't there
-yet (one pad drives what reads input). The editor's Game view shows player 1.
+own; they share the sun's shadows (its cascades follow player 1) and the lights. Each player has their own pad:
+player 1 the keyboard, the mouse and the first pad connected, player 2 the second pad and so on, and the behaviours
+under a player camera's root (its topmost parent: the player entity) read that player's input as `ctx.input()`
+(`ctx.rumble` shakes that player's pad). The editor's Game view shows player 1.
 
 The demo scene is a tiny game: you are the **Player** (a capsule body with a PlayerController and a camera child).
 Walk with WASD / arrow keys or the left stick, look with the mouse (click the view to capture it, or hold the right
@@ -291,8 +293,23 @@ dropping on the right.
   button); they're saved with the scene. Presses are latched until the next update reads them, so a quick tap is
   never missed. The keyboard is ignored while typing in a text field, and the mouse while it's over a panel.
 - **Click the game view to capture the mouse** for mouse look without holding a button; Esc releases it.
-- Gamepads work through Dear ImGui's backends (XInput on Windows, GameController on macOS) and the Linux joystick
-  API (`/dev/input/js*`, Xbox-style layout; a pad plugged in later is found within two seconds).
+- **Gamepads**: up to four, each read on its own (`platform::gamepads()`: XInput's pads on Windows, the
+  GameController framework's on macOS, the Linux joystick API's `/dev/input/js*` with each driver's own button codes,
+  so Sony's and Nintendo's pads have their buttons in the right places; a pad plugged in later is found within two
+  seconds). Menus answer any of them. What kind each is (Xbox, PlayStation, Switch, other) comes from its USB vendor
+  and name.
+- **Button prompts**: `{button:jump}` in any text (UI layouts, `ctx.format`, Lua `ui.text`) shows what to press for an
+  action on the device the player used last: a keycap for keys and mouse buttons, the pad's own buttons for pads
+  (Xbox's coloured A B X Y, PlayStation's cross, circle, square and triangle, Switch's letters where Nintendo puts
+  them, LB / L1 / L, LT / L2 / ZL, the d-pad, sticks, Menu / Options / +), drawn as shapes (any font). They switch
+  as soon as the player picks up the other device. `{button:jump:pad}` / `{button:jump:keyboard}` pick one;
+  `ctx.prompt("jump")` and Lua `input.prompt("jump")` give the same text.
+- **Rebinding** from the game's menus: a button with the action `@rebind jump` waits for the next key, mouse button
+  or pad control (on the device that pressed the button: rebinding with the pad binds a pad control) and makes it
+  that device's binding for the action; the other device's stay. While it waits, the game state's `input.rebinding`
+  names the action (for a "Press a key..." text) and nothing else takes the press; Esc or 10 s cancel. Players'
+  bindings are saved with their settings (`settings.bind.<action>`, e.g. `"K,GamepadR1,Mouse0"`); `@resetbindings`
+  (or `@resetbindings jump`) brings the scene's back.
 - **Rumble and light bars**: `ctx.rumble(low, high, seconds)` runs the heavy and light motors (0..1; Lua
   `input.rumble`), `ctx.setGamepadLight({r, g, b})` colours a DualShock 4 / DualSense light bar (Lua
   `input.setLight`). Windows rumbles through XInput (no light bars there); macOS uses the pad's haptics and light;

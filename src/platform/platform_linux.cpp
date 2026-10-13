@@ -37,9 +37,13 @@ struct Pad {
     int event = -1;         // its /dev/input/eventN: force feedback (-1: none, or no permission)
     int effect = -1;        // the rumble effect uploaded there
     std::string node;       // "js0"
-    double nextTry = 0.0;   // (none open: when to look again)
+    GamepadState state;     // what it has down now, its kind
+    uint16_t buttons[KEY_MAX - BTN_MISC + 1] = {};   // each joystick button's evdev code (JSIOCGBTNMAP)
+    uint8_t axes[ABS_CNT] = {};                      // ... each axis's
 };
-Pad g_pad;
+Pad g_pads[4];              // (a pad keeps its slot while it's plugged in)
+float g_fed[kGamepadKeys] = {};   // what Dear ImGui was last told (every pad together)
+double g_nextScan = 0.0;    // (when to look for pads plugged in)
 bool g_padActive = false;   // (between gamepadOpen and gamepadClose)
 
 double now() {
@@ -73,62 +77,91 @@ void closePad(Pad& p) {
     if (p.event >= 0) close(p.event);
     if (p.js >= 0) close(p.js);
     p = Pad{};
-    p.nextTry = now() + 2.0;
 }
 
-void tryOpenPad(Pad& p) {
-    if (now() < p.nextTry) return;
-    p.nextTry = now() + 2.0;   // (plugged in later: found within two seconds)
-    for (int i = 0; i < 4; ++i) {
+// Pads plugged in since the last look (every 2 s): each into a free slot, with its name, kind and code maps
+void scanPads() {
+    if (now() < g_nextScan) return;
+    g_nextScan = now() + 2.0;
+    for (int i = 0; i < 8; ++i) {
         std::string node = "js" + std::to_string(i);
+        bool open_ = false;
+        for (const Pad& p : g_pads) open_ = open_ || p.node == node;
+        if (open_) continue;
+        Pad* slot = nullptr;
+        for (Pad& p : g_pads)
+            if (p.js < 0 && !slot) slot = &p;
+        if (!slot) return;
         int fd = open(("/dev/input/" + node).c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (fd < 0) continue;
+        Pad& p = *slot;
         p.js = fd;
         p.node = node;
+        char name[128] = {};
+        if (ioctl(fd, JSIOCGNAME(sizeof(name) - 1), name) < 0) name[0] = 0;
+        unsigned vendor = 0;   // (USB vendor id: whose pad it is)
+        std::ifstream v("/sys/class/input/" + node + "/device/id/vendor");
+        v >> std::hex >> vendor;
+        p.state = GamepadState{};
+        p.state.connected = true;
+        p.state.name = name;
+        p.state.type = padTypeOf((uint16_t)vendor, name);
+        if (ioctl(fd, JSIOCGBTNMAP, p.buttons) < 0) {   // (an old kernel: xpad's order)
+            const uint16_t xpad[] = {0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x13a, 0x13b, 0x13c, 0x13d, 0x13e};
+            std::memcpy(p.buttons, xpad, sizeof(xpad));
+        }
+        if (ioctl(fd, JSIOCGAXMAP, p.axes) < 0) {
+            const uint8_t xpad[] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x10, 0x11};
+            std::memcpy(p.axes, xpad, sizeof(xpad));
+        }
         openEventNode(p);
-        return;
     }
 }
 
-// Linux joystick API (xpad layout: Xbox and most other pads) -> ImGui gamepad keys
+// Linux joystick API events -> the pad's state (ImGui's gamepad keys, by the codes the driver gave)
 void readPad(Pad& p) {
-    ImGuiIO& io = ImGui::GetIO();
-    io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     auto stick = [&](ImGuiKey negative, ImGuiKey positive, int raw) {
         float v = raw / 32767.f, dead = 0.15f;
-        float n = std::clamp((-v - dead) / (1.f - dead), 0.f, 1.f), q = std::clamp((v - dead) / (1.f - dead), 0.f, 1.f);
-        io.AddKeyAnalogEvent(negative, n > 0.1f, n);
-        io.AddKeyAnalogEvent(positive, q > 0.1f, q);
+        p.state.set(negative, std::clamp((-v - dead) / (1.f - dead), 0.f, 1.f));
+        p.state.set(positive, std::clamp((v - dead) / (1.f - dead), 0.f, 1.f));
     };
     js_event ev;
     ssize_t got;
     while ((got = read(p.js, &ev, sizeof(ev))) == (ssize_t)sizeof(ev)) {
         int type = ev.type & ~JS_EVENT_INIT;
-        if (type == JS_EVENT_BUTTON) {
-            static const ImGuiKey buttons[] = {ImGuiKey_GamepadFaceDown, ImGuiKey_GamepadFaceRight, ImGuiKey_GamepadFaceLeft,
-                                               ImGuiKey_GamepadFaceUp, ImGuiKey_GamepadL1, ImGuiKey_GamepadR1,
-                                               ImGuiKey_GamepadBack, ImGuiKey_GamepadStart, ImGuiKey_None,
-                                               ImGuiKey_GamepadL3, ImGuiKey_GamepadR3};
-            if (ev.number < sizeof(buttons) / sizeof(buttons[0]) && buttons[ev.number] != ImGuiKey_None)
-                io.AddKeyEvent(buttons[ev.number], ev.value != 0);
-        } else if (type == JS_EVENT_AXIS) {
-            switch (ev.number) {
-                case 0: stick(ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight, ev.value); break;
-                case 1: stick(ImGuiKey_GamepadLStickUp, ImGuiKey_GamepadLStickDown, ev.value); break;
-                case 3: stick(ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight, ev.value); break;
-                case 4: stick(ImGuiKey_GamepadRStickUp, ImGuiKey_GamepadRStickDown, ev.value); break;
-                case 6: stick(ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight, ev.value); break;
-                case 7: stick(ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadDpadDown, ev.value); break;
-                case 2:
-                case 5: {   // triggers: -32767 released .. 32767 pulled
-                    float t = (ev.value + 32767) / 65534.f;
-                    io.AddKeyAnalogEvent(ev.number == 2 ? ImGuiKey_GamepadL2 : ImGuiKey_GamepadR2, t > 0.1f, t);
-                    break;
-                }
-            }
+        if (type == JS_EVENT_BUTTON && ev.number < sizeof(p.buttons) / sizeof(p.buttons[0])) {
+            p.state.set(linuxPadButton(p.buttons[ev.number], p.state.type), ev.value ? 1.f : 0.f);
+        } else if (type == JS_EVENT_AXIS && ev.number < sizeof(p.axes)) {
+            ImGuiKey negative, positive, trigger;
+            if (!linuxPadAxis(p.axes[ev.number], negative, positive, trigger)) continue;
+            if (trigger != ImGuiKey_None) p.state.set(trigger, (ev.value + 32767) / 65534.f);   // (-32767 released .. 32767 pulled)
+            else stick(negative, positive, ev.value);
         }
     }
     if (got < 0 && errno == ENODEV) closePad(p);   // unplugged
+}
+
+// Dear ImGui sees every pad together (menus answer any of them): each control the most any pad has it
+void feedImGui() {
+    ImGuiIO& io = ImGui::GetIO();
+    bool any = false;
+    for (const Pad& p : g_pads) any = any || p.js >= 0;
+    if (any) io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    for (int k = 0; k < kGamepadKeys; ++k) {
+        float v = 0.f;
+        for (const Pad& p : g_pads)
+            if (p.js >= 0) v = std::max(v, p.state.values[k]);
+        if (v == g_fed[k]) continue;
+        g_fed[k] = v;
+        io.AddKeyAnalogEvent((ImGuiKey)(ImGuiKey_GamepadStart + k), v > 0.1f, v);
+    }
+}
+
+Pad* padAt(int pad) {   // -1: the first connected
+    if (pad >= 0) return pad < 4 && g_pads[pad].js >= 0 ? &g_pads[pad] : nullptr;
+    for (Pad& p : g_pads)
+        if (p.js >= 0) return &p;
+    return nullptr;
 }
 
 bool writeFile(const std::filesystem::path& file, const std::string& text) {
@@ -164,28 +197,41 @@ namespace linux_shared {
 
 void gamepadOpen() {
     g_padActive = true;
-    g_pad.nextTry = 0.0;
-    tryOpenPad(g_pad);
+    g_nextScan = 0.0;
+    scanPads();
 }
 
 void gamepadPoll() {
     if (!g_padActive) return;
-    if (g_pad.js < 0) tryOpenPad(g_pad);
-    if (g_pad.js >= 0) readPad(g_pad);
+    scanPads();
+    for (Pad& p : g_pads)
+        if (p.js >= 0) readPad(p);
+    feedImGui();
 }
 
 void gamepadClose() {
-    gamepadRumble(0.f, 0.f, 0.f);
-    if (g_pad.js >= 0) closePad(g_pad);
+    for (int i = 0; i < 4; ++i) {
+        gamepadRumble(i, 0.f, 0.f, 0.f);
+        if (g_pads[i].js >= 0) closePad(g_pads[i]);
+    }
     g_padActive = false;
 }
 
 }  // namespace linux_shared
 
+std::vector<GamepadState> gamepads() {
+    std::vector<GamepadState> out;
+    for (const Pad& p : g_pads) out.push_back(p.js >= 0 ? p.state : GamepadState{});
+    return out;
+}
+
+bool gamepadRumble(float low, float high, float seconds) { return gamepadRumble(-1, low, high, seconds); }
+
 // Force feedback through the pad's evdev node: one FF_RUMBLE effect, replaced and played
-bool gamepadRumble(float low, float high, float seconds) {
-    Pad& p = g_pad;
-    if (p.event < 0) return false;
+bool gamepadRumble(int pad, float low, float high, float seconds) {
+    Pad* found = padAt(pad);
+    if (!found || found->event < 0) return false;
+    Pad& p = *found;
     ff_effect e{};
     e.type = FF_RUMBLE;
     e.id = (int16_t)p.effect;   // (-1: a new one)
@@ -212,9 +258,10 @@ bool gamepadRumble(float low, float high, float seconds) {
 // The pad's LEDs in sysfs (hid-playstation: one "<name>:rgb:indicator" multicolour LED; hid-sony: ":red",
 // ":green", ":blue"), under its HID device. Usually only root may write them (a udev rule can allow it).
 bool setGamepadLight(float r, float g, float b) {
-    if (g_pad.js < 0) return false;
+    Pad* pad = padAt(-1);
+    if (!pad) return false;
     std::error_code ec;
-    std::filesystem::path leds = std::filesystem::path("/sys/class/input") / g_pad.node / "device" / "device" / "leds";
+    std::filesystem::path leds = std::filesystem::path("/sys/class/input") / pad->node / "device" / "device" / "leds";
     int R = (int)(std::clamp(r, 0.f, 1.f) * 255.f + 0.5f), G = (int)(std::clamp(g, 0.f, 1.f) * 255.f + 0.5f),
         B = (int)(std::clamp(b, 0.f, 1.f) * 255.f + 0.5f);
     bool any = false, ok = true;
