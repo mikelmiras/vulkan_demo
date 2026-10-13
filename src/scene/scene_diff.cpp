@@ -130,7 +130,10 @@ bool eq(const Skin& a, const Skin& b) {
         if (!eq(a.inverseBind[i].m, b.inverseBind[i].m, 16)) return false;
     return true;
 }
-bool eq(const AnimationEvent& a, const AnimationEvent& b) { return a.clip == b.clip && a.time == b.time && a.name == b.name; }
+bool eq(const AnimationEvent& a, const AnimationEvent& b) {
+    return a.clip == b.clip && a.time == b.time && a.name == b.name && a.sound == b.sound && a.bone == b.bone &&
+           a.volume == b.volume;
+}
 bool eq(const BlendClip& a, const BlendClip& b) { return a.clip == b.clip && a.at == b.at && a.atY == b.atY; }
 bool eq(const AnimatorIK& a, const AnimatorIK& b) {
     return a.name == b.name && a.type == b.type && a.bone == b.bone && a.targetEntity == b.targetEntity &&

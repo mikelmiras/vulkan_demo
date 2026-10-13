@@ -345,6 +345,11 @@ private:
         float time = 0.f;
         bool playing = false;
     } animPreview_;
+    int eventDrag_ = -1;   // (the Animator's event track: the event being dragged)
+    // Animator > Retarget a clip: the bone map being edited (for the clip, model and entity in retargetKey_)
+    std::string retargetKey_;
+    std::vector<std::pair<std::string, std::string>> retargetMap_;
+    bool retargetMatchRest_ = false;
     float frameDt_ = 0.f;
 
     std::vector<UndoStep> undo_, redo_;

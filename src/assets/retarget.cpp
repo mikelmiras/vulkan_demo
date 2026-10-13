@@ -36,6 +36,88 @@ void restWorld(const Skeleton& s, std::vector<Quat>& rot, std::vector<Vec3>& pos
     }
 }
 
+// retargetClip with matchRestPose: whole poses in the world, each target bone first turned onto its source's rest
+// direction
+void retargetMatched(const AnimationClip& clip, const Skeleton& from, const Skeleton& to,
+                     const std::vector<std::pair<std::string, std::string>>& map, const std::vector<Quat>& fromRot,
+                     const std::vector<Vec3>& fromPos, const std::vector<Quat>& toRot, const std::vector<Vec3>& toPos,
+                     AnimationClip& out) {
+    std::vector<int> sourceOf(to.bones.size(), -1);
+    for (const auto& [t, s] : map) {
+        int ti = to.find(t), si = from.find(s);
+        if (ti >= 0 && si >= 0) sourceOf[(size_t)ti] = si;
+    }
+    // Rest corrections: the turn taking the target bone's rest direction (to its first paired child) onto its
+    // source's, in the world
+    std::vector<Quat> correction(to.bones.size());
+    for (size_t ti = 0; ti < to.bones.size(); ++ti) {
+        if (sourceOf[ti] < 0) continue;
+        for (size_t c = 0; c < to.bones.size(); ++c) {
+            if (to.bones[c].parent != (int)ti || sourceOf[c] < 0) continue;
+            Vec3 dt = toPos[c] - toPos[ti], ds = fromPos[(size_t)sourceOf[c]] - fromPos[(size_t)sourceOf[ti]];
+            if (length(dt) > 1e-4f && length(ds) > 1e-4f) correction[ti] = rotationBetween(dt, ds);
+            break;
+        }
+    }
+    std::vector<const AnimationTrack*> trackOf(from.bones.size(), nullptr);
+    for (const AnimationTrack& t : clip.tracks)
+        if (int i = from.find(t.target); i >= 0) trackOf[(size_t)i] = &t;
+    // The hips: the paired bone nearest the root, carrying the source's travel scaled by how high they stand
+    int hipsT = -1, hipsDepth = 1 << 30;
+    for (size_t i = 0; i < to.bones.size(); ++i) {
+        if (sourceOf[i] < 0) continue;
+        int d = 0;
+        for (int p = (int)i; p >= 0 && to.bones[(size_t)p].parent >= 0; p = to.bones[(size_t)p].parent) ++d;
+        if (d < hipsDepth) hipsDepth = d, hipsT = (int)i;
+    }
+    std::vector<AnimationTrack> tracks(to.bones.size());
+    const int samples = std::max(2, (int)std::ceil(clip.duration * 30.f) + 1);
+    std::vector<Quat> ws(from.bones.size()), wt(to.bones.size());
+    for (int k = 0; k < samples; ++k) {
+        float time = std::min((float)k / 30.f, clip.duration);
+        for (size_t i = 0; i < from.bones.size(); ++i) {   // the source's pose, in the world
+            const Skeleton::Bone& b = from.bones[i];
+            Quat local = trackOf[i] && !trackOf[i]->rotation.empty() ? sampleTrack(*trackOf[i], time).rotation : b.rotation;
+            ws[i] = b.parent >= 0 ? normalizeQuat(ws[(size_t)b.parent] * local) : local;
+        }
+        for (size_t i = 0; i < to.bones.size(); ++i) {   // the target's: paired bones turn like theirs
+            const Skeleton::Bone& b = to.bones[i];
+            Quat parent = b.parent >= 0 ? wt[(size_t)b.parent] : Quat{};
+            if (sourceOf[i] < 0) {
+                wt[i] = normalizeQuat(parent * b.rotation);
+                continue;
+            }
+            int s = sourceOf[i];
+            Quat turned = ws[(size_t)s] * conjugate(fromRot[(size_t)s]);
+            wt[i] = normalizeQuat(turned * correction[i] * toRot[i]);
+            Quat local = normalizeQuat(conjugate(parent) * wt[i]);
+            AnimationTrack& tr = tracks[i];
+            tr.rotation.times.push_back(time);
+            tr.rotation.values.insert(tr.rotation.values.end(), {local.x, local.y, local.z, local.w});
+            if ((int)i == hipsT && trackOf[(size_t)s] && !trackOf[(size_t)s]->translation.empty()) {
+                const Skeleton::Bone& sb = from.bones[(size_t)s];
+                Quat parentS = sb.parent >= 0 ? fromRot[(size_t)sb.parent] : Quat{};
+                Quat parentT = b.parent >= 0 ? toRot[(size_t)b.parent] : Quat{};
+                float hs = s == 0 ? fromPos[0].y : fromPos[(size_t)s].y - fromPos[0].y;
+                float ht = i == 0 ? toPos[0].y : toPos[i].y - toPos[0].y;
+                float ratio = hs > 0.01f && ht > 0.01f ? ht / hs : 1.f;
+                Vec3 world = rotate(parentS, sampleTrack(*trackOf[(size_t)s], time).translation - sb.translation) * ratio;
+                Vec3 local = b.translation + rotate(conjugate(parentT), world);
+                tr.translation.times.push_back(time);
+                tr.translation.values.insert(tr.translation.values.end(), {local.x, local.y, local.z});
+            }
+        }
+    }
+    for (size_t i = 0; i < to.bones.size(); ++i) {
+        AnimationTrack& tr = tracks[i];
+        if (tr.rotation.empty() && tr.translation.empty()) continue;
+        tr.target = to.bones[i].name;
+        tr.rotation.width = 4;
+        tr.translation.width = 3;
+        out.tracks.push_back(std::move(tr));
+    }
+}
+
 }  // namespace
 
 Skeleton skeletonOf(const Scene& scene, EntityId root) {
@@ -146,7 +228,8 @@ std::vector<std::pair<std::string, std::string>> mapBones(const Skeleton& from, 
 }
 
 AnimationClip retargetClip(const AnimationClip& clip, const Skeleton& from, const Skeleton& to,
-                           const std::vector<std::pair<std::string, std::string>>& map, const std::string& name) {
+                           const std::vector<std::pair<std::string, std::string>>& map, const std::string& name,
+                           bool matchRestPose) {
     AnimationClip out;
     out.name = name;
     out.duration = clip.duration;
@@ -155,11 +238,17 @@ AnimationClip retargetClip(const AnimationClip& clip, const Skeleton& from, cons
     recipe->from = from;
     recipe->to = to;
     recipe->map = map;
+    recipe->matchRestPose = matchRestPose;
     out.retarget = recipe;
     std::vector<Quat> fromRot, toRot;
     std::vector<Vec3> fromPos, toPos;
     restWorld(from, fromRot, fromPos);
     restWorld(to, toRot, toPos);
+    if (matchRestPose) {
+        retargetMatched(clip, from, to, map, fromRot, fromPos, toRot, toPos, out);
+        compressClip(out);
+        return out;
+    }
     // The hips: the paired bone nearest the root (its travel is carried, scaled by how high the hips stand)
     int hipsT = -1, hipsDepth = 1 << 30;
     for (const auto& [t, s] : map) {

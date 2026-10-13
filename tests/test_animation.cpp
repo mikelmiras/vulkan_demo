@@ -1,9 +1,11 @@
 // Skeletal animation: glTF skins and clips, sampling, the Animator in play mode, skinning matrices, saving
 #include "test.h"
 
+#include <cmath>
 #include <fstream>
 
 #include "assets/gltf.h"
+#include "audio/audio.h"
 #include "core/project.h"
 #include "game/animation.h"
 #include "game/game.h"
@@ -228,6 +230,45 @@ TEST(animation_events) {
     std::vector<FiredAnimationEvent> fired;
     updateAnimators(s, meshes, 1.f, &fired);
     CHECK(fired.size() == 2);
+}
+
+// An event with a sound plays it by itself when playback passes it (no code), and keeps it when saved
+TEST(animation_event_sounds) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary meshes = buildMeshLibrary();
+    Scene s;
+    REQUIRE(barScene(meshes, s));
+    Entity& root = *s.findByName("bending_bar");
+    AnimationEvent step{"bending_bar/Bend", 0.5f, "step", "Pickup", "nowhere", 0.8f};   // (no such bone: at the entity)
+    root.animator->events = {step};
+    AudioEngine audio;
+    REQUIRE(audio.init(false));
+    auto level = [&](uint32_t frames) {
+        std::vector<float> buf(frames * 2);
+        if (!audio.readFrames(buf.data(), frames)) return -1.f;
+        double sum = 0;
+        for (float v : buf) sum += (double)v * v;
+        return (float)std::sqrt(sum / buf.size());
+    };
+    Game g;
+    g.setAudio(&audio);
+    g.start(s, meshes);
+    steps(g, 20);   // (a third of a second: not there yet)
+    CHECK(level(4096) < 1e-6f);
+    steps(g, 20);   // past half a second
+    CHECK(level(4096) > 0.001f);
+    g.stop();
+    // Saved with the scene
+    TextureLibrary tex;
+    json::Value doc = sceneToJson(s, meshes, tex);
+    Scene back;
+    std::string error;
+    MeshLibrary again = buildMeshLibrary();
+    REQUIRE(barScene(again, back));
+    REQUIRE(sceneFromJson(doc, back, again, tex, error));
+    const AnimationEvent& ev = back.findByName("bending_bar")->animator->events.at(0);
+    CHECK(ev.sound == "Pickup" && ev.bone == "nowhere");
+    CHECK_NEAR(ev.volume, 0.8, 1e-6);
 }
 
 // A state machine: parameters and clip ends move it between states, with cross-fades

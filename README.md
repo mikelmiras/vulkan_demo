@@ -436,14 +436,20 @@ inspector, *Retarget a clip* takes the clip and the model it was made for (its p
 one: bones are paired by name (rig prefixes, sides and the usual humanoid names understood: Mixamo's
 `mixamorig:LeftUpLeg` pairs with `Thigh_L`), each turns as much as its partner turns away from its rest pose, in the
 world (so differently oriented bones still bend the same way, when both rest poses are alike), and the hips carry
-the travel, scaled by their height. The scene saves how the clip was made and makes it again when it loads.
+the travel, scaled by their height. The scene saves how the clip was made and makes it again when it loads. Its
+*Bone map* shows the pairing for every bone of this model and lets you change it (or pair none); *Match rest
+poses* is for skeletons that stand differently at rest (an A-pose model and a T-pose one): each bone is first
+lined up with its partner's rest direction, so the clip looks the same on both.
 
 **Compression**: imported clips drop the keys their neighbours' interpolation gives back anyway (to within 0.05
 degrees and half a millimetre): smaller clips, the same motion.
 
 **Animation events** are named times in a clip (a footstep, the frame a sword hits): when playback passes one,
 the entity's behaviours get `onAnimationEvent(ctx, self, "Footstep")`. In a blend tree the clip that weighs most
-fires its events (at the same point of its cycle), and layers' clips fire theirs.
+fires its events (at the same point of its cycle), and layers' clips fire theirs. An event can also play a
+**sound** by itself (a built-in one or a file, at a volume) at a **bone** (an entity under the Animator's: a foot
+for footsteps), no code needed. The Animator inspector's event track shows the clip's events as marks over its
+length: drag one to move it, double-click to add one there, click to move the preview.
 
 Outside Play, the Animator inspector previews its clip: play / pause, and a slider to scrub to any time (only
 what's drawn changes, not the scene). New events are added at the preview time.

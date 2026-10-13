@@ -23,9 +23,13 @@ std::string boneKey(const std::string& name);
 // Target bone -> source bone, for the bones whose keys (or else exact names) match
 std::vector<std::pair<std::string, std::string>> mapBones(const Skeleton& from, const Skeleton& to);
 
-// The clip for `to` (named `name`), sampled 30 times a second and compressed; it keeps its recipe
+// The clip for `to` (named `name`), sampled 30 times a second and compressed; it keeps its recipe.
+// `matchRestPose`: the skeletons' rest poses differ (an A-pose rig and a T-pose one): each bone is first turned
+// from its rest direction (towards its first paired child) onto its source's, then follows the source's turns in
+// the world (the whole source pose, each frame), so the clip looks the same on both
 AnimationClip retargetClip(const AnimationClip& clip, const Skeleton& from, const Skeleton& to,
-                           const std::vector<std::pair<std::string, std::string>>& map, const std::string& name);
+                           const std::vector<std::pair<std::string, std::string>>& map, const std::string& name,
+                           bool matchRestPose = false);
 
 // Skeletons in scene files
 json::Value skeletonToJson(const Skeleton& s);

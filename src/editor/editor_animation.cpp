@@ -80,7 +80,59 @@ void Editor::drawAnimatorInspector(Entity& e) {
 
     if (ImGui::TreeNodeEx("Events", ImGuiTreeNodeFlags_SpanAvailWidth, "Events (%zu)", a.events.size())) {
         tooltip("When playback passes an event's time in its clip, the entity's behaviours get "
-                "onAnimationEvent(name)");
+                "onAnimationEvent(name), and its sound plays (at its bone)");
+        // The track: the clip's length with its events as marks (drag to move, double-click to add), the preview
+        // time as a line (click to set it)
+        if (clip && clip->duration > 0.f) {
+            ImVec2 at = ImGui::GetCursorScreenPos();
+            float w = std::max(ImGui::GetContentRegionAvail().x, 1.f), h = px(28.f);
+            ImGui::InvisibleButton("##eventtrack", ImVec2(w, h));
+            bool hovered = ImGui::IsItemHovered();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(at, ImVec2(at.x + w, at.y + h), IM_COL32(30, 33, 40, 255), 3.f);
+            for (float s = 0.f; s <= clip->duration + 1e-4f; s += 0.5f) {   // (a tick every half second)
+                float x = at.x + s / clip->duration * w;
+                dl->AddLine(ImVec2(x, at.y + h * 0.7f), ImVec2(x, at.y + h), IM_COL32(90, 95, 110, 255));
+            }
+            float mouseT = std::clamp((ImGui::GetIO().MousePos.x - at.x) / w, 0.f, 1.f) * clip->duration;
+            int under = -1;
+            for (size_t i = 0; i < a.events.size(); ++i) {
+                const AnimationEvent& ev = a.events[i];
+                if (ev.clip != a.clip) continue;
+                float x = at.x + ev.time / clip->duration * w;
+                bool near = hovered && std::fabs(ImGui::GetIO().MousePos.x - x) < px(6.f);
+                if (near) under = (int)i;
+                ImU32 col = (int)i == eventDrag_ || near ? IM_COL32(255, 200, 90, 255) : IM_COL32(230, 150, 60, 255);
+                dl->AddTriangleFilled(ImVec2(x - px(5.f), at.y + 2.f), ImVec2(x + px(5.f), at.y + 2.f),
+                                      ImVec2(x, at.y + h * 0.55f), col);
+                dl->AddLine(ImVec2(x, at.y + 2.f), ImVec2(x, at.y + h), col);
+            }
+            if (animPreview_.entity == e.id) {
+                float x = at.x + animPreview_.time / clip->duration * w;
+                dl->AddLine(ImVec2(x, at.y), ImVec2(x, at.y + h), IM_COL32(120, 200, 255, 255), 2.f);
+            }
+            if (ImGui::IsItemClicked()) {
+                if (under >= 0) {
+                    pushUndo();
+                    eventDrag_ = under;
+                } else if (!playing()) {
+                    animPreview_ = {e.id, mouseT, false};   // (the preview there)
+                }
+            }
+            if (eventDrag_ >= 0 && eventDrag_ < (int)a.events.size()) {
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) a.events[(size_t)eventDrag_].time = mouseT;
+                else eventDrag_ = -1;
+            }
+            if (hovered && under < 0 && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                pushUndo();
+                a.events.push_back({a.clip, mouseT, "Event"});
+            }
+            if (under >= 0) ImGui::SetTooltip("%s at %.2f s", a.events[(size_t)under].name.c_str(), a.events[(size_t)under].time);
+        }
+        // The bones it could sound at: the entities under it
+        std::vector<std::string> bones;
+        for (const Entity& b : scene_.entities)
+            if (scene_.isAncestor(e.id, b.id)) bones.push_back(b.name);
         int remove = -1;
         for (size_t i = 0; i < a.events.size(); ++i) {
             AnimationEvent& ev = a.events[i];
@@ -97,6 +149,26 @@ void Editor::drawAnimatorInspector(Entity& e) {
             ImGui::SameLine();
             if (ImGui::SmallButton("x")) remove = (int)i;
             if (ev.clip != a.clip) ImGui::TextDisabled("  in %s", ev.clip.c_str());
+            // Its own sound (a built-in name or a file in the project), at a bone
+            ImGui::Indent(px(12.f));
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
+            ImGui::InputTextWithHint("##sound", "sound", &ev.sound);
+            track();
+            tooltip("Played when the event fires: a built-in sound (Pickup, Thud, ...) or a sound file");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+            if (ImGui::BeginCombo("##bone", ev.bone.empty() ? "(the entity)" : ev.bone.c_str())) {
+                if (ImGui::Selectable("(the entity)", ev.bone.empty())) { pushUndo(); ev.bone.clear(); }
+                for (const std::string& b : bones)
+                    if (ImGui::Selectable(b.c_str(), b == ev.bone)) { pushUndo(); ev.bone = b; }
+                ImGui::EndCombo();
+            }
+            tooltip("Where it's heard: a bone (a foot for footsteps)");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-1.f);
+            ImGui::SliderFloat("##volume", &ev.volume, 0.f, 2.f, "%.2f");
+            track();
+            ImGui::Unindent(px(12.f));
             ImGui::PopID();
         }
         if (remove >= 0) { pushUndo(); a.events.erase(a.events.begin() + remove); }
@@ -407,13 +479,53 @@ void Editor::drawAnimatorInspector(Entity& e) {
         const AnimationClip* source = meshes_.findAnimation(clip);
         if (from && source) {
             Skeleton fromSkeleton = retarget::skeletonOf(*from), toSkeleton = retarget::skeletonOf(scene_, e.id);
-            auto map = retarget::mapBones(fromSkeleton, toSkeleton);
+            // The bone map: the automatic pairing to start with, then as edited (kept while the same three are picked)
+            std::string key = clip + "|" + fromPrefab + "|" + std::to_string(e.id);
+            if (key != retargetKey_) {
+                retargetKey_ = key;
+                retargetMap_ = retarget::mapBones(fromSkeleton, toSkeleton);
+            }
+            auto sourceOf = [&](const std::string& target) -> std::string {
+                for (const auto& [t, s] : retargetMap_)
+                    if (t == target) return s;
+                return {};
+            };
+            std::vector<std::pair<std::string, std::string>> map;
+            for (const auto& pair : retargetMap_)
+                if (!pair.second.empty()) map.push_back(pair);
             ImGui::TextDisabled("%d of this model's %d bones paired", (int)map.size(), (int)toSkeleton.bones.size());
+            if (ImGui::TreeNode("Bone map")) {
+                if (ImGui::SmallButton("Automatic")) retargetMap_ = retarget::mapBones(fromSkeleton, toSkeleton);
+                tooltip("Pairs them by name again (rig prefixes, sides and humanoid names understood)");
+                for (const Skeleton::Bone& tb : toSkeleton.bones) {
+                    ImGui::PushID(tb.name.c_str());
+                    std::string current = sourceOf(tb.name);
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
+                    if (ImGui::BeginCombo(tb.name.c_str(), current.empty() ? "(none)" : current.c_str())) {
+                        auto set = [&](const std::string& s) {
+                            bool found = false;
+                            for (auto& [t, src] : retargetMap_)
+                                if (t == tb.name) src = s, found = true;
+                            if (!found) retargetMap_.emplace_back(tb.name, s);
+                        };
+                        if (ImGui::Selectable("(none)", current.empty())) set("");
+                        for (const Skeleton::Bone& sb : fromSkeleton.bones)
+                            if (ImGui::Selectable(sb.name.c_str(), sb.name == current)) set(sb.name);
+                        ImGui::EndCombo();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
+            }
+            ImGui::Checkbox("Match rest poses", &retargetMatchRest_);
+            tooltip("For skeletons standing differently at rest (an A-pose model and a T-pose one): each bone is first "
+                    "lined up with its source's rest direction, so the clip looks the same on both");
             std::string shortName = clip.substr(clip.rfind('/') == std::string::npos ? 0 : clip.rfind('/') + 1);
             std::string name = e.name + "/" + shortName;
             if (ImGui::Button("Retarget") && !map.empty()) {
                 for (int n = 2; meshes_.findAnimation(name); ++n) name = e.name + "/" + shortName + " " + std::to_string(n);
-                meshes_.animations.push_back(retarget::retargetClip(*source, fromSkeleton, toSkeleton, map, name));
+                meshes_.animations.push_back(retarget::retargetClip(*source, fromSkeleton, toSkeleton, map, name,
+                                                                    retargetMatchRest_));
                 pushUndo();
                 a.clip = name;
                 setStatus("Made " + name + " (" + std::to_string(map.size()) + " bones)");

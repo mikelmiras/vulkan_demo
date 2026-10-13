@@ -209,6 +209,11 @@ struct AnimationEvent {
     std::string clip;
     float time = 0.f;   // seconds into the clip
     std::string name;
+    // Done by itself when it fires (no code needed: footsteps, swooshes): a sound played at a bone (an entity of
+    // that name under the Animator's, e.g. "foot.l"; the entity itself if none) at a volume
+    std::string sound;
+    std::string bone;
+    float volume = 1.f;
 };
 
 // A state machine for an Animator: states play clips; a transition moves to another state when a parameter (set

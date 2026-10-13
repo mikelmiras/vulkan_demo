@@ -923,6 +923,17 @@ void Game::fixedUpdate(float dt) {
         }
     }
     prepareContext(dt);
+    for (const FiredAnimationEvent& ev : events) {   // events' own sounds, at their bones
+        if (ev.sound.empty() || !scene_->find(ev.entity)) continue;
+        EntityId at = ev.entity;
+        if (!ev.bone.empty())
+            for (const Entity& b : scene_->entities)
+                if (b.name == ev.bone && scene_->isAncestor(ev.entity, b.id)) {
+                    at = b.id;
+                    break;
+                }
+        ctx_.playSound(ev.sound, ctx_.worldPosition(at), ev.volume);
+    }
     for (const FiredAnimationEvent& ev : events)
         if (Entity* e = scene_->find(ev.entity))
             for (size_t b = 0; b < e->behaviours.size(); ++b) {

@@ -720,7 +720,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 55 (done) | Global illumination: dynamic diffuse GI from a probe grid updated over frames (DDGI-style), screen-space reflections | Indirect light only comes from baked reflection probes and an ambient term |
 | 56 (done) | Texture streaming: mips loaded on demand under a memory budget, residency feedback from the GPU | Every texture is fully resident; big projects run out of memory |
 | 57 (done) | Display: HDR output (HDR10 / scRGB swapchains, a tone mapper per display), HiDPI and fractional scaling on Wayland and Windows | Output is 8-bit SDR at one pixel per point |
-| 58 | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
+| 58 (done) | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
 | 59 | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
 | 60 | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
 | 61 | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
@@ -817,4 +817,20 @@ Working list for turning the renderer demo into a small game engine. Each task i
   colour space). Not done: reading the display's real peak (DXGI on Windows, EDID), HDR metadata
   (VK_EXT_hdr_metadata), the colour-blindness filter in HDR, HDR screenshots, a calibration screen, HiDPI on X11
   (Xft.dpi / XSETTINGS), per-monitor scale on macOS (one pixel per point there).
+- Task 58: retargeting with matchRestPose (RetargetRecipe, saved; retargetClip's last argument): per target bone a
+  world correction rotationBetween(its rest direction to its first paired child, its source's), then each sample
+  the whole source pose in the world (every bone's track or rest), target bones paired: (source world * source rest
+  world^-1) * correction * target rest world, unpaired ones following their parent at rest; locals from the
+  parents' new world rotations; the hips' travel as before. Without it the old per-bone method (turns from rest
+  through the rest frames) is unchanged. Editor: the Bone map (every target bone, a combo of source bones or none,
+  Automatic to pair again; kept while the clip, model and entity stay the same) and Match rest poses. Events:
+  AnimationEvent has sound, bone and volume (scene format 39, module API 39); FiredAnimationEvent carries them and
+  the Game plays the sound at the bone (an entity of that name under the Animator's) before the behaviours hear
+  the event. The Animator inspector draws an event track (half-second ticks, a mark per event of the current clip,
+  the preview time as a line): drag a mark, double-click to add, click to set the preview; each event gets a sound
+  field, a bone combo and a volume. Checked: an A-pose arm clip on a T-pose rig (matched: the same directions in
+  the world; unmatched: the old overshoot), saved and remade as its recipe; an event's sound heard (the mixer's
+  level) only once playback passes it, its fields saved; the track in a screenshot. Not done: retargeting with
+  different bone lengths for IK targets (feet sliding), twist bones, mirrored clips, editing event timing by
+  scrubbing while playing, particle bursts and camera shakes as event actions, blend tree events' sounds by weight.
 

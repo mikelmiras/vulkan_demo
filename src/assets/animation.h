@@ -46,6 +46,7 @@ struct RetargetRecipe {
     std::string clip;      // the source clip's name
     Skeleton from, to;
     std::vector<std::pair<std::string, std::string>> map;   // (target bone, source bone)
+    bool matchRestPose = false;   // rest poses told apart (an A-pose clip on a T-pose rig): retarget.h
 };
 
 struct AnimationClip {

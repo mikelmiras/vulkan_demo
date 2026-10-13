@@ -95,6 +95,66 @@ TEST(retarget_turns_the_same_way_in_the_world) {
     CHECK_NEAR(sampleTrack(*h, 1.f).translation.y, 2.0, 1e-3);
 }
 
+// An A-pose clip on a T-pose rig: with rest poses matched, the target's arm points where the source's does (down at
+// 45 degrees at rest, then raised level); without, it keeps its own rest pose as the start and overshoots
+TEST(retarget_matches_rest_poses) {
+    Quat aPose = axisAngle({0, 0, 1}, -45.f * DEG2RAD);
+    Skeleton from, to;
+    from.bones = {bone("Hips", -1, {0, 1, 0}), bone("UpperArm.L", 0, {0.2f, 0.5f, 0}, aPose), bone("Forearm.L", 1, {0.3f, 0, 0})};
+    to.bones = {bone("Hips", -1, {0, 1, 0}), bone("UpperArm.L", 0, {0.2f, 0.5f, 0}), bone("Forearm.L", 1, {0.3f, 0, 0})};
+    AnimationClip clip;
+    clip.name = "Raise";
+    clip.duration = 1.f;
+    AnimationTrack arm{"UpperArm.L", {}, {}, {}};
+    for (int k = 0; k <= 10; ++k) {   // from the A-pose up to level
+        float t = (float)k / 10.f;
+        Quat q = axisAngle({0, 0, 1}, -45.f * DEG2RAD * (1.f - t));
+        arm.rotation.times.push_back(t);
+        arm.rotation.values.insert(arm.rotation.values.end(), {q.x, q.y, q.z, q.w});
+    }
+    arm.rotation.width = 4;
+    clip.tracks = {arm};
+    auto map = retarget::mapBones(from, to);
+    auto direction = [&](const AnimationClip& c, float t) {   // the target's upper arm, in the world
+        Quat hips = to.bones[0].rotation, upper = to.bones[1].rotation;
+        for (const AnimationTrack& tr : c.tracks) {
+            if (tr.target == "Hips" && !tr.rotation.empty()) hips = sampleTrack(tr, t).rotation;
+            if (tr.target == "UpperArm.L" && !tr.rotation.empty()) upper = sampleTrack(tr, t).rotation;
+        }
+        return normalize(rotate(normalizeQuat(hips * upper), Vec3{0.3f, 0, 0}));
+    };
+    AnimationClip matched = retarget::retargetClip(clip, from, to, map, "Rig/Raise", true);
+    REQUIRE(matched.retarget && matched.retarget->matchRestPose);
+    Vec3 start = direction(matched, 0.f), end = direction(matched, 1.f);
+    CHECK_NEAR(start.x, 0.7071, 0.02);
+    CHECK_NEAR(start.y, -0.7071, 0.02);   // (down at 45 degrees, like the source)
+    CHECK_NEAR(end.x, 1.0, 0.02);
+    CHECK_NEAR(end.y, 0.0, 0.02);         // (level)
+    AnimationClip plain = retarget::retargetClip(clip, from, to, map, "Rig/Raise plain");
+    Vec3 plainStart = direction(plain, 0.f), plainEnd = direction(plain, 1.f);
+    CHECK_NEAR(plainStart.y, 0.0, 0.02);    // (its own T-pose: the turns are the source's away from its rest)
+    CHECK_NEAR(plainEnd.y, 0.7071, 0.02);   // (then raised 45 degrees past level)
+    // Saved as its recipe, the setting with it
+    Scene s;
+    Entity& e = s.create("Rig");
+    e.animator = Animator{};
+    e.animator->clip = "Rig/Raise";
+    MeshLibrary lib = buildMeshLibrary();
+    lib.animations.push_back(clip);
+    lib.animations.push_back(matched);
+    TextureLibrary tex;
+    json::Value doc = sceneToJson(s, lib, tex);
+    MeshLibrary fresh = buildMeshLibrary();
+    fresh.animations.push_back(clip);
+    Scene back;
+    std::string error;
+    REQUIRE(sceneFromJson(doc, back, fresh, tex, error));
+    const AnimationClip* again = fresh.findAnimation("Rig/Raise");
+    REQUIRE(again && again->retarget);
+    CHECK(again->retarget->matchRestPose);
+    CHECK_NEAR(direction(*again, 0.f).y, -0.7071, 0.02);
+}
+
 TEST(retargeted_clip_saved_as_its_recipe) {
     MeshLibrary lib = buildMeshLibrary();
     AnimationClip source;
