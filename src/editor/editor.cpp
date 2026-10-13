@@ -156,6 +156,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     if (showProfiler_) drawProfilerWindow(&showProfiler_, project::saveDir("Editor").parent_path() / "traces");
     drawAssetDialogs();
     drawProjectSettings();
+    drawBuildSettings();
     drawLauncher();   // (last: over everything)
 
     handleNavigation(dt);

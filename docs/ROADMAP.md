@@ -1001,24 +1001,26 @@ Working list for turning the renderer demo into a small game engine. Each task i
 
 ## Round 7 (planned)
 
-First the editor's power use, projects and builds (asked for after round 6), then mostly what round 6 left out (its
+First the editor's power use, projects, builds and asset cooking (asked for after round 6; cooking split off the
+builds task), then mostly what round 6 left out (its
 notes' "Not done"), plus the editor catching up with the game's text and input.
 
 | # | Task | Why |
 |---|------|-----|
 | 65 (done) | Editor power use: redraw only when something changes (input, edits, animations, playing), throttled while unfocused or idle, a frame-rate cap, a "realtime viewport" toggle, the integrated GPU on dual-GPU Macs | The editor renders the whole scene at the display's refresh rate even when idle: a laptop heats up with nothing happening |
 | 66 (done) | Projects: a project launcher at startup (recent projects, new from a template, open), a Project Settings window for everything in project.json, the engine version a project was made with, generated files kept apart from the project's own | The editor opens straight into the demo; project.json is edited by hand |
-| 67 | Builds: a Build Settings window with per-platform profiles, per-game executable metadata (Windows version resources, macOS bundle id and version), assets cooked at export (compressed textures with baked mips, binary models, compiled shaders), a shipping configuration without editor or debug code | Exports are vkgame renamed with the project's source files beside it |
-| 68 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
-| 69 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
-| 70 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
-| 71 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
-| 72 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
-| 73 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
-| 74 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
-| 75 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
-| 76 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
-| 77 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
+| 67 (done) | Builds: a Build Settings window with per-platform profiles, per-game executable metadata (Windows version resources, macOS bundle id and version), a shipping configuration without the developer tools, a pipeline cache | Exports are vkgame renamed with the project's source files beside it |
+| 68 | Asset cooking at export: textures GPU-compressed (BC1 / BC3 / BC7, ASTC where that's what the GPU has) with their mips baked, models in a binary format read without parsing, the renderer and texture streaming using them | Exports ship source PNGs and glTF files that every start decodes, resizes and mips again, and textures take four bytes a pixel on the GPU |
+| 69 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
+| 70 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
+| 71 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
+| 72 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
+| 73 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
+| 74 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
+| 75 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
+| 76 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
+| 77 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
+| 78 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
 
 ### Round 7 notes
 - Task 65: Application::Pacing (lazy, maxFps, unfocusedFps, settleSeconds, idleSeconds) and decide() (plain, tested:
@@ -1058,3 +1060,24 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   screenshots of the launcher with a recent project and of Project Settings (validation clean). Not done: thumbnails
   of projects, removing a project from disk, project-wide search, migrating projects from older engines (nothing to
   migrate yet), an editor cache in .vkworld/ (thumbnails are made in memory each session).
+- Task 67: project::Settings gained publisher, identifier and builds (name, layout folder / pack / single, package,
+  updatePack, shipping, out: saved as project.json "builds"); export's optionsFor / buildFolder turn one into a
+  build. app/exe_metadata (plain, tested): a VS_VERSIONINFO resource made byte by byte (fixed file info with the
+  version's four numbers, an English (US) Unicode string table: company, description, file and product versions,
+  copyright, original file name; the translation var), stamped into Windows exports with UpdateResource
+  (platform::setExecutableVersion; false elsewhere), and the macOS Info.plist (identifier: the project's or one made
+  from the name, short version and version, copyright, games category, automatic graphics switching). Shipping:
+  ExportOptions::shipping writes build.json (shipping, engine, game version) into the game's data; vkgame reads it
+  and turns off the F3 profiler, the frame counter line, --lua-debug, --trace and the validation layer
+  (Renderer::setValidationAllowed, whatever VKWORLD_VALIDATION says). The editor's File > Build settings lists the
+  profiles (a Release one to start), edits them (saved to project.json at once), and builds one; vkworld <project>
+  --build <name> does it from a command line. Pipeline cache: every pipeline (and Dear ImGui's) goes through one
+  VkPipelineCache, loaded from the user's data folder when its header matches this GPU and driver (vendor, device,
+  pipelineCacheUUID), saved at shutdown through a temporary file (pipelines.cache next to a game's saves,
+  pipelines-editor.cache for the editor). Checked: the version resource walked block by block, the plist, profiles
+  saved and loaded and made into options, a shipping export's build.json; a shipping profile built with --build
+  whose game ran with no frame counter and no validation layer despite VKWORLD_VALIDATION=1; the cache file written
+  (lavapipe's is a bare header: its driver keeps nothing in it); games and the editor clean under validation; a
+  screenshot of Build Settings. Asset cooking became task 68. Not done: builds for other platforms than the one
+  running, signing as part of a profile (the release workflow signs the engine's own), a progress bar while
+  building, per-profile settings (a different start scene or defines).

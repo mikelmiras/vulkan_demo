@@ -1,11 +1,14 @@
 // The editor's project windows: the launcher (shown at start when no project was given: recent projects, a new one
-// from a template, opening a folder, or the demo scene) and Project Settings (everything in project.json)
+// from a template, opening a folder, or the demo scene), Project Settings (everything in project.json) and Build
+// Settings (the build profiles)
 #include "editor/editor.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 
+#include "app/export.h"
+#include "app/updates.h"
 #include "core/project.h"
 #include "core/version.h"
 #include "core/vfs.h"
@@ -157,6 +160,10 @@ void Editor::drawProjectSettings() {
     ImGui::SeparatorText("Game");
     ImGui::InputText("Name", &d.name);
     ImGui::InputText("Version", &d.gameVersion);
+    ImGui::InputTextWithHint("Publisher", "Your name or studio", &d.publisher);
+    tooltip("Who makes it: exported executables say so (Windows file properties, the macOS copyright)");
+    ImGui::InputTextWithHint("Identifier", "com.example.mygame", &d.identifier);
+    tooltip("Reverse-DNS, unique to the game (the macOS bundle identifier); empty: made from the name");
     tooltip("The game's own version (exports, update checks): numbers with dots, 1.2.0");
     // Scenes: a combo of the project's
     if (ImGui::BeginCombo("Start scene", d.startScene.c_str())) {
@@ -222,4 +229,94 @@ void Editor::drawProjectSettings() {
     ImGui::SameLine();
     if (ImGui::Button("Revert")) projectDraft_ = project_;
     ImGui::End();
+}
+
+void Editor::showBuildSettings() {
+    if (project_.builds.empty()) project_.builds.push_back(project::Settings::Build{});   // (a Release profile to start from)
+    buildSelected_ = std::clamp(buildSelected_, 0, (int)project_.builds.size() - 1);
+    showBuildSettings_ = true;
+}
+
+void Editor::drawBuildSettings() {
+    if (!showBuildSettings_) return;
+    ImGui::SetNextWindowSize(ImVec2(640.f * uiScale_, 420.f * uiScale_), ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Build Settings", &showBuildSettings_)) {
+        ImGui::End();
+        return;
+    }
+    std::vector<project::Settings::Build>& builds = project_.builds;
+    bool changed = false;
+    // The profiles on the left, the chosen one's settings on the right
+    ImGui::BeginChild("##profiles", ImVec2(170.f * uiScale_, -ImGui::GetFrameHeightWithSpacing()), ImGuiChildFlags_Borders);
+    for (int i = 0; i < (int)builds.size(); ++i)
+        if (ImGui::Selectable((builds[(size_t)i].name + "##" + std::to_string(i)).c_str(), buildSelected_ == i)) buildSelected_ = i;
+    ImGui::EndChild();
+    ImGui::SameLine();
+    ImGui::BeginChild("##profile", ImVec2(0.f, -ImGui::GetFrameHeightWithSpacing()));
+    if (buildSelected_ >= 0 && buildSelected_ < (int)builds.size()) {
+        project::Settings::Build& b = builds[(size_t)buildSelected_];
+        ImGui::TextDisabled("For this platform (%s)", updates::platformKey());
+        changed |= ImGui::InputText("Name", &b.name);
+        int layout = b.layout == "folder" ? 0 : b.layout == "single" ? 2 : 1;
+        if (ImGui::Combo("Layout", &layout, "A folder of files\0Data packed (game.pak)\0A single file\0")) {
+            b.layout = layout == 0 ? "folder" : layout == 2 ? "single" : "pack";
+            changed = true;
+        }
+        changed |= ImGui::Checkbox("Shipping", &b.shipping);
+        tooltip("Without the developer tools: no F3 profiler or frame counter, no Lua debugger, traces or validation layer");
+        changed |= ImGui::Checkbox("Package (AppImage / .dmg / installer)", &b.package);
+        changed |= ImGui::Checkbox("Update pack", &b.updatePack);
+        tooltip("The whole build as one .vkwupdate with its SHA-256, for games already out to install");
+        changed |= ImGui::InputText("Folder", &b.out);
+        tooltip("Where it's built: relative to the project, or a full path");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("...")) {
+            fs::path dir = platform::openFolderDialog("Build into");
+            ImGui::GetIO().ClearInputKeys();
+            ImGui::GetIO().ClearInputMouse();
+            if (!dir.empty()) {
+                std::error_code ec;
+                fs::path rel = fs::relative(dir, project::root(), ec);
+                b.out = !ec && !rel.empty() && rel.begin()->u8string() != ".." ? rel.generic_u8string() : dir.u8string();
+                changed = true;
+            }
+        }
+        ImGui::TextDisabled("%s", buildFolder(project::root(), b).u8string().c_str());
+        ImGui::Spacing();
+        if (ImGui::Button("Build")) {
+            exportGameTo(buildFolder(project::root(), b), optionsFor(b));
+        }
+        tooltip("Builds what's saved (save the scene first)");
+    }
+    ImGui::EndChild();
+    if (ImGui::Button("Add")) {
+        project::Settings::Build b;
+        b.name = "Build " + std::to_string(builds.size() + 1);
+        b.out = "builds/" + b.name;
+        builds.push_back(b);
+        buildSelected_ = (int)builds.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Duplicate") && buildSelected_ >= 0 && buildSelected_ < (int)builds.size()) {
+        project::Settings::Build b = builds[(size_t)buildSelected_];
+        b.name += " copy";
+        b.out += " copy";
+        builds.push_back(b);
+        buildSelected_ = (int)builds.size() - 1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(builds.size() <= 1);
+    if (ImGui::Button("Remove") && buildSelected_ >= 0 && buildSelected_ < (int)builds.size()) {
+        builds.erase(builds.begin() + buildSelected_);
+        buildSelected_ = std::max(buildSelected_ - 1, 0);
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::End();
+    if (changed && project::exists(project::root())) {   // (kept in project.json at once)
+        std::string error;
+        if (!project::save(project::root(), project_, error)) setStatus("Can't save project.json: " + error);
+    }
 }

@@ -62,7 +62,7 @@ VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format,
     ci.pDynamicState = &dy;
     ci.layout = layout ? layout : postLayout_;
     VkPipeline pipeline;
-    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
+    VK_CHECK(vkCreateGraphicsPipelines(device_, pipelineCache_, 1, &ci, nullptr, &pipeline));
     vkDestroyShaderModule(device_, vs, nullptr);
     vkDestroyShaderModule(device_, fs, nullptr);
     return pipeline;

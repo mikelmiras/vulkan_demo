@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace project {
 
@@ -33,6 +34,19 @@ struct Settings {
     // The engine version that last saved project.json (save() writes the running engine's): opening a project made
     // with a newer engine warns that this one may not read everything in it
     std::string engineVersion;
+    // Who makes it, and its reverse-DNS identifier (macOS bundle id: "com.example.coinhunt"; "" for one from the
+    // name): exported executables carry them (app/exe_metadata.h)
+    std::string publisher, identifier;
+    // Build profiles (the editor's Build Settings, vkworld <project> --build <name>): how to export the game
+    struct Build {
+        std::string name = "Release";
+        std::string layout = "pack";   // "folder", "pack" or "single" (ExportOptions::Layout)
+        bool package = false;          // and an AppImage / .dmg / installer
+        bool updatePack = false;       // and an update pack
+        bool shipping = true;          // without the developer tools (app/export.h)
+        std::string out = "builds/Release";   // relative to the project, or absolute
+    };
+    std::vector<Build> builds;
 };
 
 // A project folder at a glance (the editor's launcher): whether it's there and a project, its name and versions

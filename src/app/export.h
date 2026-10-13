@@ -18,6 +18,8 @@
 #include <string>
 #include <vector>
 
+#include "core/project.h"
+
 struct ExportOptions {
     enum class Layout { Folder, Pack, SingleFile };
     Layout layout = Layout::Folder;
@@ -29,6 +31,9 @@ struct ExportOptions {
     // Also an update pack (app/updates.h): the whole export as one pack, <game>-<gameVersion>-<platform>.vkwupdate,
     // with its SHA-256 next to it (.sha256) for the update manifest; games already out install it themselves
     bool updatePack = false;
+    // A shipping build: the game runs without the developer tools (vkgame's F3 profiler and frame counter, the Lua
+    // debugger, --trace, the validation layer), as build.json in its data says
+    bool shipping = false;
 };
 
 struct ExportResult {
@@ -46,6 +51,11 @@ struct ExportResult {
 bool pngSize(const std::string& png, uint32_t& width, uint32_t& height);
 std::string makeIco(const std::string& png);
 std::string makeIcns(const std::string& png);
+
+// A build profile (project.json "builds", the editor's Build Settings) as export options, and the folder it builds
+// into (relative to the project, or absolute)
+ExportOptions optionsFor(const project::Settings::Build& build);
+std::filesystem::path buildFolder(const std::filesystem::path& projectDir, const project::Settings::Build& build);
 
 // `runtimeDir`: where vkgame, the engine library and the shaders are (the editor's own folder, normally)
 bool exportGame(const std::filesystem::path& projectDir, const std::filesystem::path& outDir,

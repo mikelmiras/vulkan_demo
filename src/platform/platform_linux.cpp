@@ -328,6 +328,11 @@ void imguiInit() { VKWORLD_ON_WINDOW(imguiInit()); }
 void imguiNewFrame(float deltaTime) { VKWORLD_ON_WINDOW(imguiNewFrame(deltaTime)); }
 void imguiShutdown() { VKWORLD_ON_WINDOW(imguiShutdown()); }
 
+bool setExecutableVersion(const std::filesystem::path&, const std::string&, std::string& error) {
+    error = "only Windows executables carry a version resource";
+    return false;
+}
+
 bool setExecutableIcon(const std::filesystem::path&, const std::string&, std::string& error) {
     error = "executables have no icons here (the desktop entry has it)";
     return false;

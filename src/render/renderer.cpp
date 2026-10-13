@@ -15,6 +15,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
@@ -65,6 +66,7 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     if (!surface_) fatal("cannot create Vulkan window surface");
     pickDevice();
     createDevice();
+    createPipelineCache();
     createSwapchain();
     createPipelines();
     createShadowResources();
@@ -77,6 +79,7 @@ void Renderer::createInstance() {
     validation = true;
 #endif
     if (const char* env = std::getenv("VKWORLD_VALIDATION")) validation = env[0] == '1';
+    validation = validation && validationAllowed_;
 
     if (validation) {
         uint32_t count = 0;
@@ -233,6 +236,51 @@ void Renderer::pickDevice() {
         else if (want == "off") aa_ = Antialiasing::Off;
     }
     if (aa_ != Antialiasing::Msaa) samples_ = VK_SAMPLE_COUNT_1_BIT;
+}
+
+// The pipeline cache: the last run's data when it was made by this GPU and driver (its header says), else empty
+void Renderer::createPipelineCache() {
+    std::string data;
+    if (!pipelineCachePath_.empty()) {
+        std::ifstream f(pipelineCachePath_, std::ios::binary);
+        data.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    }
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(gpu_, &props);
+    struct Header {
+        uint32_t size, version, vendor, device;
+        uint8_t uuid[VK_UUID_SIZE];
+    } h{};
+    bool usable = data.size() >= sizeof(Header);
+    if (usable) {
+        std::memcpy(&h, data.data(), sizeof(Header));
+        usable = h.version == VK_PIPELINE_CACHE_HEADER_VERSION_ONE && h.vendor == props.vendorID && h.device == props.deviceID &&
+                 std::memcmp(h.uuid, props.pipelineCacheUUID, VK_UUID_SIZE) == 0;
+    }
+    VkPipelineCacheCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+    if (usable) {
+        ci.initialDataSize = data.size();
+        ci.pInitialData = data.data();
+    }
+    if (vkCreatePipelineCache(device_, &ci, nullptr, &pipelineCache_) != VK_SUCCESS) pipelineCache_ = VK_NULL_HANDLE;
+}
+
+void Renderer::savePipelineCache() {
+    if (!pipelineCache_ || pipelineCachePath_.empty()) return;
+    size_t size = 0;
+    if (vkGetPipelineCacheData(device_, pipelineCache_, &size, nullptr) != VK_SUCCESS || size == 0) return;
+    std::string data(size, '\0');
+    if (vkGetPipelineCacheData(device_, pipelineCache_, &size, data.data()) != VK_SUCCESS) return;
+    std::error_code ec;
+    std::filesystem::create_directories(pipelineCachePath_.parent_path(), ec);
+    std::filesystem::path tmp = pipelineCachePath_;
+    tmp += ".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary);
+        f.write(data.data(), (std::streamsize)size);
+        if (!f) return;
+    }
+    std::filesystem::rename(tmp, pipelineCachePath_, ec);
 }
 
 void Renderer::createDevice() {
@@ -610,7 +658,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
     ci.pDynamicState = &dy;
     ci.layout = pipelineLayout_;
     VkPipeline pipeline;
-    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
+    VK_CHECK(vkCreateGraphicsPipelines(device_, pipelineCache_, 1, &ci, nullptr, &pipeline));
 
     vkDestroyShaderModule(device_, vs, nullptr);
     if (fs) vkDestroyShaderModule(device_, fs, nullptr);
@@ -785,7 +833,7 @@ VkPipeline Renderer::createSkyPipeline() {
     ci.pDynamicState = &dy;
     ci.layout = pipelineLayout_;
     VkPipeline pipeline;
-    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
+    VK_CHECK(vkCreateGraphicsPipelines(device_, pipelineCache_, 1, &ci, nullptr, &pipeline));
     vkDestroyShaderModule(device_, vs, nullptr);
     vkDestroyShaderModule(device_, fs, nullptr);
     return pipeline;
@@ -849,7 +897,7 @@ VkPipeline Renderer::createParticlePipeline(bool additive) {
     ci.pDynamicState = &dy;
     ci.layout = pipelineLayout_;
     VkPipeline pipeline;
-    VK_CHECK(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline));
+    VK_CHECK(vkCreateGraphicsPipelines(device_, pipelineCache_, 1, &ci, nullptr, &pipeline));
     vkDestroyShaderModule(device_, vs, nullptr);
     vkDestroyShaderModule(device_, fs, nullptr);
     return pipeline;
@@ -1122,6 +1170,7 @@ void Renderer::initImGui() {
     info.Instance = instance_;
     info.PhysicalDevice = gpu_;
     info.Device = device_;
+    info.PipelineCache = pipelineCache_;
     info.QueueFamily = queueFamily_;
     info.Queue = queue_;
     info.DescriptorPoolSize = 1024;   // (the font atlas, plus one per texture shown in the UI: images, thumbnails)
@@ -1678,6 +1727,8 @@ void Renderer::shutdown() {
         if (timestamps_[i]) vkDestroyQueryPool(device_, timestamps_[i], nullptr);
     }
     vkDestroyCommandPool(device_, cmdPool_, nullptr);
+    savePipelineCache();
+    if (pipelineCache_) vkDestroyPipelineCache(device_, pipelineCache_, nullptr);
     vkDestroyDevice(device_, nullptr);
     vkDestroySurfaceKHR(instance_, surface_, nullptr);
     if (messenger_) {

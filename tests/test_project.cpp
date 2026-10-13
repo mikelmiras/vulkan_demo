@@ -4,8 +4,10 @@
 #include <fstream>
 
 #include "core/compress.h"
+#include "core/json.h"
 
 #include "app/application.h"
+#include "app/exe_metadata.h"
 #include "app/export.h"
 #include "core/vfs.h"
 #include "scene/serialization.h"
@@ -360,3 +362,99 @@ TEST(project_engine_version_and_launcher_info) {
     fs::create_directories(dir / "not-a-project");
     CHECK(!project::describe(dir / "not-a-project").found);
 }
+
+// What exported executables say about themselves: a Windows version resource (checked by walking its blocks) and a
+// macOS Info.plist
+TEST(executable_metadata) {
+    exemeta::Info info;
+    info.product = "Coin Hunt";
+    info.company = "Mikel & Co";
+    info.version = "1.2.3";
+    info.executable = "Coin Hunt.exe";
+    std::string r = exemeta::versionResource(info);
+    REQUIRE(r.size() > 200 && r.size() % 4 == 0);
+    auto u16 = [&](size_t at) { return (uint16_t)((uint8_t)r[at] | (uint8_t)r[at + 1] << 8); };
+    auto u32 = [&](size_t at) { return (uint32_t)u16(at) | (uint32_t)u16(at + 2) << 16; };
+    CHECK(u16(0) == r.size());   // the root block's length is all of it
+    CHECK(u16(2) == 52);         // (VS_FIXEDFILEINFO)
+    // Its key "VS_VERSION_INFO" (UTF-16, ended), padded to 4: the fixed info at 40
+    size_t fixedAt = 6 + 16 * 2;
+    fixedAt = (fixedAt + 3) & ~(size_t)3;
+    CHECK(u32(fixedAt) == 0xFEEF04BDu);
+    CHECK(u32(fixedAt + 8) == (1u << 16 | 2u) && u32(fixedAt + 12) == (3u << 16));   // file version 1.2.3.0
+    auto has = [&](const std::string& text) {   // (as UTF-16)
+        std::string w;
+        for (char c : text) w += std::string{c, '\0'};
+        return r.find(w) != std::string::npos;
+    };
+    CHECK(has("ProductName") && has("Coin Hunt") && has("CompanyName") && has("Mikel & Co") && has("1.2.3.0"));
+    CHECK(has("040904B0") && has("Translation"));
+    std::string plist = exemeta::infoPlist(info);
+    CHECK(plist.find("<key>CFBundleShortVersionString</key><string>1.2.3</string>") != std::string::npos);
+    CHECK(plist.find("org.vkworld.game.coinhunt") != std::string::npos);
+    CHECK(plist.find("(c) Mikel &amp; Co") != std::string::npos);
+    info.identifier = "com.example.coins";
+    CHECK(exemeta::identifierFor(info) == "com.example.coins");
+}
+
+// Build profiles: saved in project.json and read back, made into export options; a shipping build says so in its data
+TEST(build_profiles) {
+    namespace fs = std::filesystem;
+    fs::path dir = test::tempPath("profiles-project");
+    fs::remove_all(dir);
+    std::string error;
+    REQUIRE(project_templates::create(dir, project_templates::Template::Empty, "Profiles", error));
+    project::Settings s;
+    REQUIRE(project::load(dir, s, error));
+    CHECK(s.builds.empty());
+    project::Settings::Build dev;
+    dev.name = "Dev";
+    dev.layout = "folder";
+    dev.shipping = false;
+    dev.out = "out/dev";
+    project::Settings::Build rel;
+    rel.updatePack = true;
+    s.builds = {dev, rel};
+    s.publisher = "Someone";
+    s.identifier = "com.example.profiles";
+    REQUIRE(project::save(dir, s, error));
+    project::Settings back;
+    REQUIRE(project::load(dir, back, error));
+    REQUIRE(back.builds.size() == 2);
+    CHECK(back.builds[0].name == "Dev" && back.builds[0].layout == "folder" && !back.builds[0].shipping && back.builds[0].out == "out/dev");
+    CHECK(back.builds[1].name == "Release" && back.builds[1].layout == "pack" && back.builds[1].shipping && back.builds[1].updatePack);
+    CHECK(back.publisher == "Someone" && back.identifier == "com.example.profiles");
+    ExportOptions o = optionsFor(back.builds[0]);
+    CHECK(o.layout == ExportOptions::Layout::Folder && !o.shipping && !o.updatePack);
+    o = optionsFor(back.builds[1]);
+    CHECK(o.layout == ExportOptions::Layout::Pack && o.shipping && o.updatePack);
+    CHECK(buildFolder(dir, back.builds[0]) == dir / "out" / "dev");
+    project::Settings::Build abs;
+    abs.out = (dir / "elsewhere").u8string();
+    CHECK(buildFolder(dir, abs) == dir / "elsewhere");
+}
+
+#ifdef VKWORLD_SAMPLE_GAME
+TEST(export_shipping_build_info) {
+    namespace fs = std::filesystem;
+    fs::path sample = fs::u8path(VKWORLD_SAMPLE_GAME), out = test::tempPath("exported-shipping");
+    fs::remove_all(out);
+    ExportOptions options;
+    options.layout = ExportOptions::Layout::Folder;
+    options.shipping = true;
+    ExportResult result;
+    std::string error;
+    REQUIRE(exportGame(sample, out, platform::executableDir(), result, error, options));
+    std::ifstream f(result.executable.parent_path() / "build.json");
+    std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    json::Value b;
+    REQUIRE(json::parse(text, b, error));
+    CHECK(b["shipping"].asBool(false));
+    CHECK(b["engine"].asString() == version::string());
+#if defined(__APPLE__)
+    std::ifstream p(result.executable.parent_path().parent_path() / "Info.plist");
+    std::string plist((std::istreambuf_iterator<char>(p)), std::istreambuf_iterator<char>());
+    CHECK(plist.find("CFBundleShortVersionString") != std::string::npos);
+#endif
+}
+#endif

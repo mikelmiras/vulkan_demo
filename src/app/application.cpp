@@ -87,6 +87,8 @@ bool Application::init(const Options& options, MeshLibrary& meshes, TextureLibra
     if (options.fullscreen) platform::setFullscreen(true);
     platform::windowSize(width_, height_);
     renderer_.setGpuPreference(options.gpu);
+    renderer_.setValidationAllowed(!options.shipping);
+    renderer_.setPipelineCachePath(options.pipelineCache);
     renderer_.init(width_, height_, meshes, textures);
 
     uiScale_ = std::max(platform::dpiScale(), 1.f);

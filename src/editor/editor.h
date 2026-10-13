@@ -64,6 +64,7 @@ public:
     // File > Project launcher. Project Settings: File > Project settings.
     void showLauncher();
     void showProjectSettings();
+    void showBuildSettings();
     void play() { startPlay(); }
     void newStressScene();   // the demo plus thousands of objects: for measuring performance
     void setUiTextures(GameUI::TextureLookup lookup) {
@@ -218,6 +219,9 @@ private:
     project::Settings projectDraft_;            // (Project Settings: the edits until saved)
     void drawLauncher();
     void drawProjectSettings();
+    bool showBuildSettings_ = false;
+    int buildSelected_ = 0;
+    void drawBuildSettings();
     Renderer* renderer_ = nullptr;
     int antialiasing_ = -1;   // the one picked in View > Anti-aliasing (Renderer::Antialiasing; -1: the default)
     void select(EntityId id);

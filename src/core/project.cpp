@@ -104,6 +104,19 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     s.relay = doc["relay"].asString();
     s.crashReportUrl = doc["crashReportUrl"].asString();
     s.engineVersion = doc["engineVersion"].asString();
+    s.publisher = doc["publisher"].asString();
+    s.identifier = doc["identifier"].asString();
+    for (const json::Value& b : doc["builds"].elements()) {
+        Settings::Build build;
+        if (!b["name"].asString().empty()) build.name = b["name"].asString();
+        std::string layout = b["layout"].asString();
+        if (layout == "folder" || layout == "pack" || layout == "single") build.layout = layout;
+        build.package = b["package"].asBool(build.package);
+        build.updatePack = b["updatePack"].asBool(build.updatePack);
+        build.shipping = b["shipping"].asBool(build.shipping);
+        build.out = b["out"].asString().empty() ? "builds/" + build.name : b["out"].asString();
+        s.builds.push_back(build);
+    }
     out = s;
     return true;
 }
@@ -123,6 +136,22 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     if (!settings.relay.empty()) doc.set("relay", settings.relay);
     if (!settings.crashReportUrl.empty()) doc.set("crashReportUrl", settings.crashReportUrl);
     doc.set("engineVersion", std::string(version::string()));   // (the engine saving it)
+    if (!settings.publisher.empty()) doc.set("publisher", settings.publisher);
+    if (!settings.identifier.empty()) doc.set("identifier", settings.identifier);
+    if (!settings.builds.empty()) {
+        json::Value list = json::Value::array();
+        for (const Settings::Build& b : settings.builds) {
+            json::Value v = json::Value::object();
+            v.set("name", b.name);
+            v.set("layout", b.layout);
+            v.set("package", b.package);
+            v.set("updatePack", b.updatePack);
+            v.set("shipping", b.shipping);
+            v.set("out", b.out);
+            list.push(std::move(v));
+        }
+        doc.set("builds", std::move(list));
+    }
     std::ofstream f(dir / "project.json", std::ios::binary);
     if (!f) { error = "cannot write " + (dir / "project.json").u8string(); return false; }
     f << json::write(doc);

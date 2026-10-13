@@ -189,6 +189,7 @@ set(ENGINE_SOURCES
   src/app/export.cpp
   src/app/updates.cpp
   src/app/crash_reports.cpp
+  src/app/exe_metadata.cpp
   src/script/lua_script.cpp
   src/script/lua_debugger.cpp
   src/net/udp.cpp

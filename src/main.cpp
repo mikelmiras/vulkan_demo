@@ -10,6 +10,7 @@
 // name; --stress opens the stress test scene;
 // --screenshot saves frame N (default 30) and quits.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -35,6 +36,7 @@ int main(int argc, char** argv) {
     const char* scenePath = nullptr;
     const char* selectName = nullptr;
     const char* exportDir = nullptr;
+    const char* buildName = nullptr;   // --build <profile>: the project's build profile, then out
     ExportOptions exportOptions;
     bool play = false, stress = false, gameView = false, launcher = false;
     for (int i = 1; i < argc; ++i) {
@@ -44,6 +46,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--stress")) stress = true;
         else if (!std::strcmp(argv[i], "--select") && i + 1 < argc) selectName = argv[++i];
         else if (!std::strcmp(argv[i], "--export") && i + 1 < argc) exportDir = argv[++i];
+        else if (!std::strcmp(argv[i], "--build") && i + 1 < argc) buildName = argv[++i];
         else if (!std::strcmp(argv[i], "--pack")) exportOptions.layout = ExportOptions::Layout::Pack;
         else if (!std::strcmp(argv[i], "--single-file")) exportOptions.layout = ExportOptions::Layout::SingleFile;
         else if (!std::strcmp(argv[i], "--package")) exportOptions.package = true;
@@ -51,6 +54,23 @@ int main(int argc, char** argv) {
         else scenePath = argv[i];
     }
 
+    if (buildName) {   // a build profile of the project (project.json "builds"), as the editor's Build Settings do
+        if (!scenePath) { std::fprintf(stderr, "--build: give the project folder too\n"); return 1; }
+        project::Settings settings;
+        std::string error;
+        if (!project::load(std::filesystem::u8path(scenePath), settings, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+        auto it = std::find_if(settings.builds.begin(), settings.builds.end(), [&](const auto& b) { return b.name == buildName; });
+        if (it == settings.builds.end()) { std::fprintf(stderr, "--build: the project has no build profile named %s\n", buildName); return 1; }
+        ExportResult result;
+        std::filesystem::path out = buildFolder(std::filesystem::u8path(scenePath), *it);
+        if (!exportGame(scenePath, out, platform::executableDir(), result, error, optionsFor(*it))) {
+            std::fprintf(stderr, "build failed: %s\n", error.c_str());
+            return 1;
+        }
+        for (const std::string& w : result.warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
+        std::printf("Built %s (%s): %s\n", it->name.c_str(), it->shipping ? "shipping" : "development", result.executable.u8string().c_str());
+        return 0;
+    }
     if (exportDir) {
         if (!scenePath) { std::fprintf(stderr, "--export: give the project folder too\n"); return 1; }
         ExportResult result;
@@ -68,6 +88,7 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    options.pipelineCache = project::saveDir("Editor").parent_path() / "pipelines-editor.cache";   // (later starts: faster)
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary textures = buildTextureLibrary();
     Application app;

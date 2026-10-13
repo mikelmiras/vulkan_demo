@@ -297,6 +297,11 @@ bool setGamepadLight(float r, float g, float b) {
     return false;
 }
 
+bool setExecutableVersion(const std::filesystem::path&, const std::string&, std::string& error) {
+    error = "only Windows executables carry a version resource";
+    return false;
+}
+
 bool setExecutableIcon(const std::filesystem::path&, const std::string&, std::string& error) {
     error = "macOS apps get their icon from the bundle (Contents/Resources)";
     return false;

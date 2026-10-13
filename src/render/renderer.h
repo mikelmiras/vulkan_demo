@@ -5,6 +5,7 @@
 
 #include "imgui.h"
 
+#include <filesystem>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -153,6 +154,11 @@ public:
     // Which GPU init() picks when there are several: "discrete" (the default: the fastest), "integrated" (less power:
     // an editor on a laptop), or part of a GPU's name. VKWORLD_GPU overrides it. Set before init().
     void setGpuPreference(const std::string& preference) { gpuPreference_ = preference; }
+    // A shipping game: no validation layer whatever VKWORLD_VALIDATION says (set before init())
+    void setValidationAllowed(bool allowed) { validationAllowed_ = allowed; }
+    // Where compiled pipelines are kept between runs (the driver's own cache: later starts skip compiling them);
+    // "": none. Set before init(); saved by shutdown(). A cache from another GPU or driver is ignored.
+    void setPipelineCachePath(const std::filesystem::path& file) { pipelineCachePath_ = file; }
     void initImGui();   // call after ImGui::CreateContext()
     void shutdown();
 
@@ -391,6 +397,11 @@ private:
     uint32_t width_ = 0, height_ = 0;
     bool resized_ = false;
     std::string gpuName_, gpuPreference_;
+    bool validationAllowed_ = true;
+    std::filesystem::path pipelineCachePath_;
+    VkPipelineCache pipelineCache_ = VK_NULL_HANDLE;
+    void createPipelineCache();
+    void savePipelineCache();
     RenderStats stats_;
     const MeshLibrary* meshes_ = nullptr;
     uint32_t uploadedMeshVersion_ = 0;

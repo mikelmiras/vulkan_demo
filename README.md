@@ -111,6 +111,14 @@ needs [appimagetool](https://github.com/AppImage/appimagetool) on the PATH or in
 a Start menu entry and an uninstaller; needs [NSIS](https://nsis.sourceforge.io)'s `makensis`, or
 `VKWORLD_MAKENSIS`). The version is `project.json`'s `"gameVersion"` (default 1.0.0).
 
+**Build profiles** (File > Build settings, or `vkworld <project> --build <name>`): named ways to build the game,
+kept in `project.json`: the layout, a package, an update pack, the folder, and **Shipping**, which turns off the
+developer tools in the built game (the F3 profiler and the frame counter, the Lua debugger, `--trace` and the
+validation layer). Exported executables say what they are: on Windows a version resource (Properties > Details:
+product, publisher, version, copyright), on macOS the bundle's `Info.plist` (identifier, version, copyright), from
+the project's name, version, *publisher* and *identifier* (Project Settings). Games and the editor keep the GPU's
+compiled pipelines between runs (`pipelines.cache` in the user's data folder), so later starts are quicker.
+
 **Update checks**: with an `"updateUrl"` in `project.json`, the game asks it at start (in the background) whether
 there's a newer `gameVersion`. It serves `{"version": "1.1.0", "url": "https://...", "notes": "..."}`, or it's a
 GitHub API `.../releases/latest` URL. When there is, the game state gets `update.available`, `update.version`,

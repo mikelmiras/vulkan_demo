@@ -322,6 +322,21 @@ std::vector<GamepadState> gamepads() {
 bool setGamepadLight(float, float, float) { return false; }   // (XInput has no light bars)
 
 // The .ico's images become RT_ICON resources 1..n and its directory the RT_GROUP_ICON 1 (the one Explorer shows)
+bool setExecutableVersion(const std::filesystem::path& exe, const std::string& resource, std::string& error) {
+    HANDLE update = BeginUpdateResourceW(exe.wstring().c_str(), FALSE);
+    if (!update) {
+        error = "can't open " + exe.u8string() + " to stamp its version";
+        return false;
+    }
+    bool ok = UpdateResourceW(update, MAKEINTRESOURCEW(16) /* RT_VERSION */, MAKEINTRESOURCEW(1),
+                              MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US), (LPVOID)resource.data(), (DWORD)resource.size());
+    if (!EndUpdateResourceW(update, ok ? FALSE : TRUE) || !ok) {
+        error = "can't stamp the version into " + exe.u8string();
+        return false;
+    }
+    return true;
+}
+
 bool setExecutableIcon(const std::filesystem::path& exe, const std::string& ico, std::string& error) {
 #pragma pack(push, 2)
     struct IcoHeader { WORD reserved, type, count; };

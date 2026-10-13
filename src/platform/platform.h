@@ -39,6 +39,9 @@ void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height);
 // Windows: makes `ico` (an .ico file's bytes) the icon of the executable `exe` (Explorer, the task bar), as its icon
 // resources. Elsewhere: false (executables there have no icons of their own).
 bool setExecutableIcon(const std::filesystem::path& exe, const std::string& ico, std::string& error);
+// Windows: `resource` (a VS_VERSIONINFO: app/exe_metadata.h) as the version resource of the executable `exe`.
+// Elsewhere: false (no such resources).
+bool setExecutableVersion(const std::filesystem::path& exe, const std::string& resource, std::string& error);
 bool isFullscreen();
 
 // Gamepad feedback, on the first pad: rumble with the heavy (low frequency) and light (high frequency) motors 0..1

@@ -56,7 +56,7 @@ void Renderer::createCulling() {
     ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, cs, "main",
                 nullptr};
     ci.layout = cullLayout_;
-    VK_CHECK(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &cullPipeline_));
+    VK_CHECK(vkCreateComputePipelines(device_, pipelineCache_, 1, &ci, nullptr, &cullPipeline_));
     vkDestroyShaderModule(device_, cs, nullptr);
 
     VkDescriptorPoolSize sizes[3] = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 * MAX_FRAMES},
@@ -248,7 +248,7 @@ void Renderer::createHiz() {
                     "main", nullptr};
         ci.layout = hizLayout_;
         VkPipeline p;
-        VK_CHECK(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &p));
+        VK_CHECK(vkCreateComputePipelines(device_, pipelineCache_, 1, &ci, nullptr, &p));
         vkDestroyShaderModule(device_, cs, nullptr);
         return p;
     };

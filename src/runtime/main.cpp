@@ -28,6 +28,7 @@
 #include "app/application.h"
 #include "app/profiler_view.h"
 #include "core/crash.h"
+#include "core/json.h"
 #include "script/lua_debugger.h"
 #include "physics/fracture.h"
 #include "physics/soft_body.h"
@@ -250,7 +251,7 @@ int listLobbies(const std::string& relayAddress, const std::string& game) {
 }
 
 // Messages logged by behaviours (fading out) and the mouse hint
-void drawHud(const Game& game, bool captured, float scale) {
+void drawHud(const Game& game, bool captured, float scale, bool shipping) {
     ImGuiIO& io = ImGui::GetIO();
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     float lineH = ImGui::GetTextLineHeightWithSpacing(), y = io.DisplaySize.y - 12.f * scale;
@@ -264,8 +265,10 @@ void drawHud(const Game& game, bool captured, float scale) {
         dl->AddText(ImVec2(12.f * scale, y), IM_COL32(255, 235, 140, alpha), it->second.c_str());
     }
     char top[128];
-    std::snprintf(top, sizeof(top), "%.0f FPS  |  update %.2f ms%s", io.Framerate, game.updateMs(),
-                  captured ? "" : "   |   click to play, Esc releases the mouse");
+    if (shipping && captured) return;   // (a shipping game: no frame counter, only the hint when the mouse is free)
+    if (shipping) std::snprintf(top, sizeof(top), "click to play, Esc releases the mouse");
+    else std::snprintf(top, sizeof(top), "%.0f FPS  |  update %.2f ms%s", io.Framerate, game.updateMs(),
+                       captured ? "" : "   |   click to play, Esc releases the mouse");
     dl->AddText(ImVec2(13.f * scale, 11.f * scale), IM_COL32(0, 0, 0, 140), top);
     dl->AddText(ImVec2(12.f * scale, 10.f * scale), IM_COL32(255, 255, 255, 200), top);
 }
@@ -340,6 +343,20 @@ int main(int argc, char** argv) {
     }
 #endif
     if (haveProject) assetdb::open(project::root(), false);   // (asset ids: files moved since a scene was saved)
+    // A shipping build (app/export.h: build.json in its data): the developer tools are off
+    bool shipping = false;
+    {
+        std::string text, jsonError;
+        json::Value build;
+        if (vfs::read(project::root() / "build.json", text) && json::parse(text, build, jsonError)) shipping = build["shipping"].asBool(false);
+    }
+    if (shipping) {
+        if (luaDebugPort > 0) logLine("shipping build: no Lua debugger");
+        if (!trace.empty()) logLine("shipping build: no traces");
+        luaDebugPort = 0;
+        trace.clear();
+        options.shipping = true;
+    }
     if (haveProject) {   // its Lua behaviours (scripts/), also before the scene
         int scripts = scripting::loadProject(project::root());
         if (scripts) std::printf("Lua scripts: %d behaviours\n", scripts);
@@ -405,6 +422,7 @@ int main(int argc, char** argv) {
                          maxPlayers, serverSeconds);
     }
 
+    options.pipelineCache = project::saveDir(settings.name.empty() ? "Untitled" : settings.name).parent_path() / "pipelines.cache";
     Application app;
     if (!app.init(options, meshes, textures)) return 1;
     if (!trace.empty()) profiler::startRecording();
@@ -551,7 +569,7 @@ int main(int argc, char** argv) {
         else if (!platform::cursorCaptured() && !uiWantsCursor && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             platform::setCursorCaptured(true);
         if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) platform::setFullscreen(!platform::isFullscreen());
-        if (ImGui::IsKeyPressed(ImGuiKey_F3, false)) showProfiler = !showProfiler;
+        if (!shipping && ImGui::IsKeyPressed(ImGuiKey_F3, false)) showProfiler = !showProfiler;
 
         bool captured = platform::cursorCaptured();
         float mdx = 0.f, mdy = 0.f;
@@ -609,7 +627,7 @@ int main(int argc, char** argv) {
         game.drawUI(ui);
         ui.end();
         uiWantsCursor = ui.wantsCursor();
-        drawHud(game, captured || uiWantsCursor, app.uiScale());
+        drawHud(game, captured || uiWantsCursor, app.uiScale(), shipping);
         if (showProfiler) drawProfilerOverlay(app.uiScale());
         if (net.active()) {   // where the multiplayer game stands, in the top right corner
             const std::string& st = net.status();

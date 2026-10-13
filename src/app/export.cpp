@@ -1,6 +1,7 @@
 #include "app/export.h"
 
 #include <algorithm>
+#include <functional>
 #include <cstdlib>
 #include <initializer_list>
 #include <cstring>
@@ -10,11 +11,13 @@
 #include <set>
 #include <sstream>
 
+#include "app/exe_metadata.h"
 #include "app/updates.h"
 #include "core/json.h"
 #include "core/png.h"
 #include "core/project.h"
 #include "core/sha256.h"
+#include "core/version.h"
 #include "core/vfs.h"
 #include "game/module.h"
 #include "platform/platform.h"
@@ -112,6 +115,21 @@ void checkExternalAssets(const fs::path& file, const fs::path& projectDir, Expor
 namespace {
 bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs::path& runtimeDir, ExportResult& result,
                    std::string& error, const ExportOptions& options);
+}
+
+ExportOptions optionsFor(const project::Settings::Build& build) {
+    ExportOptions o;
+    o.layout = build.layout == "folder" ? ExportOptions::Layout::Folder
+               : build.layout == "single" ? ExportOptions::Layout::SingleFile : ExportOptions::Layout::Pack;
+    o.package = build.package;
+    o.updatePack = build.updatePack;
+    o.shipping = build.shipping;
+    return o;
+}
+
+fs::path buildFolder(const fs::path& projectDir, const project::Settings::Build& build) {
+    fs::path out = fs::u8path(build.out.empty() ? "builds/" + build.name : build.out);
+    return out.is_absolute() ? out : projectDir / out;
 }
 
 bool exportGame(const fs::path& projectDir, const fs::path& outDir, const fs::path& runtimeDir, ExportResult& result,
@@ -343,10 +361,21 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
             iconPng.clear();
         }
     }
+    exemeta::Info meta;   // (what the executable says about itself)
+    meta.product = settings.name;
+    meta.company = settings.publisher;
+    meta.version = settings.gameVersion;
+    meta.identifier = settings.identifier;
+    meta.executable = result.executable.filename().u8string();
+    meta.icon = !iconPng.empty();
 #if defined(_WIN32)
     if (!iconPng.empty()) {
         std::string iconError;
         if (!platform::setExecutableIcon(result.executable, makeIco(iconPng), iconError)) result.warnings.push_back(iconError);
+    }
+    {
+        std::string versionError;
+        if (!platform::setExecutableVersion(result.executable, exemeta::versionResource(meta), versionError)) result.warnings.push_back(versionError);
     }
 #elif defined(__APPLE__)
     if (!iconPng.empty()) {
@@ -382,6 +411,16 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
         std::string ext = lower(p.extension().u8string());
         if (ext == ".vkw" || ext == ".prefab") checkExternalAssets(p, project, result);
     }
+    // What the build is (vkgame reads it: a shipping build hides the developer tools)
+    fs::path buildInfo = fs::temp_directory_path(ec) / ("vkworld-build-" + std::to_string(std::hash<std::string>()(out.u8string())) + ".json");
+    {
+        json::Value b = json::Value::object();
+        b.set("shipping", options.shipping);
+        b.set("engine", std::string(version::string()));
+        b.set("gameVersion", settings.gameVersion);
+        std::ofstream(buildInfo) << json::write(b);
+    }
+    data.emplace_back("build.json", buildInfo);
     switch (options.layout) {
         case ExportOptions::Layout::Folder:
             for (const auto& [rel, file] : data)
@@ -396,21 +435,10 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
             result.files += (int)data.size();
             break;
     }
+    fs::remove(buildInfo, ec);
 
 #if defined(__APPLE__)
-    {   // the bundle's description
-        std::ofstream plist(out / (name + ".app") / "Contents" / "Info.plist");
-        plist << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                 "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
-                 "<plist version=\"1.0\"><dict>\n"
-                 "  <key>CFBundleName</key><string>" << name << "</string>\n"
-                 "  <key>CFBundleExecutable</key><string>" << name << "</string>\n"
-                 "  <key>CFBundleIdentifier</key><string>org.vkworld.game." << lower(name) << "</string>\n"
-                 "  <key>CFBundlePackageType</key><string>APPL</string>\n"
-              << (iconPng.empty() ? "" : "  <key>CFBundleIconFile</key><string>icon</string>\n") <<
-                 "  <key>NSHighResolutionCapable</key><true/>\n"
-                 "</dict></plist>\n";
-    }
+    std::ofstream(out / (name + ".app") / "Contents" / "Info.plist") << exemeta::infoPlist(meta);   // (the bundle's description)
 #elif !defined(_WIN32)
     if (!settings.icon.empty()) {   // a desktop entry, next to the game (install it with the absolute paths filled in)
         fs::path icon = fs::u8path(project::resolve(settings.icon));

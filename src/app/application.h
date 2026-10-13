@@ -19,6 +19,8 @@ public:
         std::string screenshotPath;
         int screenshotFrame = 30;
         std::string gpu;   // Renderer::setGpuPreference ("": the fastest)
+        bool shipping = false;   // a shipping game: no validation layer (Renderer::setValidationAllowed)
+        std::filesystem::path pipelineCache;   // Renderer::setPipelineCachePath ("": none)
     };
 
     // Parses the common options (--fullscreen, --screenshot, --frames) and removes them from argv;
