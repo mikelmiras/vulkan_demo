@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <unordered_map>
@@ -50,11 +51,8 @@ std::string inPack(const Pack& pack, const fs::path& path) {
     return key(rel);
 }
 
-}  // namespace
-
-namespace vfs {
-
-bool mount(const fs::path& file, const fs::path& root) {
+// A pack's table: its entries and where it starts in the file (false if `file` has no pack)
+bool openPack(const fs::path& file, Pack& pack) {
     std::ifstream in(file, std::ios::binary);
     if (!in) return false;
     in.seekg(0, std::ios::end);
@@ -68,15 +66,12 @@ bool mount(const fs::path& file, const fs::path& root) {
     if (!get(in, tableAt) || !get(in, count) || !in.read(magic, 8)) return false;
     bool v1 = std::memcmp(magic, kMagicV1, 8) == 0;
     if (!v1 && std::memcmp(magic, kMagic, 8) != 0) return false;
-    auto pack = std::make_unique<Pack>();
-    pack->file = file;
-    std::error_code ec;
-    pack->root = fs::weakly_canonical(root, ec);
+    pack.file = file;
     uint64_t tableSize = 0;
     in.seekg((std::streamoff)(tableEnd - 8));
     if (!get(in, tableSize) || tableSize + 8 > tableEnd || tableAt > tableEnd) return false;
     uint64_t tableStart = tableEnd - 8 - tableSize;
-    pack->base = tableStart - tableAt;
+    pack.base = tableStart - tableAt;
     in.seekg((std::streamoff)tableStart);
     for (uint32_t i = 0; i < count; ++i) {
         uint32_t len = 0;
@@ -86,9 +81,34 @@ bool mount(const fs::path& file, const fs::path& root) {
         if (!in.read(name.data(), len) || !get(in, e.offset) || !get(in, e.size)) return false;
         e.stored = e.size;
         if (!v1 && !get(in, e.stored)) return false;
-        if (e.stored > e.size || pack->base + e.offset + e.stored > tableStart) return false;
-        pack->entries.emplace(std::move(name), e);
+        if (e.stored > e.size || pack.base + e.offset + e.stored > tableStart) return false;
+        pack.entries.emplace(std::move(name), e);
     }
+    return true;
+}
+
+// One file of a pack, unpacked
+bool readEntry(const Pack& pack, const Entry& e, std::string& out) {
+    std::ifstream in(pack.file, std::ios::binary);
+    in.seekg((std::streamoff)(pack.base + e.offset));
+    if (e.stored == e.size) {
+        out.resize((size_t)e.size);
+        return (bool)in.read(out.data(), (std::streamsize)e.size);
+    }
+    std::string packed((size_t)e.stored, '\0');
+    if (!in.read(packed.data(), (std::streamsize)e.stored)) return false;
+    return lz::decompress(packed.data(), packed.size(), out, (size_t)e.size);
+}
+
+}  // namespace
+
+namespace vfs {
+
+bool mount(const fs::path& file, const fs::path& root) {
+    auto pack = std::make_unique<Pack>();
+    if (!openPack(file, *pack)) return false;
+    std::error_code ec;
+    pack->root = fs::weakly_canonical(root, ec);
     std::lock_guard<std::mutex> lock(g_mutex);
     delete g_pack;
     g_pack = pack.release();
@@ -112,18 +132,7 @@ bool read(const fs::path& path, std::string& out) {
         if (g_pack) {
             std::string name = inPack(*g_pack, path);
             auto it = name.empty() ? g_pack->entries.end() : g_pack->entries.find(name);
-            if (it != g_pack->entries.end()) {
-                const Entry& e = it->second;
-                std::ifstream in(g_pack->file, std::ios::binary);
-                in.seekg((std::streamoff)(g_pack->base + e.offset));
-                if (e.stored == e.size) {
-                    out.resize((size_t)e.size);
-                    return (bool)in.read(out.data(), (std::streamsize)e.size);
-                }
-                std::string packed((size_t)e.stored, '\0');
-                if (!in.read(packed.data(), (std::streamsize)e.stored)) return false;
-                return lz::decompress(packed.data(), packed.size(), out, (size_t)e.size);
-            }
+            if (it != g_pack->entries.end()) return readEntry(*g_pack, it->second, out);
         }
     }
     std::ifstream in(path, std::ios::binary);
@@ -221,6 +230,38 @@ bool writePack(const fs::path& outPath, const std::vector<std::pair<std::string,
     write(&count, sizeof(count));
     write(kMagic, sizeof(kMagic));
     if (!out) { error = "cannot write " + outPath.u8string(); return false; }
+    return true;
+}
+
+bool extractPack(const fs::path& file, const fs::path& outDir, std::vector<std::string>& files, std::string& error) {
+    Pack pack;
+    if (!openPack(file, pack)) {
+        error = "not a pack: " + file.u8string();
+        return false;
+    }
+    files.clear();
+    for (const auto& [name, e] : pack.entries) {
+        fs::path rel = fs::u8path(name).lexically_normal();
+        if (rel.empty() || rel.is_absolute() || rel.begin()->u8string() == "..") {   // (nothing outside the folder)
+            error = "a file outside the pack's folder: " + name;
+            return false;
+        }
+        std::string bytes;
+        if (!readEntry(pack, e, bytes)) {
+            error = "damaged: " + name;
+            return false;
+        }
+        fs::path to = outDir / rel;
+        std::error_code ec;
+        fs::create_directories(to.parent_path(), ec);
+        std::ofstream f(to, std::ios::binary);
+        if (!f.write(bytes.data(), (std::streamsize)bytes.size())) {
+            error = "cannot write " + to.u8string();
+            return false;
+        }
+        files.push_back(rel.generic_u8string());
+    }
+    std::sort(files.begin(), files.end());
     return true;
 }
 

@@ -69,10 +69,15 @@ bool openWithSystem(const std::filesystem::path& file);   // (a URL too)
 // Runs a program (looked up on the PATH unless args[0] is a path) with these arguments and waits for it: false if it
 // couldn't start. `output`: what it wrote (stdout and stderr), `exitCode` how it ended. (Export packaging tools.)
 bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode);
+// Starts a program and goes on without waiting for it (a game restarting itself after an update)
+bool startProgram(const std::vector<std::string>& args);
 
 // Fetches a URL (http or https, through the OS's own TLS: WinHTTP, NSURLSession; curl or wget on Linux), waiting
 // up to `timeoutSeconds`: the body of a successful answer, else false and why. Blocks: call it on a worker thread.
 bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds = 10);
+// The same, sending `data` (POST, as `contentType`): the answer's body in `body` (crash reports)
+bool httpPost(const std::string& url, const std::string& data, const std::string& contentType, std::string& body,
+              std::string& error, int timeoutSeconds = 10);
 
 std::filesystem::path executableDir();
 std::filesystem::path executablePath();   // empty if unknown

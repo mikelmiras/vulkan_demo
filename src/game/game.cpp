@@ -66,7 +66,9 @@ std::string GameState::format(const std::string& text) const {
 }
 
 bool GameState::isLocal(const std::string& key) {
-    return key.rfind("settings.", 0) == 0 || key.rfind("input.", 0) == 0 || key.rfind("net.", 0) == 0;
+    for (const char* prefix : {"settings.", "input.", "net.", "update.", "crash."})
+        if (key.rfind(prefix, 0) == 0) return true;
+    return false;
 }
 
 json::Value GameState::toJson() const {
@@ -623,7 +625,7 @@ const std::vector<std::pair<std::string, json::Value>>& Game::defaultSettings() 
         {"settings.ambienceVolume", json::Value(1.0)}, {"settings.headphones", json::Value(false)},
         {"settings.rumble", json::Value(true)}, {"settings.highContrast", json::Value(false)},
         {"settings.colorBlind", json::Value("none")}, {"settings.checkUpdates", json::Value(true)},
-        {"settings.hdr", json::Value(false)}};
+        {"settings.hdr", json::Value(false)}, {"settings.sendCrashReports", json::Value(false)}};
     return defaults;
 }
 
@@ -819,6 +821,9 @@ void Game::runUIAction(const UIAction& a) {
     else if (verb == "@open") {   // "@open {update.url}": a page in the browser (formatted like texts)
         std::string url = ctx_.format(arg);
         if (urlOpener_ && !url.empty()) urlOpener_(url);
+    } else if (verb == "@update" || verb == "@restart" || verb == "@sendcrashreport" || verb == "@dismisscrashreport") {
+        if (hostHandler_) hostHandler_(verb.substr(1), ctx_.format(arg));
+        else ctx_.log("UI: " + verb + ": not here (vkgame does it)");
     } else if (verb == "@host" || verb == "@join" || verb == "@joinlobby" || verb == "@lobbies" || verb == "@leave") {
         // ("@joinlobby {code}": formatted like texts, so a text field's value can be joined)
         if (networkHandler_) networkHandler_(verb.substr(1), ctx_.format(arg));

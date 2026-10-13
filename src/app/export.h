@@ -26,6 +26,9 @@ struct ExportOptions {
     //   macOS    a .dmg with the app and a link to Applications (hdiutil, part of macOS)
     //   Windows  an installer (per user: Start menu entry, uninstaller; needs NSIS's makensis, or VKWORLD_MAKENSIS)
     bool package = false;
+    // Also an update pack (app/updates.h): the whole export as one pack, <game>-<gameVersion>-<platform>.vkwupdate,
+    // with its SHA-256 next to it (.sha256) for the update manifest; games already out install it themselves
+    bool updatePack = false;
 };
 
 struct ExportResult {
@@ -34,6 +37,8 @@ struct ExportResult {
     bool standalone = false;            // the game is a standalone build (no engine or module library)
     std::vector<std::string> warnings;  // e.g. assets outside the project that the game won't have
     std::filesystem::path package;      // (ExportOptions::package) the AppImage, .dmg or installer made
+    std::filesystem::path updatePack;   // (ExportOptions::updatePack) the .vkwupdate made
+    std::string updateSha256;           // ... and its digest
 };
 
 // Icons: a PNG's size (false if it isn't a PNG), and the PNG wrapped as a Windows .ico or a macOS .icns (both

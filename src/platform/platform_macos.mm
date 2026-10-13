@@ -402,6 +402,15 @@ bool openWithSystem(const std::filesystem::path& file) {
 }
 
 // posix_spawnp with stdout and stderr into one pipe
+bool startProgram(const std::vector<std::string>& args) {
+    if (args.empty()) return false;
+    std::vector<char*> argv;
+    for (const std::string& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    return posix_spawnp(&pid, args[0].c_str(), nullptr, nullptr, argv.data(), *_NSGetEnviron()) == 0;
+}
+
 bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode) {
     output.clear();
     exitCode = -1;
@@ -434,7 +443,8 @@ bool runProgram(const std::vector<std::string>& args, std::string& output, int& 
 }
 
 // NSURLSession (the system's TLS and proxies), waited for on this thread
-bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+static bool httpRequest(const std::string& url, const std::string* post, const std::string& contentType, std::string& body,
+                        std::string& error, int timeoutSeconds) {
     body.clear();
     @autoreleasepool {
         NSURL* u = [NSURL URLWithString:[NSString stringWithUTF8String:url.c_str()]];
@@ -451,7 +461,13 @@ bool httpGet(const std::string& url, std::string& body, std::string& error, int 
         __block NSData* data = nil;
         __block NSInteger status = 0;
         __block NSString* failure = nil;
-        NSURLSessionDataTask* task = [session dataTaskWithURL:u
+        NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:u];
+        if (post) {
+            request.HTTPMethod = @"POST";
+            request.HTTPBody = [NSData dataWithBytes:post->data() length:post->size()];
+            [request setValue:[NSString stringWithUTF8String:contentType.c_str()] forHTTPHeaderField:@"Content-Type"];
+        }
+        NSURLSessionDataTask* task = [session dataTaskWithRequest:request
                                             completionHandler:^(NSData* d, NSURLResponse* r, NSError* e) {
                                                 data = d;
                                                 if ([r isKindOfClass:[NSHTTPURLResponse class]])
@@ -478,6 +494,15 @@ bool httpGet(const std::string& url, std::string& body, std::string& error, int 
         if (data) body.assign((const char*)data.bytes, (size_t)data.length);
         return true;
     }
+}
+
+bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+    return httpRequest(url, nullptr, "", body, error, timeoutSeconds);
+}
+
+bool httpPost(const std::string& url, const std::string& data, const std::string& contentType, std::string& body,
+              std::string& error, int timeoutSeconds) {
+    return httpRequest(url, &data, contentType, body, error, timeoutSeconds);
 }
 
 std::filesystem::path executablePath() {

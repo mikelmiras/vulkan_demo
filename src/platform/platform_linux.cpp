@@ -367,6 +367,15 @@ bool openWithSystem(const std::filesystem::path& file) {
 }
 
 // posix_spawnp with stdout and stderr into one pipe
+bool startProgram(const std::vector<std::string>& args) {
+    if (args.empty()) return false;
+    std::vector<char*> argv;
+    for (const std::string& a : args) argv.push_back(const_cast<char*>(a.c_str()));
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    return posix_spawnp(&pid, args[0].c_str(), nullptr, nullptr, argv.data(), environ) == 0;
+}
+
 bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode) {
     output.clear();
     exitCode = -1;
@@ -398,17 +407,39 @@ bool runProgram(const std::vector<std::string>& args, std::string& output, int& 
     return !(WIFEXITED(status) && WEXITSTATUS(status) == 127 && output.empty());   // (127: no such program)
 }
 
-// curl, else wget, run directly (no shell: the URL is one argument) with their output read through a pipe
-bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+// curl, else wget, run directly (no shell: the URL is one argument) with their output read through a pipe; what's
+// POSTed goes through a temporary file
+static bool httpRequest(const std::string& url, const std::string* data, const std::string& contentType, std::string& body,
+                        std::string& error, int timeoutSeconds) {
     body.clear();
     if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
         error = "not an http(s) URL: " + url;
         return false;
     }
-    std::string timeout = std::to_string(std::max(timeoutSeconds, 1));
+    std::string timeout = std::to_string(std::max(timeoutSeconds, 1)), posted;
+    if (data) {
+        char name[] = "/tmp/vkworld-post-XXXXXX";
+        int fd = mkstemp(name);
+        if (fd < 0 || write(fd, data->data(), data->size()) != (ssize_t)data->size()) {
+            if (fd >= 0) close(fd);
+            error = "cannot write a temporary file";
+            return false;
+        }
+        close(fd);
+        posted = name;
+    }
     std::vector<std::vector<std::string>> tools = {
-        {"curl", "-fsSL", "--max-time", timeout, "--", url},
-        {"wget", "-q", "-O", "-", "--timeout=" + timeout, "--", url}};
+        {"curl", "-fsSL", "--max-time", timeout},
+        {"wget", "-q", "-O", "-", "--timeout=" + timeout}};
+    if (data) {
+        tools[0].insert(tools[0].end(), {"-X", "POST", "-H", "Content-Type: " + contentType, "--data-binary", "@" + posted});
+        tools[1].insert(tools[1].end(), {"--header=Content-Type: " + contentType, "--post-file=" + posted});
+    }
+    for (auto& t : tools) t.insert(t.end(), {"--", url});
+    struct Remove {
+        std::string file;
+        ~Remove() { if (!file.empty()) unlink(file.c_str()); }
+    } remove{posted};
     for (const auto& args : tools) {
         int out[2];
         if (pipe(out) != 0) break;
@@ -441,6 +472,15 @@ bool httpGet(const std::string& url, std::string& body, std::string& error, int 
     }
     error = "neither curl nor wget is installed";
     return false;
+}
+
+bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+    return httpRequest(url, nullptr, "", body, error, timeoutSeconds);
+}
+
+bool httpPost(const std::string& url, const std::string& data, const std::string& contentType, std::string& body,
+              std::string& error, int timeoutSeconds) {
+    return httpRequest(url, &data, contentType, body, error, timeoutSeconds);
 }
 
 std::filesystem::path executablePath() {

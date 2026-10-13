@@ -27,6 +27,9 @@ struct Settings {
     // The relay server its multiplayer lobbies are on ("relay.example.com[:27100]", net/relay.h; vkrelay runs one).
     // Empty: games are joined by address only.
     std::string relay;
+    // Where crash reports go when a player agrees to send them (app/crash_reports.h): an http(s) URL taking a POST of
+    // the report's text. Empty: they stay on the player's machine.
+    std::string crashReportUrl;
 };
 
 void setRoot(const std::filesystem::path& root);

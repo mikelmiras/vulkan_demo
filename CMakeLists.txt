@@ -126,6 +126,7 @@ set(ENGINE_SOURCES
   src/core/png.cpp
   src/core/project.cpp
   src/core/vfs.cpp
+  src/core/sha256.cpp
   src/core/profiler.cpp
   src/core/crash.cpp
   src/core/log.cpp
@@ -187,6 +188,7 @@ set(ENGINE_SOURCES
   src/app/application.cpp
   src/app/export.cpp
   src/app/updates.cpp
+  src/app/crash_reports.cpp
   src/script/lua_script.cpp
   src/script/lua_debugger.cpp
   src/net/udp.cpp
@@ -384,6 +386,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_relay.cpp
     tests/test_gamepads.cpp
     tests/test_text_shaping.cpp
+    tests/test_shipping.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp

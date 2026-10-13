@@ -4,6 +4,14 @@ name: Release
 # debug info that's split off into a symbols archive (to read crash reports: tools/symbolicate.py), packaged
 # (Linux: .tar.gz and AppImage; macOS: .dmg; Windows: .zip and an installer), tested, and published as a GitHub
 # release. Run by hand (workflow_dispatch) it builds and packages the same, as artifacts only.
+#
+# Signing, when the repository has the secrets (else the packages go out unsigned, with a notice):
+#   Windows  WINDOWS_CERT_PFX (the code-signing certificate as base64), WINDOWS_CERT_PASSWORD: signtool signs the
+#            programs and libraries, then the installer, with an RFC 3161 timestamp
+#   macOS    APPLE_CERT_P12 (a "Developer ID Application" certificate as base64), APPLE_CERT_PASSWORD, APPLE_SIGNING_ID
+#            (its name), and for notarization APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD (an app-specific password):
+#            codesign with the hardened runtime, then the .dmg notarized (notarytool) and stapled
+# Every release also gets SHA256SUMS (the digests of all its files).
 
 on:
   push:
@@ -17,6 +25,15 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+      WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+      APPLE_CERT_P12: ${{ secrets.APPLE_CERT_P12 }}
+      APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+      APPLE_SIGNING_ID: ${{ secrets.APPLE_SIGNING_ID }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     strategy:
       fail-fast: true
       matrix:
@@ -97,6 +114,34 @@ jobs:
           $PY tools/symbols.py split --out "symbols/$DIST-symbols" $FILES
           "dist/$DIST/vkworld" --version || "dist/$DIST/vkworld.exe" --version
 
+      - name: Sign (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not $env:WINDOWS_CERT_PFX) { Write-Output "::notice::Windows binaries not signed (no WINDOWS_CERT_PFX secret)"; exit 0 }
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERT_PFX))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          $files = Get-ChildItem "dist\$env:DIST" -Recurse -Include *.exe,*.dll | ForEach-Object { $_.FullName }
+          & $signtool.FullName sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $files
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ -z "$APPLE_CERT_P12" ]; then echo "::notice::macOS binaries not signed (no APPLE_CERT_P12 secret)"; exit 0; fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p ci "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p ci "$KEYCHAIN"
+          echo "$APPLE_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          # Every Mach-O binary (libraries first, then the programs), hardened runtime, timestamped
+          find "dist/$DIST" -type f \( -name '*.dylib' -o -name '*.so' \) -exec codesign --force --timestamp --options runtime -s "$APPLE_SIGNING_ID" {} \;
+          find "dist/$DIST" -type f -perm -u+x ! -name '*.dylib' ! -name '*.so' ! -name '*.py' ! -name '*.sh' \
+            -exec sh -c 'file "$1" | grep -q Mach-O && codesign --force --timestamp --options runtime -s "$APPLE_SIGNING_ID" "$1"' _ {} \;
+
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -118,6 +163,15 @@ jobs:
         run: |
           cd dist
           hdiutil create -volname "Vulkan World $VERSION" -srcfolder "$DIST" -ov -format UDZO "$DIST.dmg"
+          if [ -n "$APPLE_CERT_P12" ]; then
+            codesign --force --timestamp -s "$APPLE_SIGNING_ID" "$DIST.dmg"
+            if [ -n "$APPLE_ID" ]; then   # notarized, and the ticket stapled (Gatekeeper accepts it offline)
+              xcrun notarytool submit "$DIST.dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+              xcrun stapler staple "$DIST.dmg"
+            else
+              echo "::notice::the .dmg is signed but not notarized (no APPLE_ID secret)"
+            fi
+          fi
           cd ../symbols && tar czf "../dist/$DIST-symbols.tar.gz" "$DIST-symbols"
 
       - name: Package (Windows)
@@ -158,6 +212,11 @@ jobs:
           & $makensis /V2 installer.nsi
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Remove-Item installer.nsi
+          if ($env:WINDOWS_CERT_PFX) {   # (the installer too)
+            $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+            & $signtool.FullName sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$env:DIST-setup.exe"
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
           Compress-Archive -Path "..\symbols\$env:DIST-symbols" -DestinationPath "$env:DIST-symbols.zip"
 
       - uses: actions/upload-artifact@v4
@@ -184,5 +243,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          (cd assets && sha256sum * > SHA256SUMS)
           gh release create "$GITHUB_REF_NAME" assets/* --repo "$GITHUB_REPOSITORY" --title "Vulkan World ${GITHUB_REF_NAME#v}" \
             --notes "Downloads for Linux (AppImage, .tar.gz), macOS (.dmg) and Windows (installer, .zip). The *-symbols archives hold the debug symbols for reading crash reports: python3 tools/symbolicate.py <crash report> --symbols <unpacked folder>."

@@ -456,10 +456,7 @@ bool openWithSystem(const std::filesystem::path& file) {
 }
 
 // CreateProcess with a pipe for its output; arguments quoted the way the C runtime parses them back
-bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode) {
-    output.clear();
-    exitCode = -1;
-    if (args.empty()) return false;
+static std::wstring commandLine(const std::vector<std::string>& args) {
     std::wstring line;
     for (const std::string& a : args) {
         std::wstring w = widen(a.c_str()), q = L"\"";
@@ -473,6 +470,25 @@ bool runProgram(const std::vector<std::string>& args, std::string& output, int& 
         q += L"\"";
         line += (line.empty() ? L"" : L" ") + q;
     }
+    return line;
+}
+
+bool startProgram(const std::vector<std::string>& args) {
+    if (args.empty()) return false;
+    std::wstring line = commandLine(args);
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    if (!CreateProcessW(nullptr, line.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) return false;
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
+bool runProgram(const std::vector<std::string>& args, std::string& output, int& exitCode) {
+    output.clear();
+    exitCode = -1;
+    if (args.empty()) return false;
+    std::wstring line = commandLine(args);
     SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
     HANDLE readEnd = nullptr, writeEnd = nullptr;
     if (!CreatePipe(&readEnd, &writeEnd, &sa, 0)) return false;
@@ -501,7 +517,8 @@ bool runProgram(const std::vector<std::string>& args, std::string& output, int& 
 }
 
 // WinHTTP (the system's TLS and proxy settings)
-bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+static bool httpRequest(const std::string& url, const std::string* data, const std::string& contentType, std::string& body,
+                        std::string& error, int timeoutSeconds) {
     body.clear();
     std::wstring wurl = widen(url.c_str());
     URL_COMPONENTS parts{sizeof(URL_COMPONENTS)};
@@ -528,10 +545,13 @@ bool httpGet(const std::string& url, std::string& body, std::string& error, int 
         connection = WinHttpConnect(session, host, parts.nPort, 0);
     }
     if (connection)
-        request = WinHttpOpenRequest(connection, L"GET", object.c_str(), nullptr, WINHTTP_NO_REFERER,
+        request = WinHttpOpenRequest(connection, data ? L"POST" : L"GET", object.c_str(), nullptr, WINHTTP_NO_REFERER,
                                      WINHTTP_DEFAULT_ACCEPT_TYPES, parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0);
-    if (request && WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
-        WinHttpReceiveResponse(request, nullptr)) {
+    std::wstring headers = data ? widen(("Content-Type: " + contentType).c_str()) : std::wstring();
+    bool sent = request && (data ? WinHttpSendRequest(request, headers.c_str(), (DWORD)-1L, (LPVOID)data->data(), (DWORD)data->size(),
+                                                      (DWORD)data->size(), 0)
+                                 : WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0));
+    if (sent && WinHttpReceiveResponse(request, nullptr)) {
         DWORD status = 0, size = sizeof(status);
         WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
                             &status, &size, WINHTTP_NO_HEADER_INDEX);
@@ -551,6 +571,15 @@ bool httpGet(const std::string& url, std::string& body, std::string& error, int 
     if (session) WinHttpCloseHandle(session);
     if (!ok) body.clear();
     return ok;
+}
+
+bool httpGet(const std::string& url, std::string& body, std::string& error, int timeoutSeconds) {
+    return httpRequest(url, nullptr, "", body, error, timeoutSeconds);
+}
+
+bool httpPost(const std::string& url, const std::string& data, const std::string& contentType, std::string& body,
+              std::string& error, int timeoutSeconds) {
+    return httpRequest(url, &data, contentType, body, error, timeoutSeconds);
 }
 
 std::filesystem::path executablePath() {

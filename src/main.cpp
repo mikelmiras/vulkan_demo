@@ -43,6 +43,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--pack")) exportOptions.layout = ExportOptions::Layout::Pack;
         else if (!std::strcmp(argv[i], "--single-file")) exportOptions.layout = ExportOptions::Layout::SingleFile;
         else if (!std::strcmp(argv[i], "--package")) exportOptions.package = true;
+        else if (!std::strcmp(argv[i], "--update-pack")) exportOptions.updatePack = true;
         else scenePath = argv[i];
     }
 
@@ -58,6 +59,8 @@ int main(int argc, char** argv) {
         std::printf("Exported %d files%s; the game: %s\n", result.files, result.standalone ? " (standalone)" : "",
                     result.executable.u8string().c_str());
         if (!result.package.empty()) std::printf("Packaged: %s\n", result.package.u8string().c_str());
+        if (!result.updatePack.empty())
+            std::printf("Update pack: %s (sha256 %s)\n", result.updatePack.u8string().c_str(), result.updateSha256.c_str());
         return 0;
     }
 

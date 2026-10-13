@@ -6,6 +6,7 @@
 //          [--check]   (loads everything but opens no window: for testing an exported game anywhere)
 //          [--server [port] [--seconds N]]   (a dedicated multiplayer server: no window, no GPU; N: stop after)
 //          [--lobbies]   (lists the game's lobbies on the relay, and exits)
+//          [--install-update]   (checks the project's updateUrl, installs a newer version if there is one, and exits)
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
 // directory or the executable's folder), then scene.vkw in those folders, and falls back to the built-in demo. The mouse is captured for the game: Esc releases it, a click takes it back.
@@ -45,6 +46,7 @@
 #include "render/environment.h"
 #include "game/module.h"
 #include "imgui.h"
+#include "app/crash_reports.h"
 #include "app/updates.h"
 #include "platform/platform.h"
 #include "render/scene_draw.h"
@@ -182,6 +184,46 @@ int runServer(Game& game, Scene& scene, MeshLibrary& meshes, const std::string& 
     return 0;
 }
 
+// --install-update: the check, then (if a newer version is out for this platform) the install, waited for; 0 when up
+// to date or installed
+int installUpdateNow(const project::Settings& settings) {
+    if (settings.updateUrl.empty()) {
+        std::fprintf(stderr, "update: the project has no updateUrl\n");
+        return 1;
+    }
+    updates::Check check;
+    check.start(settings.updateUrl, settings.gameVersion);
+    while (!check.ready()) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    if (!check.error().empty()) {
+        std::fprintf(stderr, "update: %s\n", check.error().c_str());
+        return 1;
+    }
+    if (!check.newer()) {
+        std::printf("update: %s %s is the latest\n", settings.name.c_str(), settings.gameVersion.c_str());
+        return 0;
+    }
+    updates::Release r = check.release();
+    std::filesystem::path dir = platform::executableDir();
+    if (dir.parent_path().filename() == "Contents" && dir.parent_path().parent_path().extension() == ".app")
+        dir = dir.parent_path().parent_path().parent_path();
+    updates::cleanUp(dir);   // (the last update's leftovers)
+    std::printf("update: installing %s %s into %s\n", settings.name.c_str(), r.version.c_str(), dir.u8string().c_str());
+    updates::Install install;
+    install.start(r, dir);
+    for (;;) {
+        updates::Install::Stage st = install.stage();
+        if (st == updates::Install::Stage::Ready || st == updates::Install::Stage::Failed) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    std::string error;
+    if (!install.error().empty() || !install.apply(error)) {
+        std::fprintf(stderr, "update: %s\n", install.error().empty() ? error.c_str() : install.error().c_str());
+        return 1;
+    }
+    std::printf("update: %s %s installed\n", settings.name.c_str(), r.version.c_str());
+    return 0;
+}
+
 // --lobbies: the game's lobbies on the relay, printed (CODE, players, name)
 int listLobbies(const std::string& relayAddress, const std::string& game) {
     if (relayAddress.empty()) {
@@ -231,6 +273,7 @@ void drawHud(const Game& game, bool captured, float scale) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    std::vector<std::string> launchArgs(argv, argv + argc);   // (to start again the same way after an update)
     Application::Options defaults;
     defaults.title = "Vulkan World";
     Application::Options options = Application::parseArgs(argc, argv, defaults);
@@ -251,6 +294,7 @@ int main(int argc, char** argv) {
     std::string server;     // --server [port]: a dedicated server, headless
     double serverSeconds = 0.0;   // --seconds N: ... stopping after N seconds (tests)
     bool lobbies = false;   // --lobbies: list the relay's lobbies of this game and exit
+    bool installUpdate = false;   // --install-update: install a newer version (app/updates.h) and exit
     std::string trace;      // --trace out.json: every frame's profile, saved as a Chrome trace on exit
     int luaDebugPort = 0;   // --lua-debug [port]: the Lua debugger listens there (script/lua_debugger.h)
     {
@@ -269,6 +313,7 @@ int main(int argc, char** argv) {
                 server = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? argv[++i] : "27015";
             else if (!std::strcmp(argv[i], "--seconds") && i + 1 < argc) serverSeconds = std::atof(argv[++i]);
             else if (!std::strcmp(argv[i], "--lobbies")) lobbies = true;
+            else if (!std::strcmp(argv[i], "--install-update")) installUpdate = true;
             else if (!std::strcmp(argv[i], "--check")) check = true;
             else if (!std::strcmp(argv[i], "--lua-debug"))
                 luaDebugPort = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? std::atoi(argv[++i]) : 4711;
@@ -329,6 +374,7 @@ int main(int argc, char** argv) {
     if (relayAddress.empty()) relayAddress = settings.relay;
     if (lobbyName.empty()) lobbyName = settings.name;
     if (lobbies) return listLobbies(relayAddress, settings.name);
+    if (installUpdate) return installUpdateNow(settings);
     if (stress) {
         scene = buildStressScene();
     } else if (path.empty()) {
@@ -403,6 +449,39 @@ int main(int argc, char** argv) {
     updates::Check updateCheck;
     if (!settings.updateUrl.empty() && options.screenshotPath.empty() && game.state().flag("settings.checkUpdates"))
         updateCheck.start(settings.updateUrl, settings.gameVersion);
+    // ... and installing it from the game's menus ("@update", then "@restart"), into the folder the game is in (the
+    // one with the .app on macOS); the last update's leftovers go now
+    std::filesystem::path installDir = platform::executableDir();
+    if (installDir.parent_path().filename() == "Contents" && installDir.parent_path().parent_path().extension() == ".app")
+        installDir = installDir.parent_path().parent_path().parent_path();
+    updates::cleanUp(installDir);
+    updates::Release outRelease;   // (what the check found, when it's newer)
+    updates::Install install;
+    // Crash reports: the last run's, sent if the player always agrees (settings.sendCrashReports) or asks to now
+    crashreports::Upload crashUpload;
+    std::filesystem::path lastCrash = crash::previousReport();
+    if (!lastCrash.empty()) {
+        game.state().set("crash.lastRun", json::Value(true));
+        if (game.state().flag("settings.sendCrashReports") && !settings.crashReportUrl.empty())
+            crashUpload.start(settings.crashReportUrl, lastCrash);
+    }
+    std::string hostPublished = "-";
+    game.setHostHandler([&](const std::string& verb, const std::string&) {
+        std::string hostError;
+        if (verb == "update") {
+            if (outRelease.version.empty()) logLine("update: no newer version is out");
+            else if (install.stage() == updates::Install::Stage::Idle || install.stage() == updates::Install::Stage::Failed)
+                install.start(outRelease, installDir);
+        } else if (verb == "restart") {
+            if (!install.apply(hostError)) logLine("update: %s", hostError.c_str());
+            else if (!platform::startProgram(launchArgs)) logLine("update: installed, but the game couldn't start again: start it yourself");
+            else game.context().quit();
+        } else if (verb == "sendcrashreport") {
+            if (!lastCrash.empty() && !crashUpload.busy()) crashUpload.start(settings.crashReportUrl, lastCrash);
+        } else if (verb == "dismisscrashreport") {
+            game.state().set("crash.lastRun", json::Value(false));
+        }
+    });
 
     NetSession net;
     // The game's menus can host, join and list lobbies (UI actions: Game::setNetworkHandler)
@@ -434,6 +513,8 @@ int main(int argc, char** argv) {
         if (updateCheck.ready()) {
             if (updateCheck.newer()) {
                 updates::Release r = updateCheck.release();
+                outRelease = r;
+                game.state().set("update.installable", json::Value(!r.download.empty() && r.sha256.size() == 64));
                 game.state().set("update.available", json::Value(true));
                 game.state().set("update.version", json::Value(r.version));
                 game.state().set("update.url", json::Value(r.url));
@@ -488,6 +569,20 @@ int main(int argc, char** argv) {
             if (lobbyQuery.done()) lobbyList = lobbyQuery.lobbies();
         }
         publishNetwork(game, net, lobbyQuery, lobbyList, netPublished);
+        {   // where an update being installed and a crash report being sent stand (when that changes)
+            std::string now = std::string(updates::Install::stageName(install.stage())) + "|" + install.error() + "|" +
+                              (crashUpload.busy() ? "1" : "0") + (crashUpload.sent() ? "1" : "0") + crashUpload.error();
+            if (now != hostPublished) {
+                hostPublished = now;
+                game.state().set("update.stage", json::Value(std::string(updates::Install::stageName(install.stage()))));
+                game.state().set("update.error", json::Value(install.error()));
+                game.state().set("crash.sending", json::Value(crashUpload.busy()));
+                game.state().set("crash.sent", json::Value(crashUpload.sent()));
+                game.state().set("crash.error", json::Value(crashUpload.error()));
+                if (crashUpload.sent()) game.state().set("crash.lastRun", json::Value(false));
+                if (!install.error().empty()) logLine("update: %s", install.error().c_str());
+            }
+        }
         scripting::debugger::poll();
 
         uint32_t w = 0, h = 0;

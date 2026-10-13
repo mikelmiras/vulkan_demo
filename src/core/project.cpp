@@ -101,6 +101,7 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     if (!doc["gameVersion"].asString().empty()) s.gameVersion = doc["gameVersion"].asString();
     s.updateUrl = doc["updateUrl"].asString();
     s.relay = doc["relay"].asString();
+    s.crashReportUrl = doc["crashReportUrl"].asString();
     out = s;
     return true;
 }
@@ -118,6 +119,7 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     doc.set("gameVersion", settings.gameVersion);
     if (!settings.updateUrl.empty()) doc.set("updateUrl", settings.updateUrl);
     if (!settings.relay.empty()) doc.set("relay", settings.relay);
+    if (!settings.crashReportUrl.empty()) doc.set("crashReportUrl", settings.crashReportUrl);
     std::ofstream f(dir / "project.json", std::ios::binary);
     if (!f) { error = "cannot write " + (dir / "project.json").u8string(); return false; }
     f << json::write(doc);

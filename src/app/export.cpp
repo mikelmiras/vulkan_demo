@@ -10,9 +10,11 @@
 #include <set>
 #include <sstream>
 
+#include "app/updates.h"
 #include "core/json.h"
 #include "core/png.h"
 #include "core/project.h"
+#include "core/sha256.h"
 #include "core/vfs.h"
 #include "game/module.h"
 #include "platform/platform.h"
@@ -154,6 +156,30 @@ bool copyTree(const fs::path& from, const fs::path& to, std::string& error) {
     fs::copy(from, to, fs::copy_options::recursive | fs::copy_options::overwrite_existing | fs::copy_options::copy_symlinks, ec);
     if (ec) error = "can't copy " + from.u8string() + ": " + ec.message();
     return !ec;
+}
+
+// The export as an update pack (ExportOptions::updatePack): every file in `out` but the packages and earlier update
+// packs, then its digest
+bool makeUpdatePack(const fs::path& out, const std::string& name, const project::Settings& settings, ExportResult& result,
+                    std::string& error) {
+    std::string base = name + "-" + settings.gameVersion + "-" + updates::platformKey();
+    for (char& c : base) if (c == ' ') c = '_';
+    result.updatePack = out / (base + ".vkwupdate");
+    std::vector<std::pair<std::string, fs::path>> files;
+    std::error_code ec;
+    for (auto it = fs::recursive_directory_iterator(out, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        std::string rel = fs::relative(it->path(), out, ec).generic_u8string(), ext = it->path().extension().u8string();
+        if (ext == ".vkwupdate" || ext == ".sha256" || ext == ".dmg" || ext == ".AppImage" || rel.find("-setup.exe") != std::string::npos ||
+            rel.find(".dmg-staging") != std::string::npos)
+            continue;
+        files.push_back({rel, it->path()});
+    }
+    std::sort(files.begin(), files.end());
+    if (!vfs::writePack(result.updatePack, files, false, error)) return false;
+    result.updateSha256 = sha256::ofFile(result.updatePack);
+    std::ofstream(fs::path(result.updatePack) += ".sha256") << result.updateSha256 << "  " << result.updatePack.filename().u8string() << "\n";
+    return true;
 }
 
 // The package around an export in `out`: see ExportOptions::package
@@ -399,6 +425,7 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
     }
 #endif
     if (options.package && !makePackage(out, name, settings, iconPng, result, error)) return false;
+    if (options.updatePack && !makeUpdatePack(out, name, settings, result, error)) return false;
     return true;
 }
 

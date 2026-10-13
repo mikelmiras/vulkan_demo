@@ -726,7 +726,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 61 (done) | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
 | 62 (done) | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
 | 63 (done) | Text: complex scripts and right-to-left (HarfBuzz shaping), font fallback for CJK and emoji | Latin text only renders correctly |
-| 64 | Shipping, more: an auto-updater (download, verify, swap), crash report upload (opt-in), code signing and notarization in the release workflow | Updates are announced, not applied; crashes stay on players' machines |
+| 64 (done) | Shipping, more: an auto-updater (download, verify, swap), crash report upload (opt-in), code signing and notarization in the release workflow | Updates are announced, not applied; crashes stay on players' machines |
 
 ### Round 6 notes
 - Task 54: SceneRenderInfo::inset became `views` (up to Renderer::kMaxViews = 4): each extra view is drawn whole,
@@ -968,3 +968,33 @@ Working list for turning the renderer demo into a small game engine. Each task i
   alignment and a missing CJK character (validation clean). Not done: colour emoji (CBDT / sbix / COLR need FreeType
   or more), explicit bidi controls and isolates, line breaking (UAX #14) and wrapping, text fields editing right-to-
   left text, the editor's own panels, vertical text, per-language glyph variants (hb language from the game's).
+- Task 64: core/sha256 (FIPS 180-4, streaming; tested against its vectors, a million "a"s included). vfs: the pack
+  table reading split out of mount() (openPack, readEntry) and extractPack, which writes a pack's files under a
+  folder (refusing paths that leave it). Exports: ExportOptions::updatePack writes every file of the export but
+  the packages (after they're made, so they don't hold it) into <game>-<version>-<platform>.vkwupdate and its digest
+  into .sha256 (File > Export game, --update-pack). app/updates: Release has the platform's download and sha256
+  (our manifest's downloads.<platform>; a GitHub release's .vkwupdate asset with the platform in its name and its
+  "digest"); Install, on a worker thread: download (httpGet, 10 minutes), the digest checked (none or a mismatch:
+  failed, nothing written), the pack written to <game>/.update and unpacked into staged/; apply() = swapIn: files
+  sorted, each destination renamed to <file>.old-update (a running executable can be, Windows too) after giving the
+  new file its permissions, the new one renamed (or copied) in, everything undone on a failure; cleanUp at start
+  removes the .old-update files and .update. vkgame: install dir = the executable's folder (the .app's folder on
+  macOS), @update / @restart through Game::setHostHandler (module API 43), update.* published on change,
+  platform::startProgram (posix_spawnp / CreateProcessW, not waited for) to start again with the same arguments,
+  --install-update for launchers. Crash reports: app/crash_reports prepare() writes the home folder as ~ and the user
+  name as <user>; Upload posts the report (platform::httpPost: curl / wget with the body from a temporary file,
+  WinHTTP's POST, NSURLSession with an HTTPBody) and renames it -crash-sent.txt; vkgame sets crash.lastRun, sends
+  when settings.sendCrashReports (default off) or @sendcrashreport says so, crash.* published; project.json's
+  crashReportUrl. update.* and crash.* joined the state keys saves and snapshots leave out. Release workflow: signing
+  steps that run only with the secrets (else a notice): signtool for the Windows binaries and installer (RFC 3161
+  timestamps), codesign with the hardened runtime for macOS's Mach-O files and the .dmg, notarytool submit --wait
+  and stapler; SHA256SUMS on every release. Checked: the digests, manifests of both kinds, swapping in with
+  permissions kept and a failing swap undone, installs refused for a wrong or missing digest or a failed download, an
+  install applied and cleaned up, an export's update pack holding the game, crash reports cleaned of home and user
+  and sent once (kept when sending fails); end to end with processes: the sample exported as 1.0.0 and 2.0.0 (an
+  update pack), a local HTTP server with the manifest, the 1.0.0 game's --install-update leaving it identical to
+  2.0.0 (and saying it's the latest the next time), a manifest with the wrong digest refused; a real POST through
+  platform::httpPost to a local receiver. Not done: signing itself (no certificates here: the steps are untested
+  until secrets exist), delta updates (whole packs), resuming downloads, signed manifests (the digest is only as
+  trustworthy as the manifest's server: use https), updates of AppImages and installed .dmg apps in place (an
+  exported folder only), crash report symbolication on a server, a privacy notice screen.

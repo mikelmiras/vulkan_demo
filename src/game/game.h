@@ -85,7 +85,7 @@ public:
     void erase(const std::string& key) { values_.erase(key); }
     void clear() { values_.clear(); }
     // The game's values, for save games and multiplayer snapshots: without this machine's own (isLocal: the
-    // player's settings.*, input.*, net.*), which loading keeps as they are
+    // player's settings.*, input.*, net.*, update.*, crash.*), which loading keeps as they are
     json::Value toJson() const;
     void fromJson(const json::Value& v);
     static bool isLocal(const std::string& key);
@@ -290,6 +290,12 @@ public:
     void setNetworkHandler(std::function<void(const std::string& verb, const std::string& arg)> handler) {
         networkHandler_ = std::move(handler);
     }
+    // Updates and crash reports from the game's menus: "@update" (download and install the update that's out),
+    // "@restart" (into it), "@sendcrashreport", "@dismisscrashreport" go to the host (vkgame), which reports in the
+    // game state (update.*, crash.*: see the README)
+    void setHostHandler(std::function<void(const std::string& verb, const std::string& arg)> handler) {
+        hostHandler_ = std::move(handler);
+    }
     struct Rumble {
         float low = 0.f, high = 0.f, seconds = 0.f;
         int pad = -1;   // (the asking behaviour's player's pad, or -1: the first)
@@ -490,7 +496,7 @@ private:
     AudioEngine* audio_ = nullptr;
     GamepadOutput gamepadOut_;
     std::function<void(const std::string&)> urlOpener_;
-    std::function<void(const std::string&, const std::string&)> networkHandler_;
+    std::function<void(const std::string&, const std::string&)> networkHandler_, hostHandler_;
     // Local players and pads
     std::vector<GamepadState> pads_;
     InputMap players_[kMaxPlayers];

@@ -149,6 +149,7 @@ void Editor::exportGameTo(const fs::path& dir, const ExportOptions& options) {
     for (const std::string& w : result.warnings) std::fprintf(stderr, "export: %s\n", w.c_str());
     setStatus("Exported " + std::to_string(result.files) + " files: run " + result.executable.u8string() +
               (result.package.empty() ? "" : "; packaged as " + result.package.filename().u8string()) +
+              (result.updatePack.empty() ? "" : "; update pack " + result.updatePack.filename().u8string()) +
               (result.warnings.empty() ? "" : " (" + std::to_string(result.warnings.size()) + " warnings: see the console)"));
 }
 

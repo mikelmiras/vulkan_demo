@@ -106,7 +106,25 @@ a Start menu entry and an uninstaller; needs [NSIS](https://nsis.sourceforge.io)
 there's a newer `gameVersion`. It serves `{"version": "1.1.0", "url": "https://...", "notes": "..."}`, or it's a
 GitHub API `.../releases/latest` URL. When there is, the game state gets `update.available`, `update.version`,
 `update.url` and `update.notes` for a menu to show, and a button with the action `@open {update.url}` opens the
-page. Nothing is downloaded; players can turn it off (`settings.checkUpdates`).
+page. Players can turn it off (`settings.checkUpdates`).
+
+**Installing updates**: export the new version with *And make an update pack* (or `--update-pack`): next to the
+export, `<game>-<version>-<platform>.vkwupdate` (the whole export as one pack) and its SHA-256 in a `.sha256` file.
+Put the pack online and name it in the manifest per platform: `"downloads": {"linux": {"url": "https://.../
+Game-1.1.0-linux.vkwupdate", "sha256": "..."}, "windows": {...}, "macos": {...}}`, or attach the packs to a GitHub
+release (their names must have the platform in them; GitHub gives their digests). Then `update.installable` is true,
+and a menu button with `@update` downloads it in the background (`update.stage`: `downloading`, `verifying`,
+`unpacking`, `ready` or `failed`, with `update.error`), checks it against its digest (no digest, or one that
+doesn't match: nothing is installed), and unpacks it; `@restart` swaps it in and starts the game again. The game's
+files are moved aside (`<file>.old-update`, removed at the next start) and put back if anything fails. `vkgame
+--install-update` does the same from a command line (a launcher, a script) and exits. The game must be somewhere
+its player may write (a per-user install, an unpacked folder: not Program Files or a read-only image).
+
+**Crash reports, sent**: with a `"crashReportUrl"` in `project.json`, a game whose last run crashed sets
+`crash.lastRun` for a menu to ask the player, and `@sendcrashreport` sends that report (`@dismisscrashreport`: no);
+players who always agree turn on `settings.sendCrashReports` (off unless they do). The report goes as a plain-text
+POST with the home folder written `~` and the user's name `<user>` (state `crash.sending`, `crash.sent`,
+`crash.error`), and is then renamed `*-crash-sent.txt`, so it's sent once. Nothing is sent without the player.
 
 ### Tests
 
@@ -1172,7 +1190,12 @@ instructions, not time: a slow call into the engine is one sample like a quick o
 `CMakeLists.txt`'s `project()`; the tag must match it): optimised with debug info on Linux, Windows and macOS,
 tested, the symbols split off into `*-symbols` archives, and packaged as an AppImage and `.tar.gz` (Linux), a `.dmg`
 (macOS) and an installer and `.zip` (Windows), published as a GitHub release. Run by hand (Actions > Release > Run
-workflow) it builds the same packages as artifacts only. The editor's **Help > Check for updates** asks GitHub for
+workflow) it builds the same packages as artifacts only. Every release has a `SHA256SUMS` file. With the
+repository's signing secrets set, Windows programs, libraries and the installer are signed (`WINDOWS_CERT_PFX` as
+base64, `WINDOWS_CERT_PASSWORD`), and macOS binaries are signed with the hardened runtime and the `.dmg` notarized
+and stapled (`APPLE_CERT_P12`, `APPLE_CERT_PASSWORD`, `APPLE_SIGNING_ID`; `APPLE_ID`, `APPLE_TEAM_ID`,
+`APPLE_APP_PASSWORD` for notarizing); without them the packages go out unsigned and the run says so. The editor's
+**Help > Check for updates** asks GitHub for
 the latest release (only when you click it; `-DVKWORLD_UPDATE_URL=` points it elsewhere); **Help > About** shows the
 version and commit.
 

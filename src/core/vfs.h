@@ -27,5 +27,9 @@ std::vector<std::filesystem::path> list(const std::filesystem::path& dir, const 
 // executable) when `append`; each file compressed when that makes it worth it (unless !compress)
 bool writePack(const std::filesystem::path& out, const std::vector<std::pair<std::string, std::filesystem::path>>& files,
                bool append, std::string& error, bool compress = true);
+// Every file of the pack in `file` written under `outDir` (their paths in the pack, sorted, in `files`); false if it
+// isn't one, it's damaged, or a path would leave the folder
+bool extractPack(const std::filesystem::path& file, const std::filesystem::path& outDir, std::vector<std::string>& files,
+                 std::string& error);
 
 }  // namespace vfs

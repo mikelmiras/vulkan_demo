@@ -99,6 +99,7 @@ private:
     void drawAbout();   // Help > About and Check for updates
     bool showAbout_ = false;
     bool exportPackage_ = false;   // File > Export game > And make an AppImage / .dmg / installer
+    bool exportUpdatePack_ = false;   // ... > And make an update pack
     updates::Check updateCheck_;
     void drawAddPopup();
     void drawAddMenuItems();

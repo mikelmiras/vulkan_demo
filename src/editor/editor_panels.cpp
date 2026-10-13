@@ -108,6 +108,7 @@ void Editor::drawMenuBar() {
                     ExportOptions o;
                     o.layout = (ExportOptions::Layout)i;
                     o.package = exportPackage_;
+                    o.updatePack = exportUpdatePack_;
                     if (!dir.empty()) exportGameTo(dir, o);
                 }
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) ImGui::SetTooltip("%s (save the scene first)", help[i]);
@@ -122,6 +123,9 @@ void Editor::drawMenuBar() {
 #endif
             ImGui::MenuItem(packageLabel, nullptr, &exportPackage_);
             tooltip("Something to hand out and install, named after the game and its version (project.json gameVersion)");
+            ImGui::MenuItem("And make an update pack (.vkwupdate)", nullptr, &exportUpdatePack_);
+            tooltip("The whole export as one pack, with its SHA-256: put both in the update manifest (or a GitHub release) "
+                    "and players' copies install it from the game's menu");
             ImGui::EndMenu();
         }
         if (ImGui::MenuItem("Use this scene at startup")) {
