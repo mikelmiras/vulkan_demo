@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdio>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -144,6 +145,8 @@ void Renderer::pickDevice() {
     vkEnumeratePhysicalDevices(instance_, &count, devices.data());
 
     int bestScore = -1;
+    std::string preference = gpuPreference_;
+    if (const char* env = std::getenv("VKWORLD_GPU"); env && *env) preference = env;
     for (VkPhysicalDevice d : devices) {
         VkPhysicalDeviceProperties props;
         vkGetPhysicalDeviceProperties(d, &props);
@@ -175,10 +178,18 @@ void Renderer::pickDevice() {
         }
         if (family < 0) continue;
 
+        // (the preference first: integrated for less power, a name; then discrete before integrated before others)
         int score = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU     ? 3
                     : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 2
                     : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU            ? 0
                                                                                  : 1;
+        if (preference == "integrated" && props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) score += 10;
+        else if (!preference.empty() && preference != "integrated" && preference != "discrete") {
+            std::string name = props.deviceName, want = preference;
+            for (char& c : name) c = (char)std::tolower((unsigned char)c);
+            for (char& c : want) c = (char)std::tolower((unsigned char)c);
+            if (name.find(want) != std::string::npos) score += 10;
+        }
         if (score > bestScore) {
             bestScore = score;
             gpu_ = d;

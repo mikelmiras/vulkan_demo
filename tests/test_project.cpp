@@ -5,6 +5,7 @@
 
 #include "core/compress.h"
 
+#include "app/application.h"
 #include "app/export.h"
 #include "core/vfs.h"
 #include "scene/serialization.h"
@@ -303,4 +304,30 @@ TEST(export_icon_formats) {
     CHECK(icns.compare(0, 4, "icns") == 0 && icns.compare(8, 4, "ic07") == 0);   // 128 px
     CHECK((uint8_t)icns[7] == (uint8_t)icns.size() && (uint8_t)icns[6] == (uint8_t)(icns.size() >> 8));
     CHECK(makeIco("nope").empty() && makeIcns("nope").empty());
+}
+
+// The editor's frame pacing (app/application.h): drawing while something happens, sleeping after, a heartbeat,
+// the frame-rate cap and its lower background cap
+TEST(frame_pacing) {
+    Application::Pacing p;
+    Application::Decision d = Application::decide(p, 10.0, 0.0, 9.99, true);   // (a game: always, as fast as it can)
+    CHECK(d.draw && !d.idle && d.sleep == 0.0);
+    p.lazy = true;
+    p.maxFps = 60.f;
+    p.unfocusedFps = 10.f;
+    p.idleSeconds = 1.f;
+    d = Application::decide(p, 10.0, 10.5, 9.99, true);   // active: drawn, capped at 60
+    CHECK(d.draw && !d.idle);
+    CHECK_NEAR(d.sleep, 1.0 / 60.0 - 0.01, 1e-9);
+    d = Application::decide(p, 10.0, 9.0, 9.7, true);     // idle: wait for an event, up to the heartbeat
+    CHECK(!d.draw);
+    CHECK_NEAR(d.wait, 0.7, 1e-9);
+    d = Application::decide(p, 10.0, 9.0, 8.9, true);     // the heartbeat's due
+    CHECK(d.draw && d.idle);
+    d = Application::decide(p, 10.0, 11.0, 9.95, false);  // in the background: 10 a second
+    CHECK(d.draw);
+    CHECK_NEAR(d.sleep, 0.05, 1e-9);
+    p.maxFps = 0.f;
+    d = Application::decide(p, 10.0, 11.0, 9.0, true);    // no cap, in front
+    CHECK(d.draw && d.sleep == 0.0);
 }

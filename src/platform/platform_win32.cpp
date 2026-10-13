@@ -190,6 +190,13 @@ void pollEvents() {
     }
 }
 
+bool waitEvents(double seconds) {
+    DWORD ms = (DWORD)std::clamp(seconds * 1000.0, 0.0, 60000.0);
+    return MsgWaitForMultipleObjects(0, nullptr, FALSE, ms, QS_ALLINPUT) == WAIT_OBJECT_0;
+}
+
+bool windowFocused() { return g_hwnd && GetForegroundWindow() == g_hwnd; }
+
 bool closeRequested() { return g_closeRequested; }
 
 void setCursorCaptured(bool captured) {

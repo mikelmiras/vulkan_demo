@@ -56,12 +56,16 @@ void Upload::start(const std::string& url, const std::filesystem::path& report, 
     auto state = std::make_shared<State>();
     state_ = state;
     std::thread([state, url, report, post] {
-        std::ifstream f(report, std::ios::binary);
         std::ostringstream text;
-        text << f.rdbuf();
+        bool read = false;
+        {   // (closed before it's renamed: Windows won't rename an open file)
+            std::ifstream f(report, std::ios::binary);
+            text << f.rdbuf();
+            read = (bool)f;
+        }
         std::string error;
         bool ok = false;
-        if (!f || text.str().empty()) error = "no report at " + report.u8string();
+        if (!read || text.str().empty()) error = "no report at " + report.u8string();
         else if (url.empty()) error = "the project has no crashReportUrl";
         else ok = post(url, prepare(text.str()), error);
         if (ok) {   // (sent once: renamed)

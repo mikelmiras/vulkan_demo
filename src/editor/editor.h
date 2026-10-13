@@ -51,6 +51,11 @@ public:
     // Builds the UI and handles viewport input. Call between ImGui::NewFrame() and ImGui::Render().
     void frame(float dt, const std::string& gpuName, const RenderStats& stats);
     SceneRenderInfo renderInfo() const;   // valid after frame()
+    // Power (app/application.h's pacing): draw only when something changes unless the viewport is realtime or the
+    // game runs; busy(): something animates by itself now (the game, a load, particles, a clip preview, a session)
+    void pacing(bool& lazy, float& maxFps, float& unfocusedFps) const;
+    bool busy() const;
+    void setIdle(bool idle) { idle_ = idle; }   // (this frame is the sleeping editor's heartbeat: no FPS to show)
     bool quitRequested() const { return quit_; }
     void openScene(const std::string& path);   // like File > Load
     // Makes `dir` the current project (creating its project.json if it has none) and opens its start scene
@@ -175,6 +180,7 @@ private:
     std::vector<EntityId> selectionIds() const;          // primary first
     std::vector<EntityId> topLevelSelection() const;     // without those under another selected entity
     bool isSelected(EntityId id) const;
+    bool selectionHasEmitter() const;   // (a selected entity, or one under it, has a ParticleEmitter)
     void toggleSelect(EntityId id);
     void selectRange(EntityId id);                        // the primary to `id`, in the outliner's order
     void selectAllRoots();
@@ -336,6 +342,8 @@ private:
     std::vector<ParticleDraw> particles_;
     ParticleSystem previewParticles_;   // emitters outside Play (View > Preview particles)
     bool previewParticles_on_ = true;
+    bool realtimeViewport_ = false, throttleInBackground_ = true;   // (View > Power)
+    int frameCap_ = 60;
     NavGrid navPreview_;
     EntityId animGraphEntity_ = kNoEntity;   // whose state machine the graph window shows
     std::string newTag_;
@@ -399,6 +407,7 @@ private:
     std::string status_;
     float statusTimer_ = 0.f;
     float fps_ = 0.f;
+    bool idle_ = false;
     bool quit_ = false;
 
     // Layout (window pixels), recomputed every frame

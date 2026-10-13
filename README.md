@@ -335,6 +335,15 @@ dropping on the right.
   it). The player's `settings.rumble` turns rumble off.
 - Messages logged by behaviours show at the bottom of the viewport (and on stdout).
 - Game > Maximize viewport on play hides the side panels while playing.
+- **Power**: the editor only draws when something changes: input, an edit, a drag, a load, the game playing, a
+  selected particle emitter, global illumination still filling in. In between it sleeps, waking every 2 s (the
+  status bar says `idle`). So a laptop stays cool with the editor open. View > Power has:
+  - *Realtime viewport*: every frame, as before; live effects, every particle emitter running.
+  - *Slow down in the background*: 10 frames a second while another window is in front.
+  - A frame-rate cap: 30, 60 (the default), 120, or the display's rate.
+
+  On macOS the editor picks the integrated GPU when there are two. `VKWORLD_GPU=integrated|discrete|<part of a
+  name>` chooses for the editor and games alike (games take the fastest by default).
 
 ## Rendering
 

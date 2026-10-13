@@ -311,6 +311,8 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
 
 void destroyWindow() { VKWORLD_ON_WINDOW(destroyWindow()); }
 void pollEvents() { VKWORLD_ON_WINDOW(pollEvents()); }
+bool waitEvents(double seconds) { return VKWORLD_ON_WINDOW(waitEvents(seconds)); }
+bool windowFocused() { return VKWORLD_ON_WINDOW(windowFocused()); }
 bool closeRequested() { return VKWORLD_ON_WINDOW(closeRequested()); }
 void windowSize(uint32_t& width, uint32_t& height) { VKWORLD_ON_WINDOW(windowSize(width, height)); }
 void setCursorCaptured(bool captured) { VKWORLD_ON_WINDOW(setCursorCaptured(captured)); }

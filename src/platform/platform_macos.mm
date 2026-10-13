@@ -322,6 +322,18 @@ void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height) {
     [NSApp setApplicationIconImage:image];
 }
 
+bool waitEvents(double seconds) {
+    @autoreleasepool {   // (looked at, not taken: pollEvents does)
+        NSEvent* e = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                        untilDate:[NSDate dateWithTimeIntervalSinceNow:std::clamp(seconds, 0.0, 60.0)]
+                                           inMode:NSDefaultRunLoopMode
+                                          dequeue:NO];
+        return e != nil;
+    }
+}
+
+bool windowFocused() { return g_window && g_window.isKeyWindow; }
+
 bool closeRequested() { return g_closeRequested; }
 
 void windowSize(uint32_t& width, uint32_t& height) {

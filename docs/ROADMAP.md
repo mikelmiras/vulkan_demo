@@ -1006,7 +1006,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 
 | # | Task | Why |
 |---|------|-----|
-| 65 | Editor power use: redraw only when something changes (input, edits, animations, playing), throttled while unfocused or idle, a frame-rate cap, a "realtime viewport" toggle, the integrated GPU on dual-GPU Macs | The editor renders the whole scene at the display's refresh rate even when idle: a laptop heats up with nothing happening |
+| 65 (done) | Editor power use: redraw only when something changes (input, edits, animations, playing), throttled while unfocused or idle, a frame-rate cap, a "realtime viewport" toggle, the integrated GPU on dual-GPU Macs | The editor renders the whole scene at the display's refresh rate even when idle: a laptop heats up with nothing happening |
 | 66 | Projects: a project launcher at startup (recent projects, new from a template, open), a Project Settings window for everything in project.json, the engine version a project was made with, generated files kept apart from the project's own | The editor opens straight into the demo; project.json is edited by hand |
 | 67 | Builds: a Build Settings window with per-platform profiles, per-game executable metadata (Windows version resources, macOS bundle id and version), assets cooked at export (compressed textures with baked mips, binary models, compiled shaders), a shipping configuration without editor or debug code | Exports are vkgame renamed with the project's source files beside it |
 | 68 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
@@ -1021,3 +1021,24 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 77 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
 
 ### Round 7 notes
+- Task 65: Application::Pacing (lazy, maxFps, unfocusedFps, settleSeconds, idleSeconds) and decide() (plain, tested:
+  draw, sleep for the cap, or wait for events up to the heartbeat). beginFrame counts as activity: Dear ImGui's
+  input queue not empty, the window resized, a key or mouse button held (camera flying, drags), the renderer
+  settling (Renderer::settling: global illumination probes not yet drawn once), requestRedraw(); activity keeps
+  frames coming for settleSeconds (0.75: hover effects, temporal AA). Idle, it blocks in platform::waitEvents
+  (poll() on the X connection's or the Wayland display's fd, MsgWaitForMultipleObjects, NSApp nextEvent without
+  dequeuing), new on every backend with windowFocused() (X focus events, Wayland keyboard enter / leave,
+  GetForegroundWindow, isKeyWindow); minimised windows wait too instead of spinning. Screenshot runs aren't paced.
+  The editor (View > Power, saved in its prefs: realtimeViewport, frameCap = 60, throttleInBackground) sets the
+  pacing each frame: lazy unless realtime or the game runs unpaused; busy() asks for frames while the game runs, a
+  scene loads, a session is open, a clip preview plays, or a selected entity (or one under it) has a particle
+  emitter. Unselected emitters only advance in a realtime viewport: the demo scene's emitters had kept the editor
+  drawing all the time. The status bar says "idle" on heartbeat frames. GPU: Renderer::setGpuPreference
+  ("integrated", "discrete" or part of a name; VKWORLD_GPU overrides), Application::Options::gpu; the editor asks
+  for the integrated GPU on macOS. Checked: the pacing decisions; on lavapipe under Xvfb (where a frame's cost is
+  CPU), the idle editor drew about one frame a second (the heartbeat, then two seconds) against the realtime
+  viewport's 3.7 (all lavapipe manages: on a GPU that's the display's 60-120), with the reasons logged while
+  diagnosing; screenshot runs of the editor and the game unchanged under validation. Not done: drawing only the
+  parts that changed (the UI over a cached scene), lower viewport quality while the camera moves, an energy readout,
+  the game slowing down in the background (vkgame isn't paced), automatic graphics switching in the macOS app's
+  Info.plist.

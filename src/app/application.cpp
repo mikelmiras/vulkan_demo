@@ -1,6 +1,7 @@
 #include "app/application.h"
 #include "core/profiler.h"
 #include "game/fonts.h"
+#include "imgui_internal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -85,6 +86,7 @@ bool Application::init(const Options& options, MeshLibrary& meshes, TextureLibra
     }
     if (options.fullscreen) platform::setFullscreen(true);
     platform::windowSize(width_, height_);
+    renderer_.setGpuPreference(options.gpu);
     renderer_.init(width_, height_, meshes, textures);
 
     uiScale_ = std::max(platform::dpiScale(), 1.f);
@@ -107,7 +109,27 @@ void Application::shutdown() {
     initialized_ = false;
 }
 
+Application::Decision Application::decide(const Pacing& pacing, double now, double activeUntil, double lastFrame, bool focused) {
+    Decision d;
+    if (pacing.lazy && now >= activeUntil) {   // nothing happening
+        double wait = pacing.idleSeconds - (now - lastFrame);
+        if (wait > 0.0) {
+            d.draw = false;
+            d.wait = wait;
+            return d;
+        }
+        d.idle = true;
+    }
+    float cap = pacing.maxFps;   // (lower while in the background)
+    if (pacing.unfocusedFps > 0.f && !focused) cap = cap > 0.f ? std::min(cap, pacing.unfocusedFps) : pacing.unfocusedFps;
+    if (cap > 0.f && now - lastFrame < 1.0 / cap) d.sleep = 1.0 / cap - (now - lastFrame);
+    return d;
+}
+
+void Application::requestRedraw(float seconds) { activeUntil_ = std::max(activeUntil_, nowSeconds() + std::max(seconds, 0.f)); }
+
 bool Application::beginFrame(float& dt) {
+    const bool paced = options_.screenshotPath.empty();   // (screenshot runs: every frame, as before)
     for (;;) {
         if (quit_ || platform::closeRequested()) return false;
         platform::pollEvents();
@@ -119,12 +141,38 @@ bool Application::beginFrame(float& dt) {
         renderer_.resize(width_, height_);
 
         double now = nowSeconds();
-        dt = (float)std::min(now - lastTime_, 0.1);
-        lastTime_ = now;
-        if (width_ == 0 || height_ == 0) {   // minimised
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        // Something happening: input waiting for Dear ImGui, the window resized, a key or button held, the renderer
+        // still settling
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        bool held = ImGui::IsAnyMouseDown();
+        for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_NamedKey_END && !held; ++k) held = g.IO.KeysData[k - ImGuiKey_NamedKey_BEGIN].Down;
+        if (g.InputEventsQueue.Size > 0 || width_ != lastWidth_ || height_ != lastHeight_ || held || renderer_.settling())
+            activeUntil_ = std::max(activeUntil_, now + pacing_.settleSeconds);
+        lastWidth_ = width_;
+        lastHeight_ = height_;
+        if (width_ == 0 || height_ == 0) {   // minimised: nothing to draw, wait for the window to come back
+            platform::waitEvents(0.25);
             continue;
         }
+        Decision d = paced ? decide(pacing_, now, activeUntil_, lastFrame_, platform::windowFocused()) : Decision{};
+        if (!d.draw) {   // idle: sleep until an event (or the heartbeat)
+            if (platform::waitEvents(d.wait)) activeUntil_ = nowSeconds() + pacing_.settleSeconds;
+            continue;
+        }
+        idleFrame_ = d.idle;
+        if (d.sleep > 0.0) {   // (the frame-rate cap)
+            std::this_thread::sleep_for(std::chrono::duration<double>(d.sleep));
+            now = nowSeconds();
+        }
+        lastFrame_ = now;
+        ++fpsFrames_;
+        if (now - fpsWindow_ >= 1.0) {
+            fps_ = fpsFrames_ / (now - fpsWindow_);
+            fpsFrames_ = 0;
+            fpsWindow_ = now;
+        }
+        dt = (float)std::min(now - lastTime_, 0.1);
+        lastTime_ = now;
         profiler::endFrame();   // (the previous one)
         profiler::beginFrame();
         gamefonts::loadPending();   // (fonts the game asked for last frame: they can only be added between frames)

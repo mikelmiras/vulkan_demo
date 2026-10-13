@@ -6,6 +6,9 @@
 #include "platform/platform.h"
 #include "platform/platform_linux.h"
 
+#include <poll.h>
+
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -41,6 +44,8 @@ void warpToCenter() {
     xcb_flush(g_conn);
 }
 
+bool g_focused = true;
+
 // Sees every event before the ImGui backend; returns true to keep it from ImGui
 bool onEvent(void*, xcb_generic_event_t* e) {
     switch (e->response_type & 0x7f) {
@@ -66,7 +71,11 @@ bool onEvent(void*, xcb_generic_event_t* e) {
             return true;
         }
         case XCB_FOCUS_OUT:
+            g_focused = false;
             setCursorCaptured(false);
+            return false;
+        case XCB_FOCUS_IN:
+            g_focused = true;
             return false;
     }
     return false;
@@ -126,6 +135,16 @@ void pollEvents() {
         free(e);
     }
 }
+
+// (the joystick devices aren't watched: an idle wait is short enough that a pad is noticed anyway)
+bool waitEvents(double seconds) {
+    if (!g_conn) return false;
+    xcb_flush(g_conn);
+    pollfd fd{xcb_get_file_descriptor(g_conn), POLLIN, 0};
+    return poll(&fd, 1, (int)std::clamp(seconds * 1000.0, 0.0, 60000.0)) > 0;
+}
+
+bool windowFocused() { return g_focused; }
 
 void setCursorCaptured(bool captured) {
     if (captured == g_captured || !g_conn) return;

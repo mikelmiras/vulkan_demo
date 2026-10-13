@@ -20,6 +20,10 @@ void destroyWindow();
 
 // Processes pending OS events and feeds input to ImGui (once the ImGui backend is initialised).
 void pollEvents();
+// Sleeps until the window gets an event (input, a resize, a close) or `seconds` pass; true if one came. pollEvents()
+// then takes it. (An editor with nothing to do waits here instead of drawing frames nobody needs.)
+bool waitEvents(double seconds);
+bool windowFocused();   // the window has the keyboard (in front)
 bool closeRequested();
 void windowSize(uint32_t& width, uint32_t& height);   // client area in pixels; 0 when minimised
 

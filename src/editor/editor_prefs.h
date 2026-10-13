@@ -18,6 +18,11 @@ struct EditorPrefs {
     bool previewParticles = true;
     float cameraSpeed = 12.f, cameraFov = 60.f;   // fly speed (units/s), degrees
     int antialiasing = -1;   // Renderer::Antialiasing (-1: the renderer's default)
+    // Power: the view drawn only when something changes (realtime: every frame, as games are), at most frameCap
+    // frames a second (0: the display's rate), slowed to 10 in the background
+    bool realtimeViewport = false;
+    int frameCap = 60;
+    bool throttleInBackground = true;
     // Play
     bool maximizeOnPlay = false, captureOnClick = true;
     std::vector<std::string> recentProjects;   // folders, newest first

@@ -42,6 +42,7 @@ namespace platform::wl {
 namespace {
 
 struct State {
+    bool focused = true;
     wl_display* display = nullptr;
     wl_registry* registry = nullptr;
     wl_compositor* compositor = nullptr;
@@ -289,10 +290,12 @@ void typeKey(uint32_t code) {
 }
 
 void keyboardEnter(void*, wl_keyboard*, uint32_t, wl_surface*, wl_array*) {
+    g.focused = true;
     if (g.imguiReady) ImGui::GetIO().AddFocusEvent(true);
 }
 void keyboardLeave(void*, wl_keyboard*, uint32_t, wl_surface*) {
     g.repeatKey = 0;
+    g.focused = false;
     if (g.imguiReady) ImGui::GetIO().AddFocusEvent(false);   // (ImGui lets go of every key)
     setCursorCaptured(false);
 }
@@ -555,6 +558,19 @@ void pollEvents() {
     repeatKeys();
     linux_shared::gamepadPoll();
 }
+
+bool waitEvents(double seconds) {
+    if (!g.display) return false;
+    while (wl_display_prepare_read(g.display) != 0) wl_display_dispatch_pending(g.display);
+    wl_display_flush(g.display);
+    pollfd fd{wl_display_get_fd(g.display), POLLIN, 0};
+    bool got = poll(&fd, 1, (int)std::clamp(seconds * 1000.0, 0.0, 60000.0)) > 0;
+    if (got) wl_display_read_events(g.display);   // (pollEvents runs the listeners)
+    else wl_display_cancel_read(g.display);
+    return got;
+}
+
+bool windowFocused() { return g.focused; }
 
 bool closeRequested() { return g.closeRequested; }
 

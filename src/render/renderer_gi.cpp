@@ -118,6 +118,7 @@ void Renderer::destroyGi() {
 
 void Renderer::planGi(const SceneRenderInfo& info) {
     giCount_ = 0;
+    giUnmade_ = 0;
     giOn_ = info.gi && info.items && giPipeline_;
     std::memset(giGrid_, 0, sizeof(giGrid_));
     if (!giOn_) return;
@@ -169,6 +170,8 @@ void Renderer::planGi(const SceneRenderInfo& info) {
                 float score = g.made ? near / (1.f + (float)(giFrame_ - g.drawn)) : -1e6f / near;
                 order.push_back({slot, score});
             }
+    giUnmade_ = 0;   // (probes still to draw for the first time: frames still wanted)
+    for (const Candidate& c : order) giUnmade_ += c.score < 0.f ? 1 : 0;
     std::partial_sort(order.begin(), order.begin() + kGiPerFrame, order.end(),
                       [](const Candidate& a, const Candidate& b) { return a.score < b.score; });
 

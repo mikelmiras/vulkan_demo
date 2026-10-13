@@ -28,6 +28,9 @@ json::Value EditorPrefs::toJson() const {
     v.set("cameraSpeed", cameraSpeed);
     v.set("cameraFov", cameraFov);
     v.set("antialiasing", antialiasing);
+    v.set("realtimeViewport", realtimeViewport);
+    v.set("frameCap", frameCap);
+    v.set("throttleInBackground", throttleInBackground);
     v.set("maximizeOnPlay", maximizeOnPlay);
     v.set("captureOnClick", captureOnClick);
     json::Value recent = json::Value::array();
@@ -54,6 +57,9 @@ EditorPrefs EditorPrefs::fromJson(const json::Value& v) {
     p.cameraSpeed = std::clamp(positive(v["cameraSpeed"].asFloat(p.cameraSpeed), p.cameraSpeed), 0.1f, 1000.f);
     p.cameraFov = std::clamp(v["cameraFov"].asFloat(p.cameraFov), 20.f, 120.f);
     p.antialiasing = std::clamp(v["antialiasing"].asInt(p.antialiasing), -1, 2);
+    p.realtimeViewport = v["realtimeViewport"].asBool(p.realtimeViewport);
+    p.frameCap = std::clamp(v["frameCap"].asInt(p.frameCap), 0, 500);
+    p.throttleInBackground = v["throttleInBackground"].asBool(p.throttleInBackground);
     p.maximizeOnPlay = v["maximizeOnPlay"].asBool(p.maximizeOnPlay);
     p.captureOnClick = v["captureOnClick"].asBool(p.captureOnClick);
     for (const json::Value& r : v["recentProjects"].elements())
@@ -66,7 +72,8 @@ bool EditorPrefs::operator==(const EditorPrefs& o) const {
            snapRotate == o.snapRotate && snapScale == o.snapScale && showOutliner == o.showOutliner &&
            showInspector == o.showInspector && showAssets == o.showAssets && showColliders == o.showColliders &&
            showProfiler == o.showProfiler && previewParticles == o.previewParticles && cameraSpeed == o.cameraSpeed &&
-           cameraFov == o.cameraFov && antialiasing == o.antialiasing && maximizeOnPlay == o.maximizeOnPlay && captureOnClick == o.captureOnClick &&
+           cameraFov == o.cameraFov && antialiasing == o.antialiasing && realtimeViewport == o.realtimeViewport &&
+           frameCap == o.frameCap && throttleInBackground == o.throttleInBackground && maximizeOnPlay == o.maximizeOnPlay && captureOnClick == o.captureOnClick &&
            recentProjects == o.recentProjects;
 }
 

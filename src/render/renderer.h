@@ -150,6 +150,9 @@ public:
     // The platform window must exist (platform::createWindow) before init().
     // The libraries must outlive the renderer; meshes and textures added to them later are uploaded automatically.
     void init(uint32_t width, uint32_t height, const MeshLibrary& meshes, const TextureLibrary& textures);
+    // Which GPU init() picks when there are several: "discrete" (the default: the fastest), "integrated" (less power:
+    // an editor on a laptop), or part of a GPU's name. VKWORLD_GPU overrides it. Set before init().
+    void setGpuPreference(const std::string& preference) { gpuPreference_ = preference; }
     void initImGui();   // call after ImGui::CreateContext()
     void shutdown();
 
@@ -161,6 +164,9 @@ public:
     int screenshotDone() const { return screenshotResult_; }   // 0 pending / none, 1 saved, -1 failed
 
     const std::string& gpuName() const { return gpuName_; }
+    // More frames would still change the picture with nothing else changing (global illumination's probes being
+    // drawn the first time): an editor that only draws when something happens keeps drawing until then
+    bool settling() const { return giUnmade_ > 0; }
     const RenderStats& stats() const { return stats_; }
     static int validationErrors();   // errors the validation layer has reported (VKWORLD_VALIDATION=1)
     // A TextureLibrary texture for Dear ImGui (AddImage); 0 until it has been uploaded (the next render() does it)
@@ -384,7 +390,7 @@ private:
 
     uint32_t width_ = 0, height_ = 0;
     bool resized_ = false;
-    std::string gpuName_;
+    std::string gpuName_, gpuPreference_;
     RenderStats stats_;
     const MeshLibrary* meshes_ = nullptr;
     uint32_t uploadedMeshVersion_ = 0;
@@ -538,6 +544,7 @@ private:
     Vec3 giDrawPos_[kGiPerFrame];
     std::vector<Batch> giBatches_[kGiPerFrame];
     uint64_t giFrame_ = 0;
+    int giUnmade_ = 0;
     bool giOn_ = false;                // (this frame)
     VkSampleCountFlagBits giSamples_ = VK_SAMPLE_COUNT_1_BIT;   // (the atlas's, remade when MSAA changes)
     void createGi();

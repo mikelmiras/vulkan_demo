@@ -14,6 +14,8 @@
     bool createWindow(const char* title, uint32_t width, uint32_t height); \
     void destroyWindow();                                                \
     void pollEvents();                                                   \
+    bool waitEvents(double seconds);                                     \
+    bool windowFocused();                                                \
     bool closeRequested();                                               \
     void windowSize(uint32_t& width, uint32_t& height);                  \
     void setCursorCaptured(bool captured);                               \

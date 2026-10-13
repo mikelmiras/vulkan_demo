@@ -18,6 +18,7 @@ public:
         // --screenshot <file> [--frames N]: save frame N as a PNG and quit (for automated checks)
         std::string screenshotPath;
         int screenshotFrame = 30;
+        std::string gpu;   // Renderer::setGpuPreference ("": the fastest)
     };
 
     // Parses the common options (--fullscreen, --screenshot, --frames) and removes them from argv;
@@ -36,6 +37,31 @@ public:
     void endFrame(const SceneRenderInfo& scene);
     void requestQuit() { quit_ = true; }
 
+    // Pacing: how often frames are drawn. By default every frame the display shows (a game). An editor sets `lazy`:
+    // frames only while something happens (input, the window changing, requestRedraw: playing, a drag, a load, the
+    // renderer still settling) and for `settleSeconds` after, else it sleeps until an event comes, drawing at least
+    // every `idleSeconds` (stats, scripts changed on disk). maxFps caps the rate (0: the display's), unfocusedFps caps
+    // it while another window is in front (0: no cap). Screenshot runs ignore it all.
+    struct Pacing {
+        bool lazy = false;
+        float maxFps = 0.f;
+        float unfocusedFps = 0.f;
+        float settleSeconds = 0.75f;
+        float idleSeconds = 2.f;
+    };
+    void setPacing(const Pacing& pacing) { pacing_ = pacing; }
+    // What to do now (plain: tested): draw (after sleeping `sleep` seconds for the cap; `idle`: the heartbeat), or
+    // wait up to `wait` seconds for an event and look again
+    struct Decision {
+        bool draw = true, idle = false;
+        double sleep = 0.0, wait = 0.0;
+    };
+    static Decision decide(const Pacing& pacing, double now, double activeUntil, double lastFrame, bool focused);
+    const Pacing& pacing() const { return pacing_; }
+    void requestRedraw(float seconds = 0.f);   // keep drawing for this long (from now; 0: the next frame)
+    bool drawingIdle() const { return idleFrame_; }   // this frame came from the idle heartbeat (nothing happening)
+    double framesPerSecond() const { return fps_; }   // drawn, over the last second
+
     Renderer& renderer() { return renderer_; }
     // Texture names for GameUI::image(): library textures, or image files (relative to the project) loaded into
     // `textures` on first use
@@ -53,4 +79,9 @@ private:
     int screenshotResult_ = 0;   // 1 saved, -1 failed
     bool initialized_ = false;
     double lastTime_ = 0.0;
+    Pacing pacing_;
+    double activeUntil_ = 0.0, lastFrame_ = 0.0, fpsWindow_ = 0.0, fps_ = 0.0;
+    int fpsFrames_ = 0;
+    bool idleFrame_ = false;
+    uint32_t lastWidth_ = 0, lastHeight_ = 0;
 };

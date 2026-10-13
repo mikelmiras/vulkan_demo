@@ -239,6 +239,19 @@ void Editor::drawMenuBar() {
                               "viewport staying with yours");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("While playing: where bodies touch (dots) and which way they push (lines)");
         ImGui::MenuItem("Profiler", "F3", &showProfiler_);
+        if (ImGui::BeginMenu("Power")) {   // (app/application.h's pacing: Editor::pacing)
+            ImGui::MenuItem("Realtime viewport", nullptr, &realtimeViewport_);
+            tooltip("Draw every frame, as the game does (live global illumination, effects that change over time).\n"
+                    "Off: the view is drawn only when something changes, and the editor sleeps in between");
+            ImGui::MenuItem("Slow down in the background", nullptr, &throttleInBackground_);
+            tooltip("10 frames a second while another window is in front");
+            const int caps[] = {30, 60, 120, 0};
+            const char* names[] = {"30 fps", "60 fps", "120 fps", "No cap (the display's rate)"};
+            ImGui::SeparatorText("Frame-rate cap");
+            for (int i = 0; i < 4; ++i)
+                if (ImGui::MenuItem(names[i], nullptr, frameCap_ == caps[i])) frameCap_ = caps[i];
+            ImGui::EndMenu();
+        }
         if (renderer_ && ImGui::BeginMenu("Anti-aliasing")) {
             const char* names[] = {"MSAA (4x)", "Temporal", "Off"};
             const char* tips[] = {"Smooth edges from four samples per pixel", "Jittered frames blended over time: "
@@ -397,8 +410,11 @@ void Editor::drawStatusBar(const RenderStats& stats) {
     }
     char right[160], update[32] = "";
     if (playing()) std::snprintf(update, sizeof(update), "update %.2f ms | ", game_.updateMs());
-    std::snprintf(right, sizeof(right), "%s%zu entities | %u draws | %u tris | %s%.0f FPS", unsaved() ? "unsaved | " : "",
-                  scene_.entities.size(), stats.drawCalls, stats.triangles, update, fps_);
+    char rate[32];
+    if (idle_) std::snprintf(rate, sizeof(rate), "idle");   // (drawing only when something changes)
+    else std::snprintf(rate, sizeof(rate), "%.0f FPS", fps_);
+    std::snprintf(right, sizeof(right), "%s%zu entities | %u draws | %u tris | %s%s", unsaved() ? "unsaved | " : "",
+                  scene_.entities.size(), stats.drawCalls, stats.triangles, update, rate);
     float w = ImGui::CalcTextSize(right).x;
     ImGui::SameLine(std::max(ImGui::GetWindowWidth() - w - ImGui::GetStyle().WindowPadding.x, 0.f));
     ImGui::TextUnformatted(right);

@@ -250,7 +250,8 @@ void Editor::buildDrawItems() {
         previewParticles_.clear();
         game_.particles().collect(particles_);
     } else if (previewParticles_on_) {   // emitters run in the editor too, so their look can be tuned
-        previewParticles_.update(scene_, worlds_, std::min(frameDt_, 0.1f));
+        // (with the viewport not realtime, only while one is selected: else they'd keep the editor drawing)
+        if (realtimeViewport_ || selectionHasEmitter()) previewParticles_.update(scene_, worlds_, std::min(frameDt_, 0.1f));
         previewParticles_.collect(particles_);
     } else {
         previewParticles_.clear();
@@ -534,6 +535,7 @@ void Editor::applyPrefs(const EditorPrefs& p) {
     showOutliner_ = p.showOutliner, showInspector_ = p.showInspector, showAssets_ = p.showAssets;
     showColliders_ = p.showColliders, showProfiler_ = p.showProfiler;
     previewParticles_on_ = p.previewParticles;
+    realtimeViewport_ = p.realtimeViewport, frameCap_ = p.frameCap, throttleInBackground_ = p.throttleInBackground;
     cam_.speed = p.cameraSpeed;
     cam_.fovY = p.cameraFov * DEG2RAD;
     antialiasing_ = p.antialiasing;
@@ -551,6 +553,7 @@ EditorPrefs Editor::currentPrefs() const {
     p.showOutliner = showOutliner_, p.showInspector = showInspector_, p.showAssets = showAssets_;
     p.showColliders = showColliders_, p.showProfiler = showProfiler_;
     p.previewParticles = previewParticles_on_;
+    p.realtimeViewport = realtimeViewport_, p.frameCap = frameCap_, p.throttleInBackground = throttleInBackground_;
     p.cameraSpeed = cam_.speed;
     p.cameraFov = std::round(cam_.fovY / DEG2RAD * 10.f) / 10.f;
     p.antialiasing = antialiasing_;
@@ -1093,4 +1096,29 @@ void Editor::redo() {
     redo_.pop_back();
     ++editVersion_;
     setStatus("Redo");
+}
+
+void Editor::pacing(bool& lazy, float& maxFps, float& unfocusedFps) const {
+    lazy = !realtimeViewport_ && !(playing() && !game_.paused());
+    maxFps = (float)frameCap_;
+    unfocusedFps = throttleInBackground_ ? 10.f : 0.f;
+}
+
+bool Editor::busy() const {
+    if (playing() && !game_.paused()) return true;
+    if (game_.loading() || net_.active() || animPreview_.playing) return true;
+    if (previewParticles_on_ && !playing() && selectionHasEmitter()) return true;   // (emitters animate in the editor too)
+    return false;
+}
+
+bool Editor::selectionHasEmitter() const {
+    for (const Entity& e : scene_.entities) {
+        if (!e.particleEmitter) continue;
+        for (EntityId p = e.id; p != kNoEntity;) {
+            if (isSelected(p)) return true;
+            const Entity* pe = scene_.find(p);
+            p = pe ? pe->parent : kNoEntity;
+        }
+    }
+    return false;
 }

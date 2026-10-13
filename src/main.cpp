@@ -28,6 +28,9 @@
 int main(int argc, char** argv) {
     Application::Options defaults;
     defaults.title = "Vulkan World Editor";
+#if defined(__APPLE__)
+    defaults.gpu = "integrated";   // (a MacBook with two GPUs: the editor on the one that saves power; VKWORLD_GPU)
+#endif
     Application::Options options = Application::parseArgs(argc, argv, defaults);
     const char* scenePath = nullptr;
     const char* selectName = nullptr;
@@ -95,8 +98,13 @@ int main(int argc, char** argv) {
 
     float dt = 0.f;
     while (!editor.quitRequested() && app.beginFrame(dt)) {
+        editor.setIdle(app.drawingIdle());
         if (editor.uiScale() != app.uiScale()) editor.setUiScale(app.uiScale());   // (moved to another display)
         editor.frame(dt, app.renderer().gpuName(), app.renderer().stats());
+        Application::Pacing pacing = app.pacing();   // (the editor sleeps while nothing changes: View > Power)
+        editor.pacing(pacing.lazy, pacing.maxFps, pacing.unfocusedFps);
+        app.setPacing(pacing);
+        if (editor.busy()) app.requestRedraw();
         app.endFrame(editor.renderInfo());
     }
     int code = app.exitCode();
