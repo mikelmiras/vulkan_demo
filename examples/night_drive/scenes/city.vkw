@@ -28271,7 +28271,7 @@
      -2.4
     ],
     "rotation": [
-     -8,
+     -14,
      0,
      0
     ],
@@ -28289,10 +28289,10 @@
      0.93,
      0.78
     ],
-    "intensity": 7.0,
-    "range": 30.0,
-    "spotAngle": 34.0,
-    "spotSoftness": 0.35,
+    "intensity": 5.0,
+    "range": 28.0,
+    "spotAngle": 50.0,
+    "spotSoftness": 0.8,
     "castShadows": true
    }
   },

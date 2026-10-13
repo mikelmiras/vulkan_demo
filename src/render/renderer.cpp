@@ -1771,7 +1771,20 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         u.fogRange[0] = near;
         u.fogRange[1] = 64.f / std::log(far / near);
         u.fogRange[2] = far;
+        // Last frame's, for the cells' history (none the first frame, or after a frame without fog)
+        u.fogPrevViewProj = fogPrevViewProj_;
+        set4(u.fogPrevCam, fogPrevCam_, 0.f);
+        set4(u.fogPrevForward, fogPrevForward_, 0.f);
+        u.fogPrevRange[0] = fogPrevRange_[0];
+        u.fogPrevRange[1] = fogPrevRange_[1];
+        u.fogPrevRange[3] = fogHistory_ ? 1.f : 0.f;
+        fogPrevViewProj_ = info.viewProj;
+        fogPrevCam_ = info.camPos;
+        fogPrevForward_ = normalize(info.camForward);
+        fogPrevRange_[0] = u.fogRange[0];
+        fogPrevRange_[1] = u.fogRange[1];
     }
+    fogHistory_ = fogOn_;
     if (reflectionsOn(info) && ssrValid_) {   // the last frame's camera, for rays into its picture
         u.prevViewProj = ssrViewProj_;
         u.prevCamPos[0] = ssrCamPos_.x, u.prevCamPos[1] = ssrCamPos_.y, u.prevCamPos[2] = ssrCamPos_.z, u.prevCamPos[3] = 1.f;

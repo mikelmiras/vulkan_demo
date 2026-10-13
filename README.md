@@ -474,7 +474,9 @@ dropping on the right.
   *Fog light* scales the lights' share, *height falloff* thins it with height (low-lying mist). It runs after the
   depth prepass, which gives each cell column the distance to what it sees: at the edge of a building a pixel weighs
   the columns beside it by how near their surface is to its own, so the cells inside the building (shadowed or lit
-  differently) don't darken or light the street's edge. A few percent of a frame. The main view only (split-screen
+  differently) don't darken or light the street's edge. Each cell looks at a different point inside itself every frame
+  and blends with what that place held the frame before (reprojected), so a beam's or a shaft's edge is smooth, not
+  stepped by the cells. A few percent of a frame. The main view only (split-screen
   views and probes keep the plain fog).
 - **Tone mapping and grading**: PBR Neutral (colours as they are) or **filmic** (AgX: richer contrast, highlights
   bleaching towards white as film's do), then contrast, saturation and a vignette (Scene look).

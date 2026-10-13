@@ -71,10 +71,11 @@ void Renderer::createFog() {
     VK_CHECK(vkCreateSampler(device_, &sci, nullptr, &fogSampler_));
 
     // Set 1 of the compute passes: the two volumes as storage images (set 0 is the frame's, as the scene's)
-    VkDescriptorSetLayoutBinding b[2] = {{0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
-                                         {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+    VkDescriptorSetLayoutBinding b[3] = {{0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+                                         {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+                                         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 2;
+    dslci.bindingCount = 3;
     dslci.pBindings = b;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &fogSetLayout_));
     VkDescriptorSetLayout layouts[2] = {setLayout_, fogSetLayout_};
@@ -96,6 +97,7 @@ void Renderer::createFog() {
     VkDescriptorSetLayoutBinding sb[2] = {{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
                                           {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
     dslci.pBindings = sb;
+    dslci.bindingCount = 2;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &fogSurfaceSetLayout_));
     VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, 32};
     plci.setLayoutCount = 1;
@@ -114,7 +116,7 @@ void Renderer::createFog() {
         vkDestroyShaderModule(device_, cs, nullptr);
     }
     VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 * MAX_FRAMES},
-                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES}};
+                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = 2 * MAX_FRAMES;
     dpci.poolSizeCount = 2;
@@ -126,17 +128,19 @@ void Renderer::createFog() {
         dsai.descriptorSetCount = 1;
         dsai.pSetLayouts = &fogSetLayout_;
         VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &fogSets_[i]));
-        VkDescriptorImageInfo infos[2] = {{VK_NULL_HANDLE, fog_[i].scatter.view, VK_IMAGE_LAYOUT_GENERAL},
-                                          {VK_NULL_HANDLE, fog_[i].volume.view, VK_IMAGE_LAYOUT_GENERAL}};
-        VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
-        for (uint32_t k = 0; k < 2; ++k) {
+        VkDescriptorImageInfo infos[3] = {{VK_NULL_HANDLE, fog_[i].scatter.view, VK_IMAGE_LAYOUT_GENERAL},
+                                          {VK_NULL_HANDLE, fog_[i].volume.view, VK_IMAGE_LAYOUT_GENERAL},
+                                          {fogSampler_, fog_[(i + 1) % MAX_FRAMES].scatter.view, VK_IMAGE_LAYOUT_GENERAL}};
+        VkWriteDescriptorSet w[3] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET},
+                                     {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+        for (uint32_t k = 0; k < 3; ++k) {
             w[k].dstSet = fogSets_[i];
             w[k].dstBinding = k;
             w[k].descriptorCount = 1;
-            w[k].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            w[k].descriptorType = k < 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             w[k].pImageInfo = &infos[k];
         }
-        vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 3, w, 0, nullptr);
         dsai.pSetLayouts = &fogSurfaceSetLayout_;
         VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &fogSurfaceSets_[i]));   // (written when there's a depth to read)
     }
@@ -204,7 +208,12 @@ void Renderer::recordFog(VkCommandBuffer cb, const SceneRenderInfo& info, bool r
                      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
     const VkPipelineStageFlags readers = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    // (the last time this frame index's volume was read: by fragment shaders; the scatter by the integration)
+    // The other frame's cells (this frame's history): written by its inject pass, before this one in the queue
+    imageBarrier(cb, fog_[(frame_ + 1) % MAX_FRAMES].scatter.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL,
+                 VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    // (the last time this frame index's volume was read: by fragment shaders; the scatter by the integration and
+    // by the other frame as its history)
     imageBarrier(cb, f.scatter.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,
                  VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                  VK_ACCESS_SHADER_WRITE_BIT);

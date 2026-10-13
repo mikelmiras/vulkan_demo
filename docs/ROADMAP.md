@@ -1217,4 +1217,8 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   column's surface distance (binding 22); scene.frag mixes the four neighbouring columns by hand, each weighed
   down by 1 / (1 + 400 x its surface's relative distance from the pixel's squared). The fog's sun visibility is
   also averaged over eight points spread through each cell. Night Drive's camera tests nine rays round the taxi, 4.5 m
-  out (a building over only its front was missed).
+  out (a building over only its front was missed). And the cells' own resolution (10 pixels, slices of metres) left a
+  headlight beam's outline lumpy: each cell now samples a Halton point inside itself every frame and blends 80 %
+  of the same place's value last frame (reprojected with last frame's camera and slices, the other frame in flight's
+  scatter volume as history: set 1 binding 2), so edges average out over a few frames (a car's beam lags under
+  2 m at speed). Night Drive's low beams are aimed lower (14 degrees), wider (50) and softer (0.8).

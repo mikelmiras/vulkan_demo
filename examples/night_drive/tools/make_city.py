@@ -269,9 +269,11 @@ for side in (-1, 1):
            meshRenderer=look("Cube", (1, 1, 1), emissive=(1.0, 0.95, 0.8), strength=5.0))
     entity("Tail lamp", (side * 0.7, 0.08, 2.21), scale=(0.3, 0.15, 0.04), parent=taxi,
            meshRenderer=look("Cube", (0.5, 0.0, 0.0), emissive=(1.0, 0.05, 0.02), strength=6.0))
-entity("Headlights", (0, 0.2, -2.4), rot=(-8, 0, 0), parent=taxi,
-       light={"type": "spot", "color": [1.0, 0.93, 0.78], "intensity": 7.0, "range": 30.0, "spotAngle": 34.0,
-              "spotSoftness": 0.35, "castShadows": True})
+# (low beams: aimed down and wide with a soft edge, so the road is lit from just ahead of the bumper and the pool fades
+# out instead of starting a few metres ahead behind a sharp edge)
+entity("Headlights", (0, 0.2, -2.4), rot=(-14, 0, 0), parent=taxi,
+       light={"type": "spot", "color": [1.0, 0.93, 0.78], "intensity": 5.0, "range": 28.0, "spotAngle": 50.0,
+              "spotSoftness": 0.8, "castShadows": True})
 entity("Tail glow", (0, 0.3, 2.6), parent=taxi, light=point_light((1.0, 0.08, 0.04), 0.6, 4.0))
 for name, (x, z) in (("Wheel FL", (-0.85, -1.45)), ("Wheel FR", (0.85, -1.45)), ("Wheel BL", (-0.85, 1.45)), ("Wheel BR", (0.85, 1.45))):
     entity(name, (x, -0.25, z), parent=taxi)

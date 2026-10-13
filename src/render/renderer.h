@@ -529,6 +529,11 @@ private:
     VkImageView fogSurfaceDepth_[MAX_FRAMES] = {};   // (the depth view each set was written with)
     bool fogOn_ = false;      // this frame draws it
     float fogFar_ = 200.f;    // its last slice's end: the far end of what's in view (as the light clusters')
+    // Last frame's fog (its frame data, for the cells' history); fogHistory_: whether the other frame's volume holds it
+    Mat4 fogPrevViewProj_;
+    Vec3 fogPrevCam_, fogPrevForward_;
+    float fogPrevRange_[2] = {0.f, 0.f};
+    bool fogHistory_ = false;
     float fogNear_ = 0.1f;    // ... and the near end (the slices start at half of it: from high up, little air is
                               // in the way, and the slices are thinner where the light is)
     Image createVolume();

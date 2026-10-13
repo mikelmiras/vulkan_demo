@@ -48,6 +48,11 @@ struct FrameUBO {
     float shadowParams[4];    // x = the sun's softness, y = 1: shadow taps turned per pixel (with temporal AA)
     float fogParams[4];       // volumetric fog: x = 1 if on, y = light strength, z = anisotropy, w = height falloff
     float fogRange[4];        // its cells' slices: x = the first's start (m), y = slices / log(far / near), z = far
+    // The fog's last frame (its cells blend with what they held then): its camera, its slices (w = 1: there is one)
+    Mat4 fogPrevViewProj;
+    float fogPrevCam[4];      // xyz = where its camera was
+    float fogPrevForward[4];
+    float fogPrevRange[4];    // x = its first slice's start, y = slices / log(far / near), w = 1 if valid
     float zenith[4], ground[4];   // sky colours (linear)
     float envParams[4];       // the sky image: x = 1 if there is one, y = brightness, z = turn (radians)
     float sh[9][4];           // its irradiance (spherical harmonics, rgb)

@@ -22,6 +22,10 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 shadowParams;    // x = the sun's softness, y = 1: shadow taps turned per pixel (with temporal AA)
     vec4 fogParams;       // volumetric fog: x = 1 if on, y = light strength, z = anisotropy, w = height falloff
     vec4 fogRange;        // its cells' slices: x = the first's start (m), y = slices / log(far / near), z = far
+    mat4 fogPrevViewProj; // the fog's last frame (its cells blend with what they held then): its camera ...
+    vec4 fogPrevCam;
+    vec4 fogPrevForward;
+    vec4 fogPrevRange;    // ... and its slices (w = 1: there is one)
     vec4 zenith;          // sky overhead (linear)
     vec4 ground;          // below the horizon (linear)
     vec4 envParams;       // a sky image: x = 1 if there is one, y = brightness, z = turn around the vertical
