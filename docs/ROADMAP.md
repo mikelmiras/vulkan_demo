@@ -725,7 +725,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 60 (done) | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
 | 61 (done) | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
 | 62 (done) | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
-| 63 | Text: complex scripts and right-to-left (HarfBuzz shaping), font fallback for CJK and emoji | Latin text only renders correctly |
+| 63 (done) | Text: complex scripts and right-to-left (HarfBuzz shaping), font fallback for CJK and emoji | Latin text only renders correctly |
 | 64 | Shipping, more: an auto-updater (download, verify, swap), crash report upload (opt-in), code signing and notarization in the release workflow | Updates are announced, not applied; crashes stay on players' machines |
 
 ### Round 6 notes
@@ -942,3 +942,29 @@ Working list for turning the renderer demo into a small game engine. Each task i
   Switch pads on Windows (XInput only sees Xbox ones: Steam Input or HID would), stable slots on macOS (its
   controllers' order), players joining by pressing Start, glyphs from the platform's own (SF Symbols, Steam's),
   rebinding a stick axis as a whole, conflicts between bindings (two actions on one key are allowed).
+- Task 63: HarfBuzz 14.6.0 vendored (third_party/harfbuzz: the sources its one-file harfbuzz.cc build includes, OT/,
+  COPYING; a static library with no optional backends; 1.2 GB and 46 s to compile here, /bigobj on MSVC). game/
+  text_shaping: decodeUtf8; bidi as UAX #9 without explicit embeddings or isolates (bidi classes from ranges and
+  HarfBuzz's general categories; P2/P3, W1-W7, N1/N2, I1/I2, L1 for trailing whitespace, L2 reordering of runs);
+  needsShaping (from U+0590 on, combining marks; not Greek, Cyrillic, Armenian or U+2000-20BF: those keep Dear
+  ImGui's path, so Latin text renders exactly as before); Shaper: faces from font bytes (hb_face/hb_font at the
+  em's scale), shape() itemises by level, script (common and inherited characters join the run) and face (the
+  first of the chain with the character; marks, joiners, variation selectors and spaces stay with the run's face),
+  orders runs by L2 and shapes each with the whole line as context (hb_buffer_add_codepoints' item offset),
+  glyphs in ems, missing characters listed. Drawing: shaping gives glyph indices but Dear ImGui finds glyphs by
+  character, so game/glyph_font is an ImFontLoader baking by glyph index (stb_truetype, our own static copy, as
+  imgui_draw.cpp's loader does), an ImFont per face whose characters are glyph + 1, all sharing Roboto's baseline;
+  GameUI::text / textWidth draw shaped runs glyph by glyph (ImFont::RenderChar at HarfBuzz's positions), lines split
+  at newlines, prompts' glyphs still between runs. game/fonts keeps every face's bytes, makes glyph fonts between
+  frames, caches shaped lines (cleared when a face is added), and loads fallbacks: addFallback, the project's
+  fonts/fallback/ (sorted), then per script group of a missing character the system's (Linux: fc-match -s for
+  sans-serif:charset=<it>; Windows and macOS: their usual fonts per script), one that has the character being enough.
+  Its state now also resets when a new ImGui context's atlas lands where the old one was (the cached fonts aren't in
+  it: that crashed a later test). Checked: UTF-8 with bad bytes, bidi levels and visual order for Hebrew with numbers,
+  Arabic numbers, marks and trailing spaces, which text needs shaping, Noto Naskh Arabic (tests/assets/fonts, OFL)
+  shaped: right to left, joining forms (seen initial, meem isolated after alef, lam medial), a mark taking no
+  room, missing Latin reported; Roboto with the Arabic font as a fallback through game/fonts, glyph fonts made, GameUI
+  measuring and drawing it; a vkgame screenshot of Arabic, mixed lines with numbers both ways, harakat, right
+  alignment and a missing CJK character (validation clean). Not done: colour emoji (CBDT / sbix / COLR need FreeType
+  or more), explicit bidi controls and isolates, line breaking (UAX #14) and wrapping, text fields editing right-to-
+  left text, the editor's own panels, vertical text, per-language glyph variants (hb language from the game's).

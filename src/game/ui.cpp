@@ -3,7 +3,48 @@
 #include <algorithm>
 
 #include "game/fonts.h"
+#include "game/glyph_font.h"
 #include "game/prompts.h"
+
+namespace {
+
+// A run of text `px` pixels high: laid out by shaping when it needs it (game/text_shaping.h), else as Dear ImGui
+// lays it out. Lines split at '\n'. Its width, and drawing it.
+float runWidth(const std::string& text, float px, ImFont* font, const std::string& file) {
+    if (!font) return 0.f;
+    if (!shaping::needsShaping(text)) return font->CalcTextSizeA(px, FLT_MAX, 0.f, text.c_str()).x;
+    float widest = 0.f;
+    for (size_t at = 0; at <= text.size();) {
+        size_t end = std::min(text.find('\n', at), text.size());
+        const shaping::Shaped* sh = gamefonts::shaped(text.substr(at, end - at), file);
+        widest = std::max(widest, sh ? sh->width * px : font->CalcTextSizeA(px, FLT_MAX, 0.f, text.c_str() + at, text.c_str() + end).x);
+        at = end + 1;
+    }
+    return widest;
+}
+
+void drawRun(ImDrawList* dl, ImVec2 p, const std::string& text, float px, ImFont* font, const std::string& file, ImU32 col) {
+    // (a locked atlas, whose renderer can't take new glyphs: as it is)
+    if (!shaping::needsShaping(text) || (font && font->OwnerAtlas && font->OwnerAtlas->Locked)) {
+        dl->AddText(font, px, p, col, text.c_str());
+        return;
+    }
+    for (size_t at = 0; at <= text.size(); p.y += px) {
+        size_t end = std::min(text.find('\n', at), text.size());
+        std::string line = text.substr(at, end - at);
+        at = end + 1;
+        const shaping::Shaped* sh = gamefonts::shaped(line, file);
+        if (!sh) {
+            dl->AddText(font, px, p, col, line.c_str());
+            continue;
+        }
+        for (const shaping::Glyph& g : sh->glyphs)   // (each face's glyphs through its font by glyph index)
+            if (ImFont* gf = gamefonts::glyphFont(g.face))
+                gf->RenderChar(dl, px, ImVec2(p.x + g.x * px, p.y + g.y * px), col, glyphfont::charFor(g.glyph));
+    }
+}
+
+}  // namespace
 
 void GameUI::begin(ImDrawList* dl, float x, float y, float w, float h, bool mouse) {
     dl_ = dl;
@@ -37,11 +78,10 @@ void GameUI::border(float x, float y, float w, float h, Color color, float thick
 float GameUI::textWidth(const std::string& text, float size, const std::string& fontFile) const {
     ImFont* font = gamefonts::font(fontFile);
     if (!font) return 0.f;
-    if (!prompts::hasGlyphs(text)) return font->CalcTextSizeA(size * scale_, FLT_MAX, 0.f, text.c_str()).x / scale_;
+    if (!prompts::hasGlyphs(text)) return runWidth(text, size * scale_, font, fontFile) / scale_;
     float w = 0.f;   // (button prompts: the runs of text and the glyphs between them)
     for (const prompts::Piece& p : prompts::split(text))
-        w += p.kind == prompts::Piece::Text ? font->CalcTextSizeA(size * scale_, FLT_MAX, 0.f, p.text.c_str()).x
-                                            : prompts::glyphWidth(p, size * scale_, font);
+        w += p.kind == prompts::Piece::Text ? runWidth(p.text, size * scale_, font, fontFile) : prompts::glyphWidth(p, size * scale_, font);
     return w / scale_;
 }
 
@@ -54,15 +94,15 @@ void GameUI::text(float x, float y, const std::string& text, float size, Color c
     float px = size * scale_, off = std::max(1.f, size * 0.06f) * scale_;
     ImVec2 p = toScreen(x, y);
     if (!prompts::hasGlyphs(text)) {
-        dl_->AddText(font, px, ImVec2(p.x + off, p.y + off), rgba({0.f, 0.f, 0.f, color.a * 0.6f}), text.c_str());
-        dl_->AddText(font, px, p, rgba(color), text.c_str());
+        drawRun(dl_, ImVec2(p.x + off, p.y + off), text, px, font, fontFile, rgba({0.f, 0.f, 0.f, color.a * 0.6f}));
+        drawRun(dl_, p, text, px, font, fontFile, rgba(color));
         return;
     }
     for (const prompts::Piece& piece : prompts::split(text)) {   // (the glyphs drawn in their own colours)
         if (piece.kind == prompts::Piece::Text) {
-            dl_->AddText(font, px, ImVec2(p.x + off, p.y + off), rgba({0.f, 0.f, 0.f, color.a * 0.6f}), piece.text.c_str());
-            dl_->AddText(font, px, p, rgba(color), piece.text.c_str());
-            p.x += font ? font->CalcTextSizeA(px, FLT_MAX, 0.f, piece.text.c_str()).x : 0.f;
+            drawRun(dl_, ImVec2(p.x + off, p.y + off), piece.text, px, font, fontFile, rgba({0.f, 0.f, 0.f, color.a * 0.6f}));
+            drawRun(dl_, p, piece.text, px, font, fontFile, rgba(color));
+            p.x += runWidth(piece.text, px, font, fontFile);
         } else {
             prompts::drawGlyph(dl_, font, p, px, piece, color.a);
             p.x += prompts::glyphWidth(piece, px, font);

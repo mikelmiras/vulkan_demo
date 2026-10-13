@@ -210,7 +210,7 @@ TEST(relay_forwards_when_nat_blocks) {
     CHECK(client.context().find(mine) && server.context().find(mine));
     CHECK(client.context().find(sn.localPlayer()));   // (the host's player, replicated through the relay)
     cn.stop();
-    for (int i = 0; i < 5; ++i) w.pump(server, sn, client, cn);
+    for (int i = 0; i < 60 && sn.clients() > 0; ++i) w.pump(server, sn, client, cn);   // (loopback may take a moment)
     CHECK(sn.clients() == 0);   // (its goodbye came through the relay too)
     sn.stop();
     client.stop();

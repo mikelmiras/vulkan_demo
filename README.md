@@ -7,7 +7,7 @@ A small Vulkan 1.3 3D scene with a Blender-style editing UI, in C++17.
 - Scripting: [Lua](https://www.lua.org) 5.4.7 (`third_party/lua`, MIT)
 - UI: [Dear ImGui](https://github.com/ocornut/imgui) v1.92.9b (docking branch) + [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo);
   images: [stb_image](https://github.com/nothings/stb) v2.30; glTF: [cgltf](https://github.com/jkuhlmann/cgltf) v1.14;
-  audio: [miniaudio](https://miniaud.io) v0.11.21.
+  audio: [miniaudio](https://miniaud.io) v0.11.21; text shaping: [HarfBuzz](https://harfbuzz.github.io) 14.6.0.
   All vendored in `third_party/` and compiled into the binary.
 
 ## Build & run
@@ -929,6 +929,17 @@ HudText, HudBar and PauseMenu translate `{@key}`s (the pause menu's buttons use 
 `pause.load`, `pause.quit`). The project's language (project.json `"language"`, Game > Language in the editor) is
 what the game starts in; `vkgame --language es` overrides it. The sample game has English and Spanish.
 
+**Every script**: text in the game's UI that needs it (Arabic, Hebrew, the Indic scripts, Thai, combining marks, CJK,
+emoji) is **shaped** with HarfBuzz: letters join and take their contextual forms, ligatures form, marks sit on their
+letters, and right-to-left text runs right to left (the Unicode Bidirectional Algorithm, without explicit embedding
+controls: a line's direction is its first strong character's, numbers keep their order inside right-to-left text).
+Latin, Greek and Cyrillic text is drawn as before. Characters the font lacks come from **fallback fonts**: the
+project's own first (`fonts/fallback/*.ttf`, `.otf` or `.ttc`, in name order: ship the fonts your languages need,
+the safest way), then the system's for that script (fontconfig on Linux, the usual Windows and macOS fonts), loaded
+the first time the script turns up. Alignment stays the game's choice (`Align::Right` for right-to-left menus).
+Not there: colour emoji (outline emoji fonts only, such as Segoe UI Emoji's or Noto Emoji), shaping in the editor's own
+panels and in text fields being edited, vertical text, line breaking by script rules.
+
 ### Game modules: a project's own code
 
 A game's behaviours don't go into the engine: they live in the project, built as a **game module** (a shared
@@ -1183,7 +1194,7 @@ Includes are relative to `src/`.
 | `src/scene/`               | Entities, components and hierarchy (`scene.*`); behaviour base class and registry (`behaviour.*`); JSON save/load (`serialization.*`); terrains (`terrain.*`); new projects from templates (`project_templates.*`) |
 | `src/audio/`               | Sound playback (miniaudio), built-in synthesised clips          |
 | `src/physics/`             | `physics.*`: the scene's physics on Jolt Physics: rigid bodies, raycasts, overlaps, triggers, characters |
-| `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), built-in behaviours, game module loading (`module.*`) |
+| `src/game/`                | Game runtime: fixed-timestep loop and GameContext (`game.*`), input actions (`input.*`), button prompts (`prompts.*`), game UI and fonts (`ui.*`, `fonts.*`, text shaping and bidi in `text_shaping.*`), built-in behaviours, game module loading (`module.*`) |
 | `src/script/`              | `lua_script.*`: Lua behaviours (the scripts/ folder, the Lua API, hot reload)   |
 | `src/net/`                 | `udp.*` sockets, `net_session.*` multiplayer: hosting, joining, replication, remote input; `relay.*` lobbies, NAT traversal |
 | `src/relay/main.cpp`       | The relay server (`vkrelay`)                                    |

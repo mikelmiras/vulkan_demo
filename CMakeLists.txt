@@ -100,6 +100,17 @@ add_custom_target(build_info
   BYPRODUCTS ${BUILD_INFO_SOURCE}
   COMMENT "Version and commit")
 
+# HarfBuzz 14.6.0 (vendored, MIT-style "Old MIT"): text shaping (game/text_shaping.h), its one-file build, no
+# optional backends (FreeType, ICU, CoreText, DirectWrite: off without their HAVE_* defines)
+add_library(harfbuzz STATIC ${CMAKE_SOURCE_DIR}/third_party/harfbuzz/src/harfbuzz.cc)
+target_include_directories(harfbuzz PUBLIC ${CMAKE_SOURCE_DIR}/third_party/harfbuzz/src)
+set_target_properties(harfbuzz PROPERTIES POSITION_INDEPENDENT_CODE ON CXX_VISIBILITY_PRESET hidden)
+if(MSVC)
+  target_compile_options(harfbuzz PRIVATE /w /bigobj)
+else()
+  target_compile_options(harfbuzz PRIVATE -w)
+endif()
+
 # Lua 5.4.7, compiled as C++ so its errors unwind as exceptions through our code (no warnings from it)
 # (without the libraries scripts don't get: os, io, debug, package loading, and linit's luaL_openlibs)
 file(GLOB LUA_SOURCES ${CMAKE_SOURCE_DIR}/third_party/lua/src/*.c)
@@ -146,6 +157,8 @@ set(ENGINE_SOURCES
   src/game/module.cpp
   src/game/ui.cpp
   src/game/prompts.cpp
+  src/game/text_shaping.cpp
+  src/game/glyph_font.cpp
   src/game/ui_layout.cpp
   src/game/animation.cpp
   src/game/particles.cpp
@@ -218,7 +231,7 @@ function(vkworld_engine_target name type)
                                              ${CMAKE_SOURCE_DIR}/third_party/miniaudio ${CMAKE_SOURCE_DIR}/third_party/lua/src)
   target_link_libraries(${name} PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
   # The ImGui objects go into the engine (PRIVATE: users get them through it, not a second copy); its headers are public
-  target_link_libraries(${name} PRIVATE imgui Jolt)
+  target_link_libraries(${name} PRIVATE imgui Jolt harfbuzz)
   target_include_directories(${name} PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends ${IMGUIZMO_DIR})
   target_link_libraries(${name} PUBLIC Vulkan::Vulkan)
   if(WIN32)
@@ -370,6 +383,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_network.cpp
     tests/test_relay.cpp
     tests/test_gamepads.cpp
+    tests/test_text_shaping.cpp
     src/editor/editor_prefs.cpp
     tests/test_core.cpp
     tests/test_assets.cpp
