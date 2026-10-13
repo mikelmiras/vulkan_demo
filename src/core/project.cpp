@@ -114,6 +114,9 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
         build.package = b["package"].asBool(build.package);
         build.updatePack = b["updatePack"].asBool(build.updatePack);
         build.shipping = b["shipping"].asBool(build.shipping);
+        build.cook = b["cook"].asBool(build.cook);
+        std::string compression = b["textureCompression"].asString();
+        if (compression == "bc7" || compression == "bc1" || compression == "none") build.textureCompression = compression;
         build.out = b["out"].asString().empty() ? "builds/" + build.name : b["out"].asString();
         s.builds.push_back(build);
     }
@@ -147,6 +150,8 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
             v.set("package", b.package);
             v.set("updatePack", b.updatePack);
             v.set("shipping", b.shipping);
+            v.set("cook", b.cook);
+            v.set("textureCompression", b.textureCompression);
             v.set("out", b.out);
             list.push(std::move(v));
         }

@@ -12,10 +12,12 @@ uint32_t mipCount(uint32_t width, uint32_t height) {
     return mips;
 }
 
-uint64_t chainBytes(uint32_t width, uint32_t height, uint32_t first, uint32_t mips) {
+uint64_t chainBytes(uint32_t width, uint32_t height, uint32_t first, uint32_t mips, uint32_t blockBytes) {
     uint64_t bytes = 0;
-    for (uint32_t m = first; m < mips; ++m)
-        bytes += (uint64_t)std::max(width >> m, 1u) * std::max(height >> m, 1u) * 4;
+    for (uint32_t m = first; m < mips; ++m) {
+        uint64_t w = std::max(width >> m, 1u), h = std::max(height >> m, 1u);
+        bytes += blockBytes ? (w + 3) / 4 * ((h + 3) / 4) * blockBytes : w * h * 4;
+    }
     return bytes;
 }
 
@@ -35,7 +37,7 @@ std::vector<uint32_t> plan(const std::vector<TextureState>& textures, const Sett
         floorLevel[i] = t.pinned ? 0 : std::min(levelForSize(t.width, t.height, settings.startSize), last);
         bool recent = t.wanted < t.mips && now - t.lastWanted <= settings.forgetAfter;
         target[i] = t.pinned ? 0 : recent ? std::min(t.wanted, floorLevel[i]) : floorLevel[i];
-        total += chainBytes(t.width, t.height, target[i], t.mips);
+        total += chainBytes(t.width, t.height, target[i], t.mips, t.blockBytes);
     }
     if (total <= settings.budget) return target;
     // Over budget: the least recently needed first (then the largest), a level at a time, round after round
@@ -43,8 +45,8 @@ std::vector<uint32_t> plan(const std::vector<TextureState>& textures, const Sett
     std::iota(order.begin(), order.end(), 0);
     std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
         if (textures[a].lastWanted != textures[b].lastWanted) return textures[a].lastWanted < textures[b].lastWanted;
-        return chainBytes(textures[a].width, textures[a].height, target[a], textures[a].mips) >
-               chainBytes(textures[b].width, textures[b].height, target[b], textures[b].mips);
+        return chainBytes(textures[a].width, textures[a].height, target[a], textures[a].mips, textures[a].blockBytes) >
+               chainBytes(textures[b].width, textures[b].height, target[b], textures[b].mips, textures[b].blockBytes);
     });
     for (bool dropped = true; total > settings.budget && dropped;) {
         dropped = false;
@@ -52,9 +54,9 @@ std::vector<uint32_t> plan(const std::vector<TextureState>& textures, const Sett
             if (total <= settings.budget) break;
             const TextureState& t = textures[i];
             if (t.pinned || target[i] >= floorLevel[i]) continue;
-            uint64_t before = chainBytes(t.width, t.height, target[i], t.mips);
+            uint64_t before = chainBytes(t.width, t.height, target[i], t.mips, t.blockBytes);
             ++target[i];
-            total -= before - chainBytes(t.width, t.height, target[i], t.mips);
+            total -= before - chainBytes(t.width, t.height, target[i], t.mips, t.blockBytes);
             dropped = true;
         }
     }

@@ -119,6 +119,18 @@ product, publisher, version, copyright), on macOS the bundle's `Info.plist` (ide
 the project's name, version, *publisher* and *identifier* (Project Settings). Games and the editor keep the GPU's
 compiled pipelines between runs (`pipelines.cache` in the user's data folder), so later starts are quicker.
 
+**Cooked assets** (a build profile's *Cook assets*, on by default; `--cook` or `--textures bc7|bc1|none` with
+`--export`): the build ships textures and models ready for the GPU instead of their sources. Every image a scene
+or prefab uses as a texture becomes `<image>.vktex`: its mip levels made at build time (filtered in linear light,
+its import settings applied) and **block compressed**, BC7 by default (8 bits a pixel instead of 32, close to the
+original), or BC1 (4 bits; BC3 for images with alpha) for the smallest, or uncompressed with the mips baked. Every
+glTF model becomes `<model>.vkmodel`: the meshes as the importer makes them, LODs included, its images cooked and
+its animation clips, copied straight into memory at load with no parsing. Loading looks for the cooked file first,
+so scenes still name their sources; an image also named outside a texture list (an icon, a sky, a height map, a
+path in a script) is shipped as it is too. Texture streaming keeps working (the levels are uploaded from the cooked
+file) and counts compressed bytes against its budget; a GPU without BC support gets the textures decoded at load
+(`VKWORLD_BC=0` does that on any GPU, to try it).
+
 **Update checks**: with an `"updateUrl"` in `project.json`, the game asks it at start (in the background) whether
 there's a newer `gameVersion`. It serves `{"version": "1.1.0", "url": "https://...", "notes": "..."}`, or it's a
 GitHub API `.../releases/latest` URL. When there is, the game state gets `update.available`, `update.version`,

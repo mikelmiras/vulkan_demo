@@ -50,5 +50,7 @@ bool importGltf(const std::string& path, MeshLibrary& meshes, TextureLibrary& te
 bool importGltfMeshes(MeshLibrary& meshes, const std::string& path, std::string& error);
 bool importGltfImages(TextureLibrary& textures, const std::string& path, std::string& error);
 bool importGltfAnimations(MeshLibrary& meshes, const std::string& path, std::string& error);
+// Each image's own file when it has one next to the model ("" for one inside it: a .glb's buffer, a data: URI)
+bool gltfImageFiles(const std::string& path, std::vector<std::string>& files, std::string& error);
 // A clip from its source ("model.glb#anim1"): its index in meshes.animations, or -1 with `error`
 int importAnimationClip(MeshLibrary& meshes, const std::string& source, std::string& error);

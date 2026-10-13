@@ -1010,7 +1010,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 65 (done) | Editor power use: redraw only when something changes (input, edits, animations, playing), throttled while unfocused or idle, a frame-rate cap, a "realtime viewport" toggle, the integrated GPU on dual-GPU Macs | The editor renders the whole scene at the display's refresh rate even when idle: a laptop heats up with nothing happening |
 | 66 (done) | Projects: a project launcher at startup (recent projects, new from a template, open), a Project Settings window for everything in project.json, the engine version a project was made with, generated files kept apart from the project's own | The editor opens straight into the demo; project.json is edited by hand |
 | 67 (done) | Builds: a Build Settings window with per-platform profiles, per-game executable metadata (Windows version resources, macOS bundle id and version), a shipping configuration without the developer tools, a pipeline cache | Exports are vkgame renamed with the project's source files beside it |
-| 68 | Asset cooking at export: textures GPU-compressed (BC1 / BC3 / BC7, ASTC where that's what the GPU has) with their mips baked, models in a binary format read without parsing, the renderer and texture streaming using them | Exports ship source PNGs and glTF files that every start decodes, resizes and mips again, and textures take four bytes a pixel on the GPU |
+| 68 (done) | Asset cooking at export: textures GPU-compressed (BC1 / BC3 / BC7, ASTC where that's what the GPU has) with their mips baked, models in a binary format read without parsing, the renderer and texture streaming using them | Exports ship source PNGs and glTF files that every start decodes, resizes and mips again, and textures take four bytes a pixel on the GPU |
 | 69 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
 | 70 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
 | 71 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
@@ -1081,3 +1081,28 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   screenshot of Build Settings. Asset cooking became task 68. Not done: builds for other platforms than the one
   running, signing as part of a profile (the release workflow signs the engine's own), a progress bar while
   building, per-profile settings (a different start scene or defines).
+- **68, asset cooking** (`assets/bc_codec.*`, `assets/cooking.*`, `app/export.cpp`, `render/renderer_textures.cpp`):
+  a build profile's *Cook assets* (on by default; `--cook` / `--textures bc7|bc1|none` with `--export`) swaps
+  sources for cooked files. Textures: the images scenes and prefabs list as textures become `<image>.vktex`, every
+  mip level made at build time (streaming's linear-light box filter, import settings applied) and block compressed
+  by the engine's own encoder: BC7 mode 6 (end points from the block's principal axis, least squares refinement on
+  the indices, the best of the four p-bit choices), or BC1 / BC3 (alpha in eight steps) for "bc1", or RGBA8 for
+  "none". An image whose path appears more often in the project's text files than in texture lists (a sky, an icon,
+  a height map, a script) ships its source too. Models: each glTF becomes `<model>.vkmodel`, the vertex, skin and
+  index arrays as the importer leaves them (LODs included) copied in with one memcpy each, mesh records, clips, and
+  images cooked in (or named by path when they're files of their own, as Kenney's shared colormap is: one copy, not
+  one per model). The texture loader and the glTF importers look for the cooked file first, so scenes still name
+  sources. The renderer uploads cooked levels as they are (copies, no blits) into BC images with a UNORM view beside
+  the sRGB one; streaming picks levels from the cooked chain and counts compressed bytes against its budget; a GPU
+  without textureCompressionBC (or `VKWORLD_BC=0`) gets them decoded at load. Loading a scene in the background now
+  copies a mesh's LODs instead of making them again. Bug found on the way: exports left out every file whose name
+  started with "build" (meant for build folders), so all of Night Drive's building-*.glb models were missing from
+  its exports; only folders are matched now. Checked: codec round trips (errors per channel), flat blocks exact,
+  cooked textures and models read back equal to the import (vertices, skins, LODs, clips), damaged files refused,
+  the loaders preferring cooked files with the sources gone, which images an export cooks; Night Drive exported
+  cooked (45 files in 0.45 s; its models folder goes from 3.8 MB to 4.3 MB, raw arrays with LODs being bigger
+  than glTF's, packs compress them; its textures take a quarter of the GPU memory) and run under validation with BC
+  and with VKWORLD_BC=0: 150 pixels of 1.44 million differ from the uncooked game, none between the two. Not
+  done: ASTC (no target GPU lacks BC), BC7's partitioned modes (a block with two unrelated gradients is fitted
+  with one line), BC5 for normal maps, cooking in parallel, terrain height maps and sky images (read as files),
+  .gltf files' .bin buffers still shipped beside their cooked model.

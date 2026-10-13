@@ -34,6 +34,11 @@ struct ExportOptions {
     // A shipping build: the game runs without the developer tools (vkgame's F3 profiler and frame counter, the Lua
     // debugger, --trace, the validation layer), as build.json in its data says
     bool shipping = false;
+    // Cooked assets (assets/cooking.h) in place of their sources: the images scenes and prefabs use as textures
+    // (block compressed as `textureCompression` says, "bc7", "bc1" or "none", their mips baked; an image also named
+    // elsewhere, an icon, a sky, a height map, a path in a script, keeps its source too) and every glTF model
+    bool cook = false;
+    std::string textureCompression = "bc7";
 };
 
 struct ExportResult {
@@ -44,6 +49,7 @@ struct ExportResult {
     std::filesystem::path package;      // (ExportOptions::package) the AppImage, .dmg or installer made
     std::filesystem::path updatePack;   // (ExportOptions::updatePack) the .vkwupdate made
     std::string updateSha256;           // ... and its digest
+    int cooked = 0;                     // (ExportOptions::cook) textures and models cooked
 };
 
 // Icons: a PNG's size (false if it isn't a PNG), and the PNG wrapped as a Windows .ico or a macOS .icns (both

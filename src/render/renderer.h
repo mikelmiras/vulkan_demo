@@ -238,12 +238,14 @@ private:
         mutable bool pinned = false;             // always whole: no mipmaps, shown by the UI, a terrain's layer
         uint32_t wanted = ~0u;                   // the finest level reported lately (~0: none)
         double lastWanted = -1e9;
+        uint32_t blockBytes = 0;                 // block compressed on the GPU: bytes a 4 x 4 block (0: RGBA8)
     };
     void reuploadChangedTextures();
     // Texture streaming (renderer_textures.cpp): the shaders' reports (binding 19, one buffer per frame in flight),
     // read back when the frame's buffer comes round again; textures remade with more or fewer levels a few at a
     // time, the old images kept until the frames using them are done
     bool streamingSupported_ = false, streaming_ = true;
+    bool bcSupported_ = false;   // the GPU samples BC1 / BC3 / BC7 (cooked textures upload as they are)
     streaming::Settings streamSettings_;
     Buffer feedback_[MAX_FRAMES];
     std::vector<GpuTexture> retiredTextures_[MAX_FRAMES];
@@ -343,6 +345,9 @@ private:
     // `first`: the full chain's finest level to hold (texture streaming: smaller, the levels below it)
     GpuTexture createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame = VK_NULL_HANDLE,
                              bool mipmaps = true, uint32_t first = 0);
+    // A library texture: from its rgba as above, or its cooked levels as they are (decoded first without BC support)
+    GpuTexture createTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first);
+    GpuTexture createCookedTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first);
     void destroyTexture(GpuTexture& t);
     VkCommandBuffer beginOneTimeCommands();
     void endOneTimeCommands(VkCommandBuffer cb);

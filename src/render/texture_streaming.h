@@ -17,12 +17,13 @@ struct TextureState {
     uint32_t wanted = 0;              // the finest level asked for lately (mips: none)
     double lastWanted = -1e9;         // when it last was (seconds)
     bool pinned = false;              // always whole (UI images, terrains, textures without mipmaps)
+    uint32_t blockBytes = 0;          // block compressed (cooked): bytes a 4 x 4 block; 0: RGBA8
 };
 
 // Levels in a full chain for a w x h image (with mipmaps)
 uint32_t mipCount(uint32_t width, uint32_t height);
-// Bytes of an RGBA8 chain from level `first` down to 1 x 1
-uint64_t chainBytes(uint32_t width, uint32_t height, uint32_t first, uint32_t mips);
+// Bytes of a chain from level `first` down to 1 x 1: RGBA8, or `blockBytes` a 4 x 4 block (block compressed)
+uint64_t chainBytes(uint32_t width, uint32_t height, uint32_t first, uint32_t mips, uint32_t blockBytes = 0);
 // The finest level whose larger side is at most `size` (where streamed textures start)
 uint32_t levelForSize(uint32_t width, uint32_t height, uint32_t size);
 

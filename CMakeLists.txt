@@ -135,6 +135,8 @@ set(ENGINE_SOURCES
   src/assets/meshes.cpp
   src/assets/animation.cpp
   src/assets/textures.cpp
+  src/assets/bc_codec.cpp
+  src/assets/cooking.cpp
   src/assets/asset_db.cpp
   src/assets/gltf.cpp
   src/scene/behaviour.cpp
@@ -401,6 +403,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_project.cpp
     tests/test_templates.cpp
     tests/test_streaming.cpp
+    tests/test_cooking.cpp
     tests/test_display.cpp
     tests/test_module.cpp
     tests/test_scene_flow.cpp

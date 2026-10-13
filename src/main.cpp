@@ -51,6 +51,11 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(argv[i], "--single-file")) exportOptions.layout = ExportOptions::Layout::SingleFile;
         else if (!std::strcmp(argv[i], "--package")) exportOptions.package = true;
         else if (!std::strcmp(argv[i], "--update-pack")) exportOptions.updatePack = true;
+        else if (!std::strcmp(argv[i], "--cook")) exportOptions.cook = true;   // (textures and models cooked)
+        else if (!std::strcmp(argv[i], "--textures") && i + 1 < argc) {   // ... compressed as bc7, bc1 or none
+            exportOptions.cook = true;
+            exportOptions.textureCompression = argv[++i];
+        }
         else scenePath = argv[i];
     }
 
@@ -82,6 +87,7 @@ int main(int argc, char** argv) {
         for (const std::string& w : result.warnings) std::fprintf(stderr, "warning: %s\n", w.c_str());
         std::printf("Exported %d files%s; the game: %s\n", result.files, result.standalone ? " (standalone)" : "",
                     result.executable.u8string().c_str());
+        if (result.cooked) std::printf("Cooked %d textures and models\n", result.cooked);
         if (!result.package.empty()) std::printf("Packaged: %s\n", result.package.u8string().c_str());
         if (!result.updatePack.empty())
             std::printf("Update pack: %s (sha256 %s)\n", result.updatePack.u8string().c_str(), result.updateSha256.c_str());

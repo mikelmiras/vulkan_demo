@@ -1,4 +1,5 @@
 #include "assets/gltf.h"
+#include "assets/cooking.h"
 #include "assets/mesh_lod.h"
 
 #include <algorithm>
@@ -299,11 +300,39 @@ void importAnimations(MeshLibrary& lib, const cgltf_data& data, const std::strin
 
 }  // namespace
 
+namespace {
+
+// Exports ship models cooked (assets/cooking.h): read instead of the glTF file when they're there
+bool readCooked(const std::string& path, MeshLibrary* meshes, TextureLibrary* textures, MeshLibrary* clips, std::string& error,
+                bool& found) {
+    std::string bytes;
+    found = vfs::read(cook::modelPath(path), bytes);
+    return found && cook::readModel(bytes, canonical(path), meshes, textures, clips, error);
+}
+
+}  // namespace
+
 bool importGltfAnimations(MeshLibrary& meshes, const std::string& path, std::string& error) {
+    bool cooked = false;
+    if (bool ok = readCooked(path, nullptr, nullptr, &meshes, error, cooked); cooked) return ok;
     Data data = load(path, error);
     if (!data) return false;
     std::vector<std::string> names;
     importAnimations(meshes, *data, canonical(path), names);
+    return true;
+}
+
+bool gltfImageFiles(const std::string& path, std::vector<std::string>& files, std::string& error) {
+    Data data = load(path, error);
+    if (!data) return false;
+    files.assign(data->images_count, std::string());
+    for (size_t i = 0; i < data->images_count; ++i) {
+        const cgltf_image& img = data->images[i];
+        if (img.buffer_view || !img.uri || std::strncmp(img.uri, "data:", 5) == 0) continue;
+        std::vector<char> uri(img.uri, img.uri + std::strlen(img.uri) + 1);
+        cgltf_decode_uri(uri.data());
+        files[i] = (fs::path(path).parent_path() / fs::u8path(uri.data())).u8string();
+    }
     return true;
 }
 
@@ -320,6 +349,8 @@ int importAnimationClip(MeshLibrary& meshes, const std::string& source, std::str
 }
 
 bool importGltfMeshes(MeshLibrary& meshes, const std::string& path, std::string& error) {
+    bool cooked = false;
+    if (bool ok = readCooked(path, &meshes, nullptr, nullptr, error, cooked); cooked) return ok;
     Data data = load(path, error);
     if (!data) return false;
     std::vector<std::vector<int>> ids;
@@ -328,6 +359,8 @@ bool importGltfMeshes(MeshLibrary& meshes, const std::string& path, std::string&
 }
 
 bool importGltfImages(TextureLibrary& textures, const std::string& path, std::string& error) {
+    bool cooked = false;
+    if (bool ok = readCooked(path, nullptr, &textures, nullptr, error, cooked); cooked) return ok;
     Data data = load(path, error);
     if (!data) return false;
     std::vector<int> ids;

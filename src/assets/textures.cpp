@@ -6,6 +6,7 @@
 #include <filesystem>
 
 #include "core/vfs.h"
+#include "assets/cooking.h"
 #include "assets/gltf.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -170,10 +171,15 @@ void shrink(std::vector<uint8_t>& rgba, uint32_t& w, uint32_t& h, uint32_t maxSi
     h = th;
 }
 
-// An image file decoded, with its import settings applied
+// An image file decoded, with its import settings applied; or its cooked version (an export's), as it is
 bool decodeImageFile(const std::string& path, Texture& t, std::string& error) {
     int w = 0, h = 0, channels = 0;
     std::string bytes;
+    if (vfs::read(cook::texturePath(path), bytes)) {
+        if (cook::readTexture(bytes, t, error)) return true;
+        error = path + ": " + error;
+        return false;
+    }
     stbi_uc* pixels = vfs::read(path, bytes) ? stbi_load_from_memory((const stbi_uc*)bytes.data(), (int)bytes.size(), &w,
                                                                      &h, &channels, 4)
                                              : nullptr;
@@ -206,6 +212,8 @@ int loadTexture(TextureLibrary& lib, const std::string& path, std::string& error
     int id = addTexture(lib, fs::path(path).stem().u8string(), source, t.width, t.height, std::move(t.rgba));
     lib.textures[(size_t)id].nearest = t.nearest;
     lib.textures[(size_t)id].mipmaps = t.mipmaps;
+    lib.textures[(size_t)id].format = t.format;
+    lib.textures[(size_t)id].levels = std::move(t.levels);
     return id;
 }
 
@@ -220,6 +228,8 @@ int reloadTexture(TextureLibrary& lib, int id, std::string& error) {
     t.height = fresh.height;
     t.nearest = fresh.nearest;
     t.mipmaps = fresh.mipmaps;
+    t.format = fresh.format;
+    t.levels = std::move(fresh.levels);
     ++t.revision;
     ++lib.version;
     return id;

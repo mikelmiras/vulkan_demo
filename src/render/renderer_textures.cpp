@@ -10,6 +10,23 @@
 
 using namespace render_detail;
 
+namespace {
+
+void imageBarrier(VkCommandBuffer cb, VkImage image, uint32_t mip, uint32_t count, VkImageLayout from, VkImageLayout to,
+                  VkPipelineStageFlags srcStage, VkAccessFlags srcAccess, VkPipelineStageFlags dstStage, VkAccessFlags dstAccess) {
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = srcAccess;
+    b.dstAccessMask = dstAccess;
+    b.oldLayout = from;
+    b.newLayout = to;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, count, 0, 1};
+    vkCmdPipelineBarrier(cb, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+}
+
+}  // namespace
+
 // Uploads RGBA8 sRGB pixels to a device-local image with a full mip chain (when the format can be blitted)
 Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame,
                                              bool mipmaps, uint32_t first) {
@@ -42,15 +59,7 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
     auto barrier = [&](VkCommandBuffer cb, uint32_t mip, uint32_t count, VkImageLayout from, VkImageLayout to,
                        VkPipelineStageFlags srcStage, VkAccessFlags srcAccess, VkPipelineStageFlags dstStage,
                        VkAccessFlags dstAccess) {
-        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        b.srcAccessMask = srcAccess;
-        b.dstAccessMask = dstAccess;
-        b.oldLayout = from;
-        b.newLayout = to;
-        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = t.image.image;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, count, 0, 1};
-        vkCmdPipelineBarrier(cb, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &b);
+        imageBarrier(cb, t.image.image, mip, count, from, to, srcStage, srcAccess, dstStage, dstAccess);
     };
     VkCommandBuffer cb = frame ? frame : beginOneTimeCommands();
     barrier(cb, 0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
@@ -89,6 +98,67 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
     return t;
 }
 
+Renderer::GpuTexture Renderer::createTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first) {
+    if (tex.cooked()) return createCookedTexture(tex, frame, first);
+    return createTexture(tex.rgba.data(), tex.width, tex.height, frame, tex.mipmaps, first);
+}
+
+// Cooked levels (assets/cooking.h) copied in as they are: from `first` down, no blits
+Renderer::GpuTexture Renderer::createCookedTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first) {
+    const uint32_t fullMips = (uint32_t)tex.levels.size();
+    first = std::min(first, fullMips - 1);
+    const uint32_t mips = fullMips - first;
+    bc::Format format = tex.format;
+    const bool decode = format != bc::Format::RGBA8 && !bcSupported_;   // (no BC on this GPU: plain pixels)
+    if (decode) format = bc::Format::RGBA8;
+    VkFormat srgb = VK_FORMAT_R8G8B8A8_SRGB, unorm = VK_FORMAT_R8G8B8A8_UNORM;
+    if (format == bc::Format::BC1) { srgb = VK_FORMAT_BC1_RGBA_SRGB_BLOCK; unorm = VK_FORMAT_BC1_RGBA_UNORM_BLOCK; }
+    if (format == bc::Format::BC3) { srgb = VK_FORMAT_BC3_SRGB_BLOCK; unorm = VK_FORMAT_BC3_UNORM_BLOCK; }
+    if (format == bc::Format::BC7) { srgb = VK_FORMAT_BC7_SRGB_BLOCK; unorm = VK_FORMAT_BC7_UNORM_BLOCK; }
+
+    // The levels one after the other in the staging buffer
+    std::vector<uint8_t> bytes;
+    std::vector<VkBufferImageCopy> copies;
+    for (uint32_t m = first; m < fullMips; ++m) {
+        uint32_t w = std::max(tex.width >> m, 1u), h = std::max(tex.height >> m, 1u);
+        VkBufferImageCopy copy{};
+        copy.bufferOffset = bytes.size();
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - first, 0, 1};
+        copy.imageExtent = {w, h, 1};
+        copies.push_back(copy);
+        if (decode) {
+            std::vector<uint8_t> px = bc::decode(tex.format, tex.levels[m].data(), w, h);
+            bytes.insert(bytes.end(), px.begin(), px.end());
+        } else {
+            bytes.insert(bytes.end(), tex.levels[m].begin(), tex.levels[m].end());
+        }
+    }
+    GpuTexture t;
+    t.first = first;
+    t.mips = fullMips;
+    t.blockBytes = bc::blockBytes(format);
+    t.image = createImage(srgb, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
+                          std::max(tex.width >> first, 1u), std::max(tex.height >> first, 1u), VK_SAMPLE_COUNT_1_BIT, mips,
+                          VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT);
+    t.linear = createView(t.image.image, unorm, VK_IMAGE_ASPECT_COLOR_BIT, mips);
+    Buffer staging = createBuffer(bytes.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, bytes.data());
+    VkCommandBuffer cb = frame ? frame : beginOneTimeCommands();
+    imageBarrier(cb, t.image.image, 0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+    vkCmdCopyBufferToImage(cb, staging.buffer, t.image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, (uint32_t)copies.size(),
+                           copies.data());
+    imageBarrier(cb, t.image.image, 0, mips, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                 VK_ACCESS_SHADER_READ_BIT);
+    if (frame) {
+        retired_[frame_].push_back(staging);
+    } else {
+        endOneTimeCommands(cb);
+        destroyBuffer(staging);
+    }
+    return t;
+}
+
 void Renderer::destroyTexture(GpuTexture& t) {
     if (t.linear) vkDestroyImageView(device_, t.linear, nullptr);
     destroyImage(t.image);   // the descriptor set goes with its pool
@@ -106,7 +176,7 @@ void Renderer::reuploadChangedTextures() {
         const Texture& tex = textures_->get((int)i);
         GpuTexture old = gpuTextures_[i];
         destroyTexture(gpuTextures_[i]);
-        gpuTextures_[i] = createTexture(tex.rgba.data(), tex.width, tex.height, VK_NULL_HANDLE, tex.mipmaps, old.first);
+        gpuTextures_[i] = createTexture(tex, VK_NULL_HANDLE, old.first);
         gpuTextures_[i].revision = tex.revision;
         gpuTextures_[i].nearest = tex.nearest;
         gpuTextures_[i].pinned = old.pinned || !tex.mipmaps;
@@ -138,11 +208,12 @@ void Renderer::uploadTextures(VkCommandBuffer frame) {
         const Texture& tex = textures_->get((int)gpuTextures_.size());
         // Streamed: starting with the levels up to startSize across, the finer ones once something needs them
         uint32_t first = streaming_ && tex.mipmaps ? streaming::levelForSize(tex.width, tex.height, streamSettings_.startSize) : 0;
-        gpuTextures_.push_back(createTexture(tex.rgba.data(), tex.width, tex.height, frame, tex.mipmaps, first));
+        gpuTextures_.push_back(createTexture(tex, frame, first));
         gpuTextures_.back().revision = tex.revision;
         gpuTextures_.back().nearest = tex.nearest;
         gpuTextures_.back().pinned = !tex.mipmaps;
-        sent += tex.rgba.size() >> (2 * first);
+        const GpuTexture& g = gpuTextures_.back();
+        sent += streaming::chainBytes(tex.width, tex.height, g.first, g.mips, g.blockBytes);
     }
     if (frame) {
         if (streaming_) streamTextures(frame);   // (reads this frame's reports, then starts them again)
@@ -225,6 +296,7 @@ void Renderer::streamTextures(VkCommandBuffer cb) {
         s.wanted = g.wanted == ~0u ? g.mips : g.wanted;
         s.lastWanted = g.lastWanted;
         s.pinned = g.pinned || g.mips <= 1;
+        s.blockBytes = g.blockBytes;
     }
     std::vector<uint32_t> target = streaming::plan(states, streamSettings_, now);
     std::vector<size_t> changes;
@@ -240,7 +312,7 @@ void Renderer::streamTextures(VkCommandBuffer cb) {
         if (sent > 0 && sent >= kFrameBytes) break;
         const Texture& tex = textures_->get((int)i);
         GpuTexture old = gpuTextures_[i];
-        GpuTexture fresh = createTexture(tex.rgba.data(), tex.width, tex.height, cb, tex.mipmaps, target[i]);
+        GpuTexture fresh = createTexture(tex, cb, target[i]);
         fresh.revision = old.revision;
         fresh.nearest = old.nearest;
         fresh.pinned = old.pinned;
@@ -248,7 +320,7 @@ void Renderer::streamTextures(VkCommandBuffer cb) {
         fresh.lastWanted = old.lastWanted;
         gpuTextures_[i] = fresh;
         retiredTextures_[frame_].push_back(old);   // (this frame's draws may still use it: gone when it comes round)
-        sent += streaming::chainBytes(tex.width, tex.height, target[i], fresh.mips);
+        sent += streaming::chainBytes(tex.width, tex.height, target[i], fresh.mips, fresh.blockBytes);
         // Material sets naming it are made again (pointing at the new image)
         const uint64_t id = (uint64_t)(uint16_t)(i + 1);
         for (auto* cache : {&materialSets_, &terrainSets_})
@@ -262,7 +334,8 @@ void Renderer::streamTextures(VkCommandBuffer cb) {
     residentTextureBytes_ = 0;
     for (size_t i = 0; i < n; ++i) {
         const Texture& tex = textures_->get((int)i);
-        residentTextureBytes_ += streaming::chainBytes(tex.width, tex.height, gpuTextures_[i].first, gpuTextures_[i].mips);
+        residentTextureBytes_ += streaming::chainBytes(tex.width, tex.height, gpuTextures_[i].first, gpuTextures_[i].mips,
+                                                       gpuTextures_[i].blockBytes);
     }
     stats_.textureBytes = residentTextureBytes_;
     stats_.textureBudget = streamSettings_.budget;

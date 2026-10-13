@@ -44,6 +44,8 @@ struct Settings {
         bool package = false;          // and an AppImage / .dmg / installer
         bool updatePack = false;       // and an update pack
         bool shipping = true;          // without the developer tools (app/export.h)
+        bool cook = true;              // textures and models cooked (ExportOptions::cook)
+        std::string textureCompression = "bc7";   // "bc7", "bc1" or "none"
         std::string out = "builds/Release";   // relative to the project, or absolute
     };
     std::vector<Build> builds;

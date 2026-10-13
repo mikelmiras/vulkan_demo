@@ -302,6 +302,9 @@ void Renderer::createDevice() {
         maxAnisotropy_ = std::min(props.limits.maxSamplerAnisotropy, 8.f);
     }
     if (supported.fragmentStoresAndAtomics) f2.features.fragmentStoresAndAtomics = VK_TRUE;   // (texture streaming)
+    if (supported.textureCompressionBC) f2.features.textureCompressionBC = VK_TRUE;           // (cooked textures)
+    const char* bc = std::getenv("VKWORLD_BC");   // (=0: as if the GPU had none: cooked textures decoded at load)
+    bcSupported_ = supported.textureCompressionBC && !(bc && std::strcmp(bc, "0") == 0);
     streamingSupported_ = supported.fragmentStoresAndAtomics;
 
     std::vector<const char*> exts = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};

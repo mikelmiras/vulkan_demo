@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include <cstring>
 #include <iterator>
+#include <map>
 #include <cctype>
 #include <fstream>
 #include <set>
@@ -13,6 +14,7 @@
 
 #include "app/exe_metadata.h"
 #include "app/updates.h"
+#include "assets/cooking.h"
 #include "core/json.h"
 #include "core/png.h"
 #include "core/project.h"
@@ -50,12 +52,15 @@ std::string lower(std::string s) {
 }
 
 // Source code and build clutter stay behind
-bool skipped(const fs::path& rel) {
-    for (const fs::path& part : rel) {
-        std::string p = part.u8string();
+bool skipped(const fs::path& rel, bool directory = false) {
+    for (auto it = rel.begin(); it != rel.end(); ++it) {
+        std::string p = it->u8string();
         if (p.empty() || p[0] == '.') return true;
+        if (!directory && std::next(it) == rel.end()) break;   // (folders only: a file may be called building.glb)
         std::string l = lower(p);
-        if (l == "src" || l == "cmakefiles" || l.rfind("build", 0) == 0 || l.rfind("cmake-build", 0) == 0) return true;
+        bool build = l == "build" || l == "builds" || l.rfind("build-", 0) == 0 || l.rfind("build_", 0) == 0 ||
+                     l.rfind("cmake-build", 0) == 0;
+        if (l == "src" || l == "cmakefiles" || build) return true;
     }
     std::string name = lower(rel.filename().u8string());
     static const std::set<std::string> code = {".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".hh", ".inl", ".cmake", ".mm"};
@@ -110,6 +115,72 @@ void checkExternalAssets(const fs::path& file, const fs::path& projectDir, Expor
     }
 }
 
+// Cooking (ExportOptions::cook): `data`'s glTF models, and the images scenes and prefabs use as textures, swapped for
+// their cooked files (made in `scratch`). An image whose path turns up more often in the project's text files than
+// its uses as a texture is named somewhere else too (an icon, a sky, a height map, a script): its source stays.
+void cookData(std::vector<std::pair<std::string, fs::path>>& data, const fs::path& project, const fs::path& scratch,
+              cook::Compression compression, ExportResult& result) {
+    auto read = [](const fs::path& p) {
+        std::ifstream f(p, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    };
+    auto relative = [&](const std::string& source) {   // (sources are relative to the project, or absolute in it)
+        fs::path p = fs::u8path(source);
+        if (!p.is_absolute()) return p.generic_u8string();
+        std::error_code ec;
+        fs::path rel = fs::relative(p, project, ec);
+        return ec ? std::string() : rel.generic_u8string();
+    };
+    std::map<std::string, int> asTexture;   // project-relative image path -> its uses in "textures" lists
+    std::vector<std::string> texts;
+    for (const auto& [rel, file] : data) {
+        std::string ext = lower(file.extension().u8string());
+        if (ext != ".vkw" && ext != ".prefab" && ext != ".json" && ext != ".lua" && ext != ".txt" && ext != ".ui") continue;
+        texts.push_back(read(file));
+        json::Value doc;
+        std::string error;
+        if ((ext == ".vkw" || ext == ".prefab") && json::parse(texts.back(), doc, error))
+            for (const json::Value& t : doc["textures"].elements()) {
+                std::string source = t["source"].asString();
+                if (!source.empty() && source.find('#') == std::string::npos) ++asTexture[relative(source)];
+            }
+    }
+    auto mentions = [&](const std::string& rel) {
+        int n = 0;
+        for (const std::string& text : texts)
+            for (size_t at = text.find(rel); at != std::string::npos; at = text.find(rel, at + rel.size())) ++n;
+        return n;
+    };
+    static const std::set<std::string> images = {".png", ".jpg", ".jpeg", ".tga", ".bmp"};
+    std::vector<std::pair<std::string, fs::path>> out;
+    std::error_code ec;
+    for (const auto& [rel, file] : data) {
+        std::string ext = lower(file.extension().u8string());
+        bool model = ext == ".glb" || ext == ".gltf";
+        auto use = asTexture.find(rel);
+        if (!model && !(images.count(ext) && use != asTexture.end())) {
+            out.emplace_back(rel, file);
+            continue;
+        }
+        std::string cooked, error;
+        bool ok = model ? cook::cookModel(file.u8string(), compression, cooked, error)
+                        : cook::cookImageFile(file.u8string(), compression, cooked, error);
+        if (!ok) {   // (shipped as it is: still loads, only slower)
+            result.warnings.push_back("not cooked: " + error);
+            out.emplace_back(rel, file);
+            continue;
+        }
+        std::string cookedRel = model ? cook::modelPath(rel) : cook::texturePath(rel);
+        fs::path at = scratch / fs::u8path(cookedRel);
+        fs::create_directories(at.parent_path(), ec);
+        std::ofstream(at, std::ios::binary) << cooked;
+        out.emplace_back(cookedRel, at);
+        ++result.cooked;
+        if (!model && mentions(rel) > use->second) out.emplace_back(rel, file);
+    }
+    data = std::move(out);
+}
+
 }  // namespace
 
 namespace {
@@ -124,6 +195,8 @@ ExportOptions optionsFor(const project::Settings::Build& build) {
     o.package = build.package;
     o.updatePack = build.updatePack;
     o.shipping = build.shipping;
+    o.cook = build.cook;
+    o.textureCompression = build.textureCompression;
     return o;
 }
 
@@ -397,7 +470,7 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
         fs::path rel = fs::relative(p, project, ec);
         if (within(p, out)) { it.disable_recursion_pending(); continue; }   // (exporting into a folder inside it)
         if (it->is_directory(ec)) {   // (a skipped folder is still entered if the module is in it)
-            if (skipped(rel) && !(!module.empty() && within(module, p))) it.disable_recursion_pending();
+            if (skipped(rel, true) && !(!module.empty() && within(module, p))) it.disable_recursion_pending();
             continue;
         }
         bool isModule = !module.empty() && fs::weakly_canonical(p, ec) == module;
@@ -421,6 +494,11 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
         std::ofstream(buildInfo) << json::write(b);
     }
     data.emplace_back("build.json", buildInfo);
+    fs::path scratch = fs::temp_directory_path(ec) / ("vkworld-cook-" + std::to_string(std::hash<std::string>()(out.u8string())));
+    if (options.cook) {
+        fs::remove_all(scratch, ec);
+        cookData(data, project, scratch, cook::compressionFromName(options.textureCompression), result);
+    }
     switch (options.layout) {
         case ExportOptions::Layout::Folder:
             for (const auto& [rel, file] : data)
@@ -436,6 +514,7 @@ bool exportProject(const fs::path& projectDir, const fs::path& outDir, const fs:
             break;
     }
     fs::remove(buildInfo, ec);
+    fs::remove_all(scratch, ec);
 
 #if defined(__APPLE__)
     std::ofstream(out / (name + ".app") / "Contents" / "Info.plist") << exemeta::infoPlist(meta);   // (the bundle's description)

@@ -79,8 +79,20 @@ void mergeSceneAssets(Scene& scene, const MeshLibrary& fromMeshes, const Texture
                 std::vector<SkinVertex> skin(fromMeshes.skin.begin() + (long)first, fromMeshes.skin.begin() + (long)end);
                 found = addSkinnedMesh(meshes, m.name, m.source, verts, skin, idx);
             } else {
+                // Its LODs' vertices came with it (they follow the mesh's own): their triangles too, not made again
                 found = addMesh(meshes, m.name, m.source, verts, idx);
-                generateLods(meshes, found);
+                int32_t moved = meshes.get(found).vertexOffset - (int32_t)first;
+                bool within = true;
+                for (const MeshLod& lod : m.lods) within &= (size_t)lod.vertexOffset >= first && (size_t)lod.vertexOffset < end;
+                if (!within) generateLods(meshes, found);
+                for (MeshLod lod : within ? m.lods : std::vector<MeshLod>{}) {
+                    uint32_t at = (uint32_t)meshes.indices.size();
+                    meshes.indices.insert(meshes.indices.end(), fromMeshes.indices.begin() + lod.firstIndex,
+                                          fromMeshes.indices.begin() + lod.firstIndex + lod.indexCount);
+                    lod.firstIndex = at;
+                    lod.vertexOffset += moved;
+                    meshes.meshes[(size_t)found].lods.push_back(lod);
+                }
             }
         }
         meshMap[(size_t)i] = found;
@@ -112,6 +124,8 @@ void mergeSceneAssets(Scene& scene, const MeshLibrary& fromMeshes, const Texture
             found = addTexture(textures, t.name, t.source, t.width, t.height, t.rgba);
             textures.textures[(size_t)found].nearest = t.nearest;   // (its import settings)
             textures.textures[(size_t)found].mipmaps = t.mipmaps;
+            textures.textures[(size_t)found].format = t.format;   // (cooked: its levels)
+            textures.textures[(size_t)found].levels = t.levels;
         }
         texMap[(size_t)i] = found;
     }

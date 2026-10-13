@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "assets/bc_codec.h"
+
 struct Texture {
     std::string name;
     std::string source;   // "bricks.png", "model.glb#image2"; empty for built-ins
@@ -14,6 +16,11 @@ struct Texture {
     bool nearest = false;        // sampled without filtering (pixel art)
     bool mipmaps = true;         // smaller copies for distant surfaces
     uint32_t revision = 0;       // bumped when reloaded in place (reloadTexture): the renderer uploads it again
+    // Cooked (an export's .vktex: assets/cooking.h): every level as baked, in `format`, and rgba empty. Not cooked:
+    // no levels, the renderer makes them from rgba.
+    bc::Format format = bc::Format::RGBA8;
+    std::vector<std::vector<uint8_t>> levels;
+    bool cooked() const { return !levels.empty(); }
 };
 
 // Textures are only ever appended, so ids stay valid. Id -1 means "no texture" (plain colour).

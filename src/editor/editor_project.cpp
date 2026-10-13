@@ -264,6 +264,15 @@ void Editor::drawBuildSettings() {
         }
         changed |= ImGui::Checkbox("Shipping", &b.shipping);
         tooltip("Without the developer tools: no F3 profiler or frame counter, no Lua debugger, traces or validation layer");
+        changed |= ImGui::Checkbox("Cook assets", &b.cook);
+        tooltip("Textures block compressed with their mips made, models in a binary form: smaller on the GPU, quicker to load");
+        if (b.cook) {
+            int compression = b.textureCompression == "none" ? 2 : b.textureCompression == "bc1" ? 1 : 0;
+            if (ImGui::Combo("Textures", &compression, "BC7 (quality, 8 bits a pixel)\0BC1 / BC3 (smaller, 4 or 8 bits)\0Uncompressed (mips only)\0")) {
+                b.textureCompression = compression == 2 ? "none" : compression == 1 ? "bc1" : "bc7";
+                changed = true;
+            }
+        }
         changed |= ImGui::Checkbox("Package (AppImage / .dmg / installer)", &b.package);
         changed |= ImGui::Checkbox("Update pack", &b.updatePack);
         tooltip("The whole build as one .vkwupdate with its SHA-256, for games already out to install");
