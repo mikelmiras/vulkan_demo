@@ -112,9 +112,7 @@ void Renderer::recordView(VkCommandBuffer cb, int index, const SceneRenderInfo& 
         drawBatch(cb, b);
         stats_.drawCalls++;
     };
-    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-    for (const Batch& b : viewBatches_[index]) draw(b);
-    drawPlants(cb, info);
+    drawOpaque(cb, info, viewBatches_[index], false);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
     vkCmdDraw(cb, 3, 1, 0, 0);
     if (!viewTransparent_[index].empty()) {

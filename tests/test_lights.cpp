@@ -114,3 +114,24 @@ TEST(shadow_atlas_packs_tiles) {
     for (const AtlasTile& t : full) placed += t.size > 0;
     CHECK(placed == 16);
 }
+
+// The clusters' slices fitted to what's in view: an overhead camera looking down at a street 100 m below spans
+// about 99-101 m, not 0.1-1000 m; boxes out of view don't count; nothing in view leaves the range as it was
+TEST(cluster_depth_range_fits_the_view) {
+    Vec3 cam{0, 100, 0}, fwd{0, -1, 0};
+    Mat4 vp = perspective(0.6f, 16.f / 9.f, 1.f, 500.f, true) * lookAt(cam, {0, 0, 0}, {0, 0, -1});
+    std::vector<std::pair<Vec3, Vec3>> boxes = {{{-20, 0, -20}, {20, 1, 20}},        // the street (in view)
+                                                {{500, 0, 500}, {510, 80, 510}}};    // a tower far off to the side
+    float near = 0.1f, far = 1000.f;
+    fitDepthRange(vp, cam, fwd, boxes, near, far);
+    CHECK_NEAR(near, 99.f, 0.01f);
+    CHECK_NEAR(far, 148.5f, 0.01f);   // (at least half as deep again as near: 100 m, made 1.5 x 99)
+    boxes.push_back({{-5, 0, -5}, {5, 60, 5}});   // a building 60 m tall under the camera
+    near = 0.1f, far = 1000.f;
+    fitDepthRange(vp, cam, fwd, boxes, near, far);
+    CHECK_NEAR(near, 40.f, 0.01f);
+    CHECK_NEAR(far, 100.f, 0.01f);
+    near = 0.1f, far = 1000.f;
+    fitDepthRange(vp, cam, fwd, {{{500, 0, 500}, {510, 1, 510}}}, near, far);
+    CHECK(near == 0.1f && far == 1000.f);
+}

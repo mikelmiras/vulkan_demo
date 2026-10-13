@@ -59,6 +59,11 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     meshes_ = &meshes;
     textures_ = &textures;
     if (const char* v = std::getenv("VKWORLD_UI_LAYER"); v && !std::strcmp(v, "1")) uiLayerForced_ = true;
+    if (const char* v = std::getenv("VKWORLD_PREPASS"); v && !std::strcmp(v, "0")) prepass_ = false;
+    if (const char* v = std::getenv("VKWORLD_QUALITY")) {
+        if (!std::strcmp(v, "low")) quality_ = Quality::Low;
+        else if (!std::strcmp(v, "medium")) quality_ = Quality::Medium;
+    }
     if (const char* v = std::getenv("VKWORLD_HDR_PEAK"); v && std::atof(v) > 0) {
         hdrPeak_ = (float)std::atof(v);
         hdrPeakForced_ = true;
@@ -793,6 +798,15 @@ void Renderer::createSampledPipelines() {
     // Foliage: instanced plants (two-sided), lit like everything else
     foliagePipeline_ = createPipeline({"foliage.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_NONE,
                                        false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    // The depth prepass and the lit pass after it (depth tested before shading, not written again)
+    prepassPipeline_ = createPipeline({"scene.vert.spv", "depth_prepass.frag.spv", true, true, false, VK_CULL_MODE_BACK_BIT,
+                                       false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    prepassFoliagePipeline_ = createPipeline({"foliage.vert.spv", "depth_prepass.frag.spv", true, true, false, VK_CULL_MODE_NONE,
+                                              false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    sceneEarlyPipeline_ = createPipeline({"scene.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
+                                          false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    foliageEarlyPipeline_ = createPipeline({"foliage.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_NONE,
+                                            false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
     // Selected object's full silhouette into stencil (ignores depth so occluded parts are marked too)
     stencilPipeline_ = createPipeline({"scene.vert.spv", "outline.frag.spv", false, false, false, VK_CULL_MODE_NONE,
                                        true, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_REPLACE, 0xff});
@@ -812,7 +826,8 @@ void Renderer::createSampledPipelines() {
 
 void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &ssrCapturePipeline_,
-                          &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_}) {
+                          &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
+                          &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_}) {
         if (*p) vkDestroyPipeline(device_, *p, nullptr);
         *p = VK_NULL_HANDLE;
     }
@@ -1352,28 +1367,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             }
             drawBatch(cb, b);
         };
-
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-        for (size_t i = 0; i < sceneBatches_.size(); ++i) {
-            const Batch& b = sceneBatches_[i];
-            if (gpuCulled_) {   // as many instances as the culling pass found visible
-                if (b.texture != boundTexture) {
-                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
-                    boundTexture = b.texture;
-                }
-                size_t levels = 1 + meshes_->get(b.mesh).lods.size();   // (one draw per level it has)
-                for (size_t k = 0; k < levels && k < 3; ++k)
-                    vkCmdDrawIndexedIndirect(cb, cullCommands_[frame_].buffer, (i * 3 + k) * sizeof(VkDrawIndexedIndirectCommand),
-                                             1, sizeof(VkDrawIndexedIndirectCommand));
-            } else {
-                draw(b);
-                stats_.triangles += rangeOf(b).indexCount / 3 * b.count;
-            }
-            stats_.drawCalls++;
-        }
+        drawOpaque(cb, info, sceneBatches_, gpuCulled_);
         if (gpuCulled_) stats_.triangles += gpuTriangles_;   // (a frame or two old)
-
-        drawPlants(cb, info);
 
         // The sky, wherever nothing was drawn
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
@@ -1513,6 +1508,37 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
     }
     VK_CHECK(vkEndCommandBuffer(cb));
+}
+
+void Renderer::drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled) {
+    auto pass = [&](VkPipeline pipeline, VkPipeline plants, bool count) {
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        VkDescriptorSet bound = VK_NULL_HANDLE;
+        for (size_t i = 0; i < batches.size(); ++i) {
+            const Batch& b = batches[i];
+            if (b.texture != bound) {
+                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
+                bound = b.texture;
+            }
+            if (culled) {   // as many instances as the culling pass found visible
+                size_t levels = 1 + meshes_->get(b.mesh).lods.size();   // (one draw per level it has)
+                for (size_t k = 0; k < levels && k < 3; ++k)
+                    vkCmdDrawIndexedIndirect(cb, cullCommands_[frame_].buffer, (i * 3 + k) * sizeof(VkDrawIndexedIndirectCommand),
+                                             1, sizeof(VkDrawIndexedIndirectCommand));
+            } else {
+                drawBatch(cb, b);
+                if (count) stats_.triangles += rangeOf(b).indexCount / 3 * b.count;
+            }
+            if (count) stats_.drawCalls++;
+        }
+        drawPlants(cb, info, plants);
+    };
+    if (prepass_ && prepassPipeline_) {
+        pass(prepassPipeline_, prepassFoliagePipeline_, false);   // depth only
+        pass(sceneEarlyPipeline_, foliageEarlyPipeline_, true);   // then lit, where it's in front
+    } else {
+        pass(scenePipeline_, foliagePipeline_, true);
+    }
 }
 
 void Renderer::saveScreenshot() {
@@ -1665,13 +1691,13 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     fillFrameUBO(info, u, true);
     setProbeData(u);
     finishGi(u);
-    if (info.reflections && ssrValid_) {   // the last frame's camera, for rays into its picture
+    if (reflectionsOn(info) && ssrValid_) {   // the last frame's camera, for rays into its picture
         u.prevViewProj = ssrViewProj_;
         u.prevCamPos[0] = ssrCamPos_.x, u.prevCamPos[1] = ssrCamPos_.y, u.prevCamPos[2] = ssrCamPos_.z, u.prevCamPos[3] = 1.f;
         u.prevCamForward[0] = ssrCamForward_.x, u.prevCamForward[1] = ssrCamForward_.y, u.prevCamForward[2] = ssrCamForward_.z;
         std::memcpy(u.prevViewport, ssrViewport_, sizeof(ssrViewport_));
     }
-    ssrValid_ = info.reflections && info.items && ssrCapturePipeline_;   // (this frame's picture is captured)
+    ssrValid_ = reflectionsOn(info) && info.items && ssrCapturePipeline_;   // (this frame's picture is captured)
     ssrViewProj_ = info.viewProj;
     ssrCamPos_ = info.camPos;
     ssrCamForward_ = info.camForward;

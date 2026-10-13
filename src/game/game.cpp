@@ -625,7 +625,8 @@ const std::vector<std::pair<std::string, json::Value>>& Game::defaultSettings() 
         {"settings.ambienceVolume", json::Value(1.0)}, {"settings.headphones", json::Value(false)},
         {"settings.rumble", json::Value(true)}, {"settings.highContrast", json::Value(false)},
         {"settings.colorBlind", json::Value("none")}, {"settings.checkUpdates", json::Value(true)},
-        {"settings.hdr", json::Value(false)}, {"settings.sendCrashReports", json::Value(false)}};
+        {"settings.hdr", json::Value(false)}, {"settings.sendCrashReports", json::Value(false)},
+        {"settings.quality", json::Value("high")}, {"settings.antialiasing", json::Value("default")}};
     return defaults;
 }
 

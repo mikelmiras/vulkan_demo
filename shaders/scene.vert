@@ -19,6 +19,8 @@ layout(location = 7) out vec4 vSplat;   // terrains: how much of each layer here
 layout(location = 8) out float vHole;   // terrains: > 0 on triangles using a hole point (their first joint)
 layout(location = 9) flat out vec4 vStream;   // texture streaming (Instance.stream)
 
+invariant gl_Position;   // (the depth prepass and the lit pass after it must land on the same depths)
+
 void main() {
     Instance inst = instances[instanceIndex[gl_InstanceIndex]];
     mat4 model = SKINNED_MODEL(inst);

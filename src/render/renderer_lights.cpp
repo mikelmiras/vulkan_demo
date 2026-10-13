@@ -87,8 +87,9 @@ void Renderer::uploadPlants(const SceneRenderInfo& info) {
 }
 
 // After the solid objects: each range of plants in view and nearer than it fades out, instanced
-void Renderer::drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info) {
-    if (!info.plants || info.plants->empty() || !foliagePipeline_) return;
+void Renderer::drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info, VkPipeline pipeline) {
+    if (!pipeline) pipeline = foliagePipeline_;
+    if (!info.plants || info.plants->empty() || !pipeline) return;
     Frustum view(info.viewProj);
     struct Push {
         int32_t shadowLayer, pad[3];
@@ -110,7 +111,7 @@ void Renderer::drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info) {
             float radius = length(transformDir(s.model, (hi - lo) * 0.5f));
             if (length(c - info.camPos) - radius > r.fade) continue;   // (all faded out)
             if (!bound) {
-                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, foliagePipeline_);
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                 VkDescriptorSet plain = materialSet(DrawItem{});
                 vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &plain, 0, nullptr);
                 bound = true;
@@ -157,7 +158,23 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
     }
     u.ambient[3] = (float)count;
     lightCount_ = (uint32_t)count;
-    const float near = 0.1f, far = 1000.f;
+    // The slices fitted to the depth of what's in view (every object's box; all of 0.1 to 1000 m otherwise)
+    float near = 0.1f, far = 1000.f;
+    if (clustered && info.items) {
+        std::vector<std::pair<Vec3, Vec3>> boxes;
+        boxes.reserve(info.items->size());
+        for (const DrawItem& d : *info.items) {
+            if (d.mesh < 0 || d.mesh >= meshes_->count()) continue;
+            const Mesh& mesh = meshes_->get(d.mesh);
+            Vec3 c = transformPoint(d.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f), e = (mesh.boundsMax - mesh.boundsMin) * 0.5f;
+            Vec3 r{std::fabs(d.model.m[0]) * e.x + std::fabs(d.model.m[4]) * e.y + std::fabs(d.model.m[8]) * e.z,
+                   std::fabs(d.model.m[1]) * e.x + std::fabs(d.model.m[5]) * e.y + std::fabs(d.model.m[9]) * e.z,
+                   std::fabs(d.model.m[2]) * e.x + std::fabs(d.model.m[6]) * e.y + std::fabs(d.model.m[10]) * e.z};
+            boxes.push_back({c - r, c + r});
+        }
+        if (info.plants && !info.plants->empty()) boxes.clear();   // (plants aren't items: the whole range then)
+        fitDepthRange(info.viewProj, info.camPos, info.camForward, boxes, near, far);
+    }
     u.clusterGrid[0] = (float)kClusterX;
     u.clusterGrid[1] = (float)kClusterY;
     u.clusterGrid[2] = (float)kClusterSlices;

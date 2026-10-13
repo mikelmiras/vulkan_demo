@@ -193,6 +193,9 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
 void Editor::setRenderer(Renderer* renderer) {
     renderer_ = renderer;
     if (renderer_ && antialiasing_ >= 0) renderer_->setAntialiasing((Renderer::Antialiasing)antialiasing_);
+    else if (renderer_ && !std::getenv("VKWORLD_AA") && !project_.antialiasing.empty())   // (none chosen: the project's)
+        renderer_->setAntialiasing(project_.antialiasing == "taa" ? Renderer::Antialiasing::Temporal
+                                   : project_.antialiasing == "off" ? Renderer::Antialiasing::Off : Renderer::Antialiasing::Msaa);
 }
 
 void Editor::updateView() {

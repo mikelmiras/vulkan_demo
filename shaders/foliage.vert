@@ -30,6 +30,8 @@ layout(push_constant) uniform Foliage {
     vec4 params;       // x = wind, y = fade distance
 } pc;
 
+invariant gl_Position;   // (the depth prepass and the lit pass after it must land on the same depths)
+
 void main() {
     uint i = uint(gl_InstanceIndex) * 6u;
     vec3 pos = vec3(plants[i], plants[i + 1u], plants[i + 2u]);

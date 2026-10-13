@@ -449,8 +449,16 @@ dropping on the right.
   per-scene settings (Inspector, with nothing selected).
 - **Anti-aliasing**: 4x MSAA by default; or **temporal** (each frame drawn with a different sub-pixel offset and
   blended with the frames before, found where they were through the depth and clamped to the colours around each
-  pixel so moving things don't smear): it also smooths shading and thin lines. View > Anti-aliasing in the editor
-  (remembered), `vkgame --aa msaa|taa|off`, or `VKWORLD_AA=taa` for either.
+  pixel so moving things don't smear): it also smooths shading and thin lines, and costs much less than MSAA on
+  slower GPUs. A project chooses what its game starts with (`"antialiasing"` in project.json, Project Settings; the
+  editor uses it too until View > Anti-aliasing is set, which is remembered); players change it with the game state's
+  `settings.antialiasing` (`msaa`, `taa`, `off` or `default`); `vkgame --aa msaa|taa|off` or `VKWORLD_AA=taa` override.
+- **Quality** (`settings.quality` for players, `VKWORLD_QUALITY` otherwise): `high` draws everything the scene asks
+  for; `medium` keeps the sun's shadows to 100 m and halves the lights' shadow maps; `low` keeps shadows to 60 m and
+  turns off screen-space reflections and ambient occlusion.
+- **Depth prepass**: opaque things' depth is drawn first with a cheap shader, then the lit pass shades only the
+  pixel in front (a city's ground, roads, sidewalks and buildings stacked on each other are lit once, not four
+  times). `VKWORLD_PREPASS=0` turns it off. Point lights are clustered over the depth range of what's in view.
 - Distance fog, the selection outline (kept out of tonemapping), and a little dithering against banding.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
   (joint matrices in a storage buffer, up to 4 joints per vertex) in every pass, shadows and outline included.

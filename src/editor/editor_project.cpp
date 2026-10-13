@@ -160,6 +160,12 @@ void Editor::drawProjectSettings() {
     ImGui::SeparatorText("Game");
     ImGui::InputText("Name", &d.name);
     ImGui::InputText("Version", &d.gameVersion);
+    {
+        int aa = d.antialiasing == "msaa" ? 1 : d.antialiasing == "taa" ? 2 : d.antialiasing == "off" ? 3 : 0;
+        if (ImGui::Combo("Anti-aliasing", &aa, "The engine's (MSAA)\0MSAA\0Temporal (TAA)\0Off\0"))
+            d.antialiasing = aa == 1 ? "msaa" : aa == 2 ? "taa" : aa == 3 ? "off" : "";
+        tooltip("What the game starts with (players can change it: settings.antialiasing). Temporal is the lighter on slower GPUs");
+    }
     ImGui::InputTextWithHint("Publisher", "Your name or studio", &d.publisher);
     tooltip("Who makes it: exported executables say so (Windows file properties, the macOS copyright)");
     ImGui::InputTextWithHint("Identifier", "com.example.mygame", &d.identifier);

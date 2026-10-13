@@ -1,6 +1,11 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+#ifdef EARLY_DEPTH
+// (scene_early.frag.spv: after the depth prepass, only the pixel in front is shaded; the depth test before the
+// shader, which its texture-streaming writes would otherwise put after it)
+layout(early_fragment_tests) in;
+#endif
 // Lit objects: metallic-roughness PBR (GGX), sun with shadows, point lights, hemisphere ambient, fog.
 // Writes linear HDR colour (alpha 1); the post pass adds bloom, tonemaps and gamma-encodes.
 
@@ -246,27 +251,30 @@ vec3 skyEnvironment(vec3 r, float rough) {
 vec4 screenReflection(vec3 r) {
     vec2 size = vec2(textureSize(lastFrame, 0));
     vec3 start = vWorldPos + r * 0.05;
+    // A point t along the ray, in the last frame's clip space and along its view: both straight lines in t, so
+    // projected once here and stepped with additions below
+    vec4 clip0 = frame.prevViewProj * vec4(start, 1.0), clipDir = frame.prevViewProj * vec4(r, 0.0);
+    float z0 = dot(start - frame.prevCamPos.xyz, frame.prevCamForward.xyz), zDir = dot(r, frame.prevCamForward.xyz);
+    vec2 scale = frame.prevViewport.zw * 0.5 / size, offset = (frame.prevViewport.xy + frame.prevViewport.zw * 0.5) / size;
     float t = 0.1, step = 0.12, last = 0.0;
     const float maxDistance = 40.0;
     for (int i = 0; i < 40 && t < maxDistance; ++i) {
-        vec3 p = start + r * t;
-        vec4 clip = frame.prevViewProj * vec4(p, 1.0);
+        vec4 clip = clip0 + clipDir * t;
         if (clip.w <= 1e-4) break;
         vec2 ndc = clip.xy / clip.w;
         if (abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0) break;   // (off the picture)
-        vec2 uv = (frame.prevViewport.xy + (ndc * 0.5 + 0.5) * frame.prevViewport.zw) / size;
+        vec2 uv = ndc * scale + offset;
         float sceneZ = textureLod(lastFrame, uv, 0.0).a;
-        float rayZ = dot(p - frame.prevCamPos.xyz, frame.prevCamForward.xyz);
+        float rayZ = z0 + zDir * t;
         // (behind it by less than a step, or a little more: thin things aren't missed between two samples)
         if (rayZ > sceneZ && rayZ < sceneZ + max(0.25 + t * 0.04, step * 1.5)) {
             float lo = last, hi = t;   // (the crossing, closer)
             for (int k = 0; k < 5; ++k) {
                 float mid = 0.5 * (lo + hi);
-                vec3 q = start + r * mid;
-                vec4 c = frame.prevViewProj * vec4(q, 1.0);
+                vec4 c = clip0 + clipDir * mid;
                 if (c.w <= 1e-4) break;   // (behind the last frame's camera: no point on its picture)
-                vec2 u = (frame.prevViewport.xy + (c.xy / c.w * 0.5 + 0.5) * frame.prevViewport.zw) / size;
-                if (dot(q - frame.prevCamPos.xyz, frame.prevCamForward.xyz) > textureLod(lastFrame, u, 0.0).a) hi = mid;
+                vec2 u = c.xy / c.w * scale + offset;
+                if (z0 + zDir * mid > textureLod(lastFrame, u, 0.0).a) hi = mid;
                 else lo = mid;
                 uv = u;
             }

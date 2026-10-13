@@ -1013,6 +1013,10 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 68 (done) | Asset cooking at export: textures GPU-compressed (BC1 / BC3 / BC7, ASTC where that's what the GPU has) with their mips baked, models in a binary format read without parsing, the renderer and texture streaming using them | Exports ship source PNGs and glTF files that every start decodes, resizes and mips again, and textures take four bytes a pixel on the GPU |
 | 69 (done) | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
 | 70 (done) | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
+| 70.1 (done) | Night Drive: a small example game (a taxi in a night city of Kenney's City Kit models and road tiles), and the bugs it turned up | Asked for during round 7: a showcase of the engine, and a scene to find what breaks |
+| 70.2 (done) | Windows: the file and folder dialogs froze the app | Found by testing on Windows: nothing set up COM on the UI thread |
+| 70.3 (done) | Performance: a depth prepass with early depth tests, cheaper screen-space reflection steps, light clusters fitted to what's in view, a project's default anti-aliasing and players' quality and anti-aliasing settings | Night Drive ran slowly on a GTX 1050 Ti, in the game and the editor |
+| 70.4 | Lighting and shadows: soft shadows (hardware-filtered PCF on a rotated disk, PCSS for the sun, blended cascades), volumetric fog lit by the sun and the lights, specular anti-aliasing, a filmic tone mapper and colour grading, Night Drive retuned with them | Asked for with 70.3: the games made with it should look more polished |
 | 71 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
 | 72 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
 | 73 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
@@ -1149,3 +1153,31 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   for the check, not shipped) with flags, skin tones, Arabic and Hebrew, wrapped English and right-aligned Arabic
   panels, under validation. Not done: COLR version 1, Thai / Lao / Khmer / Myanmar word breaks (a dictionary), bidi
   resolved per paragraph across wrapped lines, mouse placement of the caret, selection, the editor's panels.
+- **70.1, Night Drive** (asked for after task 67; `examples/night_drive`): a Lua-only project, its city made by
+  `tools/make_city.py` from Kenney's City Kit Commercial buildings and City Kit Roads tiles (CC0, copied into the
+  example). Bugs it found: a NaN from Schlick's Fresnel (VdotH a hair over 1) that bloom spread into a black
+  rectangle (clamped; bloom and SSR drop non-finite pixels), exports leaving out every file named "build*" (found
+  with task 68), shaped text drawn 17 % too big and a glyph hidden as the space (task 70). Checked: a test loading
+  the project, screenshots under validation.
+- **70.2, Windows dialogs**: miniaudio's CoInitializeEx made the UI thread a multithreaded COM apartment, where
+  GetOpenFileName and SHBrowseForFolder hang; createWindow now makes it single-threaded first. Checked: CI builds on
+  Windows (the dialog itself only by the user: no Windows machine here).
+- **70.3, performance** (Night Drive slow on a GTX 1050 Ti + i5 7400): traced on lavapipe (`vkgame --trace`), the
+  frame was GPU-bound, the scene pass 84 % of it; features off one at a time showed no single culprit (reflections
+  25 %, lights 24 %, shadow lookups 15 %, the buildings' overdraw 43 %). The scene shader's texture-streaming
+  atomics had made its depth test run after shading, so every hidden layer (ground, road tiles, sidewalks under
+  buildings) was fully lit. Now a depth prepass (scene.vert / foliage.vert, `invariant gl_Position`, a tiny
+  depth_prepass.frag cutting cut-outs' and terrains' holes) fills depth first, then the lit pass runs
+  scene_early.frag (scene.frag built with `layout(early_fragment_tests)`, no depth writes), in the main view and
+  the extra views (`VKWORLD_PREPASS=0`: as before). Scene pass 1486 -> 1026 ms on lavapipe; on real GPUs, which
+  reject hidden fragments before shading, more. SSR steps the ray in clip space with additions (it's linear in t)
+  instead of a matrix product per step (-6 %). The light clusters' log slices span the depth of what's in view
+  (light_clusters' fitDepthRange over the items' boxes, tested) instead of 0.1-1000 m, where a slice was 50 m
+  deep at 100 m. The default anti-aliasing (4x MSAA) was most of what remained (957 vs 514 + 54 for TAA on lavapipe;
+  on a 1050 Ti, bandwidth): project.json's "antialiasing" (Project Settings) is what a game starts with, the
+  editor too when its own isn't set; players get settings.antialiasing and settings.quality (Renderer::Quality:
+  Medium, shadows 100 m and lights' tiles halved; Low, 60 m and no SSR or AO; `VKWORLD_QUALITY`). Night Drive uses
+  TAA. All told its GPU time went 1782 -> 760 ms a frame on lavapipe at High, 576 at Medium, 471 at Low. Checked:
+  pictures with the prepass on and off within run-to-run noise in MSAA, TAA and no AA, validation (sync too) clean.
+  Not done: a resolution scale (rendering the 3D picture smaller and scaling it up), half-resolution SSR, GPU
+  timings on real hardware (none here: lavapipe's proportions only).

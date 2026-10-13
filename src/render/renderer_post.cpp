@@ -257,7 +257,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
     float vw = std::min(info.viewportW, (float)extent_.width - vx);
     float vh = std::min(info.viewportH, (float)extent_.height - vy);
-    bool ao = aoSupported_ && info.aoStrength > 0.f && info.items && vw >= 1.f && vh >= 1.f;
+    bool ao = aoSupported_ && info.aoStrength > 0.f && quality_ != Quality::Low && info.items && vw >= 1.f && vh >= 1.f;
     mipBarrier(cb, ao_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, ao ? target : readable, colorStage | fragStage, 0,
                ao ? colorStage : fragStage, ao ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
     if (ao) {
@@ -309,7 +309,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     vkCmdEndRendering(cb);
 
     // Reflections next frame: this picture and its distances (the main view's only)
-    if (view < 0 && info.reflections && info.items && ssrCapturePipeline_ && vw >= 1.f && vh >= 1.f) {
+    if (view < 0 && reflectionsOn(info) && info.items && ssrCapturePipeline_ && vw >= 1.f && vh >= 1.f) {
         imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target, fragStage,
                      VK_ACCESS_SHADER_READ_BIT, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
         Push p{{info.zNear, info.zFar, 0.f, 0.f}, {}, {}, {}};

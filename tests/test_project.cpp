@@ -62,6 +62,14 @@ TEST(project_settings_roundtrip) {
     project::Settings loaded;
     REQUIRE(project::load(dir, loaded, err));
     CHECK(loaded.name == "Space Game" && loaded.startScene == "levels/one.vkw");
+    CHECK(loaded.antialiasing.empty());   // (none: the renderer's own)
+    s.antialiasing = "taa";
+    REQUIRE(project::save(dir, s, err));
+    REQUIRE(project::load(dir, loaded, err));
+    CHECK(loaded.antialiasing == "taa");
+    test::writeFile(dir / "project.json", R"({"format": "vkworld-project", "version": 1, "name": "X", "antialiasing": "fxaa"})");
+    REQUIRE(project::load(dir, loaded, err));
+    CHECK(loaded.antialiasing.empty());   // (not one there is: the default)
     test::writeFile(dir / "project.json", "{\"format\":\"something-else\"}");
     CHECK(!project::load(dir, loaded, err));
 }

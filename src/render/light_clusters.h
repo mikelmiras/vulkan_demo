@@ -9,6 +9,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "core/vecmath.h"
@@ -25,6 +26,13 @@ struct ClusterLight {
     Vec3 position;
     float range = 1.f;
 };
+
+// The slices' depth range fitted to what's on screen: the distances along the view that these world-space boxes
+// reach (those wholly outside viewProj's frustum skipped), within [near, far] as given; left as they are if none is
+// in view. (Slices are logarithmic: spread from 0.1 m to 1000 m, one is 50 m deep at 100 m; fitted to an overhead
+// camera's 90-140 m, under 2 m.)
+void fitDepthRange(const Mat4& viewProj, Vec3 camPos, Vec3 camForward, const std::vector<std::pair<Vec3, Vec3>>& boxes,
+                   float& near, float& far);
 
 // The cluster a world point falls in (-1: off screen or behind the camera)
 int clusterOf(const ClusterSetup& s, Vec3 p);

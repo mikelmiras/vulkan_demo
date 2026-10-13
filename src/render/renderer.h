@@ -188,7 +188,13 @@ public:
     void setHdrOutput(bool on);
     bool hdrSupported() const { return display::hdrAvailable(surfaceFormats_); }
     bool hdrActive() const { return output_ != display::Output::Sdr; }
-    float hdrPeak() const { return hdrPeak_; }   // (nits: the display's, VKWORLD_HDR_PEAK's, or 1000)
+    float hdrPeak() const { return hdrPeak_; }
+    // Quality: what's drawn at all, for slower GPUs. High: everything the scene asks for, the sun's shadows 160 m
+    // out; Medium: shadows 100 m, lights' shadow tiles half the size; Low: shadows 60 m, no screen-space reflections
+    // or ambient occlusion. (VKWORLD_QUALITY=low|medium|high; games: settings.quality)
+    enum class Quality { Low, Medium, High };
+    void setQuality(Quality q) { quality_ = q; }
+    Quality quality() const { return quality_; }   // (nits: the display's, VKWORLD_HDR_PEAK's, or 1000)
 
 private:
     static constexpr int MAX_FRAMES = 2;
@@ -454,7 +460,7 @@ private:
     std::vector<uint32_t> plantBases_;   // this frame: where each set's plants start
     VkPipeline foliagePipeline_ = VK_NULL_HANDLE;
     void uploadPlants(const SceneRenderInfo& info);
-    void drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info);
+    void drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info, VkPipeline pipeline = VK_NULL_HANDLE);
     uint32_t lightCount_ = 0, clusteredIndices_ = 0;   // (stats)
     // Spot lights' cookies: images projected through the cone, in a texture array (binding 6)
     static constexpr uint32_t kCookieSize = 256, kCookieLayers = 16;
@@ -492,6 +498,14 @@ private:
     VkDescriptorSetLayout setLayout_ = VK_NULL_HANDLE;
     VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
     VkPipeline scenePipeline_ = VK_NULL_HANDLE;     // lit objects
+    // The depth prepass (opaque things' depth first: then each pixel is lit once), and the lit pipelines after it
+    // (early depth tests, no depth writes); VKWORLD_PREPASS=0 turns it off
+    VkPipeline prepassPipeline_ = VK_NULL_HANDLE, prepassFoliagePipeline_ = VK_NULL_HANDLE;
+    VkPipeline sceneEarlyPipeline_ = VK_NULL_HANDLE, foliageEarlyPipeline_ = VK_NULL_HANDLE;
+    bool prepass_ = true;
+    Quality quality_ = Quality::High;
+    float shadowDistance() const { return quality_ == Quality::High ? kShadowDistance : quality_ == Quality::Medium ? 100.f : 60.f; }
+    bool reflectionsOn(const SceneRenderInfo& info) const { return info.reflections && quality_ != Quality::Low; }
     VkPipeline transparentPipeline_ = VK_NULL_HANDLE;   // lit see-through objects (no depth writes)
     VkPipeline stencilPipeline_ = VK_NULL_HANDLE;   // marks the selected object's silhouette in stencil
     VkPipeline outlinePipeline_ = VK_NULL_HANDLE;   // extruded hull drawn where stencil != 1
@@ -524,6 +538,9 @@ private:
         uint32_t first = 0, count = 0;   // its entries in the instance index list
         int lod = 0;                     // which level of the mesh (assets/mesh_lod.h; 0: the mesh itself)
     };
+    // Opaque batches (and plants), drawn twice with the prepass: depth, then lit (`culled`: the GPU culling's
+    // indirect draws for the main view's batches)
+    void drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled);
     MeshLod rangeOf(const Batch& b) const;   // the indices to draw for it
     void drawBatch(VkCommandBuffer cb, const Batch& b);
     std::vector<Batch> sceneBatches_, outlineBatches_, transparentBatches_;   // (transparent: back to front)

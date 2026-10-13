@@ -98,6 +98,8 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     s.module = doc["module"].asString();
     s.moduleBuild = doc["moduleBuild"].asString();
     s.icon = doc["icon"].asString();
+    s.antialiasing = doc["antialiasing"].asString();
+    if (s.antialiasing != "msaa" && s.antialiasing != "taa" && s.antialiasing != "off") s.antialiasing.clear();
     if (!doc["language"].asString().empty()) s.language = doc["language"].asString();
     if (!doc["gameVersion"].asString().empty()) s.gameVersion = doc["gameVersion"].asString();
     s.updateUrl = doc["updateUrl"].asString();
@@ -133,6 +135,7 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     if (!settings.module.empty()) doc.set("module", settings.module);
     if (!settings.moduleBuild.empty()) doc.set("moduleBuild", settings.moduleBuild);
     if (!settings.icon.empty()) doc.set("icon", settings.icon);
+    if (!settings.antialiasing.empty()) doc.set("antialiasing", settings.antialiasing);
     if (settings.language != "en") doc.set("language", settings.language);
     doc.set("gameVersion", settings.gameVersion);
     if (!settings.updateUrl.empty()) doc.set("updateUrl", settings.updateUrl);

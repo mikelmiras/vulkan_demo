@@ -64,7 +64,7 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
     shadowLayer.assign(lights.size(), -1);
     // ---- The sun (render/shadow_cascades.h)
     auto cascades = [&](const SceneRenderInfo& v, float texels, Mat4* vps, float* splits) {
-        shadows::sunCascades({v.camPos, v.camForward, v.fovY, v.aspect}, sunDir, kShadowDistance, texels,
+        shadows::sunCascades({v.camPos, v.camForward, v.fovY, v.aspect}, sunDir, shadowDistance(), texels,
                              sunShadows ? vps : nullptr, splits);
     };
     cascades(info, (float)kCascadeSize, u.shadowViewProj, u.cascadeSplits);
@@ -96,6 +96,7 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
         if (views + faces > maxViews) continue;
         int size = rank < 2 ? 1024 : rank < 6 ? 512 : 256;
         if (!l->spot) size /= 2;
+        if (quality_ != Quality::High) size /= 2;
         ++rank;
         wanted.push_back({i, views, faces});
         for (uint32_t f = 0; f < faces; ++f) sizes.push_back(size);

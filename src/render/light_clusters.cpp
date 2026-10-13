@@ -10,6 +10,37 @@ int clusterSlice(const ClusterSetup& s, float depth) {
     return std::clamp(k, 0, s.slices - 1);
 }
 
+void fitDepthRange(const Mat4& viewProj, Vec3 camPos, Vec3 camForward, const std::vector<std::pair<Vec3, Vec3>>& boxes,
+                   float& near, float& far) {
+    const float* m = viewProj.m;
+    Vec3 fwd = normalize(camForward);
+    float lo = 1e30f, hi = -1e30f;
+    for (const auto& [a, b] : boxes) {
+        // Outside the frustum when every corner is beyond one of its planes (clip space: x, y in [-w, w], z in [0, w])
+        int outside[6] = {0, 0, 0, 0, 0, 0};
+        float d0 = 1e30f, d1 = -1e30f;
+        for (int c = 0; c < 8; ++c) {
+            Vec3 p{c & 1 ? b.x : a.x, c & 2 ? b.y : a.y, c & 4 ? b.z : a.z};
+            float x = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12];
+            float y = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13];
+            float z = m[2] * p.x + m[6] * p.y + m[10] * p.z + m[14];
+            float w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
+            outside[0] += x < -w, outside[1] += x > w, outside[2] += y < -w, outside[3] += y > w, outside[4] += z < 0.f,
+                outside[5] += z > w;
+            float d = dot(p - camPos, fwd);
+            d0 = std::min(d0, d), d1 = std::max(d1, d);
+        }
+        bool visible = true;
+        for (int k = 0; k < 6; ++k) visible = visible && outside[k] < 8;
+        if (!visible) continue;
+        lo = std::min(lo, d0), hi = std::max(hi, d1);
+    }
+    if (lo > hi) return;
+    float n = std::clamp(lo, near, far), f = std::clamp(hi, near, far);
+    near = n;
+    far = std::max(f, n * 1.5f);
+}
+
 int clusterOf(const ClusterSetup& s, Vec3 p) {
     const float* m = s.viewProj.m;
     float x = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12];

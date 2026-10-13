@@ -430,6 +430,8 @@ int main(int argc, char** argv) {
         std::string error;
         if (!scripting::debugger::listen((uint16_t)luaDebugPort, error)) logLine("lua debugger: %s", error.c_str());
     }
+    const bool aaGiven = !aa.empty() || std::getenv("VKWORLD_AA");   // (--aa / VKWORLD_AA: over the settings)
+    if (aa.empty() && !std::getenv("VKWORLD_AA")) aa = settings.antialiasing;   // (the project's, "": the renderer's)
     if (aa == "taa") app.renderer().setAntialiasing(Renderer::Antialiasing::Temporal);
     else if (aa == "off") app.renderer().setAntialiasing(Renderer::Antialiasing::Off);
     else if (aa == "msaa") app.renderer().setAntialiasing(Renderer::Antialiasing::Msaa);
@@ -709,6 +711,17 @@ int main(int argc, char** argv) {
             others.push_back(v);
         }
         if (!others.empty()) info.views = &others;
+        // The player's graphics settings: quality, and anti-aliasing unless it's the project's ("default") or given
+        {
+            std::string q = game.state().text("settings.quality");
+            if (!std::getenv("VKWORLD_QUALITY"))
+                app.renderer().setQuality(q == "low" ? Renderer::Quality::Low : q == "medium" ? Renderer::Quality::Medium
+                                                                                          : Renderer::Quality::High);
+            std::string a = game.state().text("settings.antialiasing");
+            if (!aaGiven && (a == "msaa" || a == "taa" || a == "off"))
+                app.renderer().setAntialiasing(a == "taa" ? Renderer::Antialiasing::Temporal
+                                               : a == "off" ? Renderer::Antialiasing::Off : Renderer::Antialiasing::Msaa);
+        }
         // HDR output: the player's setting (or VKWORLD_HDR=1), where the display takes it (screenshots: SDR)
         if (options.screenshotPath.empty())
             app.renderer().setHdrOutput(game.state().flag("settings.hdr") || (std::getenv("VKWORLD_HDR") && std::string(std::getenv("VKWORLD_HDR")) == "1"));
