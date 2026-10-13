@@ -2,7 +2,9 @@
 // forwarded when the NATs let nothing through), dedicated servers, and multiplayer from the game's menus
 #include "test.h"
 
+#include <chrono>
 #include <set>
+#include <thread>
 
 #include "game/game.h"
 #include "game/ui_layout.h"
@@ -49,6 +51,7 @@ struct World {
         relay.update(now);
         ImGui::EndFrame();
         now += 1.0 / 60.0;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));   // (real time for the loopback: macOS takes a moment)
     }
 };
 
@@ -129,6 +132,7 @@ TEST(relay_lobbies_joined_by_code) {
     for (int i = 0; i < 100 && !query.done(); ++i) {
         query.update(1.f / 60.f);
         w.relay.update(w.now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     REQUIRE(query.done() && query.error().empty());
     REQUIRE(query.lobbies().size() == 1);
@@ -139,6 +143,7 @@ TEST(relay_lobbies_joined_by_code) {
     for (int i = 0; i < 100 && !other.done(); ++i) {
         other.update(1.f / 60.f);
         w.relay.update(w.now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK(other.done() && other.lobbies().empty());
 
@@ -155,6 +160,7 @@ TEST(relay_lobbies_joined_by_code) {
     for (int i = 0; i < 100 && !query.done(); ++i) {
         query.update(1.f / 60.f);
         w.relay.update(w.now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     REQUIRE(query.lobbies().size() == 1);
     CHECK(query.lobbies()[0].players == 2);

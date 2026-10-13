@@ -144,8 +144,17 @@ TEST(arabic_shaping) {
 // Through game/fonts.h: Roboto for Latin, the Arabic font as a fallback once loaded (before the next frame), glyph
 // fonts made for both, and GameUI drawing and measuring the shaped line
 TEST(shaped_text_with_fallbacks) {
-    test::ImGuiContextGuard imgui;
-    ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_RendererHasTextures;   // (glyphs baked as they're needed, as the renderer allows)
+    // A context whose renderer takes new glyphs as they're needed (as the real one does): no atlas built up front
+    struct Context {
+        Context() {
+            ImGui::CreateContext();
+            ImGuiIO& io = ImGui::GetIO();
+            io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+            io.DisplaySize = ImVec2(1920, 1080);
+            io.IniFilename = nullptr;
+        }
+        ~Context() { ImGui::DestroyContext(); }
+    } context;
     const std::string text = "Hi \xD8\xB3\xD9\x84\xD8\xA7\xD9\x85";   // Hi سلام
     gamefonts::addFallback(kArabicFont);
     const shaping::Shaped* first = gamefonts::shaped(text, "");
