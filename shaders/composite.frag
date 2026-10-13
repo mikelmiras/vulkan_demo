@@ -44,7 +44,7 @@ vec3 daltonize(vec3 rgb, int mode) {
     else lms.z = -0.395913 * lms.x + 0.801109 * lms.y;                // no S cones
     vec3 error = rgb - toRgb * lms;
     vec3 shift = vec3(0.0, 0.7 * error.r + error.g, 0.7 * error.r + error.b);
-    return clamp(rgb + shift, 0.0, 1.0);
+    return rgb + shift;   // (SDR clamps to 0..1; HDR keeps what's over paper white)
 }
 
 // HDR10's encoding (render/display.cpp has the reference): nits -> PQ
@@ -87,6 +87,7 @@ void main() {
     if (output_ != 0) {   // HDR: highlights kept up to the display's peak, the UI at paper white, in linear light
         float peak = max(pc.c.z / pc.c.w, 1.0);   // (in paper whites)
         vec3 t = pbrNeutral(c / peak) * peak;
+        if (pc.c.x > 0.5) t = max(daltonize(t, int(pc.c.x + 0.5)), vec3(0.0));   // (in linear light, paper whites)
         t = mix(t, pow(pc.b.rgb, vec3(2.2)), outline);
         vec4 ui = pc.b.w > 0.5 ? texelFetch(uiLayer, px, 0) : vec4(0.0);
         vec3 uiLinear = ui.a > 0.0 ? pow(ui.rgb / ui.a, vec3(2.2)) * ui.a : vec3(0.0);
@@ -100,7 +101,7 @@ void main() {
         return;
     }
     c = pow(clamp(pbrNeutral(c), 0.0, 1.0), vec3(1.0 / 2.2));
-    if (pc.c.x > 0.5) c = daltonize(c, int(pc.c.x + 0.5));
+    if (pc.c.x > 0.5) c = clamp(daltonize(c, int(pc.c.x + 0.5)), 0.0, 1.0);
     c = mix(c, pc.b.rgb, outline);
     float noise = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
     c += noise / 255.0;

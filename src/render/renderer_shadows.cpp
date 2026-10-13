@@ -1,6 +1,7 @@
 // Shadows: the sun's 4 cascades (each an orthographic camera around a slice of the view, snapped to texels so edges
 // don't shimmer), in a layered image, and spot and point lights' (perspective; six for a point light) in tiles of
-// one atlas: the most important lights (nearest the camera, in view) get the biggest tiles.
+// one atlas: the most important lights (nearest the camera, in view) get the biggest tiles. Extra views (split
+// screen) have their own cascades in the atlas.
 #include "render/renderer.h"
 
 #include <algorithm>
@@ -8,6 +9,7 @@
 
 #include "render/light_clusters.h"
 #include "render/renderer_internal.h"
+#include "render/shadow_cascades.h"
 
 using namespace render_detail;
 
@@ -60,43 +62,13 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
                                   std::vector<int>& shadowLayer) {
     uint64_t layers = 0;
     shadowLayer.assign(lights.size(), -1);
-    // ---- The sun: the view from 0.1 m to kShadowDistance in 4 slices, closer ones smaller (sharper)
-    Vec3 fwd = normalize(info.camForward);
-    Vec3 right = std::fabs(fwd.y) > 0.999f ? Vec3{1, 0, 0} : normalize(cross(fwd, {0, 1, 0}));
-    Vec3 up = cross(right, fwd);
-    float tanY = std::tan(info.fovY * 0.5f), tanX = tanY * std::max(info.aspect, 0.01f);
-    const float n = 0.1f, f = kShadowDistance;
-    float prev = n;
-    for (uint32_t c = 0; c < kCascades; ++c) {
-        float t = (float)(c + 1) / (float)kCascades;
-        float split = 0.8f * n * std::pow(f / n, t) + 0.2f * (n + (f - n) * t);   // mostly logarithmic
-        u.cascadeSplits[c] = split;
-        if (sunShadows) {
-            // A sphere around the slice (rotating the view doesn't change its size), then an orthographic camera
-            // looking down the sun around it, with room behind for casters between the sun and the slice
-            Vec3 center = info.camPos + fwd * ((prev + split) * 0.5f);
-            float r = 0.f;
-            for (float d : {prev, split})
-                for (float sx : {-1.f, 1.f})
-                    for (float sy : {-1.f, 1.f}) {
-                        Vec3 corner = info.camPos + fwd * d + right * (sx * d * tanX) + up * (sy * d * tanY);
-                        r = std::max(r, length(corner - center));
-                    }
-            r = std::ceil(r * 16.f) / 16.f;
-            const float behind = 120.f;
-            Vec3 sunUp = std::fabs(sunDir.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
-            Mat4 view = lookAt(center - sunDir * (r + behind), center, sunUp);
-            Mat4 proj = orthographic(-r, r, -r, r, 0.1f, 2.f * r + behind);
-            Mat4 vp = proj * view;
-            float half = kCascadeSize * 0.5f;
-            float ox = vp.m[12] * half, oy = vp.m[13] * half;   // where the world origin lands, in texels
-            proj.m[12] += (std::round(ox) - ox) / half;
-            proj.m[13] += (std::round(oy) - oy) / half;
-            u.shadowViewProj[c] = proj * view;
-            layers |= 1ull << c;
-        }
-        prev = split;
-    }
+    // ---- The sun (render/shadow_cascades.h)
+    auto cascades = [&](const SceneRenderInfo& v, float texels, Mat4* vps, float* splits) {
+        shadows::sunCascades({v.camPos, v.camForward, v.fovY, v.aspect}, sunDir, kShadowDistance, texels,
+                             sunShadows ? vps : nullptr, splits);
+    };
+    cascades(info, (float)kCascadeSize, u.shadowViewProj, u.cascadeSplits);
+    if (sunShadows) layers |= (1ull << kCascades) - 1;
     // ---- Spot and point lights casting shadows, in view, most important first (the order given): a tile each
     // for spots, six for point lights (a cube around them, a little wider than 90 degrees per face, so filtering
     // near an edge stays inside). Tiles shrink down the list: 1024, then 512 from the third light, 256 from the
@@ -108,8 +80,13 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
     };
     std::vector<Wanted> wanted;
     std::vector<int> sizes;
+    // Split screen's other players (and the editor's game view) get cascades of their own, in the atlas before any
+    // light: a quarter of it, in tiles of 1024 for one view, 512 for more
+    size_t extra = info.views && sunShadows ? std::min(info.views->size(), (size_t)kMaxViews) : 0;
+    for (size_t v = 0; v < extra; ++v)
+        for (uint32_t c = 0; c < kCascades; ++c) sizes.push_back(extra == 1 ? 1024 : 512);
     uint32_t views = 0, rank = 0;
-    const uint32_t maxViews = kShadowLayers - kCascades;
+    const uint32_t maxViews = kViewCascades - kCascades;
     for (size_t i = 0; i < lights.size(); ++i) {
         const LightInfo* l = lights[i];
         if (!l->castShadows || l->intensity <= 0.f) continue;
@@ -125,6 +102,28 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
         views += faces;
     }
     std::vector<AtlasTile> tiles = allocateAtlas((int)kAtlasSize, sizes);
+    const float inv = 1.f / (float)kAtlasSize;
+    for (size_t v = 0; v < kMaxViews; ++v) {
+        viewShadowed_[v] = false;
+        if (v >= extra) continue;
+        const AtlasTile* t = &tiles[v * kCascades];
+        bool placed = true;
+        for (uint32_t c = 0; c < kCascades; ++c) placed = placed && t[c].size > 0;
+        Mat4 vps[kCascades];
+        cascades((*info.views)[v], (float)(placed ? t[0].size : 1), vps, viewSplits_[v]);
+        if (!placed) continue;   // (the atlas is full: player 1's, as before)
+        viewShadowed_[v] = true;
+        for (uint32_t c = 0; c < kCascades; ++c) {
+            uint32_t layer = kViewCascades + (uint32_t)v * kCascades + c;
+            shadowTiles_[layer] = {(uint32_t)t[c].x, (uint32_t)t[c].y, (uint32_t)t[c].size};
+            u.shadowRect[layer][0] = (float)t[c].x * inv;
+            u.shadowRect[layer][1] = (float)t[c].y * inv;
+            u.shadowRect[layer][2] = u.shadowRect[layer][3] = (float)t[c].size * inv;
+            u.shadowViewProj[layer] = vps[c];
+            layers |= 1ull << layer;
+        }
+    }
+    tiles.erase(tiles.begin(), tiles.begin() + (long)(extra * kCascades));
     uint32_t next = kCascades;
     for (const Wanted& w : wanted) {
         bool placed = true;
@@ -135,7 +134,6 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
         for (uint32_t f = 0; f < w.faces; ++f, ++next) {
             const AtlasTile& t = tiles[w.first + f];
             shadowTiles_[next] = {(uint32_t)t.x, (uint32_t)t.y, (uint32_t)t.size};
-            float inv = 1.f / (float)kAtlasSize;
             u.shadowRect[next][0] = (float)t.x * inv;
             u.shadowRect[next][1] = (float)t.y * inv;
             u.shadowRect[next][2] = u.shadowRect[next][3] = (float)t.size * inv;

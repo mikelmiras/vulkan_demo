@@ -3,11 +3,12 @@
 
 layout(set = 0, binding = 0) uniform Frame {
     mat4 viewProj;
-    mat4 shadowViewProj[52];  // 0-3: the sun's cascades, then spot and point lights' views in the shadow atlas
-    vec4 shadowRect[52];      // atlas views: the tile (uv offset, uv size)
+    mat4 shadowViewProj[64];  // 0-3: the sun's cascades, then spot and point lights' views in the shadow atlas
+                              // (then split-screen views' cascades; a view's own: 0-3 its cascades, in the atlas)
+    vec4 shadowRect[64];      // atlas views: the tile (uv offset, uv size)
     vec4 camPos;
     vec4 fogColor;        // rgb = fog/sky colour, w = density
-    vec4 viewport;        // width, height, outline width (px), unused
+    vec4 viewport;        // width, height, outline width (px), w = 1: the sun's cascades are atlas tiles
     vec4 sunDir;          // xyz = direction the light travels, w = 1 when it casts shadows
     vec4 sunColor;        // rgb = colour * intensity (linear)
     vec4 ambient;         // rgb = ambient strength, w = number of point and spot lights (the lights buffer)

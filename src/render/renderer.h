@@ -188,6 +188,7 @@ public:
     void setHdrOutput(bool on);
     bool hdrSupported() const { return display::hdrAvailable(surfaceFormats_); }
     bool hdrActive() const { return output_ != display::Output::Sdr; }
+    float hdrPeak() const { return hdrPeak_; }   // (nits: the display's, VKWORLD_HDR_PEAK's, or 1000)
 
 private:
     static constexpr int MAX_FRAMES = 2;
@@ -429,7 +430,8 @@ private:
     float maxAnisotropy_ = 1.f;             // 1 = anisotropic filtering not available
 
     static constexpr uint32_t kCascadeSize = 2048, kCascades = 4, kAtlasSize = 4096;
-    static constexpr uint32_t kShadowLayers = 52;     // render_detail::kShadowViews: cascades, then atlas views
+    static constexpr uint32_t kShadowLayers = 64;     // render_detail::kShadowViews: cascades, then atlas views
+    static constexpr uint32_t kViewCascades = 48;     // ... the last 16: the extra views' cascades (4 each)
     static constexpr float kShadowDistance = 160.f;   // the sun's shadows reach this far from the camera
     VkFormat shadowFormat_ = VK_FORMAT_D32_SFLOAT;
     ShadowArray cascades_, atlas_;   // the sun's cascades; spot and point lights' tiles in one image
@@ -437,6 +439,9 @@ private:
         uint32_t x = 0, y = 0, size = 0;
     };
     ShadowTile shadowTiles_[kShadowLayers];   // atlas views: where in the atlas
+    // The extra views' own cascades (layers kViewCascades + 4 * view, atlas tiles): placed this frame, their splits
+    bool viewShadowed_[kMaxViews] = {};
+    float viewSplits_[kMaxViews][4] = {};
     bool shadowMapReady_ = false;   // in SHADER_READ_ONLY layout
     uint64_t shadowLayers_ = 0;     // this frame's shadow views to render (bits 0-3 cascades, then the atlas's)
     // Lights (binding 14) and their clusters (binding 15), per frame
@@ -617,6 +622,10 @@ private:
     bool uiLayered_ = false;        // the UI is drawn into uiLayer_ and blended in by the composite (HDR, or the test switch)
     bool uiLayerForced_ = false;    // (VKWORLD_UI_LAYER=1: the layered path on an SDR display, to test it)
     float hdrPeak_ = 1000.f, hdrPaperWhite_ = 200.f;
+    bool hdrPeakForced_ = false;          // (VKWORLD_HDR_PEAK: not the display's own)
+    bool hdrMetadataSupported_ = false;   // VK_EXT_hdr_metadata
+    display::Luminance displayLuminance_;   // what the display says it can do (0s: it doesn't)
+    void describeHdr();
     Image uiLayer_;
     bool uiLayerFresh_ = false;
     VkPipeline compositeViewPipeline_ = VK_NULL_HANDLE;   // (into the extra views' images: sdrFormat_)
@@ -637,7 +646,9 @@ private:
     // Bloom, AO and the composite: onto swapchain image `imageIndex`, or (view >= 0) into that extra view's image
     void recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, int view = -1);
 
-    std::string screenshotPath_;
+    std::string screenshotPath_;   // (".hdr": the scene's light before tone mapping, as a Radiance file)
+    float screenshotExposure_ = 1.f;
+    bool hdrShotRecorded_ = false;   // (this frame copied the HDR image out)
     int screenshotResult_ = 0;
     bool canReadSwapchain_ = false;   // swapchain images allow transfers out
     Buffer readback_;

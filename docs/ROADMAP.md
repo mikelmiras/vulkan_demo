@@ -1011,7 +1011,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 66 (done) | Projects: a project launcher at startup (recent projects, new from a template, open), a Project Settings window for everything in project.json, the engine version a project was made with, generated files kept apart from the project's own | The editor opens straight into the demo; project.json is edited by hand |
 | 67 (done) | Builds: a Build Settings window with per-platform profiles, per-game executable metadata (Windows version resources, macOS bundle id and version), a shipping configuration without the developer tools, a pipeline cache | Exports are vkgame renamed with the project's source files beside it |
 | 68 (done) | Asset cooking at export: textures GPU-compressed (BC1 / BC3 / BC7, ASTC where that's what the GPU has) with their mips baked, models in a binary format read without parsing, the renderer and texture streaming using them | Exports ship source PNGs and glTF files that every start decodes, resizes and mips again, and textures take four bytes a pixel on the GPU |
-| 69 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
+| 69 (done) | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
 | 70 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
 | 71 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
 | 72 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
@@ -1106,3 +1106,22 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   done: ASTC (no target GPU lacks BC), BC7's partitioned modes (a block with two unrelated gradients is fitted
   with one line), BC5 for normal maps, cooking in parallel, terrain height maps and sky images (read as files),
   .gltf files' .bin buffers still shipped beside their cooked model.
+- **69, rendering finishing**: shadows per view: the cascade maths moved into `render/shadow_cascades.*` (a plain
+  function, tested: cascades follow their own camera, splits grow, cameras snap to whole texels); each extra view
+  (split screen's players, the editor's Game view) gets its four cascades as tiles of the shadow atlas (1024 for
+  one view, 512 for more; allocated before the lights' tiles), shadow layers 48-63 (the UBO's shadow arrays grew to
+  64, lights' atlas views went from 48 to 44, the layer mask is exactly 64 bits). The view's frame data puts its
+  own cascades in slots 0-3 with their tiles and splits, and viewport.w = 1 sends the scene shader's sun lookup to
+  the atlas. HDR: platform::displayLuminance (Windows: IDXGIOutput6::GetDesc1 of the output showing the window;
+  Linux: every connected DRM connector's EDID in sysfs, the CTA-861 HDR static metadata block parsed by
+  display::parseEdidLuminance, tested with a made-up EDID; macOS: NSScreen's maximum EDR value times 100 nits) sets
+  the tone mapper's peak unless VKWORLD_HDR_PEAK does; with VK_EXT_hdr_metadata the swapchain gets
+  display::metadataFor's primaries (Rec.2020 / Rec.709), D65, the peak as max luminance and MaxCLL, the display's
+  frame average as MaxFALL. The daltonization runs in HDR on the tone-mapped linear colour (unclamped above). HDR
+  screenshots (`.hdr`): the HDR image copied out at the end of the frame (it gained TRANSFER_SRC), half floats
+  (core/hdr_image's halfToFloat, tested) times the exposure written as flat RGBE (round trip tested). Checked under
+  validation with sync checks: two split-screen players 300 m apart (beyond player 1's 160 m of shadows) both
+  shadowed, in MSAA, TAA and no AA; four players; the editor's Game view; an HDR screenshot of Night Drive (8865
+  pixels over paper white, up to 28.8). Not done: HDR itself on a real HDR display (lavapipe has no HDR colour
+  space), per-view shadows for the lights (the atlas views follow player 1's frustum), a calibration screen, bloom
+  and the UI in HDR screenshots.

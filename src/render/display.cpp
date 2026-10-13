@@ -58,4 +58,45 @@ Vec3 rec709To2020(Vec3 c) {
             0.0164f * c.x + 0.0880f * c.y + 0.8956f * c.z};
 }
 
+bool parseEdidLuminance(const uint8_t* edid, size_t size, Luminance& out) {
+    // 128-byte blocks: the base one, then extensions; a CTA-861 one (tag 2) has data blocks from byte 4 up to the
+    // offset in byte 2, each a header (tag << 5 | length) and its bytes
+    for (size_t block = 128; block + 128 <= size; block += 128) {
+        const uint8_t* b = edid + block;
+        if (b[0] != 0x02) continue;
+        size_t end = std::min<size_t>(b[2], 127);
+        for (size_t at = 4; at < end;) {
+            int tag = b[at] >> 5, length = b[at] & 31;
+            if (at + 1 + (size_t)length > end) break;
+            // "Use extended tag" (7), extended tag 6: HDR static metadata (EOTFs, descriptors, then up to three
+            // luminance code values: max, max frame average, min)
+            if (tag == 7 && length >= 3 && b[at + 1] == 6) {
+                Luminance l;
+                if (length >= 4 && b[at + 4]) l.peak = 50.f * std::pow(2.f, (float)b[at + 4] / 32.f);
+                if (length >= 5 && b[at + 5]) l.frameAverage = 50.f * std::pow(2.f, (float)b[at + 5] / 32.f);
+                if (length >= 6 && l.peak > 0.f) l.min = l.peak * std::pow((float)b[at + 6] / 255.f, 2.f) / 100.f;
+                out = l;
+                return true;
+            }
+            at += 1 + (size_t)length;
+        }
+    }
+    return false;
+}
+
+Metadata metadataFor(Output output, float peak, const Luminance& display) {
+    Metadata m{};
+    if (output == Output::Hdr10) {   // Rec.2020
+        m.red[0] = 0.708f, m.red[1] = 0.292f, m.green[0] = 0.170f, m.green[1] = 0.797f, m.blue[0] = 0.131f, m.blue[1] = 0.046f;
+    } else {                         // Rec.709 (scRGB)
+        m.red[0] = 0.640f, m.red[1] = 0.330f, m.green[0] = 0.300f, m.green[1] = 0.600f, m.blue[0] = 0.150f, m.blue[1] = 0.060f;
+    }
+    m.white[0] = 0.3127f, m.white[1] = 0.3290f;   // D65
+    m.maxLuminance = peak;
+    m.minLuminance = display.min > 0.f ? display.min : 0.005f;
+    m.maxContentLight = peak;
+    m.maxFrameAverageLight = display.frameAverage > 0.f ? std::min(display.frameAverage, peak) : peak * 0.5f;
+    return m;
+}
+
 }  // namespace display

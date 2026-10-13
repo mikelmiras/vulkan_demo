@@ -1,6 +1,10 @@
 // render/display: the swapchain format for SDR or HDR, and the HDR encodings (the composite shader's reference)
 #include "test.h"
 
+#include <algorithm>
+#include <iterator>
+#include <vector>
+
 #include "render/display.h"
 
 TEST(display_choose_format) {
@@ -33,4 +37,46 @@ TEST(display_pq_and_gamut) {
     CHECK_NEAR(white.z, 1.0, 1e-3);
     Vec3 red = display::rec709To2020({1.f, 0.f, 0.f});   // (709's red is inside 2020's: less saturated there)
     CHECK(red.x < 1.f && red.y > 0.f && red.z > 0.f);
+}
+
+// The display's light levels from its EDID: the CTA-861 extension's HDR static metadata block
+TEST(display_edid_luminance) {
+    std::vector<uint8_t> edid(256, 0);
+    uint8_t* cta = edid.data() + 128;
+    cta[0] = 0x02;   // a CTA-861 extension
+    cta[1] = 3;
+    const uint8_t blocks[] = {0x42, 0x10, 0x04,                      // video data block (two VICs)
+                              0xE6, 0x06, 0x05, 0x01, 96, 64, 51};   // HDR static metadata: max, average, min
+    std::copy(std::begin(blocks), std::end(blocks), cta + 4);
+    cta[2] = (uint8_t)(4 + sizeof(blocks));   // (detailed timings start after the data blocks)
+    display::Luminance l;
+    REQUIRE(display::parseEdidLuminance(edid.data(), edid.size(), l));
+    CHECK_NEAR(l.peak, 400.f, 0.01f);           // 50 * 2^(96 / 32)
+    CHECK_NEAR(l.frameAverage, 200.f, 0.01f);   // 50 * 2^(64 / 32)
+    CHECK_NEAR(l.min, 0.16f, 0.001f);           // 400 * (51 / 255)^2 / 100
+    // Without the luminance bytes (an HDR block with EOTFs only): found, levels unknown
+    cta[7] = 0xE3;
+    cta[2] = 4 + 3 + 4;
+    REQUIRE(display::parseEdidLuminance(edid.data(), edid.size(), l));
+    CHECK(l.peak == 0.f);
+    // No CTA extension, or only the base block: nothing
+    cta[0] = 0x10;
+    CHECK(!display::parseEdidLuminance(edid.data(), edid.size(), l));
+    CHECK(!display::parseEdidLuminance(edid.data(), 128, l));
+}
+
+TEST(display_hdr_metadata) {
+    display::Luminance screen;
+    screen.peak = 600.f;
+    screen.frameAverage = 350.f;
+    screen.min = 0.05f;
+    display::Metadata m = display::metadataFor(display::Output::Hdr10, 600.f, screen);
+    CHECK_NEAR(m.red[0], 0.708f, 1e-4f);   // Rec.2020
+    CHECK_NEAR(m.white[1], 0.329f, 1e-4f);
+    CHECK(m.maxLuminance == 600.f && m.maxContentLight == 600.f);
+    CHECK(m.maxFrameAverageLight == 350.f);
+    CHECK(m.minLuminance == 0.05f);
+    display::Metadata s = display::metadataFor(display::Output::ScRgb, 1000.f, {});
+    CHECK_NEAR(s.green[1], 0.6f, 1e-4f);   // Rec.709
+    CHECK(s.maxFrameAverageLight == 500.f);   // (unknown: half the peak)
 }

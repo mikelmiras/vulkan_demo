@@ -6,6 +6,7 @@
 #include "core/vfs.h"
 #include "render/renderer_internal.h"
 
+#include "core/hdr_image.h"
 #include "core/png.h"
 
 #include <cstddef>
@@ -58,7 +59,10 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     meshes_ = &meshes;
     textures_ = &textures;
     if (const char* v = std::getenv("VKWORLD_UI_LAYER"); v && !std::strcmp(v, "1")) uiLayerForced_ = true;
-    if (const char* v = std::getenv("VKWORLD_HDR_PEAK"); v && std::atof(v) > 0) hdrPeak_ = (float)std::atof(v);
+    if (const char* v = std::getenv("VKWORLD_HDR_PEAK"); v && std::atof(v) > 0) {
+        hdrPeak_ = (float)std::atof(v);
+        hdrPeakForced_ = true;
+    }
     if (const char* v = std::getenv("VKWORLD_HDR_PAPER_WHITE"); v && std::atof(v) > 0) hdrPaperWhite_ = (float)std::atof(v);
 
     createInstance();
@@ -313,8 +317,13 @@ void Renderer::createDevice() {
     vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &extCount, nullptr);
     std::vector<VkExtensionProperties> available(extCount);
     vkEnumerateDeviceExtensionProperties(gpu_, nullptr, &extCount, available.data());
-    for (const auto& e : available)
+    for (const auto& e : available) {
         if (std::strcmp(e.extensionName, "VK_KHR_portability_subset") == 0) exts.push_back("VK_KHR_portability_subset");
+        if (std::strcmp(e.extensionName, VK_EXT_HDR_METADATA_EXTENSION_NAME) == 0) {   // (telling HDR displays)
+            exts.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
+            hdrMetadataSupported_ = true;
+        }
+    }
 
     VkDeviceCreateInfo ci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &f2;
@@ -472,6 +481,7 @@ void Renderer::createSwapchain() {
     ci.oldSwapchain = old;
     VK_CHECK(vkCreateSwapchainKHR(device_, &ci, nullptr, &swapchain_));
     if (old) vkDestroySwapchainKHR(device_, old, nullptr);
+    if (output_ != display::Output::Sdr) describeHdr();
 
     uint32_t count = 0;
     vkGetSwapchainImagesKHR(device_, swapchain_, &count, nullptr);
@@ -515,6 +525,28 @@ void Renderer::recreateSwapchain() {
     }
     createPostImages();
     resized_ = false;
+}
+
+// HDR output: the display's real peak (unless VKWORLD_HDR_PEAK says), and the metadata telling it about the picture
+void Renderer::describeHdr() {
+    display::Luminance screen;
+    if (platform::displayLuminance(screen.peak, screen.frameAverage, screen.min) && !hdrPeakForced_)
+        hdrPeak_ = std::clamp(screen.peak, 100.f, 10000.f);
+    displayLuminance_ = screen;
+    if (!hdrMetadataSupported_) return;
+    auto set = (PFN_vkSetHdrMetadataEXT)vkGetDeviceProcAddr(device_, "vkSetHdrMetadataEXT");
+    if (!set) return;
+    display::Metadata m = display::metadataFor(output_, hdrPeak_, screen);
+    VkHdrMetadataEXT md{VK_STRUCTURE_TYPE_HDR_METADATA_EXT};
+    md.displayPrimaryRed = {m.red[0], m.red[1]};
+    md.displayPrimaryGreen = {m.green[0], m.green[1]};
+    md.displayPrimaryBlue = {m.blue[0], m.blue[1]};
+    md.whitePoint = {m.white[0], m.white[1]};
+    md.maxLuminance = m.maxLuminance;
+    md.minLuminance = m.minLuminance;
+    md.maxContentLightLevel = m.maxContentLight;
+    md.maxFrameAverageLightLevel = m.maxFrameAverageLight;
+    set(device_, 1, &swapchain_, &md);
 }
 
 void Renderer::setHdrOutput(bool on) {
@@ -1434,7 +1466,29 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     }
     timestamp(cb, "UI");
 
-    if (!screenshotPath_.empty() && canReadSwapchain_) {
+    const bool hdrShot = info.items && screenshotPath_.size() > 4 && screenshotPath_.compare(screenshotPath_.size() - 4, 4, ".hdr") == 0;
+    if (hdrShot) {
+        // An HDR screenshot: the scene's light before tone mapping (the HDR image, half floats), saved after the frame
+        VkDeviceSize size = (VkDeviceSize)extent_.width * extent_.height * 8;
+        if (!readback_.buffer || readback_.size < size) {
+            if (readback_.buffer) destroyBuffer(readback_);
+            readback_ = createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+            readback_.size = size;
+        }
+        imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {extent_.width, extent_.height, 1};
+        vkCmdCopyImageToBuffer(cb, hdr_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_.buffer, 1, &region);
+        imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        screenshotExposure_ = info.exposure;
+    }
+    hdrShotRecorded_ = hdrShot;
+    if (!screenshotPath_.empty() && canReadSwapchain_ && !hdrShot) {
         // Copy the finished image into a host-visible buffer (saved after the frame completes)
         VkDeviceSize size = (VkDeviceSize)extent_.width * extent_.height * 4;
         if (!readback_.buffer || readback_.size < size) {
@@ -1464,6 +1518,24 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
 void Renderer::saveScreenshot() {
     std::string path = std::move(screenshotPath_);
     screenshotPath_.clear();
+    if (path.size() > 4 && path.compare(path.size() - 4, 4, ".hdr") == 0) {   // (the HDR image: recordCommands)
+        if (!hdrShotRecorded_) {
+            std::fprintf(stderr, "screenshot: no scene drawn for an HDR screenshot\n");
+            screenshotResult_ = -1;
+            return;
+        }
+        vkQueueWaitIdle(queue_);
+        const size_t n = (size_t)extent_.width * extent_.height;
+        const auto* half = static_cast<const uint16_t*>(readback_.mapped);
+        std::vector<float> rgb(n * 3);
+        for (size_t i = 0; i < n; ++i)
+            for (int c = 0; c < 3; ++c) rgb[i * 3 + (size_t)c] = halfToFloat(half[i * 4 + (size_t)c]) * screenshotExposure_;
+        bool ok = writeRadianceHdr(path, extent_.width, extent_.height, rgb.data());
+        std::printf(ok ? "Saved HDR screenshot %s (%ux%u)\n" : "screenshot: cannot write %s\n", path.c_str(), extent_.width,
+                    extent_.height);
+        screenshotResult_ = ok ? 1 : -1;
+        return;
+    }
     if (!canReadSwapchain_) {
         std::fprintf(stderr, "screenshot: this swapchain can't be read back\n");
         screenshotResult_ = -1;
@@ -1614,6 +1686,14 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         std::memcpy(uv.shadowViewProj, u.shadowViewProj, sizeof(u.shadowViewProj));
         std::memcpy(uv.shadowRect, u.shadowRect, sizeof(u.shadowRect));
         std::memcpy(uv.cascadeSplits, u.cascadeSplits, sizeof(u.cascadeSplits));
+        uv.viewport[3] = 0.f;
+        if (viewShadowed_[v]) {   // its own cascades (atlas tiles) in the cascades' places
+            const uint32_t first = kViewCascades + (uint32_t)v * kCascades;
+            std::memcpy(uv.shadowViewProj, u.shadowViewProj + first, sizeof(Mat4) * kCascades);
+            std::memcpy(uv.shadowRect, u.shadowRect + first, sizeof(u.shadowRect[0]) * kCascades);
+            std::memcpy(uv.cascadeSplits, viewSplits_[v], sizeof(uv.cascadeSplits));
+            uv.viewport[3] = 1.f;
+        }
         uv.sunDir[3] = u.sunDir[3];
         std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &uv, sizeof(uv));
     }

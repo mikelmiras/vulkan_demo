@@ -16,12 +16,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "imgui.h"
+#include "render/display.h"
 
 extern char** environ;
 
@@ -322,6 +325,28 @@ void setFullscreen(bool fullscreen) { VKWORLD_ON_WINDOW(setFullscreen(fullscreen
 bool isFullscreen() { return VKWORLD_ON_WINDOW(isFullscreen()); }
 void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height) { VKWORLD_ON_WINDOW(setWindowIcon(rgba, width, height)); }
 float dpiScale() { return VKWORLD_ON_WINDOW(dpiScale()); }
+
+bool displayLuminance(float& peak, float& frameAverage, float& min) {
+    // Each connector the kernel's DRM drivers know: its status and EDID in sysfs
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    bool found = false;
+    peak = frameAverage = min = 0.f;
+    for (const auto& entry : fs::directory_iterator("/sys/class/drm", ec)) {
+        std::ifstream status(entry.path() / "status");
+        std::string state;
+        if (!(status >> state) || state != "connected") continue;
+        std::ifstream in(entry.path() / "edid", std::ios::binary);
+        std::string edid((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        display::Luminance l;
+        if (!display::parseEdidLuminance((const uint8_t*)edid.data(), edid.size(), l) || l.peak <= peak) continue;
+        peak = l.peak;
+        frameAverage = l.frameAverage;
+        min = l.min;
+        found = true;
+    }
+    return found;
+}
 const char* vulkanSurfaceExtension() { return VKWORLD_ON_WINDOW(vulkanSurfaceExtension()); }
 VkSurfaceKHR createVulkanSurface(VkInstance instance) { return VKWORLD_ON_WINDOW(createVulkanSurface(instance)); }
 void imguiInit() { VKWORLD_ON_WINDOW(imguiInit()); }

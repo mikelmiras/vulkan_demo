@@ -11,6 +11,7 @@
 #include <shellapi.h>
 #include <xinput.h>
 #include <winhttp.h>
+#include <dxgi1_6.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 
@@ -416,6 +417,35 @@ void windowSize(uint32_t& width, uint32_t& height) {
 }
 
 float dpiScale() { return g_dpiScale; }
+
+bool displayLuminance(float& peak, float& frameAverage, float& min) {
+    // The DXGI output showing the window (Windows 10's IDXGIOutput6 knows its light levels)
+    IDXGIFactory1* factory = nullptr;
+    if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), (void**)&factory))) return false;
+    HMONITOR monitor = g_hwnd ? MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST) : nullptr;
+    bool found = false;
+    IDXGIAdapter1* adapter = nullptr;
+    for (UINT a = 0; !found && factory->EnumAdapters1(a, &adapter) != DXGI_ERROR_NOT_FOUND; ++a) {
+        IDXGIOutput* output = nullptr;
+        for (UINT o = 0; !found && adapter->EnumOutputs(o, &output) != DXGI_ERROR_NOT_FOUND; ++o) {
+            IDXGIOutput6* output6 = nullptr;
+            if (SUCCEEDED(output->QueryInterface(__uuidof(IDXGIOutput6), (void**)&output6))) {
+                DXGI_OUTPUT_DESC1 d;
+                if (SUCCEEDED(output6->GetDesc1(&d)) && (!monitor || d.Monitor == monitor) && d.MaxLuminance > 0.f) {
+                    peak = d.MaxLuminance;
+                    frameAverage = d.MaxFullFrameLuminance;
+                    min = d.MinLuminance;
+                    found = true;
+                }
+                output6->Release();
+            }
+            output->Release();
+        }
+        adapter->Release();
+    }
+    factory->Release();
+    return found;
+}
 
 const char* vulkanSurfaceExtension() { return VK_KHR_WIN32_SURFACE_EXTENSION_NAME; }
 

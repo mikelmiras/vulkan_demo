@@ -23,17 +23,19 @@
 namespace render_detail {
 
 // Must match shaders/common.glsl
-constexpr int kShadowViews = 52;       // 4 sun cascades + 48 views of spot and point lights in the atlas
+constexpr int kShadowViews = 64;       // 4 sun cascades, 44 views of spot and point lights in the atlas, then the
+                                       // extra views' (split screen's) 4 cascades each, in the atlas too
 constexpr int kMaxLights = 1024;       // point and spot lights drawn (the nearest)
 constexpr int kClusterX = 16, kClusterY = 9, kClusterSlices = 24;
 constexpr size_t kMaxClusterIndices = 1 << 17;
 struct FrameUBO {
     Mat4 viewProj;
-    Mat4 shadowViewProj[kShadowViews];  // 0-3: the sun's cascades, then views in the shadow atlas
+    Mat4 shadowViewProj[kShadowViews];  // 0-3: the sun's cascades, then views in the shadow atlas (an extra view's
+                                        // own: 0-3 its cascades, in the atlas)
     float shadowRect[kShadowViews][4];  // atlas views: the tile (uv offset, uv size)
     float camPos[4];
     float fogColor[4];   // rgb linear, w = density
-    float viewport[4];   // width, height, outline width in pixels, unused
+    float viewport[4];   // width, height, outline width in pixels, w = 1: the sun's cascades are atlas tiles
     float sunDir[4];     // xyz, w = 1 if it casts shadows
     float sunColor[4];   // rgb linear * intensity
     float ambient[4];    // rgb, w = point and spot light count (the lights buffer)

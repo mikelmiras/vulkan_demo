@@ -56,6 +56,10 @@ bool gamepadRumble(int pad, float low, float high, float seconds);   // a pad's 
 
 // Content scale of the window's monitor (1.0 = 96 DPI on Windows, always 1.0 on X11)
 float dpiScale();
+// How bright the window's display can go (nits; false if it doesn't say): DXGI's output description on Windows,
+// the EDID's HDR metadata on Linux (the brightest connected display: which one shows the window isn't known), the
+// screen's extended dynamic range headroom on macOS (times 100 nits)
+bool displayLuminance(float& peak, float& frameAverage, float& min);
 
 // Vulkan
 const char* vulkanSurfaceExtension();

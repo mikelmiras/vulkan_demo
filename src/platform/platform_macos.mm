@@ -354,6 +354,21 @@ void windowSize(uint32_t& width, uint32_t& height) {
 
 float dpiScale() { return 1.f; }
 
+bool displayLuminance(float& peak, float& frameAverage, float& min) {
+    // Extended dynamic range: how far past SDR white the screen can go at most (1: an SDR screen)
+    NSScreen* screen = g_window && g_window.screen ? g_window.screen : NSScreen.mainScreen;
+    if (!screen) return false;
+    if (@available(macOS 10.15, *)) {
+        CGFloat headroom = screen.maximumPotentialExtendedDynamicRangeColorComponentValue;
+        if (headroom <= 1.0) return false;
+        peak = (float)(headroom * 100.0);   // (EDR's 1.0 is SDR white: about 100 nits at the reference setting)
+        frameAverage = 0.f;
+        min = 0.f;
+        return true;
+    }
+    return false;
+}
+
 const char* vulkanSurfaceExtension() { return VK_EXT_METAL_SURFACE_EXTENSION_NAME; }
 
 VkSurfaceKHR createVulkanSurface(VkInstance instance) {

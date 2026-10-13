@@ -124,6 +124,7 @@ set(ENGINE_SOURCES
   src/game/strings.cpp
   src/core/json.cpp
   src/core/png.cpp
+  src/core/hdr_image.cpp
   src/core/project.cpp
   src/core/vfs.cpp
   src/core/sha256.cpp
@@ -186,6 +187,7 @@ set(ENGINE_SOURCES
   src/render/renderer_views.cpp
   src/render/renderer_gi.cpp
   src/render/texture_streaming.cpp
+  src/render/shadow_cascades.cpp
   src/render/display.cpp
   src/app/application.cpp
   src/app/export.cpp
@@ -243,7 +245,7 @@ function(vkworld_engine_target name type)
     if(NOT MSVC)
       target_link_libraries(${name} PRIVATE gdi32 dwmapi)   # MSVC gets these via #pragma comment
     endif()
-    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32 winhttp)
+    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32 winhttp dxgi)
     target_compile_definitions(${name} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   elseif(APPLE)
     target_link_libraries(${name} PRIVATE "-framework Cocoa" "-framework GameController" "-framework CoreHaptics")
@@ -404,6 +406,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_templates.cpp
     tests/test_streaming.cpp
     tests/test_cooking.cpp
+    tests/test_shadow_cascades.cpp
+    tests/test_hdr_image.cpp
     tests/test_display.cpp
     tests/test_module.cpp
     tests/test_scene_flow.cpp

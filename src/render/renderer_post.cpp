@@ -70,7 +70,8 @@ VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format,
 
 void Renderer::createPostImages() {
     hdr_ = createImage(hdrFormat_,
-                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,   // (HDR screenshots copy it out)
                        VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
     uint32_t w = std::max(extent_.width / 2, 1u), h = std::max(extent_.height / 2, 1u);
     bloomMips_ = 1;

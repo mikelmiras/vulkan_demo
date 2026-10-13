@@ -85,6 +85,7 @@ float sunVisibility(vec3 N, vec3 L) {
     if (c >= 4) return 1.0;
     // Nudged along the normal and towards the light (more for the bigger, coarser cascades): no shadow acne
     vec3 p = vWorldPos + N * (0.03 + 0.03 * float(c)) + L * 0.02;
+    if (frame.viewport.w > 0.5) return atlasShadow(c, p + N * 0.03, 0.0005);   // (a split-screen view's: coarser tiles)
     return shadowTest(shadowCascades, float(c), frame.shadowViewProj[c] * vec4(p, 1.0), 0.0005);
 }
 

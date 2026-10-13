@@ -317,7 +317,8 @@ occlusion, anti-aliasing, the player's colour filter), so it can go anywhere, ev
 **Split screen**: give two to four cameras a *Split-screen player* (1-4, Inspector > Camera) and vkgame shares the
 screen between them: two side by side, three or four in quarters, by player number (`Game::cameras()` lists them
 with their parts of the screen). Player 1's view is drawn as usual and the others each whole into an image of their
-own; they share the sun's shadows (its cascades follow player 1) and the lights. Each player has their own pad:
+own; each has the sun's shadows around it (its own four cascades, in tiles of the shadow atlas: 1024 texels for
+two players, 512 for three or four; the editor's Game view gets them too), and they share the lights. Each player has their own pad:
 player 1 the keyboard, the mouse and the first pad connected, player 2 the second pad and so on, and the behaviours
 under a player camera's root (its topmost parent: the player entity) read that player's input as `ctx.input()`
 (`ctx.rumble` shakes that player's pad). The editor's Game view shows player 1.
@@ -421,9 +422,17 @@ dropping on the right.
   roughness. What's off screen or hidden falls back to the probes and the sky.
 - **HDR output** (View > HDR output, `VKWORLD_HDR=1`, or a game's `settings.hdr`): on a display (and driver) that
   takes it, the picture goes out as HDR10 (PQ, Rec.2020 primaries; else scRGB): highlights keep their brightness up
-  to the display's peak (`VKWORLD_HDR_PEAK`, 1000 nits) instead of rolling off at white, and the UI sits at paper
-  white (`VKWORLD_HDR_PAPER_WHITE`, 200 nits) — it's drawn into a layer of its own and blended in by the composite,
-  in linear light. Screenshots are SDR. (`VKWORLD_UI_LAYER=1` uses the layered UI on an SDR display: a check.)
+  to the display's peak instead of rolling off at white, and the UI sits at paper white (`VKWORLD_HDR_PAPER_WHITE`,
+  200 nits) — it's drawn into a layer of its own and blended in by the composite, in linear light. The peak is the
+  display's own where it says (DXGI on Windows; the EDID's HDR metadata on Linux, the brightest connected display's;
+  the screen's EDR headroom on macOS), else 1000 nits; `VKWORLD_HDR_PEAK` overrides it. With VK_EXT_hdr_metadata
+  the swapchain tells the display about the picture (its primaries, D65 white, the peak as its maximum content
+  light) so the display's own tone mapping leaves it alone. The colour-blindness filter works in HDR too, in linear
+  light (highlights over paper white keep their brightness). (`VKWORLD_UI_LAYER=1` uses the layered UI on an SDR
+  display: a check.)
+- **HDR screenshots**: `--screenshot shot.hdr` saves a Radiance `.hdr` of the scene's light before tone mapping
+  (floating point, exposure applied; not bloom or the UI; with split screen, player 1's view), on any display.
+  Usable as a sky image.
 - **Texture streaming**: textures go to the GPU at most 256 pixels across at first; the scene shader reports, per
   texture, the finest mip level the screen needs (one pixel in sixteen, by its footprint), and the finer levels are
   uploaded when something needs them, a few megabytes a frame. Under a budget (512 MB; `VKWORLD_TEXTURE_BUDGET=<MB>`)
