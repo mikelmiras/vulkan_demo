@@ -712,7 +712,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
   and notarization (macOS, Windows SmartScreen), crash report upload, Flatpak / Snap, delta updates, symbols for
   the game module in the editor's own exports (tools/symbols.py by hand).
 
-## Round 6 (in progress)
+## Round 6 (done)
 
 | # | Task | Why |
 |---|------|-----|
@@ -998,3 +998,22 @@ Working list for turning the renderer demo into a small game engine. Each task i
   until secrets exist), delta updates (whole packs), resuming downloads, signed manifests (the digest is only as
   trustworthy as the manifest's server: use https), updates of AppImages and installed .dmg apps in place (an
   exported folder only), crash report symbolication on a server, a privacy notice screen.
+
+## Round 7 (planned)
+
+Mostly what round 6 left out (its notes' "Not done"), plus the editor catching up with the game's text and input.
+
+| # | Task | Why |
+|---|------|-----|
+| 65 | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
+| 66 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
+| 67 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
+| 68 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
+| 69 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
+| 70 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
+| 71 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
+| 72 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
+| 73 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
+| 74 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
+
+### Round 7 notes
