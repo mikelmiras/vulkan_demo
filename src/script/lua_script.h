@@ -64,4 +64,17 @@ void reset();
 void setTimeLimit(float seconds);
 float timeLimit();
 
+// Profiling: every callback runs in a profiler scope named after it ("Door.update": all its instances' calls
+// together; core/profiler.h, in the profiler window and traces). Sampling, while on, tells where inside the scripts
+// the time goes: every 1000 Lua instructions, the function running then gets a sample ("Door.lua:12 open"; C
+// functions too, "print [C]"). It counts instructions, not time: a slow C call is one sample like a quick one.
+void setSampling(bool on);
+bool sampling();
+struct Sample {
+    std::string function;
+    int count = 0;
+};
+std::vector<Sample> samples();   // most first, since clearSamples()
+void clearSamples();
+
 }  // namespace scripting

@@ -7,6 +7,7 @@
 #include <functional>
 #include <thread>
 
+#include "core/profiler.h"
 #include "game/game.h"
 #include "imgui.h"
 #include "net/tcp.h"
@@ -227,6 +228,254 @@ TEST(lua_debugger_breakpoints_and_stepping) {
     steps(g, 3);   // (detached: runs on, no more stops)
     CHECK(!scripting::debugger::attached());
     scripting::debugger::stop();
+    g.stop();
+    scripting::reset();
+}
+
+namespace {
+
+// Runs the game (polling the debugger) while `script` drives a client on its own thread; the game only starts
+// updating once the script says go (its breakpoints set)
+void withClient(Game& g, uint16_t port, const std::function<void(Client&, std::atomic<bool>& go)>& script) {
+    std::atomic<bool> done{false}, go{false};
+    std::thread client([&] {
+        Client c;
+        net::Address to;
+        std::string err;
+        if (net::resolve("127.0.0.1:" + std::to_string(port), port, to, err) && (c.c = net::TcpConnection::connect(to, err))) {
+            json::Value m;
+            c.request("initialize");
+            if (c.response("initialize", m) && c.event("initialized", m)) {
+                c.request("attach");
+                c.response("attach", m);
+                script(c, go);
+            }
+        }
+        done = true;
+    });
+    auto until = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+    while (!done && std::chrono::steady_clock::now() < until) {
+        scripting::debugger::poll();
+        if (go) steps(g, 1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    client.join();
+}
+
+json::Value breakpointsOn(const std::string& path, std::vector<json::Value> bps) {
+    json::Value args = json::Value::object(), source = json::Value::object(), list = json::Value::array();
+    source.set("path", path);
+    for (json::Value& b : bps) list.push(std::move(b));
+    args.set("source", source);
+    args.set("breakpoints", list);
+    return args;
+}
+
+json::Value breakpoint(int line, const char* key = nullptr, const std::string& value = "") {
+    json::Value b = json::Value::object();
+    b.set("line", line);
+    if (key) b.set(key, value);
+    return b;
+}
+
+std::string evaluated(Client& c, const std::string& expression, int frameId = 1) {
+    json::Value e = json::Value::object(), m;
+    e.set("expression", expression);
+    e.set("frameId", frameId);
+    c.request("evaluate", e);
+    return c.response("evaluate", m) ? m["body"]["result"].asString() : "";
+}
+
+}  // namespace
+
+// A condition (stops once it's true), logpoints (print, don't stop), a hit count, a condition with an error
+TEST(lua_debugger_conditions_and_logpoints) {
+    test::ImGuiContextGuard imgui;
+    scripting::reset();
+    std::string error;
+    REQUIRE(scripting::define("Counter", kCounter, error));
+    REQUIRE(scripting::debugger::listen(0, error));
+    Scene s;
+    s.create("C").behaviours.emplace_back(createBehaviour("Counter"));
+    Game g;
+    g.start(s, meshes());
+    struct Seen {
+        std::vector<std::string> logged;
+        std::string atCondition, atHits, conditionError;
+        bool stoppedOnError = false, ok = false;
+    } seen;
+    const std::string path = "/project/scripts/Counter.lua";
+    withClient(g, scripting::debugger::port(), [&](Client& c, std::atomic<bool>& go) {
+        json::Value m, a = json::Value::object();
+        a.set("threadId", 1);
+        // (the logpoint on line 6, after count grew; the condition on line 5, before)
+        c.request("setBreakpoints", breakpointsOn(path, {breakpoint(5, "condition", "self.count >= 6"),
+                                                        breakpoint(6, "logMessage", "count is {self.count}, {{braces}}")}));
+        c.response("setBreakpoints", m);
+        c.request("configurationDone");
+        c.response("configurationDone", m);
+        go = true;
+        bool stopped = false;
+        while (!stopped && c.waitFor([](const json::Value& x) {
+                   return x["type"].asString() == "event" && (x["event"].asString() == "output" || x["event"].asString() == "stopped");
+               }, m)) {
+            if (m["event"].asString() == "stopped") stopped = true;
+            else seen.logged.push_back(m["body"]["output"].asString());
+        }
+        if (!stopped) return;
+        seen.atCondition = evaluated(c, "self.count");
+        // Every second hit of line 5 from now on
+        c.request("setBreakpoints", breakpointsOn(path, {breakpoint(5, "hitCondition", "% 2")}));
+        c.response("setBreakpoints", m);
+        c.request("continue", a);
+        c.response("continue", m);
+        if (!c.event("stopped", m)) return;
+        seen.atHits = evaluated(c, "self.count");
+        // A condition that can't be worked out: it stops, saying why
+        c.request("setBreakpoints", breakpointsOn(path, {breakpoint(5, "condition", "self.nothing.here")}));
+        c.response("setBreakpoints", m);
+        c.request("continue", a);
+        c.response("continue", m);
+        if (!c.waitFor([](const json::Value& x) { return x["type"].asString() == "event" && x["event"].asString() == "output"; }, m)) return;
+        seen.conditionError = m["body"]["output"].asString();
+        seen.stoppedOnError = c.event("stopped", m);
+        c.request("setBreakpoints", breakpointsOn(path, {}));
+        c.response("setBreakpoints", m);
+        c.request("continue", a);
+        c.response("continue", m);
+        c.request("disconnect");
+        c.response("disconnect", m);
+        seen.ok = true;
+    });
+    CHECK(seen.ok);
+    // count goes 0, 2, 4, 6 ... (2 a step: a number field, so a float) logged after each step until it was 6 before
+    // line 5
+    REQUIRE(seen.logged.size() == 3);
+    CHECK(seen.logged[0] == "count is 2.0, {braces}\n");
+    CHECK(seen.logged[2] == "count is 6.0, {braces}\n");
+    CHECK(seen.atCondition == "6.0");
+    CHECK(seen.atHits == "10.0");   // (the hits from 8 on: 8 is the first, 10 the second)
+    CHECK(seen.conditionError.find("Breakpoint condition (self.nothing.here)") != std::string::npos);
+    CHECK(seen.stoppedOnError);
+    scripting::debugger::stop();
+    g.stop();
+    scripting::reset();
+}
+
+// With the "Script errors" filter on, the game stops where a script raises an error: its frame, its locals, the
+// message; then the error is reported as usual
+TEST(lua_debugger_breaks_on_errors) {
+    test::ImGuiContextGuard imgui;
+    scripting::reset();
+    std::string error;
+    REQUIRE(scripting::define("Faulty", R"lua(local Faulty = {}
+local function check(n)
+    local limit = 2
+    if n > limit then error("too many: " .. n) end
+end
+function Faulty:start() self.n = 0 end
+function Faulty:update(dt)
+    self.n = self.n + 1
+    check(self.n)
+end
+return Faulty
+)lua", error));
+    REQUIRE(scripting::debugger::listen(0, error));
+    Scene s;
+    s.create("F").behaviours.emplace_back(createBehaviour("Faulty"));
+    Game g;
+    g.start(s, meshes());
+    struct Seen {
+        std::string reason, text, function, limit, n, description;
+        int line = 0;
+        bool ok = false;
+    } seen;
+    withClient(g, scripting::debugger::port(), [&](Client& c, std::atomic<bool>& go) {
+        json::Value m, a = json::Value::object(), filters = json::Value::object(), list = json::Value::array();
+        a.set("threadId", 1);
+        list.push(json::Value("errors"));
+        filters.set("filters", list);
+        c.request("setExceptionBreakpoints", filters);
+        c.response("setExceptionBreakpoints", m);
+        c.request("configurationDone");
+        c.response("configurationDone", m);
+        go = true;
+        if (!c.event("stopped", m)) return;
+        seen.reason = m["body"]["reason"].asString();
+        seen.text = m["body"]["text"].asString();
+        c.request("stackTrace", a);
+        if (c.response("stackTrace", m)) {
+            const json::Value& top = m["body"]["stackFrames"][0];
+            seen.line = top["line"].asInt();
+            seen.function = top["name"].asString();
+            int id = top["id"].asInt();
+            seen.limit = evaluated(c, "limit", id);
+            seen.n = evaluated(c, "n", id);
+        }
+        c.request("exceptionInfo", a);
+        if (c.response("exceptionInfo", m)) seen.description = m["body"]["description"].asString();
+        c.request("continue", a);
+        c.response("continue", m);
+        c.request("disconnect");
+        c.response("disconnect", m);
+        seen.ok = true;
+    });
+    CHECK(seen.ok);
+    CHECK(seen.reason == "exception");
+    CHECK(seen.text.find("too many: 3") != std::string::npos);
+    CHECK(seen.line == 4);           // (in check(), where error() was called: not inside error itself)
+    CHECK(seen.function == "check");
+    CHECK(seen.limit == "2" && seen.n == "3");
+    CHECK(seen.description.find("too many: 3") != std::string::npos);
+    bool reported = false;   // (and then reported, as without the debugger)
+    for (const auto& [t, line] : g.log()) reported = reported || line.find("too many: 3") != std::string::npos;
+    CHECK(reported);
+    scripting::debugger::stop();
+    g.stop();
+    scripting::reset();
+}
+
+// Profiling: each callback is a profiler scope (named after the script and callback, every instance's call), and
+// sampling finds the function the work is in
+TEST(lua_profiling) {
+    test::ImGuiContextGuard imgui;
+    scripting::reset();
+    std::string error;
+    REQUIRE(scripting::define("Busy", R"lua(local Busy = {}
+local function heavy(n)
+    local s = 0
+    for i = 1, n do s = s + i % 7 end
+    return s
+end
+function Busy:update(dt) self.total = heavy(20000) end
+return Busy
+)lua", error));
+    Scene s;
+    s.create("B1").behaviours.emplace_back(createBehaviour("Busy"));
+    s.create("B2").behaviours.emplace_back(createBehaviour("Busy"));
+    Game g;
+    g.start(s, meshes());
+    scripting::setSampling(true);
+    CHECK(scripting::sampling());
+    for (int i = 0; i < 5; ++i) {
+        profiler::beginFrame();
+        steps(g, 1);
+        profiler::endFrame();
+    }
+    REQUIRE(!profiler::history().empty());
+    int calls = 0;
+    for (const profiler::Scope& sc : profiler::history().back().scopes) calls += std::string(sc.name) == "Busy.update";
+    CHECK(calls == 2);   // (both instances, one scope each)
+    bool summarized = false;
+    for (const profiler::Summary& sm : profiler::summarize()) summarized = summarized || (sm.name == "Busy.update" && sm.avgMs > 0.0);
+    CHECK(summarized);
+    std::vector<scripting::Sample> samples = scripting::samples();
+    REQUIRE(!samples.empty());
+    CHECK(samples[0].function.find("heavy") != std::string::npos);   // (where the loop is)
+    CHECK(samples[0].count > 100);
+    scripting::clearSamples();
+    CHECK(scripting::samples().empty());
+    scripting::setSampling(false);
     g.stop();
     scripting::reset();
 }

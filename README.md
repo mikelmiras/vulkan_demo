@@ -1095,6 +1095,22 @@ tables to expand, watches and hovers (expressions evaluated in the frame). It sp
 so other editors with DAP support can attach too. While stopped, the game waits: its window doesn't redraw until
 you continue.
 
+- **Conditional breakpoints** stop only when their expression is true (`self.health < 10`, evaluated in the frame);
+  a **hit count** says which hits stop (`5` or `>= 5`: from the fifth on, `== 5`, `% 3`: every third); a condition
+  that fails to run (an error in it) stops, saying why in the debug console.
+- **Logpoints** print their message without stopping, `{expressions}` filled in (`hp {self.health} at {dt}`;
+  `{{` and `}}` for braces): in the editor's debug console and the game's log.
+- **Script errors**: with the *Script errors* exception filter on (the default, in VS Code's Breakpoints view), the
+  game stops where a script raises an error, before it's reported: the frame that raised it, its locals, the message
+  (and its traceback in the exception's details). Continuing reports the error as usual.
+
+**Profiling**: every script callback is a profiler scope named after the script and the callback (`Door.update`,
+all its instances' calls together), so they appear where they run in the profiler window (View > Profiler, F3), in
+saved traces, and in its *Scripts* section, slowest first with how many calls each made last frame. *Sample Lua
+functions* there tells where inside the scripts the work is: every 1000 Lua instructions, the function running then
+gets a sample (`Door.lua:12 open`, `print [C]` for C functions), listed with their share. Samples count
+instructions, not time: a slow call into the engine is one sample like a quick one.
+
 ## Controls
 
 | Input                          | Action                                         |

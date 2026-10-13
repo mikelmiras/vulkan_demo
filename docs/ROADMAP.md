@@ -723,7 +723,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
 | 58 (done) | Animation tools: a bone-map editor for retargeting, rest-pose correction (A-pose to T-pose), an animation event track (footsteps, hits) | Retargeting is automatic only; game code polls clip times for events |
 | 59 (done) | Physics, finishing: tearing cloth, soft bodies in water, convex decomposition for fracturing concave meshes, joints that hold pieces until hit | The round 5 physics features have known gaps |
 | 60 (done) | Networking: a dedicated server (vkgame --server, no window or GPU), a lobby through a relay server, NAT traversal | Hosting means a player's machine with a window; joining needs an IP address |
-| 61 | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
+| 61 (done) | Scripting tools, more: conditional breakpoints and logpoints, breaking on errors, a script profiler in the profiler window | The debugger stops only at plain breakpoints; slow scripts are hard to find |
 | 62 | Input: several gamepads (per-player input maps), button prompts per pad type (Xbox, PlayStation, Switch glyphs), rebinding in game menus | One pad; menus show keyboard names; players can't rebind |
 | 63 | Text: complex scripts and right-to-left (HarfBuzz shaping), font fallback for CJK and emoji | Latin text only renders correctly |
 | 64 | Shipping, more: an auto-updater (download, verify, swap), crash report upload (opt-in), code signing and notarization in the release workflow | Updates are announced, not applied; crashes stay on players' machines |
@@ -888,3 +888,25 @@ Working list for turning the renderer demo into a small game engine. Each task i
   taking its lobby with it. Not done: hole punching with port prediction for symmetric NATs (they fall back to
   the relay), IPv6, relay authentication / rate limits (anyone may register or list), private or password-protected
   lobbies, several relays, a server browser that pings lobbies, a Windows service / systemd unit for --server.
+- Task 61: breakpoints are lines with a condition, a hit condition and a log message (DAP's setBreakpoints fields;
+  supportsConditionalBreakpoints, supportsHitConditionalBreakpoints, supportsLogPoints). A line event on one
+  evaluates its condition in the running frame (the watch evaluator, split into pushExpression; level 0 inside the
+  hook), counts the hit, tests the hit condition (a number or ">= n", "== n", "> n", "< n", "<= n", "!= n", "% n"),
+  and a logpoint interpolates {expressions} (luaL_tolstring) into an "output" event and logLine instead of
+  stopping; a condition's error stops with a stderr output. Time spent in conditions and logpoints is taken off the
+  time limit's clock like time stopped. Errors: the "Script errors" exception filter (default on;
+  setExceptionBreakpoints) makes the traceback message handler, which runs where the error was raised before the
+  stack unwinds, call debugger::onError: it stops with reason "exception" (the message as text; exceptionInfo
+  answers with it and the traceback), its stack shown from the first frame that isn't a C function (not error()
+  itself or the handler); stepping afterwards is a continue (the error goes on unwinding). Profiling: each
+  callback runs in a ProfileScope named "<Type>.<callback>" (names interned once in a set: the profiler keeps the
+  pointers), so they sum per frame in profiler::summarize, nest under Behaviours and go into traces; the profiler
+  window's Scripts section lists them slowest first with the last frame's call count. Sampling: setSampling turns
+  the count hook from every 10000 instructions to every 1000, each event a sample for the running function (keyed
+  by its address, labelled once from lua_getinfo "Sn"; merged by label when listed; cleared with the Lua state).
+  Checked: a condition stopping on the first true value with logpoints printed before it, a hit condition's second
+  hit, a broken condition stopping; an error stopped at the raising function's line with its locals and the
+  message, then reported; two instances' callback scopes in a frame and a loop's function on top of the samples;
+  an editor screenshot with the callbacks in the profiler. Not done: setting variables, data breakpoints (a field
+  changing), coroutines as threads, function breakpoints, wall-clock sampling (a sampler thread), per-line
+  sampling, the profiler's script stats in vkgame's F3 overlay.

@@ -7,6 +7,7 @@
 
 #include "core/profiler.h"
 #include "imgui.h"
+#include "script/lua_script.h"
 
 namespace {
 
@@ -111,6 +112,61 @@ void drawProfilerWindow(bool* open, const std::filesystem::path& traceFolder) {
             ImGui::Text("%.3f", s.avgMs);
             ImGui::TableNextColumn();
             ImGui::Text("%.3f", s.maxMs);
+        }
+        ImGui::EndTable();
+    }
+    // Scripts: their callbacks' scopes, slowest first, and (sampling) where inside them the time goes
+    ImGui::SeparatorText("Scripts");
+    std::vector<profiler::Summary> scripts;
+    for (const profiler::Summary& sm : profiler::summarize()) {
+        size_t dot = sm.name.find('.');
+        if (dot != std::string::npos && scripting::isScriptType(sm.name.substr(0, dot))) scripts.push_back(sm);
+    }
+    std::sort(scripts.begin(), scripts.end(), [](const profiler::Summary& a, const profiler::Summary& b) { return a.avgMs > b.avgMs; });
+    if (scripts.empty()) ImGui::TextDisabled("(no Lua callbacks ran)");
+    else if (ImGui::BeginTable("##scripts", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Callback");
+        ImGui::TableSetupColumn("calls");
+        ImGui::TableSetupColumn("avg ms");
+        ImGui::TableSetupColumn("worst ms");
+        ImGui::TableHeadersRow();
+        for (const profiler::Summary& sm : scripts) {
+            int calls = 0;   // (in the last frame: one per instance it ran on)
+            for (const profiler::Scope& sc : last.scopes) calls += sm.name == sc.name;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(sm.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", calls);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", sm.avgMs);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", sm.maxMs);
+        }
+        ImGui::EndTable();
+    }
+    bool sampling = scripting::sampling();
+    if (ImGui::Checkbox("Sample Lua functions", &sampling)) scripting::setSampling(sampling);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Every 1000 Lua instructions, the function running gets a sample: where inside the scripts the work is");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Clear")) scripting::clearSamples();
+    std::vector<scripting::Sample> samples = scripting::samples();
+    int all = 0;
+    for (const scripting::Sample& sm : samples) all += sm.count;
+    if (!samples.empty() && ImGui::BeginTable("##samples", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Function");
+        ImGui::TableSetupColumn("samples");
+        ImGui::TableSetupColumn("share");
+        ImGui::TableHeadersRow();
+        for (size_t i = 0; i < samples.size() && i < 30; ++i) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(samples[i].function.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%d", samples[i].count);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f %%", 100.0 * samples[i].count / std::max(all, 1));
         }
         ImGui::EndTable();
     }

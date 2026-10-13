@@ -10,8 +10,11 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
+#include <unordered_map>
 
 #include "core/log.h"
+#include "core/profiler.h"
 #include "core/vfs.h"
 #include "game/game.h"
 #include "game/ui.h"
@@ -143,24 +146,54 @@ struct CallScope {
 // ---------------------------------------------------------------------------------------------
 // Calling Lua
 // ---------------------------------------------------------------------------------------------
-int traceback(lua_State* L) {
-    const char* msg = lua_tostring(L, 1);
-    if (!msg) msg = luaL_tolstring(L, 1, nullptr);
-    luaL_traceback(L, L, msg, 1);
-    return 1;
-}
-
 // The time limit: the outermost Lua call's start, checked every few thousand instructions by the hook
 float g_timeLimit = 0.5f;
 int g_callDepth = 0;
 std::chrono::steady_clock::time_point g_callStart;
 
+void notCounted(double seconds) {   // (time the debugger held the game: not the script's)
+    if (seconds > 0.0) g_callStart += std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(seconds));
+}
+
+// The error handler: the debugger may stop here (the stack still as it was when the error was raised), then a
+// traceback is added to the message
+int traceback(lua_State* L) {
+    const char* msg = lua_tostring(L, 1);
+    if (!msg) msg = luaL_tolstring(L, 1, nullptr);
+    luaL_traceback(L, L, msg, 1);
+    notCounted(scripting::debugger::onError(L, lua_tostring(L, -1)));
+    return 1;
+}
+
+// Sampling (scripting::setSampling): every kSampleEvery instructions, the function running gets a sample
+constexpr int kSampleEvery = 1000;
+bool g_sampling = false;
+struct Sampled {
+    std::string function;
+    int count = 0;
+};
+std::unordered_map<const void*, Sampled> g_samples;   // by the function's identity
+
+void sample(lua_State* L, lua_Debug* ar) {
+    if (!lua_getinfo(L, "Snf", ar)) return;
+    Sampled& s = g_samples[lua_topointer(L, -1)];
+    lua_pop(L, 1);
+    if (s.function.empty()) {   // ("Door.lua:12 open", "Door.lua (main chunk)", "print [C]")
+        std::string src = ar->source && ar->source[0] == '@' ? std::string(ar->source + 1) : std::string(ar->short_src);
+        src = src.substr(src.find_last_of("/\\") + 1);
+        if (std::string(ar->what) == "C") s.function = std::string(ar->name ? ar->name : "?") + " [C]";
+        else if (std::string(ar->what) == "main") s.function = src + " (main chunk)";
+        else s.function = src + ":" + std::to_string(ar->linedefined) + (ar->name ? " " + std::string(ar->name) : "");
+    }
+    ++s.count;
+}
+
 void hook(lua_State* L, lua_Debug* ar) {
     if (ar->event == LUA_HOOKLINE) {   // the debugger (time stopped there doesn't count)
-        double paused = scripting::debugger::onLine(L, ar);
-        if (paused > 0.0) g_callStart += std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(paused));
+        notCounted(scripting::debugger::onLine(L, ar));
         return;
     }
+    if (g_sampling) sample(L, ar);
     if (g_timeLimit > 0.f && g_callDepth > 0 &&
         std::chrono::duration<float>(std::chrono::steady_clock::now() - g_callStart).count() > g_timeLimit)
         luaL_error(L, "ran for over %d ms: stopped (an endless loop?)", (int)(g_timeLimit * 1000.f));
@@ -604,6 +637,7 @@ private:
         bool ok;
         {
             CallScope scope(&ctx, ui, self.id);
+            ProfileScope profile(scopeName(method));   // ("Door.update": in the profiler, all instances' calls together)
             ok = pcall(L, 1 + n, 0, error);
         }
         if (!ok) {
@@ -615,7 +649,23 @@ private:
         if (decls && live()) pull(*decls);
     }
 
+    // The profiler's name for one of this type's callbacks (kept for good: the profiler holds on to the pointer)
+    const char* scopeName(const char* method) {
+        if (scopeType_ != type_) {
+            scopeType_ = type_;
+            scopeNames_.clear();
+        }
+        const char*& name = scopeNames_[method];
+        if (!name) {
+            static std::set<std::string> names;
+            name = names.insert(type_ + "." + method).first->c_str();
+        }
+        return name;
+    }
+
     std::string type_;
+    std::string scopeType_;
+    std::map<std::string, const char*> scopeNames_;
     FieldValues values_, pushed_;
     int ref_ = LUA_NOREF;
     uint64_t stateId_ = 0;
@@ -1709,6 +1759,7 @@ void reset() {
     }
     e.errors.clear();
     e.root.clear();
+    g_samples.clear();   // (its functions are gone: their addresses may come back as others)
 }
 
 int loadProject(const fs::path& projectRoot) {
@@ -1811,11 +1862,29 @@ std::string templateSource(const std::string& typeName) {
 void setTimeLimit(float seconds) { g_timeLimit = std::max(seconds, 0.f); }
 float timeLimit() { return g_timeLimit; }
 
+void setSampling(bool on) {
+    if (g_sampling == on) return;
+    g_sampling = on;
+    refreshHook();
+}
+bool sampling() { return g_sampling; }
+
+std::vector<Sample> samples() {
+    std::map<std::string, int> merged;   // (a script reloaded: its new functions under the same names)
+    for (const auto& [f, s] : g_samples) merged[s.function] += s.count;
+    std::vector<Sample> out;
+    for (const auto& [name, count] : merged) out.push_back({name, count});
+    std::sort(out.begin(), out.end(), [](const Sample& a, const Sample& b) { return a.count != b.count ? a.count > b.count : a.function < b.function; });
+    return out;
+}
+
+void clearSamples() { g_samples.clear(); }
+
 // The hook: instruction counts for the time limit, and line events while the debugger wants them
 void refreshHook() {
     lua_State* L = eng().L;
     if (!L) return;
-    lua_sethook(L, hook, LUA_MASKCOUNT | (debugger::wantsLines() ? LUA_MASKLINE : 0), 10000);
+    lua_sethook(L, hook, LUA_MASKCOUNT | (debugger::wantsLines() ? LUA_MASKLINE : 0), g_sampling ? kSampleEvery : 10000);
 }
 
 lua_State* luaState() { return state(); }

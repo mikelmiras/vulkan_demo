@@ -36,18 +36,28 @@ struct VarRef {
     int table = LUA_NOREF; // (tables) a registry reference
 };
 
+// A breakpoint: plain, or with a condition (stops when it's true), a hit condition ("5", ">= 5", "% 3": which hits
+// stop), or a log message (a logpoint: prints "{expressions}" filled in, and goes on)
+struct Breakpoint {
+    std::string condition, hitCondition, logMessage;
+    int hits = 0;
+};
+
 struct Debugger {
     net::TcpListener listener;
     std::unique_ptr<net::TcpConnection> client;
     std::string inbox;
     int seq = 1;
-    std::map<std::string, std::set<int>> breakpoints;   // source key ("scripts/Door.lua") -> lines
+    std::map<std::string, std::map<int, Breakpoint>> breakpoints;   // source key ("scripts/Door.lua") -> lines
     std::set<int> anyLines;                             // (quick test: any file has a breakpoint on this line)
     Step step = Step::None;
     int stepDepth = 0;
     bool pauseRequested = false;
     bool stopped = false, resume = false, inside = false;
+    bool breakOnErrors = false;                         // (the "Script errors" exception filter)
     lua_State* L = nullptr;                             // (while stopped)
+    int base = 0;                                       // (while stopped) the first stack level shown
+    std::string exception;                              // (stopped on an error) its message
     std::vector<VarRef> refs;
 };
 
@@ -221,9 +231,8 @@ json::Value variables(lua_State* L, int reference) {
     return list;
 }
 
-// An expression in a frame: its locals and upvalues first, then the globals
-json::Value evaluate(lua_State* L, const std::string& expression, int level) {
-    json::Value body = json::Value::object();
+// An expression in a frame, its value pushed: its locals and upvalues first, then the globals (false: an error)
+bool pushExpression(lua_State* L, const std::string& expression, int level, std::string& error) {
     int top = lua_gettop(L);
     lua_newtable(L);   // the environment
     int env = lua_gettop(L);
@@ -253,25 +262,92 @@ json::Value evaluate(lua_State* L, const std::string& expression, int level) {
     if (luaL_loadbufferx(L, code.data(), code.size(), "=watch", "t") != LUA_OK) {
         lua_pop(L, 1);
         if (luaL_loadbufferx(L, expression.data(), expression.size(), "=watch", "t") != LUA_OK) {
-            body.set("result", std::string(lua_tostring(L, -1)));
-            body.set("variablesReference", 0);
+            error = lua_tostring(L, -1);
             lua_settop(L, top);
-            return body;
+            return false;
         }
     }
     lua_pushvalue(L, env);
     lua_setupvalue(L, -2, 1);   // (its _ENV)
     if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
-        body.set("result", std::string(lua_tostring(L, -1) ? lua_tostring(L, -1) : "error"));
-        body.set("variablesReference", 0);
-    } else {
-        json::Value v = describe(L, -1, expression);
-        body.set("result", v["value"]);
-        body.set("type", v["type"]);
-        body.set("variablesReference", v["variablesReference"]);
+        error = lua_tostring(L, -1) ? lua_tostring(L, -1) : "error";
+        lua_settop(L, top);
+        return false;
     }
-    lua_settop(L, top);
+    lua_replace(L, top + 1);   // (just the value left)
+    lua_settop(L, top + 1);
+    return true;
+}
+
+json::Value evaluate(lua_State* L, const std::string& expression, int level) {
+    json::Value body = json::Value::object();
+    std::string error;
+    if (!pushExpression(L, expression, level, error)) {
+        body.set("result", error);
+        body.set("variablesReference", 0);
+        return body;
+    }
+    json::Value v = describe(L, -1, expression);
+    lua_pop(L, 1);
+    body.set("result", v["value"]);
+    body.set("type", v["type"]);
+    body.set("variablesReference", v["variablesReference"]);
     return body;
+}
+
+// A logpoint's message: each {expression} replaced by its value as text ("{{" and "}}": braces)
+std::string interpolate(lua_State* L, const std::string& message, int level) {
+    std::string out;
+    for (size_t i = 0; i < message.size(); ++i) {
+        char c = message[i];
+        if ((c == '{' || c == '}') && i + 1 < message.size() && message[i + 1] == c) {
+            out += c;
+            ++i;
+        } else if (c == '{') {
+            size_t end = message.find('}', i);
+            if (end == std::string::npos) { out += message.substr(i); break; }
+            std::string error;
+            if (pushExpression(L, message.substr(i + 1, end - i - 1), level, error)) {
+                size_t n = 0;
+                const char* t = luaL_tolstring(L, -1, &n);
+                out.append(t, n);
+                lua_pop(L, 2);
+            } else {
+                out += "<" + error + ">";
+            }
+            i = end;
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+// Whether the hit count passes a hit condition: "5" or ">= 5" (from the fifth on), "== 5", "> 5", "< 5", "<= 5",
+// "% 3" (every third)
+bool hitMatches(const std::string& condition, int hits) {
+    std::string c = condition;
+    c.erase(std::remove(c.begin(), c.end(), ' '), c.end());
+    std::string op;
+    while (!c.empty() && std::string("<>=%!").find(c[0]) != std::string::npos) op += c[0], c.erase(0, 1);
+    char* end = nullptr;
+    long n = std::strtol(c.c_str(), &end, 10);
+    if (c.empty() || (end && *end)) return true;   // (not understood: every hit)
+    if (op.empty() || op == ">=") return hits >= n;
+    if (op == "==" || op == "=") return hits == n;
+    if (op == ">") return hits > n;
+    if (op == "<") return hits < n;
+    if (op == "<=") return hits <= n;
+    if (op == "!=") return hits != n;
+    if (op == "%") return n > 0 && hits % n == 0;
+    return true;
+}
+
+void output(const std::string& text, const std::string& category = "console") {
+    json::Value body = json::Value::object();
+    body.set("category", category);
+    body.set("output", text + "\n");
+    event("output", body);
 }
 
 // ---- Requests (while running, or stopped: then L is the paused state)
@@ -283,18 +359,36 @@ void handle(const json::Value& req) {
         json::Value caps = json::Value::object();
         caps.set("supportsConfigurationDoneRequest", true);
         caps.set("supportsEvaluateForHovers", true);
+        caps.set("supportsConditionalBreakpoints", true);
+        caps.set("supportsHitConditionalBreakpoints", true);
+        caps.set("supportsLogPoints", true);
+        caps.set("supportsExceptionInfoRequest", true);
+        json::Value filters = json::Value::array(), errors = json::Value::object();
+        errors.set("filter", "errors");
+        errors.set("label", "Script errors");
+        errors.set("description", "Stop where a script raises an error, before it's reported");
+        errors.set("default", true);
+        filters.push(errors);
+        caps.set("exceptionBreakpointFilters", filters);
         respond(req, caps);
         event("initialized");
-    } else if (cmd == "attach" || cmd == "launch" || cmd == "configurationDone" || cmd == "setExceptionBreakpoints") {
+    } else if (cmd == "setExceptionBreakpoints") {
+        d.breakOnErrors = false;
+        for (const json::Value& f : args["filters"].elements()) d.breakOnErrors = d.breakOnErrors || f.asString() == "errors";
+        respond(req);
+    } else if (cmd == "attach" || cmd == "launch" || cmd == "configurationDone") {
         respond(req);
     } else if (cmd == "setBreakpoints") {
         std::string key = keyOf(args["source"]["path"].asString());
-        std::set<int>& lines = d.breakpoints[key];
+        std::map<int, Breakpoint>& lines = d.breakpoints[key];
         lines.clear();
         json::Value list = json::Value::array();
         for (const json::Value& b : args["breakpoints"].elements()) {
             int line = b["line"].asInt();
-            lines.insert(line);
+            Breakpoint& bp = lines[line];
+            bp.condition = b["condition"].asString();
+            bp.hitCondition = b["hitCondition"].asString();
+            bp.logMessage = b["logMessage"].asString();
             json::Value v = json::Value::object();
             v.set("verified", true);
             v.set("line", line);
@@ -302,7 +396,8 @@ void handle(const json::Value& req) {
         }
         if (lines.empty()) d.breakpoints.erase(key);
         d.anyLines.clear();
-        for (const auto& [k, ls] : d.breakpoints) d.anyLines.insert(ls.begin(), ls.end());
+        for (const auto& [k, ls] : d.breakpoints)
+            for (const auto& [line, bp] : ls) d.anyLines.insert(line);
         json::Value body = json::Value::object();
         body.set("breakpoints", list);
         respond(req, body);
@@ -334,7 +429,7 @@ void handle(const json::Value& req) {
     } else if (cmd == "stackTrace") {
         json::Value frames = json::Value::array();
         lua_Debug ar;
-        for (int level = 0; lua_getstack(d.L, level, &ar) && level < 64; ++level) {
+        for (int level = d.base; lua_getstack(d.L, level, &ar) && level < 64; ++level) {
             lua_getinfo(d.L, "Sln", &ar);
             json::Value f = json::Value::object();
             f.set("id", level + 1);
@@ -369,8 +464,17 @@ void handle(const json::Value& req) {
         json::Value body = json::Value::object();
         body.set("variables", variables(d.L, args["variablesReference"].asInt()));
         respond(req, body);
+    } else if (cmd == "exceptionInfo") {
+        json::Value body = json::Value::object(), details = json::Value::object();
+        body.set("exceptionId", "error");
+        body.set("description", d.exception.substr(0, d.exception.find('\n')));
+        body.set("breakMode", "always");
+        details.set("message", d.exception.substr(0, d.exception.find('\n')));
+        details.set("stackTrace", d.exception);
+        body.set("details", details);
+        respond(req, body);
     } else if (cmd == "evaluate") {
-        respond(req, evaluate(d.L, args["expression"].asString(), args.has("frameId") ? args["frameId"].asInt() - 1 : 0));
+        respond(req, evaluate(d.L, args["expression"].asString(), args.has("frameId") ? args["frameId"].asInt() - 1 : d.base));
     } else if (cmd == "continue" || cmd == "next" || cmd == "stepIn" || cmd == "stepOut") {
         d.step = cmd == "next" ? Step::Over : cmd == "stepIn" ? Step::In : cmd == "stepOut" ? Step::Out : Step::None;
         d.stepDepth = depthOf(d.L);
@@ -447,6 +551,46 @@ void poll() {
     serve();
 }
 
+namespace {
+
+// Stopped: the game waits here, answering the editor, until it says go on; returns the seconds it waited
+double stopHere(lua_State* L, const char* reason, int base, const std::string& exception) {
+    Debugger& d = dbg();
+    auto started = std::chrono::steady_clock::now();
+    d.inside = true;
+    d.stopped = true;
+    d.resume = false;
+    d.pauseRequested = false;
+    d.step = Step::None;
+    d.L = L;
+    d.base = base;
+    d.exception = exception;
+    json::Value body = json::Value::object();
+    body.set("reason", reason);
+    body.set("threadId", 1);
+    body.set("allThreadsStopped", true);
+    if (!exception.empty()) {
+        body.set("description", "Paused on a script error");
+        body.set("text", exception.substr(0, exception.find('\n')));
+    }
+    event("stopped", body);
+    while (!d.resume && d.client) {
+        serve();
+        if (!d.resume) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    if (!exception.empty()) d.step = Step::None;   // (the error goes on unwinding: nothing to step through)
+    dropRefs();
+    d.stopped = false;
+    d.L = nullptr;
+    d.base = 0;
+    d.exception.clear();
+    d.inside = false;
+    refreshHook();
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+}
+
+}  // namespace
+
 bool wantsLines() {
     const Debugger& d = dbg();
     return d.client && (!d.anyLines.empty() || d.step != Step::None || d.pauseRequested);
@@ -464,36 +608,57 @@ double onLine(lua_State* L, lua_Debug* ar) {
         if (d.step == Step::In || (d.step == Step::Over && depth <= d.stepDepth) || (d.step == Step::Out && depth < d.stepDepth))
             reason = "step";
     }
+    double spent = 0.0;   // (conditions and logpoints run Lua too: not the script's time)
     if (!reason && d.anyLines.count(ar->currentline)) {
         lua_getinfo(L, "S", ar);
         std::string chunk = chunkOf(ar->source);
-        for (const auto& [key, lines] : d.breakpoints)
-            if (lines.count(ar->currentline) && sameSource(key, chunk)) reason = "breakpoint";
+        for (auto& [key, lines] : d.breakpoints) {
+            auto it = lines.find(ar->currentline);
+            if (it == lines.end() || !sameSource(key, chunk)) continue;
+            Breakpoint& bp = it->second;
+            auto started = std::chrono::steady_clock::now();
+            d.inside = true;
+            bool hit = true;
+            if (!bp.condition.empty()) {   // (an error in it stops, saying so)
+                std::string error;
+                if (pushExpression(L, bp.condition, 0, error)) {
+                    hit = lua_toboolean(L, -1);
+                    lua_pop(L, 1);
+                } else {
+                    output("Breakpoint condition (" + bp.condition + "): " + error, "stderr");
+                }
+            }
+            if (hit) hit = hitMatches(bp.hitCondition, ++bp.hits);
+            if (hit && !bp.logMessage.empty()) {   // a logpoint: says it, goes on
+                std::string text = interpolate(L, bp.logMessage, 0);
+                output(text);
+                logLine("lua: %s", text.c_str());
+                hit = false;
+            }
+            d.inside = false;
+            spent += std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+            if (hit) reason = "breakpoint";
+            break;
+        }
     }
-    if (!reason) return 0.0;
-    // Stopped: the game waits here, answering the editor, until it says go on
-    auto started = std::chrono::steady_clock::now();
-    d.inside = true;
-    d.stopped = true;
-    d.resume = false;
-    d.pauseRequested = false;
-    d.step = Step::None;
-    d.L = L;
-    json::Value body = json::Value::object();
-    body.set("reason", reason);
-    body.set("threadId", 1);
-    body.set("allThreadsStopped", true);
-    event("stopped", body);
-    while (!d.resume && d.client) {
-        serve();
-        if (!d.resume) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    if (!reason) return spent;
+    return spent + stopHere(L, reason, 0, "");
+}
+
+double onError(lua_State* L, const char* message) {
+    Debugger& d = dbg();
+    if (d.inside || !d.client || !d.breakOnErrors) return 0.0;
+    // Shown from the function that raised it: past the error handler (and C functions such as error())
+    int base = 0;
+    lua_Debug ar;
+    for (int level = 0; lua_getstack(L, level, &ar); ++level) {
+        lua_getinfo(L, "S", &ar);
+        if (std::string(ar.what) != "C") {
+            base = level;
+            break;
+        }
     }
-    dropRefs();
-    d.stopped = false;
-    d.L = nullptr;
-    d.inside = false;
-    refreshHook();
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    return stopHere(L, "exception", base, message ? message : "error");
 }
 
 }  // namespace scripting::debugger
