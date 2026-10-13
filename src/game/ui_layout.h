@@ -2,6 +2,8 @@
 // every rendered frame after the behaviours' own drawUI; the editor draws them over its viewport to lay them out.
 #pragma once
 
+#include <cstdint>
+
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -59,6 +61,7 @@ public:
 
 private:
     EntityId focused_ = kNoEntity, editing_ = kNoEntity, dragging_ = kNoEntity;
+    size_t caret_ = SIZE_MAX;   // the text field's caret: a byte offset in its text (SIZE_MAX: at the end)
     bool hasMenu_ = false;
     bool osk_ = false, oskShift_ = false;
     int oskRow_ = 1, oskCol_ = 0;   // the key picked (rows of 10 columns; the last row's keys span several)

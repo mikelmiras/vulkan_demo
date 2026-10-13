@@ -996,14 +996,33 @@ what the game starts in; `vkgame --language es` overrides it. The sample game ha
 
 **Every script**: text in the game's UI that needs it (Arabic, Hebrew, the Indic scripts, Thai, combining marks, CJK,
 emoji) is **shaped** with HarfBuzz: letters join and take their contextual forms, ligatures form, marks sit on their
-letters, and right-to-left text runs right to left (the Unicode Bidirectional Algorithm, without explicit embedding
-controls: a line's direction is its first strong character's, numbers keep their order inside right-to-left text).
-Latin, Greek and Cyrillic text is drawn as before. Characters the font lacks come from **fallback fonts**: the
-project's own first (`fonts/fallback/*.ttf`, `.otf` or `.ttc`, in name order: ship the fonts your languages need,
-the safest way), then the system's for that script (fontconfig on Linux, the usual Windows and macOS fonts), loaded
-the first time the script turns up. Alignment stays the game's choice (`Align::Right` for right-to-left menus).
-Not there: colour emoji (outline emoji fonts only, such as Segoe UI Emoji's or Noto Emoji), shaping in the editor's own
-panels and in text fields being edited, vertical text, line breaking by script rules.
+letters, and right-to-left text runs right to left (the Unicode Bidirectional Algorithm: a line's direction is its
+first strong character's, numbers keep their order inside right-to-left text, and the explicit controls work:
+embeddings and overrides, LRE RLE LRO RLO PDF, and isolates, LRI RLI FSI PDI, which keep a name or a number in a
+sentence from taking the sentence's direction). Latin, Greek and Cyrillic text is drawn as before. Characters the
+font lacks come from **fallback fonts**: the project's own first (`fonts/fallback/*.ttf`, `.otf` or `.ttc`, in name
+order: ship the fonts your languages need, the safest way), then the system's for that script (fontconfig on Linux,
+the usual Windows and macOS fonts), loaded the first time the script turns up. Alignment stays the game's choice
+(`Align::Right` for right-to-left menus).
+
+**Colour emoji**: emoji fonts' colour glyphs are drawn in colour, all three kinds: PNG bitmaps in CBDT (Noto Color
+Emoji, Linux's and Android's), Apple's sbix (Apple Color Emoji) and COLR version 0 layers (Segoe UI Emoji), read
+by the engine itself (`game/color_glyphs`) and scaled to the text's size. Skin tones, flags and joined sequences
+come out as one emoji (HarfBuzz forms them); a character followed by U+FE0F (❤️) is taken from a colour font first;
+an emoji's space isn't (emoji fonts' spaces are as wide as an emoji). Colour glyphs keep their colours (the text's
+colour sets only their transparency) and cast no drop shadow.
+
+**Wrapping**: Text and Panel elements wrap text that's wider than they are (or has line breaks) onto several lines,
+centred in the element; `ui.textBox(x, y, w, text, size, color, align, font)` draws wrapped text from Lua (returning
+its height; `ui.textBoxHeight(w, text, size, font)` measures it). Lines break where the Unicode Line Breaking
+Algorithm (UAX #14) allows: after spaces and hyphens, between CJK characters, not before closing punctuation or a
+full stop, not inside numbers ("-3.5", "$20"), emoji sequences or flags; a word too long for a line is cut between
+characters. **Text fields** have a caret: the arrow keys move it (on screen: through right-to-left text from right
+to left), typing and Backspace / Delete happen where it is, Home and End jump to the ends.
+
+Not there: COLR version 1 emoji (gradients; their outline fallback is drawn), line breaking inside Thai, Lao, Khmer
+or Myanmar words (they need a dictionary: they break at spaces), bidi per paragraph across wrapped lines (each line
+is resolved on its own), shaping in the editor's own panels, vertical text.
 
 ### Game modules: a project's own code
 

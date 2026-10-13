@@ -91,6 +91,55 @@ TEST(bidi_levels_and_order) {
     CHECK(runs[0].start == 4 && runs[1].start == 2 && runs[2].start == 0);
 }
 
+// Explicit embeddings, overrides and isolates (UAX #9 X1-X10)
+TEST(bidi_explicit_controls) {
+    const uint32_t LRE = 0x202A, RLE = 0x202B, PDF = 0x202C, RLO = 0x202E, LRI = 0x2066, RLI = 0x2067, FSI = 0x2068,
+                   PDI = 0x2069, ALEF = 0x05D0, BET = 0x05D1;
+    CHECK(shaping::bidiClass(RLO) == shaping::BidiClass::RLO);
+    CHECK(shaping::bidiClass(FSI) == shaping::BidiClass::FSI);
+    // An override: left-to-right letters shown right to left
+    std::vector<uint32_t> o = {'a', RLO, 'b', 'c', PDF, 'd'};
+    std::vector<uint8_t> lv = shaping::bidiLevels(o, 0);
+    CHECK(lv[0] == 0 && lv[2] == 1 && lv[3] == 1 && lv[5] == 0);
+    std::vector<uint32_t> v = visual(o);
+    std::vector<uint32_t> letters;
+    for (uint32_t c : v)
+        if (c >= 'a' && c <= 'z') letters.push_back(c);
+    CHECK((letters == std::vector<uint32_t>{'a', 'c', 'b', 'd'}));
+    // An embedding: right to left around left-to-right letters (level 1 + 1)
+    lv = shaping::bidiLevels({'a', RLE, 'b', PDF, 'c'}, 0);
+    CHECK(lv[0] == 0 && lv[2] == 2 && lv[4] == 0);
+    lv = shaping::bidiLevels({ALEF, LRE, BET, PDF}, 1);   // (left to right inside right to left: 2, its R 3)
+    CHECK(lv[0] == 1 && lv[2] == 3);
+    // An isolate keeps what's around it from what's inside: "a [Hebrew] 1" has the number left to right after it,
+    // where without the isolate it would follow the Hebrew
+    std::vector<uint32_t> iso = {'a', ' ', FSI, ALEF, BET, PDI, ' ', '1'};
+    lv = shaping::bidiLevels(iso, shaping::paragraphLevel(iso));
+    CHECK(lv[3] == 1 && lv[4] == 1);   // (FSI: right to left, from its first strong character)
+    CHECK(lv[2] == 0 && lv[5] == 0);   // (the isolate's ends: outside it)
+    CHECK(lv[7] == 0);
+    std::vector<uint32_t> plain = {'a', ' ', ALEF, BET, ' ', '1'};
+    CHECK(shaping::bidiLevels(plain, 0)[5] == 2);
+    lv = shaping::bidiLevels({'a', LRI, ALEF, PDI}, 0);   // (left-to-right isolate: level 2, Hebrew in it 3)
+    CHECK(lv[2] == 3);
+    lv = shaping::bidiLevels({'a', RLI, 'b', PDI}, 0);
+    CHECK(lv[2] == 2);
+    // The paragraph's direction skips what's in isolates
+    CHECK(shaping::paragraphLevel({RLI, ALEF, PDI, 'a'}) == 0);
+    CHECK(shaping::paragraphLevel({LRI, 'a', PDI, ALEF}) == 1);
+    // An unmatched PDF / PDI does nothing; too deep a nesting stops at 125 levels without failing
+    lv = shaping::bidiLevels({'a', PDF, PDI, 'b'}, 0);
+    CHECK(lv[0] == 0 && lv[3] == 0);
+    std::vector<uint32_t> deep(200, RLE);
+    deep.push_back('x');
+    lv = shaping::bidiLevels(deep, 0);
+    CHECK(lv.back() >= 124 && lv.back() <= 126);
+    // Text with the controls goes through shaping (for the bidi pass)
+    CHECK(shaping::needsShaping("a\xE2\x80\xAE" "bc"));   // RLO
+    CHECK(shaping::needsShaping("a\xE2\x81\xA8" "b"));    // FSI
+    CHECK(!shaping::needsShaping("a\xE2\x80\x94" "b"));   // (an em dash: still as it is)
+}
+
 TEST(text_needing_shaping) {
     CHECK(!shaping::needsShaping("Hello, world!"));
     CHECK(!shaping::needsShaping("Caf\xC3\xA9 na\xC3\xAFve"));          // (Latin with accents)
@@ -160,6 +209,7 @@ TEST(shaped_text_with_fallbacks) {
     const shaping::Shaped* first = gamefonts::shaped(text, "");
     REQUIRE(first);
     CHECK(!first->missing.empty());   // (not loaded yet: boxes for a frame)
+    gamefonts::font("");               // (Roboto itself too, to compare with)
     gamefonts::loadPending();
     const shaping::Shaped* s = gamefonts::shaped(text, "");
     REQUIRE(s);
@@ -172,14 +222,48 @@ TEST(shaped_text_with_fallbacks) {
     CHECK(s->glyphs[0].x < s->glyphs[3].x);   // (Latin on the left: a left-to-right paragraph)
     CHECK(gamefonts::glyphFont(latin) && gamefonts::glyphFont(arabic));
     CHECK(glyphfont::baseline() > 0.7f && glyphfont::baseline() < 1.1f);   // (Roboto's ascent)
+    // Glyph 31 (Roboto's semicolon) isn't drawn as character 32, the space Dear ImGui always hides
+    CHECK(glyphfont::charFor(0) >= 0x100 && glyphfont::charFor(31) != ' ');
     GameUI ui;
     ImGui::NewFrame();
     ui.begin(ImGui::GetBackgroundDrawList(), 0.f, 0.f, 1920.f, 1080.f, false);
-    CHECK_NEAR(ui.textWidth(text, 40.f), s->width * 40.f, 0.5);
+    CHECK(glyphfont::emScale() > 0.7f && glyphfont::emScale() < 1.f);   // (Roboto: its em is 0.85 of its height)
+    CHECK_NEAR(ui.textWidth(text, 40.f), s->width * 40.f * glyphfont::emScale(), 0.5);
+    // A Latin word as tall shaped (with an emoji or Arabic beside it) as on its own
+    const shaping::Shaped* hi = gamefonts::shaped("Hi", "");
+    REQUIRE(hi);
+    CHECK_NEAR(hi->width * 40.f * glyphfont::emScale(), gamefonts::font("")->CalcTextSizeA(40.f, FLT_MAX, 0.f, "Hi").x, 1.0);
     ui.text(100.f, 100.f, text, 40.f);
     ui.text(100.f, 200.f, text + "\nsecond line", 40.f);
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     CHECK(dl->VtxBuffer.Size > 6 * 4);   // (quads drawn for the glyphs)
+    ui.end();
+    ImGui::EndFrame();
+}
+
+// GameUI's text boxes: wrapped to their width with the font's real widths
+TEST(game_ui_text_box) {
+    struct Context {
+        Context() {
+            ImGui::CreateContext();
+            ImGuiIO& io = ImGui::GetIO();
+            io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+            io.DisplaySize = ImVec2(1920, 1080);
+            io.IniFilename = nullptr;
+        }
+        ~Context() { ImGui::DestroyContext(); }
+    } context;
+    gamefonts::loadPending();
+    GameUI ui;
+    ImGui::NewFrame();
+    ui.begin(ImGui::GetBackgroundDrawList(), 0.f, 0.f, 1920.f, 1080.f, false);
+    const std::string text = "The quick brown fox jumps over the lazy dog";
+    float one = ui.textWidth(text, 40.f);
+    CHECK(ui.textBoxHeight(one + 10.f, text, 40.f) == 48.f);   // (fits: one line, 1.2 sizes)
+    float h = ui.textBoxHeight(one * 0.4f, text, 40.f);
+    CHECK(h >= 48.f * 3.f && h <= 48.f * 4.f);                 // (about two fifths wide: three lines or so)
+    CHECK(ui.textBox(100.f, 100.f, one * 0.4f, text, 40.f) == h);
+    CHECK(ui.textBoxHeight(500.f, "one\ntwo", 40.f) == 96.f);  // (a line break: two lines)
     ui.end();
     ImGui::EndFrame();
 }

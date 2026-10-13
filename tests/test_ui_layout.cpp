@@ -309,3 +309,48 @@ TEST(ui_layout_accessibility_settings) {
     frame(again, ui);
     again.stop();
 }
+
+// A text field's caret: the arrows move it, typing and deleting happen where it is, Home and End jump
+TEST(ui_layout_text_field_caret) {
+    test::ImGuiContextGuard imgui;
+    ImGui::GetIO().DisplaySize = ImVec2(1920, 1080);
+    Scene s;
+    Entity& name = element(s, "Name", UIElement::Kind::TextField);
+    place(*name.ui, 0.5f, 0.2f, 0.5f, 0.2f, -300, 0, 300, 60);
+    name.ui->value = "playerName";
+    Game g;
+    g.start(s, meshes());
+    GameUI ui;
+    frame(g, ui);
+    tap(g, ui, ImGuiKey_DownArrow);   // (wakes the menu)
+    tap(g, ui, ImGuiKey_Enter);       // opens the field
+    REQUIRE(g.uiController().editingText());
+    auto type = [&](const std::string& text) {
+        for (char ch : text) {
+            ImGui::GetIO().AddInputCharacter((unsigned)(unsigned char)ch);
+            frame(g, ui);
+        }
+    };
+    type("abc");
+    tap(g, ui, ImGuiKey_LeftArrow);
+    tap(g, ui, ImGuiKey_LeftArrow);
+    type("X");
+    CHECK(g.state().text("playerName") == "aXbc");
+    tap(g, ui, ImGuiKey_Home);
+    type("<");
+    CHECK(g.state().text("playerName") == "<aXbc");
+    tap(g, ui, ImGuiKey_Delete);       // (the a after the caret)
+    CHECK(g.state().text("playerName") == "<Xbc");
+    tap(g, ui, ImGuiKey_RightArrow);
+    tap(g, ui, ImGuiKey_Backspace);    // (the X before it)
+    CHECK(g.state().text("playerName") == "<bc");
+    tap(g, ui, ImGuiKey_End);
+    type("!");
+    CHECK(g.state().text("playerName") == "<bc!");
+    tap(g, ui, ImGuiKey_RightArrow);   // (at the end already: stays)
+    type("?");
+    CHECK(g.state().text("playerName") == "<bc!?");
+    tap(g, ui, ImGuiKey_Enter);
+    CHECK(!g.uiController().editingText());
+    g.stop();
+}

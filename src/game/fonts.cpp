@@ -103,7 +103,8 @@ int faceFor(State& s, const std::string& file) {
     auto data = std::make_shared<std::string>();
     if (file.empty()) {
         data->assign((const char*)kDefaultGameFont, kDefaultGameFontSize);
-        glyphfont::setBaseline(glyphfont::ascentOf(data->data()));   // (shaped text sits where Roboto's does)
+        glyphfont::setBaseline(glyphfont::ascentOf(data->data()));   // (shaped text sits where Roboto's does,
+        glyphfont::setEmScale(glyphfont::emScaleOf(data->data()));   //  as big)
     } else if (!vfs::read(std::filesystem::u8path(project::resolve(file)), *data)) {
         data->clear();
     }

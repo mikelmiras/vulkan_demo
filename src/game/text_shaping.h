@@ -1,9 +1,10 @@
 // Text shaping: turning a line of UTF-8 into positioned glyphs, so scripts whose letters change shape and join
 // (Arabic, the Indic scripts), stack marks (Thai, Vietnamese) or run right to left (Hebrew, Arabic) come out right.
 //
-//   1. Bidi: each character's embedding level (the Unicode Bidirectional Algorithm, UAX #9, without explicit
-//      embeddings and isolates: the paragraph's direction from its first strong character; numbers, neutrals and
-//      marks resolved between them), then runs of one level put in visual order.
+//   1. Bidi: each character's embedding level (the Unicode Bidirectional Algorithm, UAX #9: the paragraph's
+//      direction from its first strong character; explicit embeddings, overrides and isolates (LRE RLE LRO RLO PDF,
+//      LRI RLI FSI PDI); numbers, neutrals and marks resolved within each isolating run sequence; no bracket pairs),
+//      then runs of one level put in visual order.
 //   2. Itemising: runs split where the level, the script or the font changes (the first font in the chain that has
 //      the character: the text's font, then fallbacks such as CJK or emoji fonts).
 //   3. Shaping each run with HarfBuzz (ligatures, contextual forms, mark positioning, kerning, mirrored brackets in
@@ -12,6 +13,7 @@
 // Plain code (no ImGui): GameUI::text draws the glyphs through game/fonts.h, tests check the layout.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -22,9 +24,10 @@ namespace shaping {
 std::vector<uint32_t> decodeUtf8(const std::string& text);   // (bad bytes: U+FFFD)
 
 // ---- Bidi
-enum class BidiClass : uint8_t { L, R, AL, EN, ES, ET, AN, CS, NSM, BN, B, S, WS, ON };
+enum class BidiClass : uint8_t { L, R, AL, EN, ES, ET, AN, CS, NSM, BN, B, S, WS, ON, LRE, LRO, RLE, RLO, PDF, LRI, RLI, FSI, PDI };
 BidiClass bidiClass(uint32_t cp);
-int paragraphLevel(const std::vector<uint32_t>& text);   // 0: left to right, 1: right to left
+// 0: left to right, 1: right to left (the first strong character outside isolates; [from, to) of the text)
+int paragraphLevel(const std::vector<uint32_t>& text, size_t from = 0, size_t to = SIZE_MAX);
 std::vector<uint8_t> bidiLevels(const std::vector<uint32_t>& text, int paragraph);
 struct Run {
     size_t start = 0, end = 0;   // characters [start, end)
@@ -42,12 +45,19 @@ struct Glyph {
     uint32_t glyph = 0;    // its index in that font (0: none had the character)
     float x = 0.f, y = 0.f;   // where its origin goes, in ems from the line's start (y down)
     uint32_t cluster = 0;  // the character it came from
+    float start = 0.f, advance = 0.f;   // its advance on the line: where it begins and how far it goes (ems)
 };
 struct Shaped {
     std::vector<Glyph> glyphs;
     float width = 0.f;     // in ems
     std::vector<uint32_t> missing;   // characters no face of the chain had
 };
+
+// Where a text caret goes at each logical position 0..n of a shaped line (n: its characters), in ems from the
+// line's start: at the leading edge of the character after it (its left edge in a left-to-right run, its right edge
+// in a right-to-left one), at the end the last character's trailing edge. Characters drawn as one glyph (a ligature)
+// share its width. Moving by these positions in screen order is how a text field's arrow keys move.
+std::vector<float> caretStops(const std::vector<uint32_t>& text, const Shaped& shaped);
 
 class Shaper {
 public:

@@ -9,6 +9,8 @@
 
 #include <functional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "imgui.h"
 
@@ -31,6 +33,14 @@ public:
     void text(float x, float y, const std::string& text, float size = 36.f, Color color = {}, Align align = Align::Left,
               const std::string& font = "");
     float textWidth(const std::string& text, float size = 36.f, const std::string& font = "") const;
+    // Text wrapped to `w` (lines break where UAX #14 allows: game/line_break.h; a word too long on its own is cut),
+    // lines 1.2 sizes apart, each aligned within [x, x + w]; returns its height. textBoxHeight measures without drawing.
+    float textBox(float x, float y, float w, const std::string& text, float size = 36.f, Color color = {},
+                  Align align = Align::Left, const std::string& font = "");
+    float textBoxHeight(float w, const std::string& text, float size = 36.f, const std::string& font = "") const;
+    // Where a caret can go in a line of text: (byte offset, x from the text's left), one per character boundary in
+    // the text's order (right-to-left text runs right to left: game/text_shaping.h's caretStops)
+    std::vector<std::pair<size_t, float>> caretStops(const std::string& text, float size = 36.f, const std::string& font = "") const;
     // A bar filled to `fraction` (0..1) from the left
     void bar(float x, float y, float w, float h, float fraction, Color fill, Color back = {0.f, 0.f, 0.f, 0.5f});
     // A texture by name (a built-in like "Checker", or an image file, relative to the project)

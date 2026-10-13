@@ -1012,7 +1012,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 67 (done) | Builds: a Build Settings window with per-platform profiles, per-game executable metadata (Windows version resources, macOS bundle id and version), a shipping configuration without the developer tools, a pipeline cache | Exports are vkgame renamed with the project's source files beside it |
 | 68 (done) | Asset cooking at export: textures GPU-compressed (BC1 / BC3 / BC7, ASTC where that's what the GPU has) with their mips baked, models in a binary format read without parsing, the renderer and texture streaming using them | Exports ship source PNGs and glTF files that every start decodes, resizes and mips again, and textures take four bytes a pixel on the GPU |
 | 69 (done) | Rendering, finishing: shadows per split-screen view, HDR metadata (VK_EXT_hdr_metadata) and the display's real peak, the colour-blindness filter in HDR, HDR screenshots | Far-apart split-screen players share player 1's cascades; HDR uses guessed values |
-| 70 | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
+| 70 (done) | Text, more: colour emoji (FreeType for COLR / CBDT / sbix), line breaking (UAX #14) and wrapping in UI texts, explicit bidi controls and isolates, editing right-to-left text in text fields | Emoji are monochrome or missing; long texts don't wrap; RTL text fields edit wrongly |
 | 71 | Physics: a real convex decomposition (V-HACD-style) for very concave pieces, tearing mesh soft bodies, tears that cut across triangles, water with waves and currents | Concave pieces split by halving; only cloth tears; still water only |
 | 72 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
 | 73 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
@@ -1125,3 +1125,27 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   pixels over paper white, up to 28.8). Not done: HDR itself on a real HDR display (lavapipe has no HDR colour
   space), per-view shadows for the lights (the atlas views follow player 1's frustum), a calibration screen, bloom
   and the UI in HDR screenshots.
+- **70, text**: colour emoji without FreeType: `game/color_glyphs` reads CBLC / CBDT (index subtable formats 1-5,
+  image formats 17-19: the strike nearest above the size), sbix (PNG strikes, 'dupe' followed once) and COLR / CPAL
+  version 0 (layers in palette 0's colours, 0xFFFF the text's), bounds-checked; the glyph loader decodes the PNG
+  (stb_image), box-filters it to the size and hands Dear ImGui an RGBA glyph marked Colored, or composites COLR
+  layers' outlines; bitmap-only fonts (Noto Color Emoji has no outlines: stb_truetype won't open it) work from
+  maxp / head / hmtx, their image-less glyphs (spaces) as advances. Itemising: colour faces keep only joiners and
+  modifiers (an emoji font's space is an emoji wide), emoji and characters followed by U+FE0F try colour faces
+  first; drop shadows skip colour glyphs. Bidi: X1-X10 (the directional status stack to depth 125 with overflow
+  counts, overrides, FSI's direction from its content, BD9 matching PDIs, isolating run sequences with their sos /
+  eos, W1-W7, N1-N2 and I1-I2 per sequence, L1 with isolate controls); P2/P3 skip isolates. `game/line_break`:
+  UAX #14 classes from ranges and general categories, LB4-LB30b as pair rules (with the "X SP*" ones), greedy
+  wrapping (a too-long word cut between characters, not inside marks or ZWJ sequences); GameUI::textBox /
+  textBoxHeight, Lua ui.textBox / ui.textBoxHeight, Text and Panel elements wrapping what doesn't fit. Text fields:
+  a caret (byte offset), insertion and deletion at it, Home / End, the arrows moving to the nearest caret stop on
+  screen that way (shaping::caretStops: leading edges by level, ligatures split evenly; Glyph gained start and
+  advance). Bugs found on the way, from task 63: shaped text was drawn about 17 % bigger than Dear ImGui's (sized
+  by the em instead of the ascent-to-descent height; glyphfont::emScale now matches them), and any glyph whose index
+  plus one was 32 vanished (Dear ImGui always hides the space character's glyph: Roboto's semicolon), glyph
+  "characters" now start at U+0100. Checked: tables built byte by byte in tests (strike choice, missing images,
+  dupes, truncation), bidi controls and isolates, break opportunities and wrapping, caret stops, a text field
+  edited through the UI controller, GameUI boxes against Roboto's widths; screenshots of Noto Color Emoji (downloaded
+  for the check, not shipped) with flags, skin tones, Arabic and Hebrew, wrapped English and right-aligned Arabic
+  panels, under validation. Not done: COLR version 1, Thai / Lao / Khmer / Myanmar word breaks (a dictionary), bidi
+  resolved per paragraph across wrapped lines, mouse placement of the caret, selection, the editor's panels.

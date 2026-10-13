@@ -163,6 +163,8 @@ set(ENGINE_SOURCES
   src/game/prompts.cpp
   src/game/text_shaping.cpp
   src/game/glyph_font.cpp
+  src/game/color_glyphs.cpp
+  src/game/line_break.cpp
   src/game/ui_layout.cpp
   src/game/animation.cpp
   src/game/particles.cpp
@@ -408,6 +410,8 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_cooking.cpp
     tests/test_shadow_cascades.cpp
     tests/test_hdr_image.cpp
+    tests/test_color_glyphs.cpp
+    tests/test_line_break.cpp
     tests/test_display.cpp
     tests/test_module.cpp
     tests/test_scene_flow.cpp

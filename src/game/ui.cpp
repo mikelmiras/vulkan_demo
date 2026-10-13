@@ -4,6 +4,7 @@
 
 #include "game/fonts.h"
 #include "game/glyph_font.h"
+#include "game/line_break.h"
 #include "game/prompts.h"
 
 namespace {
@@ -17,13 +18,16 @@ float runWidth(const std::string& text, float px, ImFont* font, const std::strin
     for (size_t at = 0; at <= text.size();) {
         size_t end = std::min(text.find('\n', at), text.size());
         const shaping::Shaped* sh = gamefonts::shaped(text.substr(at, end - at), file);
-        widest = std::max(widest, sh ? sh->width * px : font->CalcTextSizeA(px, FLT_MAX, 0.f, text.c_str() + at, text.c_str() + end).x);
+        widest = std::max(widest, sh ? sh->width * px * glyphfont::emScale()
+                                     : font->CalcTextSizeA(px, FLT_MAX, 0.f, text.c_str() + at, text.c_str() + end).x);
         at = end + 1;
     }
     return widest;
 }
 
-void drawRun(ImDrawList* dl, ImVec2 p, const std::string& text, float px, ImFont* font, const std::string& file, ImU32 col) {
+// `shadow`: the drop shadow under it (colour glyphs, emoji, cast none: they'd show as pale shapes)
+void drawRun(ImDrawList* dl, ImVec2 p, const std::string& text, float px, ImFont* font, const std::string& file, ImU32 col,
+             bool shadow = false) {
     // (a locked atlas, whose renderer can't take new glyphs: as it is)
     if (!shaping::needsShaping(text) || (font && font->OwnerAtlas && font->OwnerAtlas->Locked)) {
         dl->AddText(font, px, p, col, text.c_str());
@@ -38,9 +42,15 @@ void drawRun(ImDrawList* dl, ImVec2 p, const std::string& text, float px, ImFont
             dl->AddText(font, px, p, col, line.c_str());
             continue;
         }
+        const float em = px * glyphfont::emScale();   // (the em that makes it as big as Dear ImGui's text)
         for (const shaping::Glyph& g : sh->glyphs)   // (each face's glyphs through its font by glyph index)
-            if (ImFont* gf = gamefonts::glyphFont(g.face))
-                gf->RenderChar(dl, px, ImVec2(p.x + g.x * px, p.y + g.y * px), col, glyphfont::charFor(g.glyph));
+            if (ImFont* gf = gamefonts::glyphFont(g.face)) {
+                if (shadow) {
+                    const ImFontGlyph* glyph = gf->GetFontBaked(em)->FindGlyphNoFallback(glyphfont::charFor(g.glyph));
+                    if (glyph && glyph->Colored) continue;
+                }
+                gf->RenderChar(dl, em, ImVec2(p.x + g.x * em, p.y + g.y * em), col, glyphfont::charFor(g.glyph));
+            }
     }
 }
 
@@ -94,13 +104,13 @@ void GameUI::text(float x, float y, const std::string& text, float size, Color c
     float px = size * scale_, off = std::max(1.f, size * 0.06f) * scale_;
     ImVec2 p = toScreen(x, y);
     if (!prompts::hasGlyphs(text)) {
-        drawRun(dl_, ImVec2(p.x + off, p.y + off), text, px, font, fontFile, rgba({0.f, 0.f, 0.f, color.a * 0.6f}));
+        drawRun(dl_, ImVec2(p.x + off, p.y + off), text, px, font, fontFile, rgba({0.f, 0.f, 0.f, color.a * 0.6f}), true);
         drawRun(dl_, p, text, px, font, fontFile, rgba(color));
         return;
     }
     for (const prompts::Piece& piece : prompts::split(text)) {   // (the glyphs drawn in their own colours)
         if (piece.kind == prompts::Piece::Text) {
-            drawRun(dl_, ImVec2(p.x + off, p.y + off), piece.text, px, font, fontFile, rgba({0.f, 0.f, 0.f, color.a * 0.6f}));
+            drawRun(dl_, ImVec2(p.x + off, p.y + off), piece.text, px, font, fontFile, rgba({0.f, 0.f, 0.f, color.a * 0.6f}), true);
             drawRun(dl_, p, piece.text, px, font, fontFile, rgba(color));
             p.x += runWidth(piece.text, px, font, fontFile);
         } else {
@@ -143,4 +153,36 @@ bool GameUI::button(float x, float y, float w, float h, const std::string& label
     border(x, y, w, h, over ? Color{1.f, 0.8f, 0.4f, 1.f} : Color{1.f, 1.f, 1.f, 0.35f}, 2.f, 10.f);
     text(x + w * 0.5f, y + (h - textSize) * 0.5f, label, textSize, {}, Align::Center);
     return over && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+}
+
+float GameUI::textBoxHeight(float w, const std::string& text, float size, const std::string& font) const {
+    auto measure = [&](const std::string& piece) { return textWidth(piece, size, font); };
+    return (float)linebreak::wrap(text, w, measure).size() * size * 1.2f;
+}
+
+float GameUI::textBox(float x, float y, float w, const std::string& text, float size, Color color, Align align,
+                      const std::string& font) {
+    auto measure = [&](const std::string& piece) { return textWidth(piece, size, font); };
+    std::vector<linebreak::Line> lines = linebreak::wrap(text, w, measure);
+    float ax = align == Align::Center ? x + w * 0.5f : align == Align::Right ? x + w : x;
+    for (size_t i = 0; i < lines.size(); ++i)
+        this->text(ax, y + (float)i * size * 1.2f, text.substr(lines[i].start, lines[i].end - lines[i].start), size, color, align, font);
+    return (float)lines.size() * size * 1.2f;
+}
+
+std::vector<std::pair<size_t, float>> GameUI::caretStops(const std::string& text, float size, const std::string& font) const {
+    std::vector<size_t> bytes;   // each character's first byte, then the end
+    for (size_t i = 0; i < text.size(); ++i)
+        if (((unsigned char)text[i] & 0xC0) != 0x80) bytes.push_back(i);
+    bytes.push_back(text.size());
+    std::vector<std::pair<size_t, float>> out;
+    const shaping::Shaped* sh = shaping::needsShaping(text) ? gamefonts::shaped(text, font) : nullptr;
+    std::vector<uint32_t> cps = shaping::decodeUtf8(text);
+    if (sh && cps.size() + 1 == bytes.size()) {
+        std::vector<float> stops = shaping::caretStops(cps, *sh);
+        for (size_t i = 0; i < bytes.size(); ++i) out.push_back({bytes[i], stops[i] * size * glyphfont::emScale()});
+        return out;
+    }
+    for (size_t b : bytes) out.push_back({b, textWidth(text.substr(0, b), size, font)});   // (left to right as it is)
+    return out;
 }

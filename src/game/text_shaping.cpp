@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "hb.h"
+#include "hb-ot.h"
 
 namespace shaping {
 
@@ -43,6 +44,15 @@ BidiClass bidiClass(uint32_t cp) {
     case '\t': case 0x1F: return B::S;
     case '\n': case '\r': case 0x1C: case 0x1D: case 0x1E: case 0x85: case 0x2029: return B::B;
     case ' ': case 0x1680: case 0x2028: case 0x205F: case 0x3000: case 0x0C: return B::WS;
+    case 0x202A: return B::LRE;
+    case 0x202B: return B::RLE;
+    case 0x202C: return B::PDF;
+    case 0x202D: return B::LRO;
+    case 0x202E: return B::RLO;
+    case 0x2066: return B::LRI;
+    case 0x2067: return B::RLI;
+    case 0x2068: return B::FSI;
+    case 0x2069: return B::PDI;
     case 0x200E: return B::L;    // LRM
     case 0x200F: return B::R;    // RLM
     case 0x061C: return B::AL;   // ALM
@@ -78,23 +88,37 @@ BidiClass bidiClass(uint32_t cp) {
     }
 }
 
-int paragraphLevel(const std::vector<uint32_t>& text) {
-    for (uint32_t cp : text) {
-        BidiClass c = bidiClass(cp);
-        if (c == BidiClass::L) return 0;
-        if (c == BidiClass::R || c == BidiClass::AL) return 1;
-    }
-    return 0;
+namespace {
+
+bool isolateInitiator(BidiClass c) { return c == BidiClass::LRI || c == BidiClass::RLI || c == BidiClass::FSI; }
+bool removedByX9(BidiClass c) {   // (embeddings, overrides, their ends and boundary neutrals: ignored by the rules after)
+    return c == BidiClass::LRE || c == BidiClass::RLE || c == BidiClass::LRO || c == BidiClass::RLO || c == BidiClass::PDF ||
+           c == BidiClass::BN;
 }
 
-std::vector<uint8_t> bidiLevels(const std::vector<uint32_t>& text, int paragraph) {
+// BD9: each isolate initiator's matching PDI (or n)
+std::vector<size_t> matchingPdis(const std::vector<BidiClass>& t) {
+    const size_t n = t.size();
+    std::vector<size_t> match(n, n);
+    std::vector<size_t> open;
+    for (size_t i = 0; i < n; ++i) {
+        if (isolateInitiator(t[i])) open.push_back(i);
+        else if (t[i] == BidiClass::PDI && !open.empty()) match[open.back()] = i, open.pop_back();
+        else if (t[i] == BidiClass::B) open.clear();
+    }
+    return match;
+}
+
+// W1-W7, N1-N2, I1-I2 over one isolating run sequence (its characters' indices, in order), sos and eos its ends
+void resolveSequence(const std::vector<size_t>& seq, BidiClass sos, BidiClass eos, uint8_t level, std::vector<BidiClass>& types,
+                     std::vector<uint8_t>& levels) {
     using B = BidiClass;
-    const size_t n = text.size();
-    const B sos = paragraph & 1 ? B::R : B::L, eos = sos;
+    const size_t n = seq.size();
     std::vector<B> t(n);
-    for (size_t i = 0; i < n; ++i) t[i] = bidiClass(text[i]);
-    for (size_t i = 0; i < n; ++i)   // W1: marks take the type before them
-        if (t[i] == B::NSM) t[i] = i == 0 ? sos : t[i - 1];
+    for (size_t i = 0; i < n; ++i) t[i] = types[seq[i]];
+    auto ni = [](B c) { return c == B::LRI || c == B::RLI || c == B::FSI || c == B::PDI; };
+    for (size_t i = 0; i < n; ++i)   // W1: marks take the type before them (after an isolate's ends: neutral)
+        if (t[i] == B::NSM) t[i] = i == 0 ? sos : ni(t[i - 1]) ? B::ON : t[i - 1];
     B strong = sos;   // W2: numbers after Arabic letters are Arabic numbers
     for (size_t i = 0; i < n; ++i) {
         if (t[i] == B::L || t[i] == B::R || t[i] == B::AL) strong = t[i];
@@ -121,28 +145,174 @@ std::vector<uint8_t> bidiLevels(const std::vector<uint32_t>& text, int paragraph
         if (t[i] == B::L || t[i] == B::R) strong = t[i];
         else if (t[i] == B::EN && strong == B::L) t[i] = B::L;
     }
-    // N1 / N2: neutrals between two of the same direction take it (numbers count as right to left), else the
-    // paragraph's
-    auto neutral = [](B c) { return c == B::B || c == B::S || c == B::WS || c == B::ON || c == B::BN; };
+    // N1 / N2: neutrals (isolates' ends among them) between two of the same direction take it (numbers count as
+    // right to left), else the embedding's
+    auto neutral = [&](B c) { return c == B::B || c == B::S || c == B::WS || c == B::ON || c == B::BN || ni(c); };
     auto dir = [](B c) { return c == B::L ? B::L : B::R; };
+    const B embedding = level & 1 ? B::R : B::L;
     for (size_t i = 0; i < n;) {
         if (!neutral(t[i])) { ++i; continue; }
         size_t j = i;
         while (j < n && neutral(t[j])) ++j;
         B before = i == 0 ? sos : dir(t[i - 1]), after = j == n ? eos : dir(t[j]);
-        B take = before == after ? before : sos;
+        B take = before == after ? before : embedding;
         for (size_t k = i; k < j; ++k) t[k] = take;
         i = j;
     }
-    std::vector<uint8_t> levels(n, (uint8_t)paragraph);
     for (size_t i = 0; i < n; ++i) {   // I1 / I2
-        if (!(paragraph & 1)) levels[i] = (uint8_t)(paragraph + (t[i] == B::R ? 1 : t[i] == B::AN || t[i] == B::EN ? 2 : 0));
-        else levels[i] = (uint8_t)(paragraph + (t[i] == B::L || t[i] == B::EN || t[i] == B::AN ? 1 : 0));
+        uint8_t& l = levels[seq[i]];
+        if (!(l & 1)) l = (uint8_t)(l + (t[i] == B::R ? 1 : t[i] == B::AN || t[i] == B::EN ? 2 : 0));
+        else l = (uint8_t)(l + (t[i] == B::L || t[i] == B::EN || t[i] == B::AN ? 1 : 0));
+        types[seq[i]] = t[i];
     }
-    for (size_t i = n; i-- > 0;) {   // L1: trailing whitespace at the paragraph's level
-        B c = bidiClass(text[i]);
-        if (c != B::WS && c != B::S && c != B::B && c != B::BN) break;
-        levels[i] = (uint8_t)paragraph;
+}
+
+}  // namespace
+
+int paragraphLevel(const std::vector<uint32_t>& text, size_t from, size_t to) {
+    // P2 / P3: the first strong character, skipping what's inside isolates
+    int depth = 0;
+    for (size_t i = from; i < std::min(to, text.size()); ++i) {
+        BidiClass c = bidiClass(text[i]);
+        if (isolateInitiator(c)) {
+            ++depth;
+            continue;
+        }
+        if (c == BidiClass::PDI) {
+            if (depth > 0) --depth;
+            continue;
+        }
+        if (c == BidiClass::B) break;
+        if (depth > 0) continue;
+        if (c == BidiClass::L) return 0;
+        if (c == BidiClass::R || c == BidiClass::AL) return 1;
+    }
+    return 0;
+}
+
+std::vector<uint8_t> bidiLevels(const std::vector<uint32_t>& text, int paragraph) {
+    using B = BidiClass;
+    const size_t n = text.size();
+    std::vector<B> t(n);
+    for (size_t i = 0; i < n; ++i) t[i] = bidiClass(text[i]);
+    const std::vector<size_t> match = matchingPdis(t);
+    std::vector<uint8_t> levels(n, (uint8_t)paragraph);
+
+    // X1-X8: the directional status stack (levels up to 125; past that, embeddings and isolates are counted, not
+    // pushed, so their ends still pair up)
+    const int kMaxDepth = 125;
+    struct Status {
+        uint8_t level;
+        B override;   // ON: none, else L or R
+        bool isolate;
+    };
+    std::vector<Status> stack{{(uint8_t)paragraph, B::ON, false}};
+    int overflowIsolates = 0, overflowEmbeddings = 0, validIsolates = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const Status top = stack.back();
+        B c = t[i];
+        auto next = [&](bool rtl) { return (int)top.level + 1 + ((top.level & 1) == (rtl ? 1 : 0) ? 1 : 0); };
+        if (c == B::RLE || c == B::LRE || c == B::RLO || c == B::LRO) {
+            bool rtl = c == B::RLE || c == B::RLO;
+            int level = next(rtl);
+            levels[i] = top.level;
+            if (level <= kMaxDepth && overflowIsolates == 0 && overflowEmbeddings == 0)
+                stack.push_back({(uint8_t)level, c == B::RLO ? B::R : c == B::LRO ? B::L : B::ON, false});
+            else if (overflowIsolates == 0)
+                ++overflowEmbeddings;
+        } else if (isolateInitiator(c)) {
+            levels[i] = top.level;
+            if (top.override != B::ON) t[i] = top.override;
+            bool rtl = c == B::RLI || (c == B::FSI && paragraphLevel(text, i + 1, match[i]) == 1);
+            int level = next(rtl);
+            if (level <= kMaxDepth && overflowIsolates == 0 && overflowEmbeddings == 0) {
+                ++validIsolates;
+                stack.push_back({(uint8_t)level, B::ON, true});
+            } else {
+                ++overflowIsolates;
+            }
+        } else if (c == B::PDI) {
+            if (overflowIsolates > 0) {
+                --overflowIsolates;
+            } else if (validIsolates > 0) {
+                overflowEmbeddings = 0;
+                while (!stack.back().isolate) stack.pop_back();
+                stack.pop_back();
+                --validIsolates;
+            }
+            levels[i] = stack.back().level;
+            if (stack.back().override != B::ON) t[i] = stack.back().override;
+        } else if (c == B::PDF) {
+            levels[i] = top.level;
+            if (overflowIsolates > 0) {
+            } else if (overflowEmbeddings > 0) {
+                --overflowEmbeddings;
+            } else if (!top.isolate && stack.size() >= 2) {
+                stack.pop_back();
+            }
+        } else if (c == B::B) {
+            levels[i] = (uint8_t)paragraph;
+        } else {
+            levels[i] = top.level;
+            if (c != B::BN && top.override != B::ON) t[i] = top.override;
+        }
+    }
+
+    // X9 / X10: without the removed characters, level runs joined across isolates into isolating run sequences
+    std::vector<std::vector<size_t>> runs;   // level runs: indices
+    for (size_t i = 0; i < n; ++i) {
+        if (removedByX9(t[i])) continue;
+        if (runs.empty() || levels[runs.back().back()] != levels[i]) runs.push_back({});
+        runs.back().push_back(i);
+    }
+    std::vector<int> runOf(n, -1);
+    for (size_t r = 0; r < runs.size(); ++r)
+        for (size_t i : runs[r]) runOf[i] = (int)r;
+    std::vector<bool> used(runs.size(), false);
+    for (size_t r = 0; r < runs.size(); ++r) {
+        if (used[r]) continue;
+        // (a run starting with a PDI matched to an earlier initiator joined that one's sequence)
+        std::vector<size_t> seq;
+        size_t at = r;
+        while (true) {
+            used[at] = true;
+            seq.insert(seq.end(), runs[at].begin(), runs[at].end());
+            size_t last = runs[at].back();
+            if (!isolateInitiator(t[last]) || match[last] >= n || runOf[match[last]] < 0) break;
+            at = (size_t)runOf[match[last]];
+        }
+        uint8_t level = levels[seq.front()];
+        // sos / eos: the higher of this level and the one beside the sequence (the paragraph's at the ends, and
+        // after an isolate initiator left open)
+        auto beside = [&](size_t i, int step) {
+            for (long k = (long)i + step; k >= 0 && k < (long)n; k += step)
+                if (!removedByX9(t[(size_t)k])) return (int)levels[(size_t)k];
+            return paragraph;
+        };
+        int before = beside(seq.front(), -1);
+        size_t last = seq.back();
+        int after = isolateInitiator(t[last]) && match[last] >= n ? paragraph : beside(last, 1);
+        B sos = std::max<int>(level, before) & 1 ? B::R : B::L, eos = std::max<int>(level, after) & 1 ? B::R : B::L;
+        resolveSequence(seq, sos, eos, level, t, levels);
+    }
+    // The removed characters: the level beside them (for reordering only)
+    for (size_t i = 0; i < n; ++i)
+        if (removedByX9(t[i])) levels[i] = i > 0 ? levels[i - 1] : (uint8_t)paragraph;
+    // L1: separators, and whitespace and isolate controls before them or at the end, at the paragraph's level
+    auto resets = [](B c) {
+        return c == B::WS || c == B::BN || c == B::LRI || c == B::RLI || c == B::FSI || c == B::PDI || removedByX9(c);
+    };
+    bool trailing = true;
+    for (size_t i = n; i-- > 0;) {
+        B c = bidiClass(text[i]);   // (the original class: the rules above changed t)
+        if (c == B::S || c == B::B) {
+            levels[i] = (uint8_t)paragraph;
+            trailing = true;
+        } else if (trailing && resets(c)) {
+            levels[i] = (uint8_t)paragraph;
+        } else {
+            trailing = false;
+        }
     }
     return levels;
 }
@@ -188,7 +358,13 @@ bool needsShaping(const std::string& utf8) {
         if (b < 0xCC) continue;   // (ASCII, Latin, Greek, Cyrillic: drawn as they are)
         if (b == 0xCC || b == 0xCD) return true;          // U+0300..037F: combining marks
         if (b >= 0xCE && b < 0xD6) continue;              // (Greek, Cyrillic, Armenian)
-        if (b == 0xE2 && i + 1 < utf8.size() && (uint8_t)utf8[i + 1] <= 0x82) continue;   // (U+2000..20BF: punctuation, currency)
+        if (b == 0xE2 && i + 2 < utf8.size()) {   // U+2000..20BF: punctuation and currency (as they are), but the
+            uint8_t b1 = (uint8_t)utf8[i + 1], b2 = (uint8_t)utf8[i + 2];   // bidi controls need the bidi pass
+            bool controls = (b1 == 0x80 && ((b2 >= 0x8E && b2 <= 0x8F) || (b2 >= 0xAA && b2 <= 0xAE))) ||
+                            (b1 == 0x81 && b2 >= 0xA6 && b2 <= 0xA9);
+            if (controls) return true;
+            if (b1 <= 0x82) continue;
+        }
         if (b >= 0xD6) return true;
     }
     return false;
@@ -203,6 +379,7 @@ struct Shaper::Face {
     hb_face_t* face = nullptr;
     hb_font_t* font = nullptr;
     float upem = 1000.f;
+    bool color = false;   // emoji (CBDT / sbix / COLR): only joiners and modifiers stay in its runs
     ~Face() {
         if (font) hb_font_destroy(font);
         if (face) hb_face_destroy(face);
@@ -223,6 +400,7 @@ int Shaper::addFace(std::shared_ptr<const std::string> data, int index) {
     f->upem = (float)std::max(hb_face_get_upem(f->face), 1u);
     f->font = hb_font_create(f->face);
     hb_font_set_scale(f->font, (int)f->upem, (int)f->upem);   // (positions in font units)
+    f->color = hb_ot_color_has_png(f->face) || hb_ot_color_has_layers(f->face);
     faces_.push_back(std::move(f));
     return (int)faces_.size() - 1;
 }
@@ -271,10 +449,13 @@ Shaped Shaper::shape(const std::string& utf8, const std::vector<int>& chain) con
         bool weak = script == HB_SCRIPT_COMMON || script == HB_SCRIPT_INHERITED || script == HB_SCRIPT_UNKNOWN;
         Item* cur = items.empty() ? nullptr : &items.back();
         int face = -1;
-        if (cur && (hasGlyph(cur->face, cp) || joins(cp))) face = cur->face;   // (spaces, marks: stay in the run's font)
-        if (face < 0)
+        // Spaces and marks stay in the run's font (an emoji font's spaces are as wide as an emoji: those don't)
+        if (cur && (joins(cp) || (hasGlyph(cur->face, cp) && !faces_[(size_t)cur->face]->color))) face = cur->face;
+        // An emoji, or a character asked for as one (followed by U+FE0F): a colour font first
+        bool emoji = cp >= 0x1F000 || (i + 1 < text.size() && text[i + 1] == 0xFE0F);
+        for (int pass = emoji ? 0 : 1; pass < 2 && face < 0; ++pass)
             for (int f : faces)
-                if (hasGlyph(f, cp)) {
+                if ((pass == 1 || faces_[(size_t)f]->color) && hasGlyph(f, cp)) {
                     face = f;
                     break;
                 }
@@ -312,13 +493,55 @@ Shaped Shaper::shape(const std::string& utf8, const std::vector<int>& chain) con
             gl.cluster = info[g].cluster;
             gl.x = pen + (float)pos[g].x_offset / f.upem;
             gl.y = -(float)pos[g].y_offset / f.upem;
-            pen += (float)pos[g].x_advance / f.upem;
+            gl.start = pen;
+            gl.advance = (float)pos[g].x_advance / f.upem;
+            pen += gl.advance;
             out.glyphs.push_back(gl);
         }
     }
     hb_buffer_destroy(buf);
     out.width = pen;
     return out;
+}
+
+std::vector<float> caretStops(const std::vector<uint32_t>& text, const Shaped& shaped) {
+    const size_t n = text.size();
+    std::vector<float> stops(n + 1, 0.f);
+    if (n == 0) return stops;
+    std::vector<uint8_t> levels = bidiLevels(text, paragraphLevel(text));
+    // Each character's box on the line: its cluster's glyphs' advances, split evenly among the cluster's characters
+    std::vector<float> left(n, -1.f), right(n, -1.f);
+    std::vector<size_t> clusterOf(n);
+    std::vector<uint32_t> starts;
+    for (const Glyph& g : shaped.glyphs) starts.push_back(g.cluster);
+    std::sort(starts.begin(), starts.end());
+    starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
+    for (size_t c = 0; c < starts.size(); ++c) {
+        size_t from = starts[c], to = c + 1 < starts.size() ? starts[c + 1] : n;
+        float lo = 1e30f, hi = -1e30f;
+        for (const Glyph& g : shaped.glyphs)
+            if (g.cluster == starts[c]) lo = std::min(lo, g.start), hi = std::max(hi, g.start + g.advance);
+        if (lo > hi || from >= n) continue;
+        to = std::min(to, n);
+        const float share = (hi - lo) / (float)std::max<size_t>(to - from, 1);
+        const bool rtl = levels[from] & 1;
+        for (size_t i = from; i < to; ++i) {   // (in a right-to-left cluster, the first character is the rightmost)
+            size_t k = i - from;
+            left[i] = rtl ? hi - share * (float)(k + 1) : lo + share * (float)k;
+            right[i] = left[i] + share;
+        }
+    }
+    float lastEdge = 0.f;
+    for (size_t i = 0; i < n; ++i) {
+        if (left[i] < 0.f) {   // (a character with no glyph of its own: where the one before ended)
+            stops[i] = lastEdge;
+            continue;
+        }
+        stops[i] = levels[i] & 1 ? right[i] : left[i];
+        lastEdge = levels[i] & 1 ? left[i] : right[i];
+    }
+    stops[n] = lastEdge;
+    return stops;
 }
 
 }  // namespace shaping

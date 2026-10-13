@@ -1288,6 +1288,16 @@ int uText(lua_State* L) {   // ui.text(x, y, text, size, color, align, font)
                    toAlign(L, 6), luaL_optstring(L, 7, ""));
     return 0;
 }
+int uTextBox(lua_State* L) {   // ui.textBox(x, y, w, text, size, color, align, font) -> its height
+    lua_pushnumber(L, gameUi(L).textBox(num(L, 1), num(L, 2), num(L, 3), luaL_checkstring(L, 4), (float)luaL_optnumber(L, 5, 36.0),
+                                        toColor(L, 6, {}), toAlign(L, 7), luaL_optstring(L, 8, "")));
+    return 1;
+}
+int uTextBoxHeight(lua_State* L) {   // ui.textBoxHeight(w, text, size, font)
+    lua_pushnumber(L, gameUi(L).textBoxHeight(num(L, 1), luaL_checkstring(L, 2), (float)luaL_optnumber(L, 3, 36.0),
+                                              luaL_optstring(L, 4, "")));
+    return 1;
+}
 int uTextWidth(lua_State* L) {
     lua_pushnumber(L, gameUi(L).textWidth(luaL_checkstring(L, 1), (float)luaL_optnumber(L, 2, 36.0), luaL_optstring(L, 3, "")));
     return 1;
@@ -1484,6 +1494,7 @@ lua_State* state() {
     // ui
     lua_newtable(L);
     const luaL_Reg ui[] = {{"width", uWidth},   {"height", uHeight},   {"text", uText},     {"textWidth", uTextWidth},
+                           {"textBox", uTextBox}, {"textBoxHeight", uTextBoxHeight},
                            {"rect", uRect},     {"border", uBorder},   {"bar", uBar},       {"image", uImage},
                            {"button", uButton}, {"hovered", uHovered}, {"showCursor", uShowCursor},
                            {nullptr, nullptr}};

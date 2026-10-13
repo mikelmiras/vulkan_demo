@@ -20,13 +20,6 @@ void appendUtf8(std::string& s, unsigned c) {
     else if (c < 0x10000) { s += (char)(0xE0 | (c >> 12)); s += (char)(0x80 | ((c >> 6) & 0x3F)); s += (char)(0x80 | (c & 0x3F)); }
     else { s += (char)(0xF0 | (c >> 18)); s += (char)(0x80 | ((c >> 12) & 0x3F)); s += (char)(0x80 | ((c >> 6) & 0x3F)); s += (char)(0x80 | (c & 0x3F)); }
 }
-void popUtf8(std::string& s) {
-    while (!s.empty()) {
-        unsigned char c = (unsigned char)s.back();
-        s.pop_back();
-        if ((c & 0xC0) != 0x80) break;   // (a whole character: back to its first byte)
-    }
-}
 
 // The on-screen keyboard: four rows of characters, then Shift, Space, Delete and Done spanning columns
 const char* const kOskRows[4] = {"1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.-"};
@@ -152,6 +145,7 @@ void UIController::frame(GameUI& ui, Scene& scene, const UILayout& layout, const
             }
             case UIElement::Kind::TextField:
                 editing_ = editing_ == id ? kNoEntity : id;
+                caret_ = SIZE_MAX;   // (at the end)
                 osk_ = editing_ != kNoEntity && fromPad;   // (no keyboard at hand: the on-screen one)
                 oskRow_ = 1, oskCol_ = 0, oskShift_ = false;
                 break;
@@ -207,9 +201,49 @@ void UIController::frame(GameUI& ui, Scene& scene, const UILayout& layout, const
             UIElement* u = element(editing_);
             bool editable = u && f.state && !u->value.empty();
             std::string text = editable ? f.state->text(u->value) : "", before = text;
+            size_t& caret = caret_;
+            if (caret > text.size()) caret = text.size();
+            while (caret > 0 && caret < text.size() && ((unsigned char)text[caret] & 0xC0) == 0x80) --caret;   // (a character's start)
+            auto insert = [&](const std::string& piece) {
+                text.insert(caret, piece);
+                caret += piece.size();
+            };
+            auto eraseBefore = [&] {   // (the whole character before the caret)
+                size_t from = caret;
+                while (from > 0 && ((unsigned char)text[--from] & 0xC0) == 0x80) {}
+                text.erase(from, caret - from);
+                caret = from;
+            };
             for (ImWchar c : ImGui::GetIO().InputQueueCharacters)
-                if (c >= 32 && c != 127) appendUtf8(text, c);
-            if (pressed({ImGuiKey_Backspace})) popUtf8(text);
+                if (c >= 32 && c != 127) {
+                    std::string piece;
+                    appendUtf8(piece, c);
+                    insert(piece);
+                }
+            if (pressed({ImGuiKey_Backspace})) eraseBefore();
+            if (pressed({ImGuiKey_Delete}) && caret < text.size()) {
+                size_t to = caret + 1;
+                while (to < text.size() && ((unsigned char)text[to] & 0xC0) == 0x80) ++to;
+                text.erase(caret, to - caret);
+            }
+            if (pressed({ImGuiKey_Home})) caret = 0;
+            if (pressed({ImGuiKey_End})) caret = text.size();
+            if (!osk_) {   // the arrows: to the next caret position on screen that way (right to left text: backwards)
+                int dir = pressed({ImGuiKey_RightArrow}) - pressed({ImGuiKey_LeftArrow});
+                if (dir) {
+                    std::vector<std::pair<size_t, float>> stops = ui.caretStops(text, u->textSize, u->font);
+                    float at = 0.f;
+                    for (const auto& st : stops)
+                        if (st.first == caret) at = st.second;
+                    size_t best = caret;
+                    float bestX = dir > 0 ? 1e30f : -1e30f;
+                    for (const auto& st : stops) {
+                        bool ahead = dir > 0 ? st.second > at + 0.01f : st.second < at - 0.01f;
+                        if (ahead && (dir > 0 ? st.second < bestX : st.second > bestX)) best = st.first, bestX = st.second;
+                    }
+                    caret = best;
+                }
+            }
             bool done = pressed({ImGuiKey_Enter, ImGuiKey_KeypadEnter, ImGuiKey_Escape});
             if (osk_) {
                 int dx = pressed({ImGuiKey_RightArrow, ImGuiKey_GamepadDpadRight, ImGuiKey_GamepadLStickRight}) -
@@ -224,18 +258,18 @@ void UIController::frame(GameUI& ui, Scene& scene, const UILayout& layout, const
                 if (type && oskRow_ < 4) {
                     char c = kOskRows[oskRow_][oskCol_];
                     if (oskShift_ && c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
-                    text += c;
+                    insert(std::string(1, c));
                     oskShift_ = false;   // (one capital, like a phone's)
                 } else if (type) {
                     switch (oskSpan(oskCol_)) {
                         case 0: oskShift_ = !oskShift_; break;
-                        case 1: text += ' '; break;
-                        case 2: popUtf8(text); break;
+                        case 1: insert(" "); break;
+                        case 2: eraseBefore(); break;
                         default: done = true; break;
                     }
                 }
-                if (pressed({ImGuiKey_GamepadFaceRight})) popUtf8(text);
-                if (pressed({ImGuiKey_GamepadFaceLeft})) text += ' ';
+                if (pressed({ImGuiKey_GamepadFaceRight})) eraseBefore();
+                if (pressed({ImGuiKey_GamepadFaceLeft})) insert(" ");
                 if (pressed({ImGuiKey_GamepadFaceUp})) oskShift_ = !oskShift_;
                 if (pressed({ImGuiKey_GamepadStart})) done = true;
             } else if (pressed({ImGuiKey_GamepadFaceDown})) {
@@ -290,9 +324,16 @@ void UIController::frame(GameUI& ui, Scene& scene, const UILayout& layout, const
         Color back = hc && u->opacity > 0.f ? Color{0.f, 0.f, 0.f, 0.95f} : colorOf(u->color, u->opacity);
         std::string text = fmt(u->text);
         float ty = r.y + (r.h - u->textSize) * 0.5f;
-        auto label = [&](float x0, float x1, Color c) {
+        auto label = [&](float x0, float x1, Color c, bool wraps = false) {
             if (text.empty()) return;
             GameUI::Align a = u->align == 0 ? GameUI::Align::Left : u->align == 2 ? GameUI::Align::Right : GameUI::Align::Center;
+            float inner = x1 - x0 - 2.f * kPad;
+            if (wraps && inner > 0.f && (text.find('\n') != std::string::npos || ui.textWidth(text, u->textSize, u->font) > inner)) {
+                // (too long for one line: wrapped to the element's width, the lines centred up and down)
+                float h = ui.textBoxHeight(inner, text, u->textSize, u->font);
+                ui.textBox(x0 + kPad, r.y + (r.h - h) * 0.5f + u->textSize * 0.1f, inner, text, u->textSize, c, a, u->font);
+                return;
+            }
             float x = a == GameUI::Align::Left ? x0 + kPad : a == GameUI::Align::Right ? x1 - kPad : (x0 + x1) * 0.5f;
             ui.text(x, ty, text, u->textSize, c, a, u->font);
         };
@@ -302,7 +343,7 @@ void UIController::frame(GameUI& ui, Scene& scene, const UILayout& layout, const
             case UIElement::Kind::List:
             case UIElement::Kind::Text:
                 if (u->opacity > 0.f && u->kind != UIElement::Kind::Text) ui.rect(r.x, r.y, r.w, r.h, back, u->rounding);
-                label(r.x, r.x + r.w, textColor);
+                label(r.x, r.x + r.w, textColor, true);
                 break;
             case UIElement::Kind::Image:
                 if (!u->image.empty()) ui.image(u->image, r.x, r.y, r.w, r.h, {1.f, 1.f, 1.f, std::max(u->opacity, 0.f)});
@@ -349,8 +390,13 @@ void UIController::frame(GameUI& ui, Scene& scene, const UILayout& layout, const
                 std::string shown = placeholder ? text : value;
                 Color c = placeholder ? Color{textColor.r, textColor.g, textColor.b, 0.45f} : textColor;
                 ui.text(r.x + kPad, ty, shown, u->textSize, c, GameUI::Align::Left, u->font);
-                if (editing && std::fmod(ImGui::GetTime(), 1.0) < 0.6) {   // the caret
-                    float cx = r.x + kPad + (placeholder ? 0.f : ui.textWidth(value, u->textSize, u->font));
+                if (editing && std::fmod(ImGui::GetTime(), 1.0) < 0.6) {   // the caret, where it is in the text as shown
+                    float cx = r.x + kPad;
+                    if (!placeholder) {
+                        size_t caret = std::min(caret_, value.size());
+                        for (const auto& st : ui.caretStops(value, u->textSize, u->font))
+                            if (st.first == caret) cx += st.second;
+                    }
                     ui.rect(cx + 2.f, ty, 3.f, u->textSize, textColor);
                 }
                 break;
