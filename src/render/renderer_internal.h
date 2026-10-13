@@ -45,7 +45,7 @@ struct FrameUBO {
     float camForward[4];      // w = tan(fovY / 2)
     float cascadeSplits[4];   // far end of each cascade, metres along the view
     float cascadeScale[4][4]; // per cascade: x = metres across its map, y = metres of depth it spans, z = texels across
-    float shadowParams[4];    // x = the sun's softness (its size in the sky, 1: the real sun's)
+    float shadowParams[4];    // x = the sun's softness, y = 1: shadow taps turned per pixel (with temporal AA)
     float fogParams[4];       // volumetric fog: x = 1 if on, y = light strength, z = anisotropy, w = height falloff
     float fogRange[4];        // its cells' slices: x = the first's start (m), y = slices / log(far / near), z = far
     float zenith[4], ground[4];   // sky colours (linear)

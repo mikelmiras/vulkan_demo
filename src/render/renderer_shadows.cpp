@@ -75,6 +75,7 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
         u.cascadeScale[c][2] = (float)kCascadeSize;
     }
     u.shadowParams[0] = info.shadowSoftness;
+    u.shadowParams[1] = aa_ == Antialiasing::Temporal ? 1.f : 0.f;   // (the taps turn per pixel only where TAA blends them)
     if (sunShadows) layers |= (1ull << kCascades) - 1;
     // ---- Spot and point lights casting shadows, in view, most important first (the order given): a tile each
     // for spots, six for point lights (a cube around them, a little wider than 90 degrees per face, so filtering

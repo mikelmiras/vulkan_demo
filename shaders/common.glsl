@@ -19,7 +19,7 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 camForward;      // w = tan(fovY / 2)
     vec4 cascadeSplits;   // far end of each sun shadow cascade, metres along the view
     vec4 cascadeScale[4]; // per cascade: x = metres across its map, y = metres of depth it spans, z = texels across
-    vec4 shadowParams;    // x = the sun's softness (its size in the sky, 1: the real sun's)
+    vec4 shadowParams;    // x = the sun's softness, y = 1: shadow taps turned per pixel (with temporal AA)
     vec4 fogParams;       // volumetric fog: x = 1 if on, y = light strength, z = anisotropy, w = height falloff
     vec4 fogRange;        // its cells' slices: x = the first's start (m), y = slices / log(far / near), z = far
     vec4 zenith;          // sky overhead (linear)

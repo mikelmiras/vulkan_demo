@@ -62,9 +62,28 @@ const vec2 kDisk[16] = vec2[](vec2(-0.94201624, -0.39906216), vec2(0.94558609, -
     vec2(0.79197514, 0.19090188), vec2(-0.24188840, 0.99706507), vec2(-0.81409955, 0.91437590), vec2(0.19984126, 0.78641367),
     vec2(0.14383161, -0.14100790));
 mat2 diskRotation() {
-    float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy + 5.588238 * frame.time.y, vec2(0.06711056, 0.00583715))));
+    // (without temporal AA to average it away the pattern stays still: a fine, steady grain rather than one that
+    // crawls, or the disk's copies showing through wide penumbrae)
+    float moving = frame.shadowParams.y > 0.5 ? 5.588238 * frame.time.y : 0.0;
+    float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy + moving, vec2(0.06711056, 0.00583715))));
     float a = n * 6.2831853;
     return mat2(cos(a), sin(a), -sin(a), cos(a));
+}
+
+// A 2 x 2 comparison, bilinearly weighted: four depth tests at once (textureGather), mixed by where the point falls
+// between their texels. The same as a linear-filtering comparison sampler, on GPUs whose depth formats don't filter
+// (Apple's, through MoltenVK)
+float cascadeTap(vec2 uv, float layer, float z) {
+    vec2 size = vec2(textureSize(shadowCascades, 0).xy);
+    vec2 f = fract(uv * size - 0.5);
+    vec4 g = textureGather(shadowCascades, vec3(uv, layer), z);   // (x: -,+ y: +,+ z: +,- w: -,-)
+    return mix(mix(g.w, g.z, f.x), mix(g.x, g.y, f.x), f.y);
+}
+float atlasTap(vec2 uv, float z) {
+    vec2 size = vec2(textureSize(shadowAtlas, 0));
+    vec2 f = fract(uv * size - 0.5);
+    vec4 g = textureGather(shadowAtlas, uv, z);
+    return mix(mix(g.w, g.z, f.x), mix(g.x, g.y, f.x), f.y);
 }
 
 // The sun's cascade `c` at `p` (world): the blockers' average depth around it (PCSS), how wide the penumbra is from
@@ -90,10 +109,10 @@ float cascadeShadow(int c, vec3 p, float bias) {
         }
         if (n == 0.0) return 1.0;   // (nothing between it and the sun)
         float behind = (z - sum / n) * scale.y;   // metres from the blockers
-        radius = clamp(behind * size / scale.x, 1.5 * texel, 64.0 * texel);
+        radius = clamp(behind * size / scale.x, 1.5 * texel, (frame.shadowParams.y > 0.5 ? 64.0 : 16.0) * texel);
     }
     float lit = 0.0;
-    for (int i = 0; i < 16; ++i) lit += texture(shadowCascades, vec4(uv + rot * kDisk[i] * radius, float(c), z));
+    for (int i = 0; i < 16; ++i) lit += cascadeTap(uv + rot * kDisk[i] * radius, float(c), z);
     return lit / 16.0;
 }
 
@@ -110,7 +129,7 @@ float atlasShadow(int view, vec3 p, float bias) {
     mat2 rot = diskRotation();
     float lit = 0.0;
     for (int i = 0; i < 12; ++i)
-        lit += texture(shadowAtlas, vec3(clamp(at + rot * kDisk[i] * texel * 1.75, lo, hi), proj.z - bias));
+        lit += atlasTap(clamp(at + rot * kDisk[i] * texel * 1.75, lo, hi), proj.z - bias);
     return lit / 12.0;
 }
 

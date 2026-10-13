@@ -1204,4 +1204,8 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   integration against exp(-density x distance)), settings saved and loaded, a pole's shadow at softness 0, 1 and 4,
   the demo and Night Drive under validation with sync checks (fog 50 ms of ~900 on lavapipe). Not done: temporal
   reprojection of the fog cells (it's steady but coarse: halos are ten pixels a cell), shadows for spot lights in
-  the fog, fog in split-screen views and particles, auto-exposure, contact shadows.
+  the fog, fog in split-screen views and particles, auto-exposure, contact shadows. Afterwards (reported on a MacBook Air M4: shadow
+  edges looked odd): Apple's GPUs don't filter depth formats through MoltenVK, so the comparison sampler fell back
+  to nearest and each tap was a hard 0 or 1; taps are now textureGather comparisons weighted bilinearly in the
+  shader (the same result everywhere), and the disk only turns per frame with temporal AA (without it, a still
+  per-pixel turn and penumbrae capped at 16 texels: a fine grain instead of the disk's copies showing).
