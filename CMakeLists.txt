@@ -37,7 +37,7 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/particle.vert shaders/particle.frag shaders/sky.vert shaders/sky.frag shaders/taa.frag shaders/cull.comp
                    shaders/hiz_depth.comp shaders/hiz_depth_ms.comp shaders/hiz_reduce.comp shaders/foliage.vert
                    shaders/gi_project.comp shaders/ssr_capture.frag shaders/ssr_capture_ms.frag shaders/depth_prepass.frag
-                   shaders/fog_inject.comp shaders/fog_integrate.comp)
+                   shaders/fog_inject.comp shaders/fog_integrate.comp shaders/fog_surface.comp)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -51,6 +51,15 @@ foreach(src ${SHADER_SOURCES})
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
+# The fog's surface pass over a multisampled depth
+set(out ${CMAKE_BINARY_DIR}/shaders/fog_surface_ms.comp.spv)
+add_custom_command(
+  OUTPUT ${out}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+  COMMAND ${GLSLC} -DMS ${CMAKE_SOURCE_DIR}/shaders/fog_surface.comp -o ${out}
+  DEPENDS ${CMAKE_SOURCE_DIR}/shaders/fog_surface.comp
+  COMMENT "Compiling fog_surface_ms.comp")
+list(APPEND SPIRV_OUTPUTS ${out})
 # The lit scene shader again with early depth tests, for after the depth prepass
 set(out ${CMAKE_BINARY_DIR}/shaders/scene_early.frag.spv)
 add_custom_command(

@@ -19,16 +19,27 @@ layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]
 layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D scatter;
 
-// Is p lit by the sun? (One look at its cascade: the cells blur it enough.)
-float sunLight(vec3 p, float depth) {
+// How much of the cell around p the sun reaches: its shadow looked up at eight points spread through the cell (`side`:
+// metres across it, `deep`: along the view) and averaged, so a shadow's edge fades across cells instead of each cell
+// being lit or dark (blocky edges where a building's shadow crosses lit fog)
+float sunLight(vec3 p, float depth, vec3 right, vec3 up, vec3 view, float side, float deep) {
     if (frame.sunDir.w < 0.5) return 1.0;
-    int c = 0;
-    while (c < 4 && depth > frame.cascadeSplits[c]) ++c;
-    if (c >= 4) return 1.0;
-    vec3 proj = (frame.shadowViewProj[c] * vec4(p, 1.0)).xyz;
-    vec2 uv = proj.xy * 0.5 + 0.5;
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) return 1.0;
-    return proj.z - 0.001 <= textureLod(cascadeDepths, vec3(uv, float(c)), 0.0).r ? 1.0 : 0.0;
+    const vec3 kSpread[8] = vec3[](vec3(-0.375, -0.125, -0.375), vec3(0.125, -0.375, 0.125), vec3(0.375, 0.125, -0.125),
+                                   vec3(-0.125, 0.375, 0.375), vec3(-0.375, 0.375, -0.125), vec3(0.375, -0.375, 0.375),
+                                   vec3(-0.125, -0.125, 0.125), vec3(0.125, 0.125, -0.375));
+    float lit = 0.0;
+    for (int i = 0; i < 8; ++i) {
+        vec3 q = p + right * (kSpread[i].x * side) + up * (kSpread[i].y * side) + view * (kSpread[i].z * deep);
+        float d = depth + kSpread[i].z * deep;
+        int c = 0;
+        while (c < 4 && d > frame.cascadeSplits[c]) ++c;
+        if (c >= 4) { lit += 1.0; continue; }
+        vec3 proj = (frame.shadowViewProj[c] * vec4(q, 1.0)).xyz;
+        vec2 uv = proj.xy * 0.5 + 0.5;
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) { lit += 1.0; continue; }
+        lit += proj.z - 0.001 <= textureLod(cascadeDepths, vec3(uv, float(c)), 0.0).r ? 1.0 : 0.0;
+    }
+    return lit / 8.0;
 }
 
 void main() {
@@ -45,7 +56,10 @@ void main() {
     float g = frame.fogParams.z, strength = frame.fogParams.y;
 
     vec3 light = frame.fogColor.rgb;   // (the plain fog's colour: what it shows with no light of its own)
-    light += frame.sunColor.rgb * sunLight(p, depth) * fogPhase(frame.sunDir.xyz, view, g) * strength;
+    float side = 2.0 * depth * tanY / float(kFogCells.y);   // (a cell's size there: across, and along the view)
+    float deep = fogSliceDepth(float(id.z) + 1.0) - fogSliceDepth(float(id.z));
+    light += frame.sunColor.rgb * sunLight(p, depth, frame.camRight.xyz, frame.camUp.xyz, view, side, deep) *
+             fogPhase(frame.sunDir.xyz, view, g) * strength;
     // The lights of the cluster this cell is in (as scene.frag finds them)
     vec4 c = frame.viewProj * vec4(p, 1.0);
     if (c.w > 1e-4) {

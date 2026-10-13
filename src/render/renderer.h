@@ -225,6 +225,7 @@ private:
         bool blend = false;              // premultiplied see-through (colour only: alpha is the outline marker)
         bool shadow = false;             // into a shadow map (depth only), even with a fragment shader
         uint32_t attributeMask = 0;      // which of position / normal / uv (bits 0-2) instead (0: vertexAttributes)
+        bool noColor = false;            // the scene's depth (and stencil) only: the depth prepass's own rendering
     };
 
     void createInstance();
@@ -519,6 +520,13 @@ private:
     VkDescriptorPool fogPool_ = VK_NULL_HANDLE;
     VkDescriptorSet fogSets_[MAX_FRAMES] = {};
     VkSampler fogSampler_ = VK_NULL_HANDLE;
+    // Each cell column's surface distance (fog_surface.comp, from this frame's depth after the prepass; binding 22)
+    Image fogSurface_[MAX_FRAMES];
+    VkDescriptorSetLayout fogSurfaceSetLayout_ = VK_NULL_HANDLE;
+    VkPipelineLayout fogSurfaceLayout_ = VK_NULL_HANDLE;
+    VkPipeline fogSurfacePipeline_ = VK_NULL_HANDLE, fogSurfaceMsPipeline_ = VK_NULL_HANDLE;
+    VkDescriptorSet fogSurfaceSets_[MAX_FRAMES] = {};
+    VkImageView fogSurfaceDepth_[MAX_FRAMES] = {};   // (the depth view each set was written with)
     bool fogOn_ = false;      // this frame draws it
     float fogFar_ = 200.f;    // its last slice's end: the far end of what's in view (as the light clusters')
     float fogNear_ = 0.1f;    // ... and the near end (the slices start at half of it: from high up, little air is
@@ -526,7 +534,7 @@ private:
     Image createVolume();
     void createFog();
     void destroyFog();
-    void recordFog(VkCommandBuffer cb);
+    void recordFog(VkCommandBuffer cb, const SceneRenderInfo& info, bool readDepth, VkRect2D area);
     Quality quality_ = Quality::High;
     float shadowDistance() const { return quality_ == Quality::High ? kShadowDistance : quality_ == Quality::Medium ? 100.f : 60.f; }
     bool reflectionsOn(const SceneRenderInfo& info) const { return info.reflections && quality_ != Quality::Low; }
@@ -562,9 +570,13 @@ private:
         uint32_t first = 0, count = 0;   // its entries in the instance index list
         int lod = 0;                     // which level of the mesh (assets/mesh_lod.h; 0: the mesh itself)
     };
-    // Opaque batches (and plants), drawn twice with the prepass: depth, then lit (`culled`: the GPU culling's
-    // indirect draws for the main view's batches)
-    void drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled);
+    // Opaque batches (and plants) (`culled`: the GPU culling's indirect draws for the main view's batches): their
+    // depth (the prepass, in a rendering of its own), or lit (after it; or depth tested and written, without it)
+    void drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled,
+                    bool depthOnly);
+    // The prepass's rendering: depth (and stencil) cleared and filled in the scene's rectangle; the lit pass loads it
+    void recordPrepass(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled,
+                       VkRect2D area);
     MeshLod rangeOf(const Batch& b) const;   // the indices to draw for it
     void drawBatch(VkCommandBuffer cb, const Batch& b);
     std::vector<Batch> sceneBatches_, outlineBatches_, transparentBatches_;   // (transparent: back to front)

@@ -1208,4 +1208,13 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   edges looked odd): Apple's GPUs don't filter depth formats through MoltenVK, so the comparison sampler fell back
   to nearest and each tap was a hard 0 or 1; taps are now textureGather comparisons weighted bilinearly in the
   shader (the same result everywhere), and the disk only turns per frame with temporal AA (without it, a still
-  per-pixel turn and penumbrae capped at 16 texels: a fine grain instead of the disk's copies showing).
+  per-pixel turn and penumbrae capped at 16 texels: a fine grain instead of the disk's copies showing). Then (dark or
+  glowing blocky bands along buildings' edges next to lit fog, on the Mac and on Intel under Linux): froxel fog's
+  columns go through buildings, and their cells inside (shadowed by the roof from the moon, or lit by a lamp beside
+  it) bled a cell wide into the street pixels next to the silhouette through the volume's bilinear filtering. The
+  depth prepass now has a rendering of its own (its pipelines have no colour attachment, also in the extra views),
+  the fog runs between it and the lit pass, and fog_surface.comp (a multisampled-depth variant too) stores each
+  column's surface distance (binding 22); scene.frag mixes the four neighbouring columns by hand, each weighed
+  down by 1 / (1 + 400 x its surface's relative distance from the pixel's squared). The fog's sun visibility is
+  also averaged over eight points spread through each cell. Night Drive's camera tests nine rays round the taxi, 4.5 m
+  out (a building over only its front was missed).

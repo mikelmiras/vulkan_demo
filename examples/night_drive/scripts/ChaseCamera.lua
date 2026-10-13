@@ -26,11 +26,13 @@ local function isBuilding(e)
     return false
 end
 
--- Buildings between the camera and the target (a few rays: its middle, a little in front and behind) are hidden;
--- ones no longer in the way come back
+-- Buildings between the camera and the target are hidden (rays to its middle and to points round it, 4.5 m out, so
+-- one covering only its front or the street just ahead counts too); ones no longer in the way come back
+local kAround = {vec3(0, 1, 0), vec3(4.5, 1, 0), vec3(-4.5, 1, 0), vec3(0, 1, 4.5), vec3(0, 1, -4.5),
+                 vec3(3.2, 1, 3.2), vec3(-3.2, 1, 3.2), vec3(3.2, 1, -3.2), vec3(-3.2, 1, -3.2)}
 function ChaseCamera:hideBlockers(from, target)
     local blocking = {}
-    for _, offset in ipairs({vec3(0, 1, 0), vec3(2.5, 1, 0), vec3(-2.5, 1, 0), vec3(0, 1, 2.5), vec3(0, 1, -2.5)}) do
+    for _, offset in ipairs(kAround) do
         local to = vec3(target.x + offset.x, target.y + offset.y, target.z + offset.z)
         local dir = vec3(to.x - from.x, to.y - from.y, to.z - from.z)
         local length = vec3.length(dir)

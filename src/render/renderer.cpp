@@ -594,6 +594,7 @@ VkShaderModule Renderer::loadShader(const std::string& name) {
 
 VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
     const bool depthOnly = d.shadow || d.fragShader == nullptr;   // the shadow pass
+    const bool colorless = depthOnly || d.noColor;
     VkShaderModule vs = loadShader(d.vertShader), fs = d.fragShader ? loadShader(d.fragShader) : VK_NULL_HANDLE;
     VkPipelineShaderStageCreateInfo stages[2] = {
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
@@ -670,7 +671,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
         cba.alphaBlendOp = VK_BLEND_OP_ADD;
     }
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = depthOnly ? 0 : 1;
+    cb.attachmentCount = colorless ? 0 : 1;
     cb.pAttachments = &cba;
 
     VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
@@ -679,7 +680,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
     dy.pDynamicStates = dyn;
 
     VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rci.colorAttachmentCount = depthOnly ? 0 : 1;
+    rci.colorAttachmentCount = colorless ? 0 : 1;
     rci.pColorAttachmentFormats = &hdrFormat_;   // (the scene renders into the HDR image)
     rci.depthAttachmentFormat = depthOnly ? shadowFormat_ : depthFormat_;
     rci.stencilAttachmentFormat = depthOnly ? VK_FORMAT_UNDEFINED : depthFormat_;
@@ -708,7 +709,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[22] = {
+    VkDescriptorSetLayoutBinding frameBindings[23] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -731,9 +732,10 @@ void Renderer::createPipelines() {
         {19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // texture streaming's reports
         {20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // the sun's cascades' depths
         {21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // volumetric fog
+        {22, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... its columns' surfaces
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 22;
+    dslci.bindingCount = 23;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -802,10 +804,13 @@ void Renderer::createSampledPipelines() {
     foliagePipeline_ = createPipeline({"foliage.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_NONE,
                                        false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
     // The depth prepass and the lit pass after it (depth tested before shading, not written again)
-    prepassPipeline_ = createPipeline({"scene.vert.spv", "depth_prepass.frag.spv", true, true, false, VK_CULL_MODE_BACK_BIT,
-                                       false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
-    prepassFoliagePipeline_ = createPipeline({"foliage.vert.spv", "depth_prepass.frag.spv", true, true, false, VK_CULL_MODE_NONE,
-                                              false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    PipelineDesc depth{"scene.vert.spv", "depth_prepass.frag.spv", true, true, false, VK_CULL_MODE_BACK_BIT,
+                       false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0};
+    depth.noColor = true;
+    prepassPipeline_ = createPipeline(depth);
+    depth.vertShader = "foliage.vert.spv";
+    depth.cull = VK_CULL_MODE_NONE;
+    prepassFoliagePipeline_ = createPipeline(depth);
     sceneEarlyPipeline_ = createPipeline({"scene.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
                                           false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
     foliageEarlyPipeline_ = createPipeline({"foliage.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_NONE,
@@ -1069,7 +1074,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 13 * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 14 * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1164,14 +1169,17 @@ void Renderer::createResources(const MeshLibrary&) {
         w[3] = w[1];
         w[3].dstBinding = 6;
         w[3].pImageInfo = &pointInfo;
-        VkWriteDescriptorSet more[2] = {w[1], w[1]};
+        VkWriteDescriptorSet more[3] = {w[1], w[1], w[1]};
         more[0].dstBinding = 20;
         more[0].pImageInfo = &cascadeDepthInfo;
         VkDescriptorImageInfo fogInfo{fogSampler_, fog_[i].volume.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         more[1].dstBinding = 21;
         more[1].pImageInfo = &fogInfo;
+        VkDescriptorImageInfo surfaceInfo{fogSampler_, fogSurface_[i].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        more[2].dstBinding = 22;
+        more[2].pImageInfo = &surfaceInfo;
         vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
-        vkUpdateDescriptorSets(device_, 2, more, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 3, more, 0, nullptr);
 
         VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &imageAvailable_[i]));
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
@@ -1310,8 +1318,6 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
     timestamp(cb, "Shadows");
-    recordFog(cb);   // (after the shadows: it looks up the sun's)
-    if (fogOn_) timestamp(cb, "Volumetric fog");
 
     // ---- Global illumination: the probes due this frame, drawn and projected
     recordGi(cb, info);
@@ -1338,6 +1344,29 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, depthStages,
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
+    // ---- The depth prepass (opaque things' depth: the lit pass then shades each pixel once), then the volumetric
+    // fog, which looks at that depth (each cell column's surface: scene.frag weighs columns by it at edges)
+    const float sx = std::clamp(info.viewportX, 0.f, (float)extent_.width), sy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
+    const float sw = std::min(info.viewportW, (float)extent_.width - sx), sh = std::min(info.viewportH, (float)extent_.height - sy);
+    const bool prepassed = prepass_ && info.items && sw >= 1.f && sh >= 1.f;
+    if (prepassed) {
+        recordPrepass(cb, info, sceneBatches_, gpuCulled_, {{(int32_t)sx, (int32_t)sy}, {(uint32_t)sw, (uint32_t)sh}});
+        timestamp(cb, "Depth prepass");
+    }
+    if (fogOn_) {
+        const bool readDepth = prepassed && depthSampleView_;
+        if (readDepth)
+            imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        recordFog(cb, info, readDepth, {{(int32_t)sx, (int32_t)sy}, {(uint32_t)sw, (uint32_t)sh}});
+        if (readDepth)
+            imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, depthStages,
+                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+        timestamp(cb, "Volumetric fog");
+    }
+
     // ---- Pass 1: 3D scene (MSAA, resolved into the HDR image)
     Vec3 sky = srgbToLinear(info.sky);
     VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -1358,7 +1387,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depthAtt.imageView = depth_.view;
     depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAtt.loadOp = prepassed ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;   // (the prepass's)
     depthAtt.storeOp = aoSupported_ ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;   // (AO reads it)
     depthAtt.clearValue.depthStencil = {1.f, 0};
 
@@ -1390,7 +1419,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             }
             drawBatch(cb, b);
         };
-        drawOpaque(cb, info, sceneBatches_, gpuCulled_);
+        drawOpaque(cb, info, sceneBatches_, gpuCulled_, false);
         if (gpuCulled_) stats_.triangles += gpuTriangles_;   // (a frame or two old)
 
         // The sky, wherever nothing was drawn
@@ -1533,36 +1562,53 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     VK_CHECK(vkEndCommandBuffer(cb));
 }
 
-void Renderer::drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled) {
-    auto pass = [&](VkPipeline pipeline, VkPipeline plants, bool count) {
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-        VkDescriptorSet bound = VK_NULL_HANDLE;
-        for (size_t i = 0; i < batches.size(); ++i) {
-            const Batch& b = batches[i];
-            if (b.texture != bound) {
-                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
-                bound = b.texture;
-            }
-            if (culled) {   // as many instances as the culling pass found visible
-                size_t levels = 1 + meshes_->get(b.mesh).lods.size();   // (one draw per level it has)
-                for (size_t k = 0; k < levels && k < 3; ++k)
-                    vkCmdDrawIndexedIndirect(cb, cullCommands_[frame_].buffer, (i * 3 + k) * sizeof(VkDrawIndexedIndirectCommand),
-                                             1, sizeof(VkDrawIndexedIndirectCommand));
-            } else {
-                drawBatch(cb, b);
-                if (count) stats_.triangles += rangeOf(b).indexCount / 3 * b.count;
-            }
-            if (count) stats_.drawCalls++;
+void Renderer::drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled,
+                          bool depthOnly) {
+    VkPipeline pipeline = depthOnly ? prepassPipeline_ : prepass_ ? sceneEarlyPipeline_ : scenePipeline_;
+    VkPipeline plants = depthOnly ? prepassFoliagePipeline_ : prepass_ ? foliageEarlyPipeline_ : foliagePipeline_;
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    VkDescriptorSet bound = VK_NULL_HANDLE;
+    for (size_t i = 0; i < batches.size(); ++i) {
+        const Batch& b = batches[i];
+        if (b.texture != bound) {
+            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
+            bound = b.texture;
         }
-        drawPlants(cb, info, plants);
-    };
-    if (prepass_ && prepassPipeline_) {
-        pass(prepassPipeline_, prepassFoliagePipeline_, false);   // depth only
-        pass(sceneEarlyPipeline_, foliageEarlyPipeline_, true);   // then lit, where it's in front
-    } else {
-        pass(scenePipeline_, foliagePipeline_, true);
+        if (culled) {   // as many instances as the culling pass found visible
+            size_t levels = 1 + meshes_->get(b.mesh).lods.size();   // (one draw per level it has)
+            for (size_t k = 0; k < levels && k < 3; ++k)
+                vkCmdDrawIndexedIndirect(cb, cullCommands_[frame_].buffer, (i * 3 + k) * sizeof(VkDrawIndexedIndirectCommand), 1,
+                                         sizeof(VkDrawIndexedIndirectCommand));
+        } else {
+            drawBatch(cb, b);
+            if (!depthOnly) stats_.triangles += rangeOf(b).indexCount / 3 * b.count;
+        }
+        if (!depthOnly) stats_.drawCalls++;
     }
+    drawPlants(cb, info, plants);
 }
+
+void Renderer::recordPrepass(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled,
+                             VkRect2D area) {
+    VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    depthAtt.imageView = depth_.view;
+    depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_STORE;   // (the lit pass loads it)
+    depthAtt.clearValue.depthStencil = {1.f, 0};
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, extent_};
+    ri.layerCount = 1;
+    ri.pDepthAttachment = &depthAtt;
+    ri.pStencilAttachment = &depthAtt;
+    vkCmdBeginRendering(cb, &ri);
+    VkViewport viewport{(float)area.offset.x, (float)area.offset.y, (float)area.extent.width, (float)area.extent.height, 0.f, 1.f};
+    vkCmdSetViewport(cb, 0, 1, &viewport);
+    vkCmdSetScissor(cb, 0, 1, &area);
+    drawOpaque(cb, info, batches, culled, true);
+    vkCmdEndRendering(cb);
+}
+
 
 void Renderer::saveScreenshot() {
     std::string path = std::move(screenshotPath_);

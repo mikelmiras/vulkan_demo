@@ -48,6 +48,10 @@ void Renderer::createFog() {
         f.scatter = createVolume();
         f.volume = createVolume();
     }
+    for (Image& s : fogSurface_)
+        s = createImage(VK_FORMAT_R32_SFLOAT,
+                        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                        VK_IMAGE_ASPECT_COLOR_BIT, kFogX, kFogY, VK_SAMPLE_COUNT_1_BIT, 1);
     // The volumes start out readable (frames without fog still bind them), as the scene passes expect them
     VkCommandBuffer cb = beginOneTimeCommands();
     for (FogImages& f : fog_) {
@@ -57,6 +61,9 @@ void Renderer::createFog() {
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
                      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
+    for (Image& s : fogSurface_)
+        imageBarrier(cb, s.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     endOneTimeCommands(cb);
     VkSamplerCreateInfo sci{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     sci.magFilter = sci.minFilter = VK_FILTER_LINEAR;
@@ -85,11 +92,33 @@ void Renderer::createFog() {
         VK_CHECK(vkCreateComputePipelines(device_, pipelineCache_, 1, &ci, nullptr, pipeline));
         vkDestroyShaderModule(device_, cs, nullptr);
     }
-    VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2 * MAX_FRAMES};
+    // The surface pass: this frame's depth (plain or multisampled) in, each column's surface distance out
+    VkDescriptorSetLayoutBinding sb[2] = {{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+                                          {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr}};
+    dslci.pBindings = sb;
+    VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &fogSurfaceSetLayout_));
+    VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, 32};
+    plci.setLayoutCount = 1;
+    plci.pSetLayouts = &fogSurfaceSetLayout_;
+    plci.pushConstantRangeCount = 1;
+    plci.pPushConstantRanges = &push;
+    VK_CHECK(vkCreatePipelineLayout(device_, &plci, nullptr, &fogSurfaceLayout_));
+    for (auto [shader, pipeline] : {std::pair{"fog_surface.comp.spv", &fogSurfacePipeline_},
+                                    std::pair{"fog_surface_ms.comp.spv", &fogSurfaceMsPipeline_}}) {
+        VkShaderModule cs = loadShader(shader);
+        VkComputePipelineCreateInfo ci{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+        ci.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT, cs, "main",
+                    nullptr};
+        ci.layout = fogSurfaceLayout_;
+        VK_CHECK(vkCreateComputePipelines(device_, pipelineCache_, 1, &ci, nullptr, pipeline));
+        vkDestroyShaderModule(device_, cs, nullptr);
+    }
+    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 * MAX_FRAMES},
+                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    dpci.maxSets = MAX_FRAMES;
-    dpci.poolSizeCount = 1;
-    dpci.pPoolSizes = &size;
+    dpci.maxSets = 2 * MAX_FRAMES;
+    dpci.poolSizeCount = 2;
+    dpci.pPoolSizes = sizes;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &fogPool_));
     for (int i = 0; i < MAX_FRAMES; ++i) {
         VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
@@ -108,6 +137,8 @@ void Renderer::createFog() {
             w[k].pImageInfo = &infos[k];
         }
         vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+        dsai.pSetLayouts = &fogSurfaceSetLayout_;
+        VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, &fogSurfaceSets_[i]));   // (written when there's a depth to read)
     }
 }
 
@@ -116,6 +147,11 @@ void Renderer::destroyFog() {
         destroyImage(f.scatter);
         destroyImage(f.volume);
     }
+    for (Image& s : fogSurface_) destroyImage(s);
+    vkDestroyPipeline(device_, fogSurfacePipeline_, nullptr);
+    vkDestroyPipeline(device_, fogSurfaceMsPipeline_, nullptr);
+    vkDestroyPipelineLayout(device_, fogSurfaceLayout_, nullptr);
+    vkDestroyDescriptorSetLayout(device_, fogSurfaceSetLayout_, nullptr);
     vkDestroyDescriptorPool(device_, fogPool_, nullptr);
     vkDestroyPipeline(device_, fogInjectPipeline_, nullptr);
     vkDestroyPipeline(device_, fogIntegratePipeline_, nullptr);
@@ -124,9 +160,49 @@ void Renderer::destroyFog() {
     vkDestroySampler(device_, fogSampler_, nullptr);
 }
 
-void Renderer::recordFog(VkCommandBuffer cb) {
+void Renderer::recordFog(VkCommandBuffer cb, const SceneRenderInfo& info, bool readDepth, VkRect2D area) {
     if (!fogOn_) return;
     FogImages& f = fog_[frame_];
+    // Each column's surface (this frame's depth): or unknown (0) without one to read
+    VkImage surface = fogSurface_[frame_].image;
+    if (readDepth) {
+        if (fogSurfaceDepth_[frame_] != depthSampleView_) {   // (this frame's set is free: its fence has passed)
+            VkDescriptorImageInfo infos[2] = {{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
+                                              {VK_NULL_HANDLE, fogSurface_[frame_].view, VK_IMAGE_LAYOUT_GENERAL}};
+            VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+            for (uint32_t k = 0; k < 2; ++k) {
+                w[k].dstSet = fogSurfaceSets_[frame_];
+                w[k].dstBinding = k;
+                w[k].descriptorCount = 1;
+                w[k].descriptorType = k == 0 ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                w[k].pImageInfo = &infos[k];
+            }
+            vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+            fogSurfaceDepth_[frame_] = depthSampleView_;
+        }
+        imageBarrier(cb, surface, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          samples_ != VK_SAMPLE_COUNT_1_BIT ? fogSurfaceMsPipeline_ : fogSurfacePipeline_);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, fogSurfaceLayout_, 0, 1, &fogSurfaceSets_[frame_], 0, nullptr);
+        float push[8] = {info.zNear, info.zFar, 0.f, 0.f, (float)area.offset.x, (float)area.offset.y,
+                         (float)area.extent.width, (float)area.extent.height};
+        vkCmdPushConstants(cb, fogSurfaceLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), push);
+        vkCmdDispatch(cb, (kFogX + 7) / 8, (kFogY + 7) / 8, 1);
+        imageBarrier(cb, surface, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                     VK_ACCESS_SHADER_READ_BIT);
+    } else {
+        imageBarrier(cb, surface, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+                     VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        VkClearColorValue zero{};
+        VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdClearColorImage(cb, surface, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &all);
+        imageBarrier(cb, surface, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    }
     const VkPipelineStageFlags readers = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     // (the last time this frame index's volume was read: by fragment shaders; the scatter by the integration)
     imageBarrier(cb, f.scatter.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL,

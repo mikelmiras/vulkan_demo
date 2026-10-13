@@ -67,6 +67,10 @@ void Renderer::recordView(VkCommandBuffer cb, int index, const SceneRenderInfo& 
                  depthStages | fragStage | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                  depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
 
+    const uint32_t slot = (uint32_t)(uboStride_ * (1 + index));   // (its frame data)
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
+    if (prepass_) recordPrepass(cb, info, viewBatches_[index], false, {{0, 0}, {(uint32_t)w, (uint32_t)h}});
+
     Vec3 sky = srgbToLinear(info.sky);
     VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -85,7 +89,7 @@ void Renderer::recordView(VkCommandBuffer cb, int index, const SceneRenderInfo& 
     VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     depthAtt.imageView = depth_.view;
     depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAtt.loadOp = prepass_ ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;   // (the prepass's)
     depthAtt.storeOp = aoSupported_ ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
     depthAtt.clearValue.depthStencil = {1.f, 0};
     VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -97,8 +101,6 @@ void Renderer::recordView(VkCommandBuffer cb, int index, const SceneRenderInfo& 
     ri.pStencilAttachment = &depthAtt;
     vkCmdBeginRendering(cb, &ri);
 
-    const uint32_t slot = (uint32_t)(uboStride_ * (1 + index));   // (its frame data)
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
     VkViewport viewport{0.f, 0.f, w, h, 0.f, 1.f};
     VkRect2D scissor{{0, 0}, {(uint32_t)w, (uint32_t)h}};
     vkCmdSetViewport(cb, 0, 1, &viewport);
@@ -112,7 +114,7 @@ void Renderer::recordView(VkCommandBuffer cb, int index, const SceneRenderInfo& 
         drawBatch(cb, b);
         stats_.drawCalls++;
     };
-    drawOpaque(cb, info, viewBatches_[index], false);
+    drawOpaque(cb, info, viewBatches_[index], false, false);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
     vkCmdDraw(cb, 3, 1, 0, 0);
     if (!viewTransparent_[index].empty()) {

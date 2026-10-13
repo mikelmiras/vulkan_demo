@@ -1,0 +1,33 @@
+#version 450
+// Volumetric fog: the distance along the view to what each column of cells sees at its middle (this frame's depth,
+// after the prepass). Cells behind it are inside things; scene.frag weighs a pixel's neighbouring columns by how
+// near their surface is to its own, so a column through a building doesn't darken (or light) the street beside it.
+// (fog_surface_ms.comp.spv: the same over a multisampled depth, its first sample.)
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+#ifdef MS
+layout(set = 0, binding = 0) uniform sampler2DMS depthMap;
+#else
+layout(set = 0, binding = 0) uniform sampler2D depthMap;
+#endif
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D surface;
+layout(push_constant) uniform Push {
+    vec4 range;   // x = near, y = far (the camera's)
+    vec4 rect;    // the scene's rectangle in the depth image (pixels)
+} pc;
+
+const ivec2 kCells = ivec2(160, 90);
+
+void main() {
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(id, kCells))) return;
+    ivec2 px = ivec2(pc.rect.xy + (vec2(id) + 0.5) / vec2(kCells) * pc.rect.zw);
+#ifdef MS
+    float d = texelFetch(depthMap, px, 0).r;
+#else
+    float d = texelFetch(depthMap, px, 0).r;
+#endif
+    float n = pc.range.x, f = pc.range.y;
+    float dist = d >= 1.0 ? 1e6 : n * f / (f - d * (f - n));
+    imageStore(surface, id, vec4(dist));
+}

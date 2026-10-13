@@ -14,6 +14,7 @@ layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadowCascades;   // t
 layout(set = 0, binding = 5) uniform sampler2DShadow shadowAtlas;          // spot and point lights' (tiles; comparing)
 layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;        // the sun's again, as depths (PCSS)
 layout(set = 0, binding = 21) uniform sampler3D fogVolume;                 // volumetric fog, integrated (fog.glsl)
+layout(set = 0, binding = 22) uniform sampler2D fogSurface;                // ... each cell column's surface distance
 layout(set = 0, binding = 6) uniform sampler2DArray cookies;          // spot lights' cookies
 // Point and spot lights, and the clusters of the view they reach (render/light_clusters.h)
 struct Light {
@@ -363,6 +364,29 @@ vec3 environment(vec3 r, float rough) {
     return env;
 }
 
+// The volumetric fog in front of a point at `depth` along the view: the four cell columns around it, bilinearly, each
+// weighed down where the surface it sees is at another depth (a column through a building next to this street pixel:
+// its cells inside the building would darken or light the street's edge, a cell wide)
+vec4 fogAt(vec2 uv, float depth) {
+    float z = fogVolumeZ(depth);
+    vec2 cell = uv * vec2(kFogCells.xy) - 0.5;
+    ivec2 c0 = ivec2(floor(cell));
+    vec2 f = cell - vec2(c0);
+    vec4 sum = vec4(0.0);
+    float total = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        ivec2 o = ivec2(i & 1, i >> 1);
+        ivec2 c = clamp(c0 + o, ivec2(0), kFogCells.xy - 1);
+        float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+        float surface = texelFetch(fogSurface, c, 0).r;   // (0: not known this frame)
+        float off = surface > 0.0 ? abs(surface - depth) / max(depth, 1e-3) : 0.0;
+        w *= 1e-3 + 1.0 / (1.0 + off * off * 400.0);   // (5 % nearer or further: half the weight)
+        sum += texture(fogVolume, vec3((vec2(c) + 0.5) / vec2(kFogCells.xy), z)) * w;
+        total += w;
+    }
+    return sum / max(total, 1e-6);
+}
+
 // A terrain's colour: its four layers (the material set's four textures, sRGB) mixed by the vertex weights, each
 // tinted and tiled by a column of its layers' matrix (joints[-params.w - 2]; none: white, 4 m tiles)
 vec3 terrainColor() {
@@ -490,7 +514,7 @@ void main() {
     if (frame.fogParams.x > 0.5) {   // volumetric: what the fog in front lets through, and the light it adds
         vec4 c = frame.viewProj * vec4(vWorldPos, 1.0);
         float depth = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
-        vec4 f = texture(fogVolume, vec3(c.xy / c.w * 0.5 + 0.5, fogVolumeZ(depth)));
+        vec4 f = fogAt(c.xy / c.w * 0.5 + 0.5, depth);
         color = color * f.a + f.rgb;
     } else {
         float dist = length(frame.camPos.xyz - vWorldPos);
