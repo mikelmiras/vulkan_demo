@@ -18,5 +18,8 @@ void main() {
     ivec2 p = ivec2(gl_FragCoord.xy);
     float d = depthAt(p);
     float z = d >= 1.0 ? 1e6 : pc.a.x * pc.a.y / (pc.a.y - d * (pc.a.y - pc.a.x));
-    outColor = vec4(texelFetch(hdr, p, 0).rgb, z);
+    vec3 c = texelFetch(hdr, p, 0).rgb;
+    // (nothing that isn't a number goes into next frame's reflections: one would feed itself frame after frame)
+    if (any(isnan(c)) || any(isinf(c))) c = vec3(0.0);
+    outColor = vec4(min(c, vec3(256.0)), z);
 }

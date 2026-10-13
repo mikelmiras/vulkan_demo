@@ -21,6 +21,9 @@ vec3 fetch(vec2 offset) {
 }
 
 vec3 prefilter(vec3 c) {
+    // One NaN or infinite pixel would spread over the whole chain (a black rectangle on screen): drop it
+    if (any(isnan(c)) || any(isinf(c))) return vec3(0.0);
+    c = min(c, vec3(1e4));
     float l = luma(c);
     float knee = pc.a.w * 0.5;   // a soft start instead of a hard cut
     float soft = clamp(l - pc.a.w + knee, 0.0, 2.0 * knee);

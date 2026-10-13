@@ -120,7 +120,7 @@ vec3 shade(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 base, float metallic, flo
     float NdotL = max(dot(N, L), 0.0);
     if (NdotL <= 0.0) return vec3(0.0);
     vec3 H = normalize(L + V);
-    float NdotV = max(dot(N, V), 1e-4), NdotH = max(dot(N, H), 0.0), VdotH = max(dot(V, H), 0.0);
+    float NdotV = max(dot(N, V), 1e-4), NdotH = max(dot(N, H), 0.0), VdotH = clamp(dot(V, H), 0.0, 1.0);   // (pow of a negative is NaN)
     float a = max(rough * rough, 0.002);
     vec3 f0 = mix(vec3(0.04), base, metallic);
     vec3 F = fresnelSchlick(VdotH, f0);
@@ -263,13 +263,16 @@ vec4 screenReflection(vec3 r) {
                 float mid = 0.5 * (lo + hi);
                 vec3 q = start + r * mid;
                 vec4 c = frame.prevViewProj * vec4(q, 1.0);
+                if (c.w <= 1e-4) break;   // (behind the last frame's camera: no point on its picture)
                 vec2 u = (frame.prevViewport.xy + (c.xy / c.w * 0.5 + 0.5) * frame.prevViewport.zw) / size;
                 if (dot(q - frame.prevCamPos.xyz, frame.prevCamForward.xyz) > textureLod(lastFrame, u, 0.0).a) hi = mid;
                 else lo = mid;
                 uv = u;
             }
             vec2 edge = smoothstep(vec2(1.0), vec2(0.85), abs(ndc));   // (fades out at the picture's edges)
-            return vec4(textureLod(lastFrame, uv, 0.0).rgb, edge.x * edge.y * (1.0 - t / maxDistance));
+            vec3 seen = textureLod(lastFrame, uv, 0.0).rgb;
+            if (any(isnan(seen)) || any(isinf(seen))) return vec4(0.0);
+            return vec4(min(seen, vec3(64.0)), edge.x * edge.y * (1.0 - t / maxDistance));
         }
         last = t;
         t += step;
