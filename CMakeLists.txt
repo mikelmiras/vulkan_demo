@@ -225,6 +225,7 @@ set(ENGINE_SOURCES
   src/net/tcp.cpp
   src/net/net_session.cpp
   src/net/relay.cpp
+  src/net/crypto.cpp
   ${LUA_SOURCES})
 if(WIN32)
   list(APPEND ENGINE_SOURCES src/platform/platform_win32.cpp)
@@ -270,7 +271,7 @@ function(vkworld_engine_target name type)
     if(NOT MSVC)
       target_link_libraries(${name} PRIVATE gdi32 dwmapi)   # MSVC gets these via #pragma comment
     endif()
-    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32 winhttp dxgi)
+    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32 winhttp dxgi bcrypt)
     target_compile_definitions(${name} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   elseif(APPLE)
     target_link_libraries(${name} PRIVATE "-framework Cocoa" "-framework GameController" "-framework CoreHaptics")
@@ -334,10 +335,10 @@ add_executable(vkgame src/runtime/main.cpp)
 target_link_libraries(vkgame PRIVATE engine)
 
 # The relay server for lobbies and NAT traversal (net/relay.h): standalone, without the engine (runs on any server)
-add_executable(vkrelay src/relay/main.cpp src/net/relay.cpp src/net/udp.cpp)
+add_executable(vkrelay src/relay/main.cpp src/net/relay.cpp src/net/udp.cpp src/net/crypto.cpp)
 target_include_directories(vkrelay PRIVATE src)
 if(WIN32)
-  target_link_libraries(vkrelay PRIVATE ws2_32)
+  target_link_libraries(vkrelay PRIVATE ws2_32 bcrypt)
 endif()
 
 # Benchmark: times the CPU side of a frame on a large generated scene (engine_bench [statics] [bodies] [triggers] [ticks])
@@ -415,6 +416,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_ui_layout.cpp
     tests/test_network.cpp
     tests/test_relay.cpp
+    tests/test_crypto.cpp
     tests/test_gamepads.cpp
     tests/test_text_shaping.cpp
     tests/test_shipping.cpp

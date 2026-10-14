@@ -5,24 +5,27 @@
 #include <cstring>
 #include <iterator>
 
-// Packets: "VKR1", the type (u8), then its fields (little-endian; strings as a u16 length and the bytes; addresses
+// Packets: "VKR2", the type (u8), then its fields (little-endian; strings as a u16 length and the bytes; addresses
 // as ip (u32) and port (u16)):
-//   Register    token (u32), game, name, players (u8), maxPlayers (u8)
+//   Register    token (u32), game, name, players (u8), maxPlayers (u8), flags (u8: 1 listed, 2 password), nonce (16
+//               bytes), proof (32; zeros without a secret)
 //   Registered  token, code, address
 //   Unregister  token
 //   List        game
-//   Lobbies     count (u8), each: code, name, players (u8), maxPlayers (u8)
+//   Lobbies     count (u8), each: code, name, players (u8), maxPlayers (u8), password (u8)
 //   Connect     code
 //   Peer        code, address, host (u8)
 //   NoLobby     code
 //   Forward     address, then the payload to the end
 //   Forwarded   address, then the payload to the end
 //   Punch       (nothing)
+//   Challenge   nonce (16 bytes)
 namespace relay {
 
 namespace {
 
-constexpr uint8_t kMagic[4] = {'V', 'K', 'R', '1'};
+constexpr uint8_t kMagic[4] = {'V', 'K', 'R', '2'};
+constexpr size_t kMaxNonces = 65536;       // challenges outstanding (more: new hosts wait)
 constexpr size_t kMaxLobbiesListed = 40;   // (a list fits in one packet)
 
 struct Writer {
@@ -84,6 +87,9 @@ std::vector<uint8_t> encode(const Message& m) {
         w.str(m.name);
         w.put((uint8_t)std::clamp(m.players, 0, 255));
         w.put((uint8_t)std::clamp(m.maxPlayers, 0, 255));
+        w.put((uint8_t)((m.listed ? 1 : 0) | (m.password ? 2 : 0)));
+        w.bytes.insert(w.bytes.end(), m.nonce.begin(), m.nonce.end());
+        w.bytes.insert(w.bytes.end(), m.proof.begin(), m.proof.end());
         break;
     case Type::Registered:
         w.put(m.token);
@@ -99,6 +105,7 @@ std::vector<uint8_t> encode(const Message& m) {
             w.str(m.lobbies[i].name);
             w.put((uint8_t)std::clamp(m.lobbies[i].players, 0, 255));
             w.put((uint8_t)std::clamp(m.lobbies[i].maxPlayers, 0, 255));
+            w.put((uint8_t)(m.lobbies[i].password ? 1 : 0));
         }
         break;
     case Type::Connect:
@@ -114,6 +121,7 @@ std::vector<uint8_t> encode(const Message& m) {
         w.bytes.insert(w.bytes.end(), m.payload.begin(), m.payload.end());
         break;
     case Type::Punch: break;
+    case Type::Challenge: w.bytes.insert(w.bytes.end(), m.nonce.begin(), m.nonce.end()); break;
     }
     return w.bytes;
 }
@@ -130,6 +138,13 @@ bool decode(const uint8_t* data, size_t size, Message& out) {
         out.name = r.str();
         out.players = r.get<uint8_t>();
         out.maxPlayers = r.get<uint8_t>();
+        {
+            uint8_t flags = r.get<uint8_t>();
+            out.listed = (flags & 1) != 0;
+            out.password = (flags & 2) != 0;
+        }
+        for (uint8_t& b : out.nonce) b = r.get<uint8_t>();
+        for (uint8_t& b : out.proof) b = r.get<uint8_t>();
         break;
     case Type::Registered:
         out.token = r.get<uint32_t>();
@@ -146,6 +161,7 @@ bool decode(const uint8_t* data, size_t size, Message& out) {
             l.name = r.str();
             l.players = r.get<uint8_t>();
             l.maxPlayers = r.get<uint8_t>();
+            l.password = r.get<uint8_t>() != 0;
             if (r.ok) out.lobbies.push_back(l);
         }
         break;
@@ -163,9 +179,22 @@ bool decode(const uint8_t* data, size_t size, Message& out) {
         if (r.ok) out.payload.assign(data + r.pos, data + size);
         break;
     case Type::Punch: break;
+    case Type::Challenge:
+        for (uint8_t& b : out.nonce) b = r.get<uint8_t>();
+        break;
     default: return false;
     }
     return r.ok;
+}
+
+crypto::Key registerProof(const std::string& secret, const Message& m) {
+    crypto::Key key = crypto::hash("vkrelay secret\n" + secret);
+    crypto::Blake2s b(32, key.data(), key.size());
+    b.update(m.nonce.data(), m.nonce.size()).update(&m.token, sizeof(m.token));
+    b.update(m.game).update("\n").update(m.name);
+    crypto::Key proof;
+    b.final(proof.data());
+    return proof;
 }
 
 std::string makeCode(std::mt19937& rng) {
@@ -191,6 +220,7 @@ void Server::update(double now) {
     net::Address from;
     for (size_t n; (n = socket_.receive(from, buf, sizeof(buf))) > 0;) {
         Message m;
+        if (!allow(from, n, now)) continue;
         if (decode(buf, n, m)) handle(m, from, now);
     }
     for (auto it = lobbies_.begin(); it != lobbies_.end();) {
@@ -203,15 +233,59 @@ void Server::update(double now) {
     }
     for (auto it = pairs_.begin(); it != pairs_.end();)
         it = now - it->second > kPairTimeout ? pairs_.erase(it) : std::next(it);
+    for (auto it = nonces_.begin(); it != nonces_.end();)
+        it = now - it->second.at > kPairTimeout ? nonces_.erase(it) : std::next(it);
+    for (auto it = buckets_.begin(); it != buckets_.end();)   // (full again after a quiet while: forgotten)
+        it = now - it->second.at > kPairTimeout ? buckets_.erase(it) : std::next(it);
+}
+
+// Token buckets per ip: each packet costs one and its size, refilled at the limits' rates up to their bursts
+bool Server::allow(const net::Address& from, size_t bytes, double now) {
+    auto it = buckets_.find(from.ip);
+    if (it == buckets_.end()) it = buckets_.emplace(from.ip, Bucket{limits.packetBurst, limits.byteBurst, now}).first;
+    Bucket& b = it->second;
+    double dt = std::max(now - b.at, 0.0);
+    b.packets = std::min(limits.packetBurst, b.packets + dt * limits.packetsPerSecond);
+    b.bytes = std::min(limits.byteBurst, b.bytes + dt * limits.bytesPerSecond);
+    b.at = now;
+    if (b.packets < 1.0 || b.bytes < (double)bytes) {
+        ++dropped_;
+        return false;
+    }
+    b.packets -= 1.0;
+    b.bytes -= (double)bytes;
+    return true;
 }
 
 void Server::handle(const Message& m, const net::Address& from, double now) {
     switch (m.type) {
     case Type::Register: {   // (again: the same lobby, its player count brought up to date)
+        if (!secret_.empty()) {   // (only hosts that know the secret: a challenge, answered with the proof)
+            auto n = nonces_.find(key(from));
+            if (n == nonces_.end() || !crypto::equal(n->second.nonce.data(), m.nonce.data(), 16) ||
+                !crypto::equal(registerProof(secret_, m).data(), m.proof.data(), 32)) {
+                if (n == nonces_.end()) {
+                    if (nonces_.size() >= kMaxNonces) break;
+                    Nonce fresh;
+                    crypto::randomBytes(fresh.nonce.data(), fresh.nonce.size());
+                    fresh.at = now;
+                    n = nonces_.emplace(key(from), fresh).first;
+                }
+                Message c;
+                c.type = Type::Challenge;
+                c.nonce = n->second.nonce;
+                reply(from, c);
+                break;
+            }
+            n->second.at = now;
+        }
         auto it = lobbies_.begin();
         for (; it != lobbies_.end(); ++it)
             if (it->second.host == from && it->second.token == m.token) break;
         if (it == lobbies_.end()) {
+            int hosted = 0;
+            for (const auto& [code, h] : lobbies_) hosted += h.host.ip == from.ip;
+            if (hosted >= limits.lobbies) break;
             std::string code;
             do code = makeCode(rng_);
             while (lobbies_.count(code));
@@ -222,6 +296,8 @@ void Server::handle(const Message& m, const net::Address& from, double now) {
         h.name = m.name;
         h.players = m.players;
         h.maxPlayers = m.maxPlayers;
+        h.listed = m.listed;
+        h.password = m.password;
         h.heard = now;
         Message r;
         r.type = Type::Registered;
@@ -243,7 +319,7 @@ void Server::handle(const Message& m, const net::Address& from, double now) {
         Message r;
         r.type = Type::Lobbies;
         for (const auto& [code, h] : lobbies_)
-            if (h.game == m.game) r.lobbies.push_back({code, h.name, h.players, h.maxPlayers});
+            if (h.game == m.game && h.listed) r.lobbies.push_back({code, h.name, h.players, h.maxPlayers, h.password});
         reply(from, r);
         break;
     }

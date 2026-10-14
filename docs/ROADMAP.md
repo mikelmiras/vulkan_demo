@@ -1018,7 +1018,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 70.3 (done) | Performance: a depth prepass with early depth tests, cheaper screen-space reflection steps, light clusters fitted to what's in view, a project's default anti-aliasing and players' quality and anti-aliasing settings | Night Drive ran slowly on a GTX 1050 Ti, in the game and the editor |
 | 70.4 (done) | Lighting and shadows: soft shadows (hardware-filtered PCF on a rotated disk, PCSS for the sun, blended cascades), volumetric fog lit by the sun and the lights, specular anti-aliasing, a filmic tone mapper and colour grading, Night Drive retuned with them | Asked for with 70.3: the games made with it should look more polished |
 | 71 (done) | Physics: tearing mesh soft bodies, water with waves and currents (a V-HACD-style decomposition and tears across triangles left for later) | Concave pieces split by halving; only cloth tears; still water only |
-| 72 | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
+| 72 (done) | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
 | 73 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
 | 74 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
 | 75 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
@@ -1241,3 +1241,28 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   V-HACD-style decomposition (concave pieces are still split by halving), tears across triangles (whole triangles
   go), an over-inflated mesh bursting (its pieces scatter chaotically), refraction and depth-based absorption under
   the surface, waves wrapping around obstacles or shores.
+- **72, safe networking**: net/crypto.{h,cpp}, no library: X25519 (TweetNaCl's 16-bit limbs, constant-time
+  ladder), ChaCha20-Poly1305 (RFC 8439; Poly1305 after donna's 26-bit limbs), BLAKE2s (hash, keyed MAC, key
+  derivation), the OS's random numbers (getrandom, arc4random_buf, BCryptGenRandom), and crypto::Channel: keys each
+  way from BLAKE2s(psk; "VKN3 session", shared secret, both public keys), a 64-bit counter as the nonce and in the
+  clear (covered by the tag), a 64-packet replay window updated only once a packet opens. Session protocol VKN3: Offer
+  (the client's key, padded so the Accept is no bigger: no amplification) / Accept (the server's key, per client)
+  in the clear, everything else Sealed (the old packets inside, unchanged). The server keeps up to 64 exchanges
+  under way; the first packet that opens with one is the client's Hello (a client from the same address rejoining
+  gets the new keys); keys that don't match twice are a wrong password: Refused, five an ip in a minute and it waits
+  a minute. The password's hash is the psk (no PAKE: see Not done). Messages: GameContext::sendToServer /
+  sendToClients put them in an outbox (or deliver here: offline, and the host's own copy), NetSession numbers them
+  per peer, sends new ones at once and the rest again every 0.2 s until the peer's ack (the last one it delivered in
+  order) passes them; Message::client (module API 48). The relay (VKR2): Register has flags (listed, password) and a
+  proof, BLAKE2s keyed by the secret's hash over a nonce the relay gave that address (Challenge) and the lobby;
+  Lobbies say which have passwords; token buckets per ip (500 packets / 640 KB a second, twice that in a burst) and
+  8 lobbies per ip. vkrelay --secret / VKRELAY_SECRET; vkgame --password, --private, --relay-secret,
+  project.json "relaySecret", UI actions @password and @private, net.refused and net.lobby.N.locked. Checked:
+  RFC and Python cryptography vectors for every primitive, channels (tampering, replays, out of order, too old, the
+  wrong password), a game through a man in the middle (nothing readable, plain / forged / replayed packets do
+  nothing), a wrong password refused, 40 messages each way through 30 % loss arriving once and in order, the relay
+  refusing hosts without or with a wrong secret, private and password lobbies, a flood answered only up to its burst.
+  Not done: authenticating the server (a man in the middle can answer the key exchange himself: without a password
+  he reads the game, with one he can guess it offline: a PAKE such as SPAKE2 or CPace would stop both), IPv6,
+  accounts, the relay's own traffic (lobby lists, codes) unencrypted, forward secrecy beyond a session (keys are new
+  each session; no rekeying within one).

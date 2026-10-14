@@ -75,6 +75,7 @@ struct Message {
     uint32_t from = 0;   // the sender's EntityId (0: nobody in particular)
     float value = 0.f;
     std::string text;
+    uint16_t client = 0;   // (multiplayer, on the server: the client a sendToServer() came from; 0: this machine)
 };
 
 class Behaviour {

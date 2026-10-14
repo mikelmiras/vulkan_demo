@@ -9,7 +9,13 @@
 #include "core/log.h"
 #include "scene/serialization.h"
 
-// Packets: "VKN2", a type, then the type's fields (little-endian)
+// Packets: "VKN3", a type, then the type's fields (little-endian). In the clear, the key exchange:
+//   Offer    (client -> server)  its X25519 public key (32 bytes), 64 zeros (the answer is no bigger than this)
+//   Accept   (server -> client)  its public key, the client's (what it answers)
+//   Refused  (server -> client)  why (a string): a wrong password, too many of them
+//   Sealed   (both)              counter (u64), then a whole packet below ("VKN3", type, fields) sealed with
+//                                ChaCha20-Poly1305 (crypto::Channel), the tag last
+// Sealed (nothing else is taken once the keys are agreed):
 //   Hello    (client -> server)  name
 //   Welcome  (server -> client)  client id (u16), its player (u32), the server's scene (string)
 //   Input    (client -> server)  client id, the last snapshot it got whole (u64), its round trip (f32), count (u8),
@@ -18,6 +24,8 @@
 //                                together are the payload below
 //   Bye      (both)              client id
 //   Ping     (client -> server)  client id, its clock (f64); Pong (server -> client): the same clock back
+//   Messages (both)              the last message received in order (u32), count (u8), each: number (u32), to (u32),
+//                                from (u32), value (f32), name, text: GameContext::sendToServer / sendToClients
 // A snapshot's payload: its baseline (u64: the snapshot it's a delta from, 0: none), the client's last input applied
 // (u32), state (u8 flag: 1 = the game state's JSON follows, 0 = as in the baseline), entities (u16 count; each: id
 // (u32), u8: 1 = its blob follows (u16 size, bytes), 0 = as in the baseline), destroyed ids (u16 count, u32 each).
@@ -25,8 +33,12 @@
 // count (u16), their ids (u32)], position, rotation, scale (9 f32), [behaviour count (u8), each: type, fields JSON]
 namespace {
 
-constexpr uint8_t kMagic[4] = {'V', 'K', 'N', '2'};
-enum : uint8_t { kHello = 1, kWelcome, kInput, kSnapshot, kBye, kPing, kPong };
+constexpr uint8_t kMagic[4] = {'V', 'K', 'N', '3'};
+enum : uint8_t { kHello = 1, kWelcome, kInput, kSnapshot, kBye, kPing, kPong, kMessages,
+                 kOffer = 32, kAccept, kRefused, kSealed };
+constexpr size_t kMaxPending = 64;     // key exchanges under way at once (the oldest goes)
+constexpr int kMaxWrongPasswords = 5;  // ... from one ip in a minute: it's turned away for that long
+constexpr size_t kMaxUnacked = 512;    // messages waiting to be acknowledged (more are dropped, with a warning)
 constexpr size_t kMaxPacket = 1200;    // (fits any network's packets without splitting)
 constexpr EntityId kClientIds = 1u << 23;   // a client's own entities: ids from here (the server's are lower)
 constexpr size_t kPartBytes = 1100;    // payload per snapshot packet
@@ -144,6 +156,9 @@ bool NetSession::host(Game& game, uint16_t port, std::string& error, bool dedica
     game_ = &game;
     server_ = true;
     clock_ = 0.0;
+    pending_.clear();
+    wrongPasswords_.clear();
+    game.setNetRole(dedicated ? NetRole::DedicatedServer : NetRole::Server);
     hookGame();
     // What clients may have of this scene (their own copy of it): its entities, gone once destroyed here
     Scene& scene = *game.scene();
@@ -171,6 +186,11 @@ bool NetSession::join(Game& game, const std::string& address, std::string& error
     clock_ = heardAt_ = 0.0;
     helloAt_ = -1.0;
     marked_ = false;
+    keys_ = crypto::KeyPair::generate();   // (new ones every session)
+    channel_.reset();
+    messages_ = Reliable{};
+    refused_ = false;
+    game.setNetRole(NetRole::Client);
     game.scene()->setNextId(kClientIds);   // (this machine's own entities stay clear of the server's ids)
     hookGame();
     status_ = "Joining " + serverAddress_.str() + "...";
@@ -178,13 +198,15 @@ bool NetSession::join(Game& game, const std::string& address, std::string& error
 }
 
 bool NetSession::advertise(const std::string& relayAddress, const std::string& game, const std::string& name,
-                           int maxPlayers, std::string& error) {
+                           int maxPlayers, std::string& error, bool listed) {
     if (!server_ || !socket_.isOpen()) { error = "host a game first"; return false; }
     if (!net::resolve(relayAddress, relay::kDefaultPort, relay_, error)) return false;
     useRelay_ = true;
     lobbyGame_ = game;
     lobbyName_ = name;
     lobbyMax_ = std::clamp(maxPlayers, 1, 255);
+    lobbyListed_ = listed;
+    relayChallenged_ = relayRefused_ = false;
     lobbyToken_ = std::random_device{}() | 1u;
     lobbyCode_.clear();
     registerAt_ = -1e9;   // (registers on the next update)
@@ -218,16 +240,20 @@ void NetSession::stop() {
     Writer bye(kBye);
     bye.put(clientId_);
     if (server_) {
-        for (const Client& c : clients_) send(c.address, bye.bytes);
+        for (Client& c : clients_) sendSealed(c.address, c.channel, bye.bytes);
         while (!clients_.empty()) dropClient(clients_.size() - 1, "the server stopped");
-    } else if (serverAddress_.port) {
-        send(serverAddress_, bye.bytes);
+    } else if (serverAddress_.port && channel_.ready()) {
+        toServer(bye.bytes);
     }
     flushDelayed();
     if (game_) {
         game_->setTickHooks(nullptr, nullptr);
         game_->setRewindHooks(nullptr, nullptr);
+        game_->setNetRole(NetRole::Offline);
     }
+    pending_.clear();
+    channel_.reset();
+    messages_ = Reliable{};
     socket_.close();
     welcomed_ = false;
     targets_.clear();
@@ -272,6 +298,20 @@ void NetSession::send(const net::Address& to, const std::vector<uint8_t>& bytes)
     else socket_.send(*dest, out.data(), out.size());
 }
 
+// A packet sealed for a peer (nothing is sent before the keys are agreed)
+void NetSession::sendSealed(const net::Address& to, crypto::Channel& channel, const std::vector<uint8_t>& packet) {
+    if (!channel.ready()) return;
+    const uint8_t prefix[5] = {kMagic[0], kMagic[1], kMagic[2], kMagic[3], kSealed};
+    send(to, channel.seal(prefix, sizeof(prefix), packet.data(), packet.size()));
+}
+
+void NetSession::sendOffer() {
+    Writer w(kOffer);
+    w.bytes.insert(w.bytes.end(), keys_.publicKey.begin(), keys_.publicKey.end());
+    w.bytes.resize(w.bytes.size() + 64, 0);
+    send(serverAddress_, w.bytes);
+}
+
 void NetSession::sendRelay(const relay::Message& m) {
     if (useRelay_) send(relay_, relay::encode(m));
 }
@@ -288,6 +328,19 @@ void NetSession::relayReceive(const uint8_t* data, size_t size) {
                                           m.address.str().c_str());
         lobbyCode_ = m.code;
         publicAddress_ = m.address;
+        relayRefused_ = false;
+        break;
+    case relay::Type::Challenge:   // (a relay with a secret: Register again, with the proof)
+        if (!server_ || lobbyName_.empty()) break;
+        if (relaySecret_.empty() || (relayChallenged_ && m.nonce == relayNonce_)) {   // (no secret, or it didn't take ours)
+            if (!relayRefused_) logLine("multiplayer: the relay %s %s", relay_.str().c_str(),
+                                        relaySecret_.empty() ? "wants a secret (vkgame --relay-secret)" : "refused this game's secret");
+            relayRefused_ = true;
+            if (relaySecret_.empty()) break;
+        }
+        relayNonce_ = m.nonce;
+        relayChallenged_ = true;
+        registerAt_ = -1e9;
         break;
     case relay::Type::Peer:
         if (server_ && m.host) {   // someone joining: punch through to them (their Hello comes either way)
@@ -323,9 +376,92 @@ void NetSession::relayReceive(const uint8_t* data, size_t size) {
     }
 }
 
+// Every packet from a peer: the key exchange in the clear, everything else opened with that peer's keys (or dropped)
 void NetSession::receive(const uint8_t* data, size_t size, const net::Address& from) {
-    if (server_) serverReceive(data, size, from);
-    else if (from == serverAddress_) clientReceive(data, size);
+    Reader r(data, size);
+    uint8_t type;
+    if (!readHeader(r, type)) return;
+    if (type != kSealed) {
+        handshakeReceive(type, data, size, from);
+        return;
+    }
+    std::vector<uint8_t> plain;
+    if (!server_) {
+        if (from == serverAddress_ && channel_.open(data, size, 5, plain)) clientReceive(plain.data(), plain.size());
+        return;
+    }
+    auto client = std::find_if(clients_.begin(), clients_.end(), [&](const Client& c) { return c.address == from; });
+    if (client != clients_.end() && client->channel.open(data, size, 5, plain)) {
+        serverReceive(plain.data(), plain.size(), from);
+        return;
+    }
+    auto p = std::find_if(pending_.begin(), pending_.end(), [&](const Pending& q) { return q.address == from; });
+    if (p == pending_.end()) return;
+    if (p->channel.open(data, size, 5, plain)) {   // the first packet with new keys: the client joins (or rejoins)
+        crypto::Channel fresh = p->channel;
+        pending_.erase(p);
+        serverReceive(plain.data(), plain.size(), from, &fresh);
+        return;
+    }
+    // Keys that don't match: a wrong password (twice: one could be a packet from before, late; and not from a client
+    // that's in: a replay of its packets)
+    if (client != clients_.end() || ++p->failures < 2) return;
+    pending_.erase(p);
+    auto& [count, at] = wrongPasswords_[from.ip];
+    count = clock_ - at > 60.0 ? 1 : count + 1;
+    at = clock_;
+    Writer w(kRefused);
+    w.str("wrong password");
+    send(from, w.bytes);
+    logLine("multiplayer: %s: wrong password", from.str().c_str());
+}
+
+void NetSession::handshakeReceive(uint8_t type, const uint8_t* data, size_t size, const net::Address& from) {
+    Reader r(data + 5, size - 5);
+    if (server_ && type == kOffer && size >= 5 + 32 + 64) {
+        auto wrong = wrongPasswords_.find(from.ip);
+        if (wrong != wrongPasswords_.end() && wrong->second.first >= kMaxWrongPasswords && clock_ - wrong->second.second < 60.0) {
+            Writer w(kRefused);
+            w.str("too many wrong passwords: try again in a minute");
+            send(from, w.bytes);
+            return;
+        }
+        crypto::Key theirs;
+        std::memcpy(theirs.data(), data + 5, 32);
+        auto p = std::find_if(pending_.begin(), pending_.end(), [&](const Pending& q) { return q.address == from; });
+        if (p == pending_.end() || p->theirs != theirs) {   // (the same offer again: the same answer)
+            if (p != pending_.end()) pending_.erase(p);
+            if (pending_.size() >= kMaxPending) pending_.erase(pending_.begin());
+            Pending q;
+            q.address = from;
+            q.theirs = theirs;
+            q.mine = crypto::KeyPair::generate();
+            q.at = clock_;
+            if (!q.channel.derive(q.mine, theirs, false, crypto::passwordKey(password_))) return;
+            pending_.push_back(std::move(q));
+            p = pending_.end() - 1;
+        }
+        Writer w(kAccept);
+        w.bytes.insert(w.bytes.end(), p->mine.publicKey.begin(), p->mine.publicKey.end());
+        w.bytes.insert(w.bytes.end(), theirs.begin(), theirs.end());
+        send(from, w.bytes);
+        return;
+    }
+    if (server_ || from != serverAddress_) return;
+    if (type == kAccept && size >= 5 + 64 && !channel_.ready()) {
+        crypto::Key theirs, mine;
+        std::memcpy(theirs.data(), data + 5, 32);
+        std::memcpy(mine.data(), data + 5 + 32, 32);
+        if (mine != keys_.publicKey || !channel_.derive(keys_, theirs, true, crypto::passwordKey(password_))) return;
+        heardAt_ = clock_;
+        helloAt_ = -1.0;   // (Hello, sealed, at once)
+    } else if (type == kRefused && !welcomed_ && !refused_) {
+        std::string why = r.str();
+        if (!r.ok()) return;
+        refused_ = true;
+        status_ = "Refused: " + why;
+        logLine("multiplayer: %s refused: %s", serverAddress_.str().c_str(), why.c_str());
+    }
 }
 
 // Keeping the lobby, punching, finding the lobby, and giving up on a direct way
@@ -339,6 +475,12 @@ void NetSession::updateRelay() {
         m.name = lobbyName_;
         m.players = (int)clients_.size() + (dedicated_ ? 0 : 1);
         m.maxPlayers = lobbyMax_;
+        m.listed = lobbyListed_;
+        m.password = !password_.empty();
+        if (relayChallenged_) {
+            m.nonce = relayNonce_;
+            m.proof = relay::registerProof(relaySecret_, m);
+        }
         sendRelay(m);
         registerAt_ = clock_;
     }
@@ -366,6 +508,77 @@ void NetSession::updateRelay() {
         status_ = "Joining lobby " + joinCode_ + " through the relay...";
         logLine("multiplayer: no direct way to %s: through the relay", serverAddress_.str().c_str());
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Messages between machines: numbered per peer, sent at once, resent until acknowledged, delivered in order
+// ---------------------------------------------------------------------------------------------
+void NetSession::queueMessages() {
+    for (NetMessage& nm : game_->takeNetMessages()) {
+        if (nm.toServer == server_) continue;   // (the server's own to itself: already delivered here)
+        Writer w;
+        w.put((uint32_t)nm.to);
+        w.put((uint32_t)nm.message.from);
+        w.put(nm.message.value);
+        w.str(nm.message.name.substr(0, 200));
+        w.str(nm.message.text.substr(0, 800));
+        auto queue = [&](Reliable& r) {
+            if (r.unacked.size() >= kMaxUnacked) {
+                logLine("multiplayer: too many messages waiting to be acknowledged: \"%s\" dropped", nm.message.name.c_str());
+                return;
+            }
+            r.unacked.push_back({r.next++, w.bytes});
+        };
+        if (!server_) queue(messages_);
+        else
+            for (Client& c : clients_)
+                if (nm.client == 0 || nm.client == c.id) queue(c.messages);
+    }
+}
+
+void NetSession::flushMessages(Reliable& r, const net::Address& to, crypto::Channel& channel) {
+    bool resend = clock_ >= r.resendAt;
+    Writer w(kMessages);
+    w.put(r.received);
+    size_t countAt = w.bytes.size();
+    w.put((uint8_t)0);
+    uint8_t count = 0;
+    for (const auto& [seq, bytes] : r.unacked) {   // (in order: new ones, and the rest when it's time to resend)
+        if (seq <= r.sentUpTo && !resend) continue;
+        if (count == 255 || w.bytes.size() + 4 + bytes.size() > kPartBytes) break;
+        w.put(seq);
+        w.append(bytes);
+        r.sentUpTo = std::max(r.sentUpTo, seq);
+        ++count;
+    }
+    if (count == 0 && !r.ackDue) return;
+    w.bytes[countAt] = count;
+    if (count > 0) r.resendAt = clock_ + 0.2;
+    r.ackDue = false;
+    sendSealed(to, channel, w.bytes);
+}
+
+void NetSession::receiveMessages(Reliable& r, const uint8_t* data, size_t size, uint16_t client) {
+    Reader rd(data + 5, size - 5);
+    uint32_t ack = rd.get<uint32_t>();
+    uint8_t count = rd.get<uint8_t>();
+    if (!rd.ok()) return;
+    while (!r.unacked.empty() && r.unacked.front().first <= ack) r.unacked.pop_front();
+    for (uint8_t i = 0; i < count; ++i) {
+        uint32_t seq = rd.get<uint32_t>();
+        Message m;
+        EntityId to = rd.get<uint32_t>();
+        m.from = rd.get<uint32_t>();
+        m.value = rd.get<float>();
+        m.name = rd.str();
+        m.text = rd.str();
+        if (!rd.ok()) break;
+        if (seq != r.received + 1) continue;   // (seen already, or one before it missing: it comes again)
+        r.received = seq;
+        m.client = client;
+        game_->context().send(to, m);
+    }
+    if (count > 0) r.ackDue = true;
 }
 
 void NetSession::flushDelayed() {
@@ -396,6 +609,10 @@ void NetSession::update(float dt) {
     if (server_) {
         for (size_t i = clients_.size(); i-- > 0;)
             if (clock_ - clients_[i].heard > kTimeout) dropClient(i, "timed out");
+        pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [&](const Pending& p) { return clock_ - p.at > kTimeout; }),
+                       pending_.end());
+        queueMessages();
+        for (Client& c : clients_) flushMessages(c.messages, c.address, c.channel);
         snapshotTimer_ += dt;
         if (snapshotTimer_ >= 0.05f) {   // 20 a second
             snapshotTimer_ = 0.f;
@@ -405,20 +622,28 @@ void NetSession::update(float dt) {
                   std::to_string(clients_.size()) + (clients_.size() == 1 ? " player joined" : " players joined") +
                   (lobbyCode_.empty() ? "" : ", lobby " + lobbyCode_);
     } else {
-        if (!welcomed_ && !finding_ && serverAddress_.port && clock_ - helloAt_ > 0.5) {   // (until the server answers)
-            Writer hello(kHello);
-            hello.str("player");
-            send(serverAddress_, hello.bytes);
+        if (!welcomed_ && !finding_ && !refused_ && serverAddress_.port && clock_ - helloAt_ > 0.5) {   // (until it answers)
+            if (!channel_.ready()) {
+                sendOffer();
+            } else {
+                Writer hello(kHello);
+                hello.str("player");
+                toServer(hello.bytes);
+            }
             helloAt_ = clock_;
         }
         if (welcomed_ && clock_ - pingAt_ > 0.5) {   // the round trip, twice a second
             Writer ping(kPing);
             ping.put(clientId_);
             ping.put(clock_);
-            send(serverAddress_, ping.bytes);
+            toServer(ping.bytes);
             pingAt_ = clock_;
         }
-        if (!finding_ && !lobbyFailed_ && clock_ - heardAt_ > kTimeout)
+        if (welcomed_) {
+            queueMessages();
+            flushMessages(messages_, serverAddress_, channel_);
+        }
+        if (!finding_ && !lobbyFailed_ && !refused_ && clock_ - heardAt_ > kTimeout)
             status_ = welcomed_ ? "Lost the server" : "No answer from " + serverAddress_.str();
         smooth(dt);
     }
@@ -428,17 +653,22 @@ void NetSession::update(float dt) {
 // ---------------------------------------------------------------------------------------------
 // Server
 // ---------------------------------------------------------------------------------------------
-void NetSession::serverReceive(const uint8_t* data, size_t size, const net::Address& from) {
+// A client's packet, opened (fresh: the keys of a client joining, or rejoining, with them)
+void NetSession::serverReceive(const uint8_t* data, size_t size, const net::Address& from, crypto::Channel* fresh) {
     Reader r(data, size);
     uint8_t type;
     if (!readHeader(r, type)) return;
     auto client = std::find_if(clients_.begin(), clients_.end(), [&](const Client& c) { return c.address == from; });
+    if (fresh && type != kHello) return;   // (a client's first sealed packet is its Hello)
     if (type == kHello) {
+        if (client != clients_.end() && fresh) client->channel = *fresh;   // (the same address, keys anew: it rejoined)
         if (client == clients_.end()) {   // someone new: a player for them
+            if (!fresh) return;
             Client c;
             c.id = nextClient_++;
             c.address = from;
             c.name = r.str();
+            c.channel = *fresh;
             c.input = InputMap(game_->scene()->inputActions);
             const NetworkSettings& ns = game_->scene()->network;
             if (!ns.playerPrefab.empty()) {
@@ -456,7 +686,7 @@ void NetSession::serverReceive(const uint8_t* data, size_t size, const net::Addr
         w.put(client->id);
         w.put((uint32_t)client->player);
         w.str(scenePath_);
-        send(from, w.bytes);
+        sendSealed(from, client->channel, w.bytes);
         return;
     }
     if (client == clients_.end()) return;
@@ -492,7 +722,9 @@ void NetSession::serverReceive(const uint8_t* data, size_t size, const net::Addr
         if (!r.ok()) return;
         Writer pong(kPong);
         pong.put(t);
-        send(from, pong.bytes);
+        sendSealed(from, client->channel, pong.bytes);
+    } else if (type == kMessages) {
+        receiveMessages(client->messages, data, size, client->id);
     } else if (type == kBye) {
         dropClient((size_t)(client - clients_.begin()), "left");
     }
@@ -548,7 +780,7 @@ void NetSession::beforeTick() {
         w.put(i.mouse[0]);
         w.put(i.mouse[1]);
     }
-    send(serverAddress_, w.bytes);
+    toServer(w.bytes);
     if (const Entity* p = game_->context().find(localPlayer_)) tickStart_ = p->transform.pos();
 }
 
@@ -686,7 +918,7 @@ void NetSession::sendSnapshots() {
             w.put((uint8_t)parts);
             w.put((uint16_t)n);
             w.bytes.insert(w.bytes.end(), p.bytes.begin() + (long)from, p.bytes.begin() + (long)(from + n));
-            send(c.address, w.bytes);
+            sendSealed(c.address, c.channel, w.bytes);
         }
     }
 }
@@ -770,6 +1002,10 @@ void NetSession::clientReceive(const uint8_t* data, size_t size) {
     if (type == kBye) {
         status_ = "The server left";
         welcomed_ = false;
+        return;
+    }
+    if (type == kMessages) {
+        if (welcomed_) receiveMessages(messages_, data, size, 0);
         return;
     }
     if (type != kSnapshot || !welcomed_) return;

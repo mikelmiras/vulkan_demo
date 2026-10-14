@@ -1,5 +1,6 @@
 // net/relay: the relay's protocol, lobbies listed and joined by code over the loopback (straight through, and
-// forwarded when the NATs let nothing through), dedicated servers, and multiplayer from the game's menus
+// forwarded when the NATs let nothing through), dedicated servers, multiplayer from the game's menus, the relay's
+// secret, private lobbies and rate limits
 #include "test.h"
 
 #include <chrono>
@@ -292,4 +293,116 @@ TEST(net_ui_actions) {
     CHECK(asked[0].first == "joinlobby" && asked[0].second == "K7QX2M");
     CHECK(asked[1].first == "lobbies" && asked[1].second.empty());
     g.stop();
+}
+
+namespace {
+
+std::vector<relay::Lobby> listLobbies(World& w, const std::string& game) {
+    relay::LobbyQuery q;
+    std::string error;
+    if (!q.start(w.address(), game, error)) return {};
+    for (int i = 0; i < 100 && !q.done(); ++i) {
+        q.update(1.f / 60.f);
+        w.relay.update(w.now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return q.lobbies();
+}
+
+}  // namespace
+
+// A relay with a secret takes lobbies only from hosts that know it; private lobbies aren't listed but are joined
+// by code (with the game's password); lobbies with one say so
+TEST(relay_secret_and_private_lobbies) {
+    test::ImGuiContextGuard imgui;
+    World w;
+    std::string error;
+    w.relay.setSecret("relay key");
+    REQUIRE(w.relay.open(0, error));
+    Scene serverScene = lobbyScene(), clientScene = lobbyScene();
+    Game server, client;
+    server.start(serverScene, meshes());
+    client.start(clientScene, meshes());
+    NetSession sn, cn;
+    for (const char* secret : {"", "wrong key"}) {   // without it, or with another: no lobby
+        sn.setRelaySecret(secret);
+        REQUIRE(sn.host(server, 0, error));
+        REQUIRE(sn.advertise(w.address(), "Test Game", "Room", 4, error));
+        for (int i = 0; i < 90 && !sn.relayRefused(); ++i) w.pump(server, sn, client, cn);
+        CHECK(sn.relayRefused() && sn.lobbyCode().empty());
+        CHECK(w.relay.lobbyCount() == 0);
+        sn.stop();
+    }
+    // Knowing it: a private lobby with a password
+    sn.setRelaySecret("relay key");
+    sn.setPassword("pw");
+    REQUIRE(sn.host(server, 0, error));
+    REQUIRE(sn.advertise(w.address(), "Test Game", "Hidden room", 4, error, false));
+    for (int i = 0; i < 90 && sn.lobbyCode().empty(); ++i) w.pump(server, sn, client, cn);
+    REQUIRE(sn.lobbyCode().size() == 6);
+    CHECK(!sn.relayRefused());
+    CHECK(listLobbies(w, "Test Game").empty());
+    cn.setPassword("pw");
+    REQUIRE(cn.joinLobby(client, w.address(), sn.lobbyCode(), error));
+    for (int i = 0; i < 120 && !cn.connected(); ++i) w.pump(server, sn, client, cn);
+    CHECK(cn.connected());
+    cn.stop();
+    sn.stop();
+    // Listed, with a password: the list says so
+    REQUIRE(sn.host(server, 0, error));
+    REQUIRE(sn.advertise(w.address(), "Test Game", "Locked room", 4, error));
+    for (int i = 0; i < 90 && sn.lobbyCode().empty(); ++i) w.pump(server, sn, client, cn);
+    std::vector<relay::Lobby> listed = listLobbies(w, "Test Game");
+    REQUIRE(listed.size() == 1);
+    CHECK(listed[0].name == "Locked room" && listed[0].password);
+    sn.stop();
+    client.stop();
+    server.stop();
+}
+
+// Rate limits: a flood from one ip gets only its burst answered; the rest is dropped (and refills with time)
+TEST(relay_rate_limits) {
+    relay::Server relay;
+    relay.limits.packetsPerSecond = 10.0;
+    relay.limits.packetBurst = 20.0;
+    std::string error;
+    REQUIRE(relay.open(0, error));
+    net::UdpSocket flood;
+    REQUIRE(flood.open(0, error));
+    net::Address to;
+    REQUIRE(net::resolve("127.0.0.1:" + std::to_string(relay.port()), 1, to, error));
+    relay::Message list;
+    list.type = relay::Type::List;
+    list.game = "Test Game";
+    std::vector<uint8_t> bytes = relay::encode(list);
+    auto answers = [&](int sent, double now) {
+        for (int i = 0; i < sent; ++i) flood.send(to, bytes.data(), bytes.size());
+        int got = 0;
+        uint8_t buf[2048];
+        net::Address from;
+        for (int k = 0; k < 200; ++k) {
+            relay.update(now);
+            for (size_t n; (n = flood.receive(from, buf, sizeof(buf))) > 0;) ++got;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return got;
+    };
+    CHECK(answers(100, 0.0) == 20);
+    CHECK(relay.dropped() == 80);
+    CHECK(answers(100, 1.0) == 10);   // (a second later: ten more)
+    // Lobbies per ip are limited too
+    relay.limits.packetsPerSecond = 1e6;
+    relay.limits.packetBurst = 1e6;
+    relay.limits.lobbies = 3;
+    for (uint32_t t = 1; t <= 6; ++t) {
+        relay::Message r;
+        r.type = relay::Type::Register;
+        r.token = t;
+        r.game = "Test Game";
+        r.name = "Room";
+        std::vector<uint8_t> b = relay::encode(r);
+        flood.send(to, b.data(), b.size());
+    }
+    answers(0, 2.0);
+    CHECK(relay.lobbyCount() == 3);
 }

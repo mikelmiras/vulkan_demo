@@ -500,7 +500,7 @@ public:
     }
     void onMessage(GameContext& ctx, Entity& self, const Message& m) override {
         call("onMessage", ctx, self, nullptr, [&m](lua_State* L) {
-            lua_createtable(L, 0, 4);
+            lua_createtable(L, 0, 5);
             lua_pushstring(L, m.name.c_str());
             lua_setfield(L, -2, "name");
             pushEntity(L, m.from);
@@ -509,6 +509,8 @@ public:
             lua_setfield(L, -2, "value");
             lua_pushstring(L, m.text.c_str());
             lua_setfield(L, -2, "text");
+            lua_pushinteger(L, m.client);
+            lua_setfield(L, -2, "client");
             return 1;
         });
     }
@@ -1099,6 +1101,24 @@ int gSend(lua_State* L) {   // game.send(entity, name, value, text)
     if (id != kNoEntity) context(L).send(id, toMessage(L, 2));
     return 0;
 }
+int gSendToServer(lua_State* L) {   // game.sendToServer(entity, name, value, text): to the server's (net/net_session.h)
+    EntityId id = toEntityId(L, 1);
+    if (id != kNoEntity) context(L).sendToServer(id, toMessage(L, 2));
+    return 0;
+}
+int gSendToClients(lua_State* L) {   // game.sendToClients(entity, name, value, text, client)
+    EntityId id = toEntityId(L, 1);
+    if (id != kNoEntity) context(L).sendToClients(id, toMessage(L, 2), (uint16_t)luaL_optinteger(L, 5, 0));
+    return 0;
+}
+int gIsServer(lua_State* L) {
+    lua_pushboolean(L, context(L).isServer());
+    return 1;
+}
+int gIsClient(lua_State* L) {
+    lua_pushboolean(L, context(L).isClient());
+    return 1;
+}
 int gSendToTag(lua_State* L) {
     std::string tag = luaL_checkstring(L, 1);
     context(L).sendToTag(tag, toMessage(L, 2));
@@ -1462,6 +1482,7 @@ lua_State* state() {
         {"log", gLog},             {"raycast", gRaycast},         {"overlapSphere", gOverlapSphere},
         {"findPath", gFindPath},   {"after", gAfter},             {"every", gEvery},
         {"cancel", gCancel},       {"send", gSend},               {"sendToTag", gSendToTag},
+        {"sendToServer", gSendToServer}, {"sendToClients", gSendToClients}, {"isServer", gIsServer}, {"isClient", gIsClient},
         {"broadcast", gBroadcast}, {"playSound", gPlaySound},     {"playSound2D", gPlaySound2D},
         {"playMusic", gPlayMusic}, {"stopMusic", gStopMusic},     {"setBusVolume", gSetBusVolume},
         {"playMusicLayers", gPlayMusicLayers}, {"setMusicLayer", gSetMusicLayer}, {"playStinger", gPlayStinger},

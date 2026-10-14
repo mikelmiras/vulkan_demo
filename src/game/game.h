@@ -94,6 +94,15 @@ private:
     std::map<std::string, json::Value> values_;
 };
 
+// Where this machine is in a multiplayer game, and a message for another machine (GameContext::sendToServer)
+enum class NetRole : uint8_t { Offline, Server, DedicatedServer, Client };
+struct NetMessage {
+    EntityId to = kNoEntity;
+    Message message;
+    bool toServer = false;
+    uint16_t client = 0;   // (to clients: 0 all, else that one)
+};
+
 // Everything a behaviour can reach while it runs
 class GameContext {
 public:
@@ -132,6 +141,14 @@ public:
     void send(EntityId to, const Message& message);
     void sendToTag(const std::string& tag, const Message& message);
     void broadcast(const Message& message);   // to every entity with behaviours
+    // Multiplayer (net/net_session.h): to the same entity on the other machines, reliably and in order, delivered
+    // there as send() does. sendToServer: from a client to the server (where Message::client says which client sent
+    // it); sendToClients: from the server to every client, or one (its id). Where this machine is the server (and
+    // plays too) or plays alone they're delivered here as well, so a game works the same offline.
+    void sendToServer(EntityId to, const Message& message);
+    void sendToClients(EntityId to, const Message& message, uint16_t client = 0);
+    bool isServer() const { return netRole_ != NetRole::Client; }   // (hosting, or not in a multiplayer game)
+    bool isClient() const { return netRole_ == NetRole::Client; }
 
     // Timers, in game time (paused with the game), run after the update they come due in. With an owner they're
     // dropped when it's destroyed. Not kept in save games or across scene changes.
@@ -252,6 +269,8 @@ private:
     std::vector<EntityId> destroyQueue_;
     std::vector<Entity> spawnQueue_;
     std::vector<std::pair<EntityId, Message>> messages_;
+    NetRole netRole_ = NetRole::Offline;
+    std::vector<NetMessage> netOutbox_;
     std::vector<std::pair<float, std::string>>* log_ = nullptr;
 };
 
@@ -379,6 +398,9 @@ public:
     void setSimulated(EntityId id, bool simulated);
     bool simulated(EntityId id) const { return !notSimulated_.count(id); }
     // This machine's player: the game looks through a camera under it (rather than the first one in the scene)
+    // Multiplayer messages: what the machine is (NetSession sets it), and the ones behaviours sent since last asked
+    void setNetRole(NetRole role) { ctx_.netRole_ = role; }
+    std::vector<NetMessage> takeNetMessages() { return std::move(ctx_.netOutbox_); }
     void setLocalPlayer(EntityId id) { localPlayer_ = id; }
     EntityId localPlayer() const { return localPlayer_; }
     // Called just before and after every fixed update (feeding remote inputs, sending this machine's)

@@ -107,6 +107,7 @@ void publishNetwork(Game& game, const NetSession& net, const relay::LobbyQuery& 
     st.set("net.active", json::Value(net.active()));
     st.set("net.hosting", json::Value(net.active() && net.isServer()));
     st.set("net.connected", json::Value(net.connected()));
+    st.set("net.refused", json::Value(net.refused()));
     st.set("net.status", json::Value(net.active() ? net.status() : std::string("Offline")));
     st.set("net.code", json::Value(net.lobbyCode()));
     st.set("net.searching", json::Value(query.busy()));
@@ -117,14 +118,26 @@ void publishNetwork(Game& game, const NetSession& net, const relay::LobbyQuery& 
         st.set(k + "code", json::Value(lobbies[i].code));
         st.set(k + "name", json::Value(lobbies[i].name));
         st.set(k + "players", json::Value(std::to_string(lobbies[i].players) + " / " + std::to_string(lobbies[i].maxPlayers)));
+        st.set(k + "locked", json::Value(lobbies[i].password));
     }
 }
+
+// A multiplayer game's options: its password (--password), whether its lobby is listed (--private: not), the relay's
+// secret (--relay-secret, else project.json's)
+struct NetOptions {
+    std::string password, relaySecret;
+    bool listed = true;
+    void apply(NetSession& net) const {
+        net.setPassword(password);
+        net.setRelaySecret(relaySecret);
+    }
+};
 
 // --server: the game alone, without a window or a GPU, as a dedicated server (no player of its own; a lobby on the
 // relay when there is one), at a steady 60 updates a second until Ctrl+C / SIGTERM (or `seconds`)
 int runServer(Game& game, Scene& scene, MeshLibrary& meshes, const std::string& path, uint16_t port,
               const std::string& relayAddress, const std::string& lobbyGame, const std::string& lobbyName, int maxPlayers,
-              double seconds) {
+              const NetOptions& options, double seconds) {
     if (path.empty()) {
         logLine("server: no scene to serve (a project or a scene file)");
         return 1;
@@ -145,13 +158,14 @@ int runServer(Game& game, Scene& scene, MeshLibrary& meshes, const std::string& 
         return 1;
     }
     NetSession net;
+    options.apply(net);
     std::string error;
     if (!net.host(game, port, error, true)) {
         logLine("server: %s", error.c_str());
         ImGui::DestroyContext();
         return 1;
     }
-    if (!relayAddress.empty() && !net.advertise(relayAddress, lobbyGame, lobbyName, maxPlayers, error))
+    if (!relayAddress.empty() && !net.advertise(relayAddress, lobbyGame, lobbyName, maxPlayers, error, options.listed))
         logLine("server: the relay: %s", error.c_str());
     std::signal(SIGINT, onStopSignal);
     std::signal(SIGTERM, onStopSignal);
@@ -248,7 +262,8 @@ int listLobbies(const std::string& relayAddress, const std::string& game) {
         return 1;
     }
     std::printf("%zu lobbies of %s on %s\n", query.lobbies().size(), game.c_str(), relayAddress.c_str());
-    for (const relay::Lobby& l : query.lobbies()) std::printf("  %s  %d/%d  %s\n", l.code.c_str(), l.players, l.maxPlayers, l.name.c_str());
+    for (const relay::Lobby& l : query.lobbies())
+        std::printf("  %s  %d/%d  %s%s\n", l.code.c_str(), l.players, l.maxPlayers, l.name.c_str(), l.password ? " (password)" : "");
     return 0;
 }
 
@@ -296,6 +311,7 @@ int main(int argc, char** argv) {
     std::string joinLobby;  // --join-lobby CODE: a game listed on the relay (net/relay.h)
     std::string relayAddress, lobbyName;   // --relay host[:port] (else project.json's), --lobby "name" (what it's listed as)
     int maxPlayers = 16;    // --max-players N: what a lobby says it takes
+    NetOptions netOptions;  // --password P, --private, --relay-secret S
     std::string server;     // --server [port]: a dedicated server, headless
     double serverSeconds = 0.0;   // --seconds N: ... stopping after N seconds (tests)
     bool lobbies = false;   // --lobbies: list the relay's lobbies of this game and exit
@@ -314,6 +330,9 @@ int main(int argc, char** argv) {
             else if (!std::strcmp(argv[i], "--relay") && i + 1 < argc) relayAddress = argv[++i];
             else if (!std::strcmp(argv[i], "--lobby") && i + 1 < argc) lobbyName = argv[++i];
             else if (!std::strcmp(argv[i], "--max-players") && i + 1 < argc) maxPlayers = std::max(std::atoi(argv[++i]), 1);
+            else if (!std::strcmp(argv[i], "--password") && i + 1 < argc) netOptions.password = argv[++i];
+            else if (!std::strcmp(argv[i], "--relay-secret") && i + 1 < argc) netOptions.relaySecret = argv[++i];
+            else if (!std::strcmp(argv[i], "--private")) netOptions.listed = false;
             else if (!std::strcmp(argv[i], "--server"))
                 server = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? argv[++i] : "27015";
             else if (!std::strcmp(argv[i], "--seconds") && i + 1 < argc) serverSeconds = std::atof(argv[++i]);
@@ -391,6 +410,7 @@ int main(int argc, char** argv) {
         return missing || !scripting::errors().empty() ? 1 : 0;
     }
     if (relayAddress.empty()) relayAddress = settings.relay;
+    if (netOptions.relaySecret.empty()) netOptions.relaySecret = settings.relaySecret;
     if (lobbyName.empty()) lobbyName = settings.name;
     if (lobbies) return listLobbies(relayAddress, settings.name);
     if (installUpdate) return installUpdateNow(settings);
@@ -421,7 +441,7 @@ int main(int argc, char** argv) {
             if (!scripting::debugger::listen((uint16_t)luaDebugPort, debugError)) logLine("lua debugger: %s", debugError.c_str());
         }
         return runServer(game, scene, meshes, path, (uint16_t)std::atoi(server.c_str()), relayAddress, settings.name, lobbyName,
-                         maxPlayers, serverSeconds);
+                         maxPlayers, netOptions, serverSeconds);
     }
 
     options.pipelineCache = project::saveDir(settings.name.empty() ? "Untitled" : settings.name).parent_path() / "pipelines.cache";
@@ -512,16 +532,20 @@ int main(int argc, char** argv) {
     std::string netPublished = "-";
     auto startHosting = [&](uint16_t port) {
         std::string netError;
+        netOptions.apply(net);
         if (!net.host(game, port, netError)) logLine("multiplayer: %s", netError.c_str());
-        else if (!relayAddress.empty() && !net.advertise(relayAddress, settings.name, lobbyName, maxPlayers, netError))
+        else if (!relayAddress.empty() &&
+                 !net.advertise(relayAddress, settings.name, lobbyName, maxPlayers, netError, netOptions.listed))
             logLine("multiplayer: the relay: %s", netError.c_str());
     };
     game.setNetworkHandler([&](const std::string& verb, const std::string& arg) {
         std::string netError;
         bool ok = true;
-        if (verb == "host") startHosting(arg.empty() ? NetSession::kDefaultPort : (uint16_t)std::atoi(arg.c_str()));
-        else if (verb == "join") ok = net.join(game, arg, netError);
-        else if (verb == "joinlobby") ok = !relayAddress.empty() ? net.joinLobby(game, relayAddress, arg, netError)
+        if (verb == "password") netOptions.password = arg;   // (for the next host or join)
+        else if (verb == "private") netOptions.listed = arg != "1" && arg != "true";
+        else if (verb == "host") startHosting(arg.empty() ? NetSession::kDefaultPort : (uint16_t)std::atoi(arg.c_str()));
+        else if (verb == "join") ok = (netOptions.apply(net), net.join(game, arg, netError));
+        else if (verb == "joinlobby") ok = !relayAddress.empty() ? (netOptions.apply(net), net.joinLobby(game, relayAddress, arg, netError))
                                                                  : (netError = "no relay to find lobbies on", false);
         else if (verb == "leave") net.stop();
         else if (verb == "lobbies") ok = !relayAddress.empty() ? lobbyQuery.start(relayAddress, settings.name, netError)
@@ -559,9 +583,9 @@ int main(int argc, char** argv) {
             std::string netError;
             bool ok = true;
             if (!host.empty()) startHosting((uint16_t)std::atoi(host.c_str()));
-            else if (!join.empty()) ok = net.join(game, join, netError);
+            else if (!join.empty()) ok = (netOptions.apply(net), net.join(game, join, netError));
             else if (relayAddress.empty()) ok = (netError = "--join-lobby needs a relay (--relay, or project.json's)", false);
-            else ok = net.joinLobby(game, relayAddress, joinLobby, netError);
+            else ok = (netOptions.apply(net), net.joinLobby(game, relayAddress, joinLobby, netError));
             if (!ok) logLine("multiplayer: %s", netError.c_str());
             host.clear();
             join.clear();

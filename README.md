@@ -1132,6 +1132,19 @@ In the editor, Game > Host a multiplayer game hosts while you play. A client loa
   smoothing ago), so a ray it fires at what was on its screen hits it.
 - **Joining late**: a player joining a game in progress gets the scene the host is in and everything destroyed
   before they came (picked-up items stay picked up).
+- **Encryption**: every session is encrypted and authenticated. Joining, the client and the server exchange X25519
+  keys; from then on every packet both ways is sealed with ChaCha20-Poly1305 (a key each way, a counter per packet),
+  so nothing can be read on the way, and changed, forged or replayed packets are dropped.
+- **Passwords**: `--password secret` on the host and on the players (or the `@password` UI action before
+  `@host` / `@join`): the password goes into the session's keys, so a player with a different one can't open
+  anything and is turned away ("Refused: wrong password", `net.refused` in the game state); five wrong ones from an
+  address in a minute and it waits a minute.
+- **Messages between machines**: `ctx.sendToServer(id, message)` on a client reaches entity `id`'s behaviours on the
+  server (`onMessage`, with `message.client` saying which client sent it); `ctx.sendToClients(id, message)` on the
+  server reaches it on every client (or one: `sendToClients(id, message, client)`). They're numbered, resent until
+  acknowledged and delivered in order, once. On the host (and offline) they're delivered there too, so a game works
+  the same alone; `ctx.isServer()` / `ctx.isClient()` say which this is. Lua: `game.sendToServer(e, name, value,
+  text)`, `game.sendToClients(e, name, value, text, client)`, `game.isServer()`.
 
 - **Dedicated servers**: `vkgame path/to/MyGame --server` (or `--server 4000`) runs the game with no window and no
   GPU (a server machine needs neither), at 60 updates a second, with no player of its own: everyone who joins is a
@@ -1145,8 +1158,15 @@ In the editor, Game > Host a multiplayer game hosts while you play. A client loa
   menus (below). The relay tells host and player where each other is as the internet sees them and both punch
   through their NATs (most home routers then let the game's packets straight through); if nothing gets through
   directly within 2 s, everything between them goes through the relay instead (only between peers it introduced).
+- **Private lobbies and the relay's secret**: `--private` (the `@private 1` UI action) hosts a lobby that isn't
+  listed, only joined by its code; lobbies with a password say so in lists (`net.lobby.0.locked`). `vkrelay
+  --secret S` (or `VKRELAY_SECRET`) only takes lobbies from games that know the secret (`"relaySecret"` in
+  `project.json`, or `--relay-secret S`): the relay challenges a host with a random number, and the host answers
+  with a hash keyed by the secret (never the secret itself). The relay limits each address's packets and bytes a
+  second (a flood is dropped, not forwarded) and how many lobbies it hosts at once.
 - **From the game's menus**: UI actions `@host [port]`, `@join address`, `@joinlobby code` (formatted like texts:
-  `@joinlobby {codeField}` takes a text field's value), `@lobbies` and `@leave`; vkgame reports back in the game state:
+  `@joinlobby {codeField}` takes a text field's value), `@lobbies`, `@leave`, `@password text` and `@private 1`;
+  vkgame reports back in the game state:
   `net.status`, `net.active`, `net.hosting`, `net.connected`, `net.code` (a host's lobby code), `net.searching`,
   `net.lobbiesError`, and the lobbies last listed: `net.lobbies` (how many), `net.lobby.0.name`, `.code`, `.players`
   ("2 / 8") and so on (a List of buttons with `@joinlobby {net.lobby.0.code}` makes a lobby browser).
@@ -1157,9 +1177,9 @@ In the editor, Game > Host a multiplayer game hosts while you play. A client loa
 ./vkgame MyGame --relay relay.example.com --join-lobby K7QX2M
 ```
 
-Not there yet: scene changes and save games while connected (after joining), encryption (and authentication on the
-relay: anyone can list and join lobbies), reliable messages between behaviours on different machines (messages stay
-on the machine that sends them), IPv6, a lobby's password or private lobbies.
+Not there yet: scene changes and save games while connected (after joining), IPv6, checking who the server is (a
+man in the middle who answers the key exchange himself can read a game without a password; with one he can't, but
+he can try passwords offline against what he saw: use long ones), and accounts (a player is who their address is).
 
 ### Lua scripting
 

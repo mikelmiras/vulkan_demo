@@ -1,5 +1,8 @@
-// net/: UDP sockets and a server and a client game over the loopback: joining, players, replication, input
+// net/: UDP sockets and a server and a client game over the loopback: joining, players, replication, input,
+// encryption and passwords, messages between machines
 #include "test.h"
+
+#include <algorithm>
 
 #include "game/game.h"
 #include "imgui.h"
@@ -360,4 +363,169 @@ TEST(net_lag_compensation) {
         server.stop();
         client.stop();
     }
+}
+
+namespace {
+
+// Passes everything between a client and a server (a man in the middle), keeping what went by
+struct Proxy {
+    net::UdpSocket socket;
+    net::Address server, client;
+    std::vector<std::vector<uint8_t>> seen;
+    bool open(uint16_t serverPort) {
+        std::string error;
+        return socket.open(0, error) && net::resolve("127.0.0.1:" + std::to_string(serverPort), 1, server, error);
+    }
+    void pump() {
+        uint8_t buf[2048];
+        net::Address from;
+        for (size_t n; (n = socket.receive(from, buf, sizeof(buf))) > 0;) {
+            seen.emplace_back(buf, buf + n);
+            if (from == server) {
+                if (client.port) socket.send(client, buf, n);
+            } else {
+                client = from;
+                socket.send(server, buf, n);
+            }
+        }
+    }
+};
+
+bool contains(const std::vector<uint8_t>& bytes, const std::string& s) {
+    return std::search(bytes.begin(), bytes.end(), s.begin(), s.end()) != bytes.end();
+}
+
+}  // namespace
+
+// Sessions are encrypted (nothing readable on the way, plain or forged packets ignored) and a password keeps out
+// players without it
+TEST(net_sessions_encrypted_with_passwords) {
+    test::ImGuiContextGuard imgui;
+    Scene serverScene = netScene(), clientScene = netScene(), wrongScene = netScene();
+    Game server, client, wrong;
+    server.start(serverScene, meshes());
+    client.start(clientScene, meshes());
+    wrong.start(wrongScene, meshes());
+    server.state().setText("motto", "attack at dawn");
+    NetSession sn, cn, wn;
+    std::string error;
+    sn.setPassword("open sesame");
+    REQUIRE(sn.host(server, 0, error));
+
+    // The wrong password: turned away, no player made for it
+    wn.setPassword("open says me");
+    REQUIRE(wn.join(wrong, "127.0.0.1:" + std::to_string(sn.port()), error));
+    for (int i = 0; i < 120 && !wn.refused(); ++i) pump(server, sn, wrong, wn);
+    CHECK(wn.refused() && !wn.connected());
+    CHECK(wn.status() == "Refused: wrong password");
+    CHECK(sn.clients() == 0);
+    wn.stop();
+
+    // The right one, through a man in the middle: it plays, and nothing that went by can be read
+    Proxy proxy;
+    REQUIRE(proxy.open(sn.port()));
+    cn.setPassword("open sesame");
+    REQUIRE(cn.join(client, "127.0.0.1:" + std::to_string(proxy.socket.port()), error));
+    for (int i = 0; i < 120 && !cn.connected(); ++i) {
+        pump(server, sn, client, cn);
+        proxy.pump();
+    }
+    REQUIRE(cn.connected());
+    for (int i = 0; i < 60; ++i) {
+        pump(server, sn, client, cn);
+        proxy.pump();
+    }
+    CHECK(client.state().text("motto") == "attack at dawn");   // (it came, in a snapshot)
+    CHECK(proxy.seen.size() > 50);
+    bool readable = false;
+    for (const auto& p : proxy.seen) readable |= contains(p, "attack at dawn") || contains(p, "Player") || contains(p, "player");
+    CHECK(!readable);
+
+    // Packets not sealed with its keys do nothing: a plain Hello, garbage dressed as sealed, a captured one again
+    net::UdpSocket stranger;
+    REQUIRE(stranger.open(0, error));
+    net::Address to;
+    REQUIRE(net::resolve("127.0.0.1:" + std::to_string(sn.port()), 1, to, error));
+    std::vector<uint8_t> hello = {'V', 'K', 'N', '3', 1, 6, 0, 'p', 'l', 'a', 'y', 'e', 'r'};
+    std::vector<uint8_t> forged = {'V', 'K', 'N', '3', 35};
+    for (int i = 0; i < 60; ++i) forged.push_back((uint8_t)(i * 37));
+    stranger.send(to, hello.data(), hello.size());
+    stranger.send(to, forged.data(), forged.size());
+    for (const auto& p : proxy.seen) stranger.send(to, p.data(), p.size());   // (replayed, from elsewhere)
+    for (const auto& p : proxy.seen) proxy.socket.send(proxy.server, p.data(), p.size());   // (... and from its address)
+    for (int i = 0; i < 30; ++i) {
+        pump(server, sn, client, cn);
+        proxy.pump();
+    }
+    CHECK(sn.clients() == 1);
+    CHECK(cn.connected());
+    cn.stop();
+    sn.stop();
+    server.stop();
+    client.stop();
+    wrong.stop();
+}
+
+namespace {
+
+std::vector<std::string> g_serverGot, g_clientGot;
+
+// Records the messages it gets (on which machine); the server answers each "ping" with a "pong" to its sender
+struct Echo : BehaviourBase<Echo> {
+    static constexpr const char* kTypeName = "TestNetEcho";
+    void onMessage(GameContext& ctx, Entity& self, const Message& m) override {
+        (ctx.isServer() ? g_serverGot : g_clientGot).push_back(m.name + std::to_string((int)m.value));
+        if (ctx.isServer() && m.name == "ping") {
+            Message pong{"pong", self.id, m.value, "", 0};
+            ctx.sendToClients(self.id, pong, m.client);
+        }
+    }
+};
+
+}  // namespace
+
+// Messages between behaviours on different machines: every one arrives, once, in order, through 30 % packet loss
+TEST(net_messages_between_machines) {
+    test::ImGuiContextGuard imgui;
+    Scene serverScene = netScene(), clientScene = netScene();
+    serverScene.findByName("Mover")->behaviours.emplace_back(std::make_unique<Echo>());
+    clientScene.findByName("Mover")->behaviours.emplace_back(std::make_unique<Echo>());
+    Game server, client;
+    server.start(serverScene, meshes());
+    client.start(clientScene, meshes());
+    NetSession sn, cn;
+    REQUIRE(connect(server, sn, client, cn));
+    CHECK(sn.isServer() && server.context().isServer() && client.context().isClient());
+    EntityId mover = serverScene.findByName("Mover")->id;
+    g_serverGot.clear();
+    g_clientGot.clear();
+    sn.simulateNetwork(0.03f, 0.3f);
+    cn.simulateNetwork(0.03f, 0.3f);
+    for (int i = 0; i < 40; ++i) {
+        client.context().sendToServer(mover, Message{"ping", 0, (float)i, "", 0});
+        if (i % 3 == 0) pump(server, sn, client, cn);
+    }
+    for (int i = 0; i < 400 && g_clientGot.size() < 40; ++i) pump(server, sn, client, cn);
+    REQUIRE(g_serverGot.size() == 40);
+    REQUIRE(g_clientGot.size() == 40);
+    bool inOrder = true;
+    for (int i = 0; i < 40; ++i)
+        inOrder &= g_serverGot[i] == "ping" + std::to_string(i) && g_clientGot[i] == "pong" + std::to_string(i);
+    CHECK(inOrder);
+    // To all clients from the server: the host gets it too (it plays); a client can't send to clients
+    server.context().sendToClients(mover, Message{"news", 0, 7.f, "", 0});
+    client.context().sendToClients(mover, Message{"nope", 0, 0.f, "", 0});
+    for (int i = 0; i < 120; ++i) pump(server, sn, client, cn);
+    CHECK(g_clientGot.size() == 41 && g_clientGot.back() == "news7");
+    CHECK(g_serverGot.size() == 41 && g_serverGot.back() == "news7");
+    cn.stop();
+    sn.stop();
+    // Offline: both kinds are delivered here
+    g_serverGot.clear();
+    server.context().sendToServer(mover, Message{"solo", 0, 1.f, "", 0});
+    server.context().sendToClients(mover, Message{"solo", 0, 2.f, "", 0});
+    for (int i = 0; i < 3; ++i) pump(server, sn, client, cn);
+    CHECK(g_serverGot.size() == 2);
+    server.stop();
+    client.stop();
 }

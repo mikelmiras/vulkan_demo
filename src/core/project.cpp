@@ -104,6 +104,7 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     if (!doc["gameVersion"].asString().empty()) s.gameVersion = doc["gameVersion"].asString();
     s.updateUrl = doc["updateUrl"].asString();
     s.relay = doc["relay"].asString();
+    s.relaySecret = doc["relaySecret"].asString();
     s.crashReportUrl = doc["crashReportUrl"].asString();
     s.engineVersion = doc["engineVersion"].asString();
     s.publisher = doc["publisher"].asString();
@@ -140,6 +141,7 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     doc.set("gameVersion", settings.gameVersion);
     if (!settings.updateUrl.empty()) doc.set("updateUrl", settings.updateUrl);
     if (!settings.relay.empty()) doc.set("relay", settings.relay);
+    if (!settings.relaySecret.empty()) doc.set("relaySecret", settings.relaySecret);
     if (!settings.crashReportUrl.empty()) doc.set("crashReportUrl", settings.crashReportUrl);
     doc.set("engineVersion", std::string(version::string()));   // (the engine saving it)
     if (!settings.publisher.empty()) doc.set("publisher", settings.publisher);

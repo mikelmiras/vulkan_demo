@@ -19,10 +19,18 @@
 //   - Late joiners get the scene the server is in (loaded before they play) and every replicated or scene entity
 //     destroyed before they came (until they acknowledge it).
 //
+//   - Every session is encrypted (net/crypto.h): the client offers an X25519 key, the server answers with its own,
+//     and from then on every packet either way is sealed with ChaCha20-Poly1305 (keys each way from the exchange;
+//     a counter per packet: changed, forged and replayed packets are dropped). A game's password goes into the
+//     keys too: a client with the wrong one can't open anything and is turned away.
+//   - Messages between behaviours on different machines (GameContext::sendToServer / sendToClients): numbered,
+//     resent until acknowledged, delivered in order, as onMessage() there.
 //   - Dedicated servers (vkgame --server): a host with no player of its own, nothing drawn.
 //   - Lobbies (net/relay.h): a host can advertise its game on a relay server and gets a code; players join by the
 //     code: the relay introduces them, they punch through their NATs to each other, and when no packet gets
-//     through directly in a couple of seconds, everything between them goes through the relay instead.
+//     through directly in a couple of seconds, everything between them goes through the relay instead. A lobby can
+//     be private (not listed: joined by its code) and say it has a password; a relay run with a secret only takes
+//     lobbies from games that know it.
 //
 //   NetSession net;
 //   net.host(game, 27015, error);           // or net.join(game, "192.168.1.5:27015", error)
@@ -39,6 +47,7 @@
 #include <vector>
 
 #include "game/game.h"
+#include "net/crypto.h"
 #include "net/relay.h"
 #include "net/udp.h"
 
@@ -51,13 +60,18 @@ public:
     NetSession& operator=(const NetSession&) = delete;
     ~NetSession() { stop(); }
 
+    // Before host() / join(): the game's password (a host lets in only players with the same one; "": none)
+    void setPassword(const std::string& password) { password_ = password; }
+    // Before advertise(): what the relay asks hosts for, if it was started with a secret (vkrelay --secret)
+    void setRelaySecret(const std::string& secret) { relaySecret_ = secret; }
+
     // port 0: any free one (port() tells); dedicated: no player of its own (a server nobody plays on)
     bool host(Game& game, uint16_t port, std::string& error, bool dedicated = false);
     bool join(Game& game, const std::string& address, std::string& error);   // "host[:port]"
     // A host's game listed on a relay ("host[:port]") as `name` among `game`'s lobbies, up to maxPlayers; its code
-    // comes back in a moment (lobbyCode()). Kept there until stop().
+    // comes back in a moment (lobbyCode()). Kept there until stop(). Not listed: only joined by its code.
     bool advertise(const std::string& relayAddress, const std::string& game, const std::string& name, int maxPlayers,
-                   std::string& error);
+                   std::string& error, bool listed = true);
     // Joins the lobby with that code through the relay (directly if the NATs let it, else through the relay)
     bool joinLobby(Game& game, const std::string& relayAddress, const std::string& code, std::string& error);
     void stop();   // says goodbye; the game goes on alone
@@ -76,6 +90,8 @@ public:
     net::Address publicAddress() const { return publicAddress_; } // ... and where the relay sees it from
     bool throughRelay() const { return !server_ && relayed(serverAddress_); }   // (a client: no direct way)
     bool lobbyFailed() const { return lobbyFailed_; }   // (a client: the relay knows no such lobby)
+    bool refused() const { return refused_; }           // (a client: the server turned it away: status() says why)
+    bool relayRefused() const { return relayRefused_; } // (a host: the relay wants a secret this game doesn't have)
 
     // Testing and tuning: every packet this machine sends waits `latency` seconds and is lost with probability
     // `loss` (a fixed random sequence); lag compensation can be turned off
@@ -88,6 +104,14 @@ public:
     uint64_t corrections() const { return corrections_; }   // a client's: how often the server put its player right
 
 private:
+    struct Reliable {                // messages to one peer: numbered, resent until it acknowledges them
+        uint32_t next = 1;           // the next one's number
+        uint32_t sentUpTo = 0;       // ... the last sent at least once
+        std::deque<std::pair<uint32_t, std::vector<uint8_t>>> unacked;   // (encoded)
+        uint32_t received = 0;       // the last one delivered from the peer (in order)
+        bool ackDue = false;
+        double resendAt = 0.0;
+    };
     struct Input {
         uint32_t seq = 0;
         std::vector<float> values;   // the actions', in order
@@ -113,6 +137,16 @@ private:
         std::map<uint64_t, Sent> sent;   // the snapshots not yet acknowledged (and the acknowledged one)
         std::set<EntityId> goneKnown;    // destructions it has acknowledged
         float rtt = 0.f, waited = 0.f;   // its round trip; how long its last input waited here
+        crypto::Channel channel;
+        Reliable messages;
+    };
+    struct Pending {                 // (server: a key exchange begun, the client's first sealed packet not yet in)
+        net::Address address;
+        crypto::Key theirs{};
+        crypto::KeyPair mine;
+        crypto::Channel channel;
+        double at = 0.0;
+        int failures = 0;
     };
     struct Partial {                 // (client: a snapshot arriving in parts)
         std::vector<std::vector<uint8_t>> parts;
@@ -128,6 +162,13 @@ private:
     };
 
     void send(const net::Address& to, const std::vector<uint8_t>& bytes);
+    void sendSealed(const net::Address& to, crypto::Channel& channel, const std::vector<uint8_t>& packet);
+    void toServer(const std::vector<uint8_t>& packet) { sendSealed(serverAddress_, channel_, packet); }
+    void handshakeReceive(uint8_t type, const uint8_t* data, size_t size, const net::Address& from);
+    void sendOffer();
+    void queueMessages();
+    void flushMessages(Reliable& r, const net::Address& to, crypto::Channel& channel);
+    void receiveMessages(Reliable& r, const uint8_t* data, size_t size, uint16_t client);
     void sendRelay(const relay::Message& m);
     void relayReceive(const uint8_t* data, size_t size);
     void receive(const uint8_t* data, size_t size, const net::Address& from);
@@ -135,7 +176,7 @@ private:
     static uint64_t addressKey(const net::Address& a) { return (uint64_t)a.ip << 16 | a.port; }
     bool relayed(const net::Address& a) const { return relayed_.count(addressKey(a)) > 0; }
     void flushDelayed();
-    void serverReceive(const uint8_t* data, size_t size, const net::Address& from);
+    void serverReceive(const uint8_t* data, size_t size, const net::Address& from, crypto::Channel* fresh = nullptr);
     void clientReceive(const uint8_t* data, size_t size);
     void sendSnapshots();
     void beforeTick();
@@ -175,6 +216,9 @@ private:
     std::string scenePath_;
     bool lagCompensation_ = true;
     bool dedicated_ = false;
+    std::string password_;
+    std::vector<Pending> pending_;
+    std::map<uint32_t, std::pair<int, double>> wrongPasswords_;   // an ip's recent wrong passwords, and when the last was
     // Relay (net/relay.h): where it is; the peers only reached through it; peers being punched through to (until)
     net::Address relay_;
     bool useRelay_ = false, strictNat_ = false;
@@ -184,6 +228,10 @@ private:
     // ... a host's lobby
     std::string lobbyGame_, lobbyName_, lobbyCode_;
     int lobbyMax_ = 0;
+    bool lobbyListed_ = true;
+    std::string relaySecret_;
+    std::array<uint8_t, 16> relayNonce_{};   // (the relay's challenge, answered in each Register)
+    bool relayChallenged_ = false, relayRefused_ = false;
     uint32_t lobbyToken_ = 0;
     double registerAt_ = -1e9;
     net::Address publicAddress_;
@@ -199,6 +247,10 @@ private:
     std::map<EntityId, Transform> rewound_;   // (while rewound: where they really are)
     // Client
     net::Address serverAddress_;
+    crypto::KeyPair keys_;
+    crypto::Channel channel_;
+    Reliable messages_;
+    bool refused_ = false;
     bool welcomed_ = false;
     uint16_t clientId_ = 0;
     EntityId localPlayer_ = kNoEntity;

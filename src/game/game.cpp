@@ -153,6 +153,17 @@ Entity* GameContext::findFirstWithTag(const std::string& tag) {
 
 void GameContext::send(EntityId to, const Message& message) { messages_.emplace_back(to, message); }
 
+void GameContext::sendToServer(EntityId to, const Message& message) {
+    if (netRole_ != NetRole::Client) send(to, message);   // (this is the server)
+    else if (netOutbox_.size() < 4096) netOutbox_.push_back({to, message, true, 0});
+}
+
+void GameContext::sendToClients(EntityId to, const Message& message, uint16_t client) {
+    if (netRole_ == NetRole::Client) return;   // (only the server talks to clients)
+    if ((netRole_ == NetRole::Offline || netRole_ == NetRole::Server) && client == 0) send(to, message);   // (it plays here too)
+    if (netRole_ != NetRole::Offline && netOutbox_.size() < 4096) netOutbox_.push_back({to, message, false, client});
+}
+
 void GameContext::sendToTag(const std::string& tag, const Message& message) {
     for (EntityId id : findWithTag(tag)) send(id, message);
 }
@@ -586,6 +597,7 @@ void Game::begin(bool fresh, bool keepPhysics) {
     updateAnimators(*scene_, *meshes_, 0.f);   // the first frame shows the first pose
     timers_.clear();
     ctx_.messages_.clear();
+    ctx_.netOutbox_.clear();
     physics_.step(*scene_, *meshes_, 0.f);   // make the bodies now (or catch up: kept ones are made already)
     startNavigation();
     prepareContext(0.f);
@@ -825,7 +837,8 @@ void Game::runUIAction(const UIAction& a) {
     } else if (verb == "@update" || verb == "@restart" || verb == "@sendcrashreport" || verb == "@dismisscrashreport") {
         if (hostHandler_) hostHandler_(verb.substr(1), ctx_.format(arg));
         else ctx_.log("UI: " + verb + ": not here (vkgame does it)");
-    } else if (verb == "@host" || verb == "@join" || verb == "@joinlobby" || verb == "@lobbies" || verb == "@leave") {
+    } else if (verb == "@host" || verb == "@join" || verb == "@joinlobby" || verb == "@lobbies" || verb == "@leave" ||
+               verb == "@password" || verb == "@private") {
         // ("@joinlobby {code}": formatted like texts, so a text field's value can be joined)
         if (networkHandler_) networkHandler_(verb.substr(1), ctx_.format(arg));
         else ctx_.log("UI: " + verb + ": no multiplayer here");
