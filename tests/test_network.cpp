@@ -3,6 +3,8 @@
 #include "test.h"
 
 #include <algorithm>
+#include <chrono>
+#include <thread>
 
 #include "game/game.h"
 #include "imgui.h"
@@ -101,7 +103,10 @@ TEST(net_server_and_client) {
     std::string error;
     REQUIRE(sn.host(server, 0, error));
     REQUIRE(cn.join(client, "127.0.0.1:" + std::to_string(sn.port()), error));
-    for (int i = 0; i < 30 && !cn.connected(); ++i) pump(server, sn, client, cn);
+    for (int i = 0; i < 120 && !cn.connected(); ++i) {   // (real time for the loopback: macOS takes a moment)
+        pump(server, sn, client, cn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     REQUIRE(cn.connected());
     CHECK(sn.clients() == 1);
     EntityId mine = cn.localPlayer();
@@ -192,7 +197,10 @@ Scene bigScene(int statics, float relevance) {
 bool connect(Game& server, NetSession& sn, Game& client, NetSession& cn) {
     std::string error;
     if (!sn.host(server, 0, error) || !cn.join(client, "127.0.0.1:" + std::to_string(sn.port()), error)) return false;
-    for (int i = 0; i < 60 && !cn.connected(); ++i) pump(server, sn, client, cn);
+    for (int i = 0; i < 120 && !cn.connected(); ++i) {   // (real time for the loopback: macOS takes a moment)
+        pump(server, sn, client, cn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     return cn.connected();
 }
 
@@ -247,7 +255,10 @@ TEST(net_interest_and_late_joiners) {
     server.context().destroy(serverScene.findByName("Rock")->id);
     for (int i = 0; i < 10; ++i) pump(server, sn, client, cn);   // (the server runs on alone for a while)
     REQUIRE(cn.join(client, "127.0.0.1:" + std::to_string(sn.port()), error));
-    for (int i = 0; i < 60 && !cn.connected(); ++i) pump(server, sn, client, cn);
+    for (int i = 0; i < 120 && !cn.connected(); ++i) {
+        pump(server, sn, client, cn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     REQUIRE(cn.connected());
     for (int i = 0; i < 30; ++i) pump(server, sn, client, cn);
     CHECK(!clientScene.findByName("Static 2"));   // gone before it came: gone here too
@@ -415,7 +426,10 @@ TEST(net_sessions_encrypted_with_passwords) {
     // The wrong password: turned away, no player made for it
     wn.setPassword("open says me");
     REQUIRE(wn.join(wrong, "127.0.0.1:" + std::to_string(sn.port()), error));
-    for (int i = 0; i < 120 && !wn.refused(); ++i) pump(server, sn, wrong, wn);
+    for (int i = 0; i < 240 && !wn.refused(); ++i) {
+        pump(server, sn, wrong, wn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     CHECK(wn.refused() && !wn.connected());
     CHECK(wn.status() == "Refused: wrong password");
     CHECK(sn.clients() == 0);
@@ -426,14 +440,16 @@ TEST(net_sessions_encrypted_with_passwords) {
     REQUIRE(proxy.open(sn.port()));
     cn.setPassword("open sesame");
     REQUIRE(cn.join(client, "127.0.0.1:" + std::to_string(proxy.socket.port()), error));
-    for (int i = 0; i < 120 && !cn.connected(); ++i) {
+    for (int i = 0; i < 240 && !cn.connected(); ++i) {
         pump(server, sn, client, cn);
         proxy.pump();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     REQUIRE(cn.connected());
     for (int i = 0; i < 60; ++i) {
         pump(server, sn, client, cn);
         proxy.pump();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK(client.state().text("motto") == "attack at dawn");   // (it came, in a snapshot)
     CHECK(proxy.seen.size() > 50);
@@ -456,6 +472,7 @@ TEST(net_sessions_encrypted_with_passwords) {
     for (int i = 0; i < 30; ++i) {
         pump(server, sn, client, cn);
         proxy.pump();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     CHECK(sn.clients() == 1);
     CHECK(cn.connected());
@@ -505,7 +522,10 @@ TEST(net_messages_between_machines) {
         client.context().sendToServer(mover, Message{"ping", 0, (float)i, "", 0});
         if (i % 3 == 0) pump(server, sn, client, cn);
     }
-    for (int i = 0; i < 400 && g_clientGot.size() < 40; ++i) pump(server, sn, client, cn);
+    for (int i = 0; i < 600 && g_clientGot.size() < 40; ++i) {
+        pump(server, sn, client, cn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     REQUIRE(g_serverGot.size() == 40);
     REQUIRE(g_clientGot.size() == 40);
     bool inOrder = true;
@@ -515,7 +535,10 @@ TEST(net_messages_between_machines) {
     // To all clients from the server: the host gets it too (it plays); a client can't send to clients
     server.context().sendToClients(mover, Message{"news", 0, 7.f, "", 0});
     client.context().sendToClients(mover, Message{"nope", 0, 0.f, "", 0});
-    for (int i = 0; i < 120; ++i) pump(server, sn, client, cn);
+    for (int i = 0; i < 120; ++i) {
+        pump(server, sn, client, cn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     CHECK(g_clientGot.size() == 41 && g_clientGot.back() == "news7");
     CHECK(g_serverGot.size() == 41 && g_serverGot.back() == "news7");
     cn.stop();
