@@ -1,5 +1,5 @@
-// Scripting tools: the CPU time limit, and the Lua debugger (script/lua_debugger.h) driven by a client over TCP,
-// as VS Code would
+// Scripting tools: the CPU time limit, the Lua debugger (script/lua_debugger.h) driven by a client over TCP, as
+// VS Code would (breakpoints, stepping, setting variables, data breakpoints, coroutines as threads), and profiling
 #include "test.h"
 
 #include <atomic>
@@ -436,18 +436,23 @@ return Faulty
 }
 
 // Profiling: each callback is a profiler scope (named after the script and callback, every instance's call), and
-// sampling finds the function the work is in
+// sampling finds where the time goes: wall-clock time, so a slow C call (string.rep) outweighs a busier but quicker
+// Lua loop, down to its line
 TEST(lua_profiling) {
     test::ImGuiContextGuard imgui;
     scripting::reset();
     std::string error;
     REQUIRE(scripting::define("Busy", R"lua(local Busy = {}
-local function heavy(n)
+local function quick(n)
     local s = 0
     for i = 1, n do s = s + i % 7 end
     return s
 end
-function Busy:update(dt) self.total = heavy(20000) end
+local function slow()
+    local big = string.rep("ab", 4000000) .. "!"
+    return #big
+end
+function Busy:update(dt) self.total = quick(20000) + slow() end
 return Busy
 )lua", error));
     Scene s;
@@ -457,7 +462,7 @@ return Busy
     g.start(s, meshes());
     scripting::setSampling(true);
     CHECK(scripting::sampling());
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 10; ++i) {
         profiler::beginFrame();
         steps(g, 1);
         profiler::endFrame();
@@ -469,13 +474,280 @@ return Busy
     bool summarized = false;
     for (const profiler::Summary& sm : profiler::summarize()) summarized = summarized || (sm.name == "Busy.update" && sm.avgMs > 0.0);
     CHECK(summarized);
+    scripting::setSampling(false);
     std::vector<scripting::Sample> samples = scripting::samples();
     REQUIRE(!samples.empty());
-    CHECK(samples[0].function.find("heavy") != std::string::npos);   // (where the loop is)
-    CHECK(samples[0].count > 100);
+    int slow = 0, quick = 0, all = 0;
+    for (const scripting::Sample& sm : samples) {
+        all += sm.count;
+        if (sm.function.find("slow") != std::string::npos) slow = sm.count;
+        if (sm.function.find("quick") != std::string::npos) quick = sm.count;
+    }
+    CHECK(samples[0].function.find("slow") != std::string::npos);   // (where the time is, not the instructions)
+    CHECK(slow > quick);
+    CHECK(all >= 10);   // (milliseconds: the 10 updates took longer than that)
+    std::vector<scripting::LineSample> lines = scripting::lineSamples();
+    REQUIRE(!lines.empty());
+    CHECK(lines[0].file == "Busy.lua" && lines[0].line == 8);   // the string.rep line
+    CHECK(scripting::sampleSeconds() > 0.0);
     scripting::clearSamples();
-    CHECK(scripting::samples().empty());
-    scripting::setSampling(false);
+    CHECK(scripting::samples().empty() && scripting::lineSamples().empty());
+    g.stop();
+    scripting::reset();
+}
+
+namespace {
+
+// The client's view of a stop: a frame's scopes' references, a variables list's entry
+int scopeRef(Client& c, int frameId, int scope) {
+    json::Value a = json::Value::object(), m;
+    a.set("frameId", frameId);
+    c.request("scopes", a);
+    return c.response("scopes", m) ? m["body"]["scopes"][scope]["variablesReference"].asInt() : 0;
+}
+
+json::Value variable(Client& c, int reference, const std::string& name) {
+    json::Value a = json::Value::object(), m;
+    a.set("variablesReference", reference);
+    c.request("variables", a);
+    if (c.response("variables", m))
+        for (const json::Value& v : m["body"]["variables"].elements())
+            if (v["name"].asString() == name) return v;
+    return json::Value::object();
+}
+
+json::Value topFrame(Client& c, int threadId) {
+    json::Value a = json::Value::object(), m;
+    a.set("threadId", threadId);
+    c.request("stackTrace", a);
+    return c.response("stackTrace", m) ? m["body"]["stackFrames"][0] : json::Value::object();
+}
+
+void goOn(Client& c) {
+    json::Value a = json::Value::object(), m;
+    a.set("threadId", 1);
+    c.request("continue", a);
+    c.response("continue", m);
+}
+
+}  // namespace
+
+// Setting variables while stopped: a local and a table's field (self.step), their new values used from there on
+TEST(lua_debugger_sets_variables) {
+    test::ImGuiContextGuard imgui;
+    scripting::reset();
+    std::string error;
+    REQUIRE(scripting::define("Counter", kCounter, error));
+    REQUIRE(scripting::debugger::listen(0, error));
+    Scene s;
+    s.create("C").behaviours.emplace_back(createBehaviour("Counter"));
+    Game g;
+    g.start(s, meshes());
+    struct Seen {
+        std::string setLocal, setField, count, step, refused;
+        bool ok = false;
+    } seen;
+    withClient(g, scripting::debugger::port(), [&](Client& c, std::atomic<bool>& go) {
+        json::Value m;
+        c.request("setBreakpoints", breakpointsOn("scripts/Counter.lua", {breakpoint(5)}));
+        c.response("setBreakpoints", m);
+        c.request("configurationDone");
+        c.response("configurationDone", m);
+        go = true;
+        if (!c.event("stopped", m)) return;
+        int locals = scopeRef(c, 1, 0);
+        json::Value a = json::Value::object();
+        a.set("variablesReference", locals);
+        a.set("name", "before");
+        a.set("value", "100");
+        c.request("setVariable", a);
+        if (c.response("setVariable", m)) seen.setLocal = m["body"]["value"].asString();
+        int self = variable(c, locals, "self")["variablesReference"].asInt();
+        json::Value f = json::Value::object();
+        f.set("variablesReference", self);
+        f.set("name", "step");
+        f.set("value", "before // 10");   // (an expression, in the frame stopped in)
+        c.request("setVariable", f);
+        if (c.response("setVariable", m)) seen.setField = m["body"]["value"].asString();
+        json::Value bad = json::Value::object();
+        bad.set("variablesReference", locals);
+        bad.set("name", "nothing");
+        bad.set("value", "1");
+        c.request("setVariable", bad);
+        if (c.response("setVariable", m) && !m["success"].asBool()) seen.refused = m["message"].asString();
+        goOn(c);
+        if (!c.event("stopped", m)) return;   // (the next update: the count went on from 100 + 10)
+        seen.count = evaluated(c, "self.count");
+        seen.step = evaluated(c, "self.step");
+        c.request("setBreakpoints", breakpointsOn("scripts/Counter.lua", {}));
+        c.response("setBreakpoints", m);
+        goOn(c);
+        c.request("disconnect");
+        c.response("disconnect", m);
+        seen.ok = true;
+    });
+    CHECK(seen.ok);
+    CHECK(seen.setLocal == "100");
+    CHECK(seen.setField == "10");
+    CHECK(seen.count == "110");
+    CHECK(seen.step == "10");
+    CHECK(seen.refused.find("nothing") != std::string::npos);
+    scripting::debugger::stop();
+    g.stop();
+    scripting::reset();
+}
+
+// Data breakpoints: a table's field watched stops the game on the line after it changes, saying to what; locals
+// can't be watched
+TEST(lua_debugger_data_breakpoints) {
+    test::ImGuiContextGuard imgui;
+    scripting::reset();
+    std::string error;
+    REQUIRE(scripting::define("Counter", kCounter, error));
+    REQUIRE(scripting::debugger::listen(0, error));
+    Scene s;
+    s.create("C").behaviours.emplace_back(createBehaviour("Counter"));
+    Game g;
+    g.start(s, meshes());
+    struct Seen {
+        std::string reason, text, count, text2, localId;
+        int line = 0;
+        bool ok = false, localNull = false;
+    } seen;
+    withClient(g, scripting::debugger::port(), [&](Client& c, std::atomic<bool>& go) {
+        json::Value m;
+        c.request("setBreakpoints", breakpointsOn("scripts/Counter.lua", {breakpoint(4)}));
+        c.response("setBreakpoints", m);
+        c.request("configurationDone");
+        c.response("configurationDone", m);
+        go = true;
+        if (!c.event("stopped", m)) return;
+        int locals = scopeRef(c, 1, 0);
+        json::Value li = json::Value::object();
+        li.set("variablesReference", locals);
+        li.set("name", "dt");
+        c.request("dataBreakpointInfo", li);
+        if (c.response("dataBreakpointInfo", m)) seen.localNull = m["body"]["dataId"].isNull();
+        int self = variable(c, locals, "self")["variablesReference"].asInt();
+        json::Value info = json::Value::object();
+        info.set("variablesReference", self);
+        info.set("name", "count");
+        c.request("dataBreakpointInfo", info);
+        if (!c.response("dataBreakpointInfo", m)) return;
+        std::string id = m["body"]["dataId"].asString();
+        json::Value set = json::Value::object(), list = json::Value::array(), one = json::Value::object();
+        one.set("dataId", id);
+        list.push(one);
+        set.set("breakpoints", list);
+        c.request("setDataBreakpoints", set);
+        c.response("setDataBreakpoints", m);
+        c.request("setBreakpoints", breakpointsOn("scripts/Counter.lua", {}));   // (only the watch now)
+        c.response("setBreakpoints", m);
+        goOn(c);
+        if (!c.event("stopped", m)) return;
+        seen.reason = m["body"]["reason"].asString();
+        seen.text = m["body"]["text"].asString();
+        seen.line = topFrame(c, 1)["line"].asInt();
+        seen.count = evaluated(c, "self.count");
+        goOn(c);
+        if (!c.event("stopped", m)) return;   // (the next update changes it again)
+        seen.text2 = m["body"]["text"].asString();
+        set.set("breakpoints", json::Value::array());
+        c.request("setDataBreakpoints", set);
+        c.response("setDataBreakpoints", m);
+        goOn(c);
+        c.request("disconnect");
+        c.response("disconnect", m);
+        seen.ok = true;
+    });
+    CHECK(seen.ok);
+    CHECK(seen.localNull);
+    CHECK(seen.reason == "data breakpoint");
+    CHECK(seen.line == 6);   // (line 5 changed it)
+    REQUIRE(!seen.count.empty());
+    CHECK(seen.text == "count changed: now " + seen.count);
+    REQUIRE(seen.text2.rfind("count changed: now ", 0) == 0);
+    CHECK(std::stod(seen.text2.substr(19)) == std::stod(seen.count) + 2.0);
+    scripting::debugger::stop();
+    g.stop();
+    scripting::reset();
+}
+
+// Coroutines are threads of their own: a breakpoint inside one stops in it (its stack, its locals), the main
+// thread's stack shows where it was resumed, and a suspended one's stack and locals can be looked at
+TEST(lua_debugger_coroutines) {
+    test::ImGuiContextGuard imgui;
+    scripting::reset();
+    std::string error;
+    REQUIRE(scripting::define("Worker", R"lua(local Worker = {}
+function Worker:start()
+    self.co = coroutine.create(function()
+        local k = 0
+        while true do
+            k = k + 1
+            coroutine.yield(k)
+        end
+    end)
+    self.wrapped = coroutine.wrap(function() local j = 10 while true do j = j + 1 coroutine.yield(j) end end)
+end
+function Worker:update(dt)
+    local ok, v = coroutine.resume(self.co)
+    self.last = v
+    self.w = self.wrapped()
+end
+return Worker
+)lua", error));
+    REQUIRE(scripting::debugger::listen(0, error));
+    Scene s;
+    s.create("W").behaviours.emplace_back(createBehaviour("Worker"));
+    Game g;
+    g.start(s, meshes());
+    struct Seen {
+        int stoppedThread = 0, line = 0, mainLine = 0, threads = 0, suspendedLine = 0;
+        std::string k, j, suspendedName;
+        bool ok = false;
+    } seen;
+    withClient(g, scripting::debugger::port(), [&](Client& c, std::atomic<bool>& go) {
+        json::Value m;
+        c.request("setBreakpoints", breakpointsOn("scripts/Worker.lua", {breakpoint(6, "hitCondition", "2")}));
+        c.response("setBreakpoints", m);
+        c.request("configurationDone");
+        c.response("configurationDone", m);
+        go = true;
+        if (!c.event("stopped", m)) return;
+        seen.stoppedThread = m["body"]["threadId"].asInt();
+        json::Value top = topFrame(c, seen.stoppedThread);
+        seen.line = top["line"].asInt();
+        seen.k = evaluated(c, "k", top["id"].asInt());
+        seen.mainLine = topFrame(c, 1)["line"].asInt();
+        c.request("threads");
+        if (c.response("threads", m)) {
+            seen.threads = (int)m["body"]["threads"].size();
+            for (const json::Value& t : m["body"]["threads"].elements()) {
+                if (t["name"].asString().find("suspended") == std::string::npos) continue;
+                seen.suspendedName = t["name"].asString();
+                json::Value st = topFrame(c, t["id"].asInt());
+                seen.suspendedLine = st["line"].asInt();
+                seen.j = evaluated(c, "j", st["id"].asInt());
+            }
+        }
+        c.request("setBreakpoints", breakpointsOn("scripts/Worker.lua", {}));
+        c.response("setBreakpoints", m);
+        goOn(c);
+        c.request("disconnect");
+        c.response("disconnect", m);
+        seen.ok = true;
+    });
+    CHECK(seen.ok);
+    CHECK(seen.stoppedThread > 1);
+    CHECK(seen.line == 6);
+    CHECK(seen.k == "1");          // (its second time round: k was 1, line 6 not run yet)
+    CHECK(seen.mainLine == 13);    // (the main thread: in update, resuming it)
+    CHECK(seen.threads == 3);      // the main one, the one stopped in, the wrapped one
+    CHECK(seen.suspendedName.find("Coroutine") == 0);
+    CHECK(seen.suspendedLine == 10);
+    CHECK(seen.j == "11");         // (it yielded 11 once)
+    scripting::debugger::stop();
     g.stop();
     scripting::reset();
 }

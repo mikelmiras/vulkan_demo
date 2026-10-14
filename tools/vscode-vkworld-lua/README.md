@@ -1,7 +1,8 @@
 # vkworld Lua debugger for VS Code
 
-Debug a game's Lua scripts (`scripts/*.lua`) while it runs: breakpoints, stepping, the stack, locals and upvalues,
-tables to expand, watches and hovers.
+Debug a game's Lua scripts (`scripts/*.lua`) while it runs: breakpoints (conditions, hit counts, logpoints),
+stepping, the stack, locals and upvalues, tables to expand, watches and hovers, setting variables, data breakpoints
+on a table's fields, and coroutines as threads.
 
 1. Install: copy this folder into your VS Code extensions folder (`~/.vscode/extensions/vkworld-lua`, or
    `%USERPROFILE%\.vscode\extensions\vkworld-lua` on Windows) and restart VS Code. (No dependencies to install.)

@@ -148,25 +148,34 @@ void drawProfilerWindow(bool* open, const std::filesystem::path& traceFolder) {
     bool sampling = scripting::sampling();
     if (ImGui::Checkbox("Sample Lua functions", &sampling)) scripting::setSampling(sampling);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Every 1000 Lua instructions, the function running gets a sample: where inside the scripts the work is");
+        ImGui::SetTooltip("Every millisecond a script runs, the function and line running get a sample: where the time goes "
+                          "(a slow call counts as the line that made it)");
     ImGui::SameLine();
     if (ImGui::SmallButton("Clear")) scripting::clearSamples();
+    static bool byLine = false;
+    ImGui::SameLine();
+    ImGui::Checkbox("By line", &byLine);
     std::vector<scripting::Sample> samples = scripting::samples();
+    std::vector<scripting::LineSample> lines = scripting::lineSamples();
     int all = 0;
     for (const scripting::Sample& sm : samples) all += sm.count;
-    if (!samples.empty() && ImGui::BeginTable("##samples", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("Function");
-        ImGui::TableSetupColumn("samples");
+    double sampleMs = scripting::sampleSeconds() * 1000.0;
+    size_t rows = byLine ? lines.size() : samples.size();
+    if (rows > 0 && ImGui::BeginTable("##samples", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn(byLine ? "Line" : "Function");
+        ImGui::TableSetupColumn("ms");
         ImGui::TableSetupColumn("share");
         ImGui::TableHeadersRow();
-        for (size_t i = 0; i < samples.size() && i < 30; ++i) {
+        for (size_t i = 0; i < rows && i < 30; ++i) {
+            int count = byLine ? lines[i].count : samples[i].count;
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(samples[i].function.c_str());
+            if (byLine) ImGui::Text("%s:%d", lines[i].file.c_str(), lines[i].line);
+            else ImGui::TextUnformatted(samples[i].function.c_str());
             ImGui::TableNextColumn();
-            ImGui::Text("%d", samples[i].count);
+            ImGui::Text("%.0f", count * sampleMs);
             ImGui::TableNextColumn();
-            ImGui::Text("%.1f %%", 100.0 * samples[i].count / std::max(all, 1));
+            ImGui::Text("%.1f %%", 100.0 * count / std::max(all, 1));
         }
         ImGui::EndTable();
     }

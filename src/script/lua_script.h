@@ -66,8 +66,9 @@ float timeLimit();
 
 // Profiling: every callback runs in a profiler scope named after it ("Door.update": all its instances' calls
 // together; core/profiler.h, in the profiler window and traces). Sampling, while on, tells where inside the scripts
-// the time goes: every 1000 Lua instructions, the function running then gets a sample ("Door.lua:12 open"; C
-// functions too, "print [C]"). It counts instructions, not time: a slow C call is one sample like a quick one.
+// the time goes: every millisecond of wall-clock time while a script runs, the function and line running get a
+// sample ("Door.lua:12 open", line 15). Time, not instructions: a slow C call (string.rep, a raycast) counts as
+// the line that called it, for as long as it takes.
 void setSampling(bool on);
 bool sampling();
 struct Sample {
@@ -75,6 +76,13 @@ struct Sample {
     int count = 0;
 };
 std::vector<Sample> samples();   // most first, since clearSamples()
+struct LineSample {
+    std::string file;   // "Door.lua"
+    int line = 0;
+    int count = 0;
+};
+std::vector<LineSample> lineSamples();   // most first
+double sampleSeconds();                  // the time each sample stands for
 void clearSamples();
 
 }  // namespace scripting

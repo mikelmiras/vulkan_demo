@@ -2,6 +2,7 @@
 #include "script/lua_debugger.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -11,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <thread>
 #include <unordered_map>
 
 #include "core/log.h"
@@ -148,7 +150,9 @@ struct CallScope {
 // ---------------------------------------------------------------------------------------------
 // The time limit: the outermost Lua call's start, checked every few thousand instructions by the hook
 float g_timeLimit = 0.5f;
-int g_callDepth = 0;
+std::atomic<int> g_callDepth{0};
+std::atomic<lua_State*> g_running{nullptr};   // the thread running Lua now: the main one, or a coroutine resumed
+std::mutex g_hookMutex;                       // (hooks set from the sampler's thread and from here)
 std::chrono::steady_clock::time_point g_callStart;
 
 void notCounted(double seconds) {   // (time the debugger held the game: not the script's)
@@ -165,27 +169,47 @@ int traceback(lua_State* L) {
     return 1;
 }
 
-// Sampling (scripting::setSampling): every kSampleEvery instructions, the function running gets a sample
-constexpr int kSampleEvery = 1000;
-bool g_sampling = false;
+// Sampling (scripting::setSampling): a thread of its own wakes every millisecond and, while a script runs, asks the
+// hook for a sample at the next instruction (lua_sethook may be called from another thread, as from a signal): the
+// function and line running then. Wall-clock time: a slow C call shows as the line that called it.
+constexpr double kSampleSeconds = 0.001;
+std::atomic<bool> g_sampling{false}, g_sampleDue{false};
+std::thread g_sampler;
 struct Sampled {
     std::string function;
     int count = 0;
 };
 std::unordered_map<const void*, Sampled> g_samples;   // by the function's identity
+std::map<std::pair<std::string, int>, int> g_lineSamples;   // by file and line
+
+void hook(lua_State* L, lua_Debug* ar);
+int hookMask() { return LUA_MASKCOUNT | (scripting::debugger::wantsLines() ? LUA_MASKLINE : 0); }
 
 void sample(lua_State* L, lua_Debug* ar) {
-    if (!lua_getinfo(L, "Snf", ar)) return;
+    if (!lua_getinfo(L, "Snlf", ar)) return;
     Sampled& s = g_samples[lua_topointer(L, -1)];
     lua_pop(L, 1);
+    std::string src = ar->source && ar->source[0] == '@' ? std::string(ar->source + 1) : std::string(ar->short_src);
+    src = src.substr(src.find_last_of("/\\") + 1);
     if (s.function.empty()) {   // ("Door.lua:12 open", "Door.lua (main chunk)", "print [C]")
-        std::string src = ar->source && ar->source[0] == '@' ? std::string(ar->source + 1) : std::string(ar->short_src);
-        src = src.substr(src.find_last_of("/\\") + 1);
         if (std::string(ar->what) == "C") s.function = std::string(ar->name ? ar->name : "?") + " [C]";
         else if (std::string(ar->what) == "main") s.function = src + " (main chunk)";
         else s.function = src + ":" + std::to_string(ar->linedefined) + (ar->name ? " " + std::string(ar->name) : "");
     }
     ++s.count;
+    if (ar->currentline > 0) ++g_lineSamples[{src, ar->currentline}];
+}
+
+void samplerLoop() {
+    while (g_sampling) {
+        std::this_thread::sleep_for(std::chrono::duration<double>(kSampleSeconds));
+        std::lock_guard<std::mutex> lock(g_hookMutex);
+        lua_State* L = g_running;
+        if (g_callDepth > 0 && L && !g_sampleDue) {
+            g_sampleDue = true;
+            lua_sethook(L, hook, lua_gethookmask(L) | LUA_MASKCOUNT, 1);   // (at the next instruction)
+        }
+    }
 }
 
 void hook(lua_State* L, lua_Debug* ar) {
@@ -193,7 +217,11 @@ void hook(lua_State* L, lua_Debug* ar) {
         notCounted(scripting::debugger::onLine(L, ar));
         return;
     }
-    if (g_sampling) sample(L, ar);
+    if (g_sampleDue.exchange(false)) {
+        sample(L, ar);
+        std::lock_guard<std::mutex> lock(g_hookMutex);
+        lua_sethook(L, hook, hookMask(), 10000);   // (back to the time limit's)
+    }
     if (g_timeLimit > 0.f && g_callDepth > 0 &&
         std::chrono::duration<float>(std::chrono::steady_clock::now() - g_callStart).count() > g_timeLimit)
         luaL_error(L, "ran for over %d ms: stopped (an endless loop?)", (int)(g_timeLimit * 1000.f));
@@ -204,7 +232,10 @@ bool pcall(lua_State* L, int nargs, int nresults, std::string& error) {
     int base = lua_gettop(L) - nargs;
     lua_pushcfunction(L, traceback);
     lua_insert(L, base);
-    if (g_callDepth++ == 0) g_callStart = std::chrono::steady_clock::now();
+    if (g_callDepth++ == 0) {
+        g_callStart = std::chrono::steady_clock::now();
+        g_running = L;
+    }
     int r = lua_pcall(L, nargs, nresults, base);
     --g_callDepth;
     lua_remove(L, base);
@@ -1426,6 +1457,78 @@ int luaRequire(lua_State* L) {
 
 void setFunctions(lua_State* L, const luaL_Reg* fns) { luaL_setfuncs(L, fns, 0); }
 
+// Coroutines, tracked: each one made is kept (weakly) in the registry's "vkw.threads" for the debugger (threads of
+// their own, its hook on each), and a resume says which thread runs (for the sampler)
+int coCreate(lua_State* L) {
+    lua_pushvalue(L, lua_upvalueindex(1));   // the library's create
+    lua_insert(L, 1);
+    lua_call(L, lua_gettop(L) - 1, 1);
+    lua_State* co = lua_tothread(L, -1);
+    if (co) {
+        lua_getfield(L, LUA_REGISTRYINDEX, "vkw.threads");
+        lua_pushvalue(L, -2);
+        lua_pushboolean(L, 1);
+        lua_rawset(L, -3);
+        lua_pop(L, 1);
+        std::lock_guard<std::mutex> lock(g_hookMutex);
+        lua_sethook(co, hook, hookMask(), 10000);
+    }
+    return 1;
+}
+
+int coResume(lua_State* L) {
+    lua_State* co = lua_tothread(L, 1);
+    luaL_argexpected(L, co, 1, "coroutine");
+    lua_State* was;
+    {
+        std::lock_guard<std::mutex> lock(g_hookMutex);
+        was = g_running.exchange(co);
+    }
+    lua_pushvalue(L, lua_upvalueindex(1));   // the library's resume (it catches the coroutine's errors)
+    lua_insert(L, 1);
+    lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+    std::lock_guard<std::mutex> lock(g_hookMutex);
+    g_running = was;
+    return lua_gettop(L);
+}
+
+const char* kCoroutineWrap = R"lua(local create, resume = ...
+return function(f)
+    local co = create(f)
+    return function(...)
+        local r = table.pack(resume(co, ...))
+        if not r[1] then error(r[2], 2) end
+        return table.unpack(r, 2, r.n)
+    end
+end
+)lua";
+
+void trackCoroutines(lua_State* L) {
+    lua_newtable(L);   // (weak keys: a coroutine nobody holds goes)
+    lua_newtable(L);
+    lua_pushstring(L, "k");
+    lua_setfield(L, -2, "__mode");
+    lua_setmetatable(L, -2);
+    lua_setfield(L, LUA_REGISTRYINDEX, "vkw.threads");
+    lua_getglobal(L, "coroutine");
+    int co = lua_gettop(L);
+    lua_getfield(L, co, "create");
+    lua_pushcclosure(L, coCreate, 1);
+    lua_setfield(L, co, "create");
+    lua_getfield(L, co, "resume");
+    lua_pushcclosure(L, coResume, 1);
+    lua_setfield(L, co, "resume");
+    if (luaL_loadbufferx(L, kCoroutineWrap, std::strlen(kCoroutineWrap), "=coroutine.wrap", "t") == LUA_OK) {
+        lua_getfield(L, co, "create");
+        lua_getfield(L, co, "resume");
+        lua_call(L, 2, 1);
+        lua_setfield(L, co, "wrap");
+    } else {
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+}
+
 lua_State* state() {
     Engine& e = eng();
     if (e.L) return e.L;
@@ -1444,6 +1547,7 @@ lua_State* state() {
         lua_pushnil(L);
         lua_setglobal(L, unsafe);
     }
+    trackCoroutines(L);
     lua_pushcfunction(L, gLog);
     lua_setglobal(L, "print");
     lua_newtable(L);
@@ -1795,8 +1899,12 @@ namespace scripting {
 void reset() {
     Engine& e = eng();
     unregisterModuleBehaviours("lua");
-    if (e.L) lua_close(e.L);
-    e.L = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(g_hookMutex);   // (the sampler sees no state from here on)
+        g_running = nullptr;
+        if (e.L) lua_close(e.L);
+        e.L = nullptr;
+    }
     ++e.stateId;
     {
         std::lock_guard<std::mutex> lock(e.typesMutex);
@@ -1805,6 +1913,7 @@ void reset() {
     e.errors.clear();
     e.root.clear();
     g_samples.clear();   // (its functions are gone: their addresses may come back as others)
+    g_lineSamples.clear();
 }
 
 int loadProject(const fs::path& projectRoot) {
@@ -1910,6 +2019,9 @@ float timeLimit() { return g_timeLimit; }
 void setSampling(bool on) {
     if (g_sampling == on) return;
     g_sampling = on;
+    if (on) g_sampler = std::thread(samplerLoop);
+    else if (g_sampler.joinable()) g_sampler.join();
+    g_sampleDue = false;
     refreshHook();
 }
 bool sampling() { return g_sampling; }
@@ -1923,13 +2035,47 @@ std::vector<Sample> samples() {
     return out;
 }
 
-void clearSamples() { g_samples.clear(); }
+std::vector<LineSample> lineSamples() {
+    std::vector<LineSample> out;
+    for (const auto& [at, count] : g_lineSamples) out.push_back({at.first, at.second, count});
+    std::sort(out.begin(), out.end(), [](const LineSample& a, const LineSample& b) {
+        return a.count != b.count ? a.count > b.count : a.file != b.file ? a.file < b.file : a.line < b.line;
+    });
+    return out;
+}
 
-// The hook: instruction counts for the time limit, and line events while the debugger wants them
+double sampleSeconds() { return kSampleSeconds; }
+
+void clearSamples() {
+    g_samples.clear();
+    g_lineSamples.clear();
+}
+
+std::vector<lua_State*> coroutines() {
+    std::vector<lua_State*> out;
+    lua_State* L = eng().L;
+    if (!L || lua_getfield(L, LUA_REGISTRYINDEX, "vkw.threads") != LUA_TTABLE) {
+        if (L) lua_pop(L, 1);
+        return out;
+    }
+    lua_pushnil(L);
+    while (lua_next(L, -2) != 0) {
+        lua_pop(L, 1);
+        if (lua_State* co = lua_tothread(L, -1)) out.push_back(co);
+    }
+    lua_pop(L, 1);
+    return out;
+}
+
+// The hook on every thread: instruction counts for the time limit, and line events while the debugger wants them
 void refreshHook() {
     lua_State* L = eng().L;
     if (!L) return;
-    lua_sethook(L, hook, LUA_MASKCOUNT | (debugger::wantsLines() ? LUA_MASKLINE : 0), g_sampling ? kSampleEvery : 10000);
+    std::vector<lua_State*> threads = coroutines();
+    threads.push_back(L);
+    std::lock_guard<std::mutex> lock(g_hookMutex);
+    for (lua_State* t : threads) lua_sethook(t, hook, hookMask(), 10000);
+    g_sampleDue = false;
 }
 
 lua_State* luaState() { return state(); }

@@ -1287,13 +1287,22 @@ you continue.
 - **Script errors**: with the *Script errors* exception filter on (the default, in VS Code's Breakpoints view), the
   game stops where a script raises an error, before it's reported: the frame that raised it, its locals, the message
   (and its traceback in the exception's details). Continuing reports the error as usual.
+- **Setting variables** while stopped (VS Code: *Set Value* on a variable): a local, an upvalue or a table's field
+  (`self.step`) takes an expression's value, evaluated in its frame (`before // 10`); the script goes on with it.
+- **Data breakpoints** (*Break on Value Change* on a table's field, `self.count`): the game stops on the line after
+  the one that changed it, saying what it is now (`count changed: now 4`). Locals can't be watched (they're gone once
+  their function returns): watch a field.
+- **Coroutines** are threads of their own (in VS Code's Call Stack): a breakpoint inside one stops there, with its
+  stack and locals; the main thread's stack shows where it was resumed; suspended coroutines can be looked into
+  (their stack, where they yielded, and their locals). `coroutine.create`, `wrap` and `resume` are tracked for this.
 
 **Profiling**: every script callback is a profiler scope named after the script and the callback (`Door.update`,
 all its instances' calls together), so they appear where they run in the profiler window (View > Profiler, F3), in
 saved traces, and in its *Scripts* section, slowest first with how many calls each made last frame. *Sample Lua
-functions* there tells where inside the scripts the work is: every 1000 Lua instructions, the function running then
-gets a sample (`Door.lua:12 open`, `print [C]` for C functions), listed with their share. Samples count
-instructions, not time: a slow call into the engine is one sample like a quick one.
+functions* there tells where inside the scripts the time goes: every millisecond a script runs, the function and
+line running then get a sample (a thread of its own asks for it), listed by function (`Door.lua:12 open`) or, with
+*By line*, by line (`Door.lua:15`), with their milliseconds and share. It's wall-clock time: a slow call into the
+engine (a raycast, `string.rep` of megabytes) counts against the line that made it, for as long as it took.
 
 ## Controls
 

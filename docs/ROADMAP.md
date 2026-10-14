@@ -1020,7 +1020,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 71 (done) | Physics: tearing mesh soft bodies, water with waves and currents (a V-HACD-style decomposition and tears across triangles left for later) | Concave pieces split by halving; only cloth tears; still water only |
 | 72 (done) | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
 | 73 (done) | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
-| 74 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
+| 74 (done) | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
 | 75 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
 | 76 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
 | 77 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
@@ -1288,3 +1288,22 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   Windows (only CI's build: the report layouts are the drivers' and dekuNukem's, untested here), the Pro
   Controller's stick calibration (a fixed range) and rumble, Sony pads' output over Bluetooth (needs the CRC'd 0x11
   / 0x31 reports), Joy-Cons, menus answering HID and XInput pads at once, swapping bindings on a conflict.
+- **74, scripting tools**: setVariable (DAP): a local (the innermost of that name), an upvalue or a table's field
+  (raw set; keys as the Variables view shows them: "[3]", "[true]") gets an expression's value, evaluated in its
+  frame. Coroutines: coroutine.create / resume wrapped (wrap rebuilt in Lua on them) so each coroutine is kept in a
+  weak registry table and gets the hook (refreshHook sets it on every thread: Lua 5.4's hooks are per thread);
+  threads lists the main thread and the coroutines still alive; frame ids carry their thread (id * 10000 + level +
+  1; under 10000: the stopped thread, as before), and frames of another thread are read there and their values
+  moved over (lua_xmove) to be described or evaluated on the stopped one; other threads' stacks start at their
+  script (past resume / yield). Data breakpoints: dataBreakpointInfo on a table's field keeps a reference to the
+  table and the key; setDataBreakpoints records each field's value; while any are set the line hook compares
+  (rawequal) on every line and stops on the first change ("count changed: now 4"). Sampling: a thread wakes every
+  millisecond and, while a callback runs (an atomic depth), sets a one-instruction count hook on the thread running
+  (tracked through resume, under a mutex that lua_close and the hooks' changes take too); the hook takes the sample
+  (function and line) and puts the usual hook back. The profiler window shows milliseconds, by function or by line.
+  Checked: setting a local, a field (with an expression) and an unknown name refused; a watched field stopping on the
+  line after each change; a breakpoint in a coroutine (its thread, stack and locals, the main thread's stack at the
+  resume, a suspended wrap()'s stack and locals); sampling putting a string.rep line ahead of a busier quick loop.
+  Not done: watching locals or globals, a variable's change made by C code noticed only at the next Lua line,
+  stepping across a yield into the resumer, evaluating with side effects refused (expressions run as they are),
+  samples of C functions themselves (they go to the calling line).
