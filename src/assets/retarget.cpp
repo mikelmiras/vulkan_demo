@@ -118,7 +118,242 @@ void retargetMatched(const AnimationClip& clip, const Skeleton& from, const Skel
     }
 }
 
+// The tracks of a clip by bone (null: none)
+std::vector<const AnimationTrack*> tracksFor(const Skeleton& s, const AnimationClip& clip) {
+    std::vector<const AnimationTrack*> out(s.bones.size(), nullptr);
+    for (const AnimationTrack& t : clip.tracks)
+        if (int i = s.find(t.target); i >= 0) out[(size_t)i] = &t;
+    return out;
+}
+
+// A skeleton posed by a clip at `time`, in its own space: world rotations and positions (untracked parts at rest)
+void posed(const Skeleton& s, const std::vector<const AnimationTrack*>& tracks, float time, std::vector<Quat>& rot,
+           std::vector<Vec3>& pos) {
+    rot.resize(s.bones.size());
+    pos.resize(s.bones.size());
+    for (size_t i = 0; i < s.bones.size(); ++i) {
+        const Skeleton::Bone& b = s.bones[i];
+        Quat r = b.rotation;
+        Vec3 t = b.translation;
+        if (tracks[i]) {
+            AnimationPose p = sampleTrack(*tracks[i], time);
+            if (p.hasRotation) r = p.rotation;
+            if (p.hasTranslation) t = p.translation;
+        }
+        if (b.parent < 0) {
+            rot[i] = normalizeQuat(r);
+            pos[i] = t;
+        } else {
+            rot[i] = normalizeQuat(rot[(size_t)b.parent] * r);
+            pos[i] = pos[(size_t)b.parent] + rotate(rot[(size_t)b.parent], t);
+        }
+    }
+}
+
+// How much taller the target stands: its hips' height over the source's (the paired bone nearest the root)
+float heightRatio(const Skeleton& from, const Skeleton& to, const std::vector<std::pair<std::string, std::string>>& map,
+                  const std::vector<Vec3>& fromPos, const std::vector<Vec3>& toPos) {
+    int hipsT = -1, hipsS = -1, best = 1 << 30;
+    for (const auto& [t, s] : map) {
+        int i = to.find(t), si = from.find(s), d = 0;
+        if (i < 0 || si < 0) continue;
+        for (int p = i; p >= 0 && to.bones[(size_t)p].parent >= 0; p = to.bones[(size_t)p].parent) ++d;
+        if (d < best) best = d, hipsT = i, hipsS = si;
+    }
+    if (hipsT < 0) return 1.f;
+    float hs = hipsS == 0 ? fromPos[0].y : fromPos[(size_t)hipsS].y - fromPos[0].y;
+    float ht = hipsT == 0 ? toPos[0].y : toPos[(size_t)hipsT].y - toPos[0].y;
+    return hs > 0.01f && ht > 0.01f ? ht / hs : 1.f;
+}
+
+// Planting the feet: every 30th of a second, each leg (thigh -> calf -> foot, by humanoid keys) of the retargeted
+// clip bent by two-bone IK so its foot is where the source's is, scaled about the skeletons' roots by their heights;
+// the foot keeps its turn in the world, the knee bends the way it did
+void plantFeet(const AnimationClip& clip, const Skeleton& from, const Skeleton& to,
+               const std::vector<std::pair<std::string, std::string>>& map, const std::vector<Vec3>& fromPos,
+               const std::vector<Vec3>& toPos, AnimationClip& out) {
+    struct Leg {
+        int thigh, calf, foot, source;
+        std::vector<Quat> thighKeys, calfKeys, footKeys;
+    };
+    std::vector<Leg> legs;
+    for (const char* side : {"l", "r"}) {
+        int thigh = -1, calf = -1, foot = -1;
+        for (size_t i = 0; i < to.bones.size(); ++i) {
+            std::string k = boneKey(to.bones[i].name);
+            if (k == std::string("thigh.") + side) thigh = (int)i;
+            if (k == std::string("calf.") + side) calf = (int)i;
+            if (k == std::string("foot.") + side) foot = (int)i;
+        }
+        if (thigh < 0 || calf < 0 || foot < 0 || to.bones[(size_t)calf].parent != thigh || to.bones[(size_t)foot].parent != calf)
+            continue;
+        int source = -1;
+        for (const auto& [t, s] : map)
+            if (t == to.bones[(size_t)foot].name) source = from.find(s);
+        if (source >= 0) legs.push_back({thigh, calf, foot, source, {}, {}, {}});
+    }
+    if (legs.empty()) return;
+    float ratio = heightRatio(from, to, map, fromPos, toPos);
+    std::vector<const AnimationTrack*> sourceTracks = tracksFor(from, clip), targetTracks = tracksFor(to, out);
+    const int samples = std::max(2, (int)std::ceil(clip.duration * 30.f) + 1);
+    std::vector<Quat> rs, rt;
+    std::vector<Vec3> ps, pt;
+    for (int k = 0; k < samples; ++k) {
+        float time = std::min((float)k / 30.f, clip.duration);
+        posed(from, sourceTracks, time, rs, ps);
+        posed(to, targetTracks, time, rt, pt);
+        for (Leg& leg : legs) {
+            Quat parent = to.bones[(size_t)leg.thigh].parent >= 0 ? rt[(size_t)to.bones[(size_t)leg.thigh].parent] : Quat{};
+            Quat thighW = rt[(size_t)leg.thigh], calfW = rt[(size_t)leg.calf], footW = rt[(size_t)leg.foot];
+            Vec3 A = pt[(size_t)leg.thigh], B = pt[(size_t)leg.calf], C = pt[(size_t)leg.foot];
+            Vec3 goal = toPos[0] + (ps[(size_t)leg.source] - fromPos[0]) * ratio;
+            float ab = length(B - A), bc = length(C - B);
+            Vec3 at = goal - A;
+            Vec3 bend = (B - A) - normalize(at) * dot(B - A, normalize(at));   // (the knee's way, as it is)
+            if (ab > 1e-5f && bc > 1e-5f && length(at) > 1e-5f && length(bend) > 1e-5f) {
+                float reach = std::clamp(length(at), std::fabs(ab - bc) + 1e-4f, ab + bc - 1e-4f);
+                Vec3 dir = normalize(at), perp = normalize(bend);
+                float cosA = std::clamp((ab * ab + reach * reach - bc * bc) / (2.f * ab * reach), -1.f, 1.f);
+                Vec3 knee = A + dir * (cosA * ab) + perp * (std::sqrt(std::max(0.f, 1.f - cosA * cosA)) * ab);
+                Quat q1 = rotationBetween(B - A, knee - A);
+                thighW = normalizeQuat(q1 * thighW);
+                calfW = normalizeQuat(q1 * calfW);
+                Vec3 end = knee + rotate(q1, C - B);
+                calfW = normalizeQuat(rotationBetween(end - knee, A + dir * reach - knee) * calfW);
+            }
+            leg.thighKeys.push_back(normalizeQuat(conjugate(parent) * thighW));
+            leg.calfKeys.push_back(normalizeQuat(conjugate(thighW) * calfW));
+            leg.footKeys.push_back(normalizeQuat(conjugate(calfW) * footW));
+        }
+    }
+    auto setKeys = [&](int bone, const std::vector<Quat>& keys) {
+        AnimationTrack* track = nullptr;
+        for (AnimationTrack& t : out.tracks)
+            if (t.target == to.bones[(size_t)bone].name) track = &t;
+        if (!track) {
+            out.tracks.push_back({});
+            track = &out.tracks.back();
+            track->target = to.bones[(size_t)bone].name;
+            track->translation.width = 3;
+        }
+        track->rotation = {};
+        track->rotation.width = 4;
+        for (size_t k = 0; k < keys.size(); ++k) {
+            track->rotation.times.push_back(std::min((float)k / 30.f, clip.duration));
+            track->rotation.values.insert(track->rotation.values.end(), {keys[k].x, keys[k].y, keys[k].z, keys[k].w});
+        }
+    };
+    for (const Leg& leg : legs) {
+        setKeys(leg.thigh, leg.thighKeys);
+        setKeys(leg.calf, leg.calfKeys);
+        setKeys(leg.foot, leg.footKeys);
+    }
+}
+
+// A name's other side: "Left" <-> "Right", ".L" <-> ".R", "_l" <-> "_r" (and the like); "" if it has none
+std::string otherSide(const std::string& name) {
+    static const std::vector<std::pair<std::string, std::string>> swaps = {
+        {"Left", "Right"}, {"left", "right"}, {"LEFT", "RIGHT"}, {".L", ".R"}, {".l", ".r"}, {"_L", "_R"},
+        {"_l", "_r"}, {"L_", "R_"}, {"l_", "r_"}, {" L", " R"}, {" l", " r"}};
+    for (const auto& [a, b] : swaps) {
+        for (const auto& [x, y] : {std::make_pair(a, b), std::make_pair(b, a)}) {
+            size_t at = name.find(x);
+            if (at == std::string::npos) continue;
+            bool prefix = x.back() == '_', suffix = x.front() == '.' || x.front() == '_' || x.front() == ' ';
+            if (prefix && at != 0) continue;                                  // (L_Arm: at the start)
+            if (suffix && !prefix && at + x.size() != name.size()) continue;   // (Arm.L: at the end)
+            return name.substr(0, at) + y + name.substr(at + x.size());
+        }
+    }
+    return {};
+}
+
 }  // namespace
+
+std::vector<int> mirrorBones(const Skeleton& s) {
+    std::vector<int> out(s.bones.size());
+    for (size_t i = 0; i < s.bones.size(); ++i) {
+        out[i] = (int)i;
+        std::string key = boneKey(s.bones[i].name);
+        size_t dot = key.rfind('.');
+        if (dot != std::string::npos) {   // a humanoid bone with a side: the one with the same part, other side
+            std::string want = key.substr(0, dot + 1) + (key.substr(dot + 1) == "l" ? "r" : "l");
+            for (size_t j = 0; j < s.bones.size(); ++j)
+                if (boneKey(s.bones[j].name) == want) out[i] = (int)j;
+            if (out[i] != (int)i) continue;
+        }
+        std::string other = otherSide(s.bones[i].name);
+        if (int j = other.empty() ? -1 : s.find(other); j >= 0) out[i] = j;
+    }
+    return out;
+}
+
+AnimationClip mirrorClip(const AnimationClip& clip, const Skeleton& skeleton, const std::string& name) {
+    AnimationClip out;
+    out.name = name;
+    out.duration = clip.duration;
+    auto recipe = std::make_shared<RetargetRecipe>();
+    recipe->clip = clip.name;
+    recipe->from = recipe->to = skeleton;
+    recipe->mirror = true;
+    out.retarget = recipe;
+    std::vector<int> other = mirrorBones(skeleton);
+    std::vector<const AnimationTrack*> tracks = tracksFor(skeleton, clip);
+    std::vector<Quat> restRot;
+    std::vector<Vec3> restPos;
+    restWorld(skeleton, restRot, restPos);
+    // Mirroring across x = 0: a point's x flips; a turn's axis does too, so its quaternion is (x, -y, -z, w)
+    auto mirrorQ = [](Quat q) { return Quat{q.x, -q.y, -q.z, q.w}; };
+    auto mirrorP = [](Vec3 p) { return Vec3{-p.x, p.y, p.z}; };
+    const size_t n = skeleton.bones.size();
+    std::vector<AnimationTrack> made(n);
+    std::vector<bool> turns(n), moves(n);
+    for (size_t i = 0; i < n; ++i) {
+        const AnimationTrack* t = tracks[(size_t)other[i]];
+        turns[i] = (t && !t->rotation.empty()) || (tracks[i] && !tracks[i]->rotation.empty());
+        moves[i] = t && !t->translation.empty();
+        if (t && !t->scale.empty()) made[i].scale = t->scale;   // (scales are the same on both sides)
+    }
+    const int samples = std::max(2, (int)std::ceil(clip.duration * 30.f) + 1);
+    std::vector<Quat> rot, mrot(n);
+    std::vector<Vec3> pos, mpos(n);
+    for (int k = 0; k < samples; ++k) {
+        float time = std::min((float)k / 30.f, clip.duration);
+        posed(skeleton, tracks, time, rot, pos);
+        for (size_t i = 0; i < n; ++i) {   // (parents first)
+            size_t j = (size_t)other[i];
+            const Skeleton::Bone& b = skeleton.bones[i];
+            // Its other side's turn from rest, in the world, mirrored, applied to this bone's own rest
+            Quat delta = normalizeQuat(rot[j] * conjugate(restRot[j]));
+            mrot[i] = normalizeQuat(mirrorQ(delta) * restRot[i]);
+            Quat parent = b.parent >= 0 ? mrot[(size_t)b.parent] : Quat{};
+            Vec3 parentPos = b.parent >= 0 ? mpos[(size_t)b.parent] : Vec3{};
+            Vec3 local = b.translation;
+            if (moves[i]) local = rotate(conjugate(parent), mirrorP(pos[j]) - parentPos);
+            mpos[i] = b.parent >= 0 ? parentPos + rotate(parent, local) : local;
+            AnimationTrack& tr = made[i];
+            if (turns[i]) {
+                Quat l = normalizeQuat(conjugate(parent) * mrot[i]);
+                tr.rotation.times.push_back(time);
+                tr.rotation.values.insert(tr.rotation.values.end(), {l.x, l.y, l.z, l.w});
+            }
+            if (moves[i]) {
+                tr.translation.times.push_back(time);
+                tr.translation.values.insert(tr.translation.values.end(), {local.x, local.y, local.z});
+            }
+        }
+    }
+    for (size_t i = 0; i < n; ++i) {
+        AnimationTrack& tr = made[i];
+        if (tr.rotation.empty() && tr.translation.empty() && tr.scale.empty()) continue;
+        tr.target = skeleton.bones[i].name;
+        tr.rotation.width = 4;
+        tr.translation.width = 3;
+        out.tracks.push_back(std::move(tr));
+    }
+    compressClip(out);
+    return out;
+}
 
 Skeleton skeletonOf(const Scene& scene, EntityId root) {
     Skeleton s;
@@ -229,7 +464,7 @@ std::vector<std::pair<std::string, std::string>> mapBones(const Skeleton& from, 
 
 AnimationClip retargetClip(const AnimationClip& clip, const Skeleton& from, const Skeleton& to,
                            const std::vector<std::pair<std::string, std::string>>& map, const std::string& name,
-                           bool matchRestPose) {
+                           bool matchRestPose, bool feet) {
     AnimationClip out;
     out.name = name;
     out.duration = clip.duration;
@@ -239,6 +474,7 @@ AnimationClip retargetClip(const AnimationClip& clip, const Skeleton& from, cons
     recipe->to = to;
     recipe->map = map;
     recipe->matchRestPose = matchRestPose;
+    recipe->plantFeet = feet;
     out.retarget = recipe;
     std::vector<Quat> fromRot, toRot;
     std::vector<Vec3> fromPos, toPos;
@@ -246,6 +482,7 @@ AnimationClip retargetClip(const AnimationClip& clip, const Skeleton& from, cons
     restWorld(to, toRot, toPos);
     if (matchRestPose) {
         retargetMatched(clip, from, to, map, fromRot, fromPos, toRot, toPos, out);
+        if (feet) plantFeet(clip, from, to, map, fromPos, toPos, out);
         compressClip(out);
         return out;
     }
@@ -299,6 +536,7 @@ AnimationClip retargetClip(const AnimationClip& clip, const Skeleton& from, cons
         track.translation.width = 3;
         if (!track.rotation.empty() || !track.translation.empty()) out.tracks.push_back(std::move(track));
     }
+    if (feet) plantFeet(clip, from, to, map, fromPos, toPos, out);
     compressClip(out);
     return out;
 }

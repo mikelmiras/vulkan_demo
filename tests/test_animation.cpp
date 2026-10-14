@@ -271,6 +271,64 @@ TEST(animation_event_sounds) {
     CHECK_NEAR(ev.volume, 0.8, 1e-6);
 }
 
+// Events' particles and camera shakes: a burst from the entity's emitter at the event, the camera shaken (and settling
+// within a second or so), none for a camera far away; kept when saved
+TEST(animation_event_particles_and_shake) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary meshes = buildMeshLibrary();
+    for (float camAt : {2.f, 60.f}) {
+        Scene s;
+        REQUIRE(barScene(meshes, s));
+        Entity& root = *s.findByName("bending_bar");
+        ParticleEmitter dust;
+        dust.rate = 0.f;   // (bursts only)
+        dust.lifetime = 2.f;
+        root.particleEmitter = dust;
+        AnimationEvent slam{"bending_bar/Bend", 0.5f, "slam"};
+        slam.particles = 12;
+        slam.shake = 0.8f;
+        root.animator->events = {slam};
+        Entity& cam = s.create("Camera");
+        cam.camera = Camera{};
+        cam.transform.position[2] = camAt;
+        Game g;
+        g.start(s, meshes);
+        steps(g, 20);
+        CHECK(g.particles().count() == 0);
+        CHECK(g.trauma() == 0.f);
+        CameraView still;
+        REQUIRE(g.activeCamera(still));
+        steps(g, 12);   // past half a second
+        CameraView shaken;
+        REQUIRE(g.activeCamera(shaken));
+        CHECK(g.particles().count() == 12);   // (from the entity's emitter, whatever the distance)
+        if (camAt < 10.f) {
+            CHECK(g.trauma() > 0.5f);
+            float moved = 0.f;
+            for (int k = 0; k < 16; ++k) moved = std::max(moved, std::fabs(shaken.view.m[k] - still.view.m[k]));
+            CHECK(moved > 1e-3f);   // (the view turned and moved a little)
+            steps(g, 40);           // (another two thirds of a second: settled)
+            CHECK(g.trauma() == 0.f);
+            CameraView after;
+            REQUIRE(g.activeCamera(after));
+            for (int k = 0; k < 16; ++k) CHECK_NEAR(after.view.m[k], still.view.m[k], 1e-5);
+        } else {
+            CHECK(g.trauma() == 0.f);   // too far to feel it
+        }
+        g.stop();
+        TextureLibrary tex;
+        json::Value doc = sceneToJson(s, meshes, tex);
+        Scene back;
+        std::string error;
+        MeshLibrary again = buildMeshLibrary();
+        REQUIRE(barScene(again, back));
+        REQUIRE(sceneFromJson(doc, back, again, tex, error));
+        const AnimationEvent& ev = back.findByName("bending_bar")->animator->events.at(0);
+        CHECK(ev.particles == 12);
+        CHECK_NEAR(ev.shake, 0.8, 1e-6);
+    }
+}
+
 // A state machine: parameters and clip ends move it between states, with cross-fades
 TEST(animation_state_machine) {
     test::ImGuiContextGuard imgui;

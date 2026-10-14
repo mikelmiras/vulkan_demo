@@ -188,6 +188,7 @@ set(ENGINE_SOURCES
   src/game/line_break.cpp
   src/game/ui_layout.cpp
   src/game/animation.cpp
+  src/game/camera_shake.cpp
   src/game/particles.cpp
   src/game/navigation.cpp
   src/game/scene_loader.cpp

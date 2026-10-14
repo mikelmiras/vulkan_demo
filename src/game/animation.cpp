@@ -196,7 +196,7 @@ void collectEvents(const Animator& a, EntityId id, const AnimationClip* clip, fl
         if (ev.clip != clip->name) continue;
         float at = clip->duration > 0.f ? ev.time / clip->duration : 0.f;
         bool hit = wrapped ? at > from || at <= to : at > from && at <= to;
-        if (hit) fired.push_back({id, ev.name, ev.sound, ev.bone, ev.volume});
+        if (hit) fired.push_back({id, ev.name, ev.sound, ev.bone, ev.volume, ev.particles, ev.shake});
     }
 }
 

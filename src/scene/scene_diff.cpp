@@ -138,7 +138,7 @@ bool eq(const Skin& a, const Skin& b) {
 }
 bool eq(const AnimationEvent& a, const AnimationEvent& b) {
     return a.clip == b.clip && a.time == b.time && a.name == b.name && a.sound == b.sound && a.bone == b.bone &&
-           a.volume == b.volume;
+           a.volume == b.volume && a.particles == b.particles && a.shake == b.shake;
 }
 bool eq(const BlendClip& a, const BlendClip& b) { return a.clip == b.clip && a.at == b.at && a.atY == b.atY; }
 bool eq(const AnimatorIK& a, const AnimatorIK& b) {

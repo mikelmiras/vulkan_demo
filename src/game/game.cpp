@@ -2,6 +2,7 @@
 
 #include "physics/physics.h"
 #include "game/animation.h"
+#include "game/camera_shake.h"
 #include "game/ragdoll.h"
 #include "core/log.h"
 #include "core/profiler.h"
@@ -405,6 +406,14 @@ void GameContext::playSound2D(const std::string& clip, float volume) {
 }
 
 void GameContext::emitParticles(EntityId id, int count) { game_->particles_.burst(*scene_, id, count); }
+
+void GameContext::shakeCamera(float amount) { game_->trauma_ = std::clamp(game_->trauma_ + std::max(amount, 0.f), 0.f, 1.f); }
+
+void GameContext::shakeCamera(float amount, Vec3 position, float radius) {
+    CameraView cam;
+    if (!game_->activeCamera(cam)) return;
+    shakeCamera(shake::falloff(amount, length(position - cam.position), radius));
+}
 
 void GameContext::emitParticles(const ParticleEmitter& look, Vec3 position, int count, Vec3 up) {
     game_->particles_.emit(look, position, count, up);
@@ -1367,8 +1376,9 @@ void Game::fixedUpdate(float dt) {
         }
     }
     prepareContext(dt);
-    for (const FiredAnimationEvent& ev : events) {   // events' own sounds, at their bones
-        if (ev.sound.empty() || !scene_->find(ev.entity)) continue;
+    trauma_ = std::max(0.f, trauma_ - shake::kDecay * dt);
+    for (const FiredAnimationEvent& ev : events) {   // events' own sounds, particles and shakes, at their bones
+        if ((ev.sound.empty() && ev.particles == 0 && ev.shake <= 0.f) || !scene_->find(ev.entity)) continue;
         EntityId at = ev.entity;
         if (!ev.bone.empty())
             for (const Entity& b : scene_->entities)
@@ -1376,7 +1386,16 @@ void Game::fixedUpdate(float dt) {
                     at = b.id;
                     break;
                 }
-        ctx_.playSound(ev.sound, ctx_.worldPosition(at), ev.volume);
+        Vec3 where = ctx_.worldPosition(at);
+        if (!ev.sound.empty()) ctx_.playSound(ev.sound, where, ev.volume);
+        if (ev.particles != 0) {
+            const Entity* bone = scene_->find(at);
+            const Entity* owner = scene_->find(ev.entity);
+            if (bone && bone->particleEmitter) ctx_.emitParticles(at, ev.particles);
+            else if (owner && owner->particleEmitter)
+                ctx_.emitParticles(*owner->particleEmitter, where, ev.particles < 0 ? owner->particleEmitter->burst : ev.particles);
+        }
+        if (ev.shake > 0.f) ctx_.shakeCamera(ev.shake, where);
     }
     for (const FiredAnimationEvent& ev : events)
         if (Entity* e = scene_->find(ev.entity))
@@ -1736,8 +1755,13 @@ CameraView Game::cameraAt(size_t i) const {
     rigid.m[4] = y.x; rigid.m[5] = y.y; rigid.m[6] = y.z;
     rigid.m[8] = z.x; rigid.m[9] = z.y; rigid.m[10] = z.z;
     rigid.m[12] = world.m[12]; rigid.m[13] = world.m[13]; rigid.m[14] = world.m[14];
+    if (trauma_ > 0.f) {   // the shake: turned and moved in the camera's own axes
+        shake::Offset o = shake::at(trauma_, time_);
+        rigid = rigid * translate(o.move) * rotateAxis({0, 1, 0}, o.yaw) * rotateAxis({1, 0, 0}, o.pitch) *
+                rotateAxis({0, 0, 1}, o.roll);
+    }
     out.view = inverseAffine(rigid);
-    out.position = {world.m[12], world.m[13], world.m[14]};
+    out.position = {rigid.m[12], rigid.m[13], rigid.m[14]};
     out.fovY = e.camera->fovY;
     out.zNear = e.camera->zNear;
     out.zFar = e.camera->zFar;

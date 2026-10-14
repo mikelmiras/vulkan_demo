@@ -7,6 +7,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <future>
 #include <optional>
 #include <string>
@@ -370,7 +371,13 @@ private:
         EntityId entity = kNoEntity;
         float time = 0.f;
         bool playing = false;
+        float fired = -1.f;   // the time its events were fired up to (-1: none yet)
     } animPreview_;
+    // The preview passing events (playing it, or scrubbing forwards): their sounds and particles, and a flash on the
+    // event track; in Play, the Animator's own time passing them flashes them too
+    void firePreviewEvents(const Entity& e, const AnimationClip& clip, float from, float to, bool wrapped);
+    std::map<std::pair<EntityId, size_t>, double> eventFlash_;   // (entity, event) -> when it last fired
+    std::map<EntityId, float> playSeen_;                         // (in Play) each Animator's time last drawn
     int eventDrag_ = -1;   // (the Animator's event track: the event being dragged)
     // Animator > Retarget a clip: the bone map being edited (for the clip, model and entity in retargetKey_)
     std::string retargetKey_;

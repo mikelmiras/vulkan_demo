@@ -242,6 +242,12 @@ void Editor::buildDrawItems() {
         saved.reserve(scene_.entities.size());
         for (const Entity& o : scene_.entities) saved.push_back(o.transform);
         poseClip(scene_, meshes_, animPreview_.entity, clip->name, animPreview_.time);
+        float from = animPreview_.fired, to = animPreview_.time;   // events passed (while posed: at their bones)
+        if (from >= 0.f && from != to) {
+            bool wrapped = animPreview_.playing && to < from;
+            if (wrapped || (to > from && to - from < clip->duration * 0.5f)) firePreviewEvents(*previewed, *clip, from, to, wrapped);
+        }
+        animPreview_.fired = to;
         drawItems_ = collectDrawItems(scene_, scene_.worldMatrices(), viewingGameCamera() ? kNoEntity : selected_,
                                       &joints_, &meshes_, viewingGameCamera() ? nullptr : &extraSelected_);
         for (size_t i = 0; i < saved.size(); ++i) scene_.entities[i].transform = saved[i];

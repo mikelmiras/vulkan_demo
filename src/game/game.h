@@ -217,6 +217,11 @@ public:
     const std::string& language() const;
     void duck(const std::string& bus, float volume, float seconds);
 
+    // Camera shake (game/camera_shake.h): trauma (0..1) that decays over a second or so; from a place in the world,
+    // less the further the camera is (all of it within 3 m, none past `radius`)
+    void shakeCamera(float amount);
+    void shakeCamera(float amount, Vec3 position, float radius = 25.f);
+
     // Particles: a burst from the entity's ParticleEmitter (`count`, or its burst size), or any look anywhere
     void emitParticles(EntityId id, int count = -1);
     void emitParticles(const ParticleEmitter& look, Vec3 position, int count, Vec3 up = {0, 1, 0});
@@ -448,6 +453,7 @@ public:
     void setRecordContacts(bool on) { physics_.setRecordContacts(on); }   // (Physics::contacts(): for showing them)
     const ParticleSystem& particles() const { return particles_; }
     bool activeCamera(CameraView& out) const;     // the first entity with a camera; false if none
+    float trauma() const { return trauma_; }      // the camera's shake now (GameContext::shakeCamera)
     // What the screen shows: the split-screen player cameras (Camera::player) when there are two or more, by player,
     // each with its part of the screen (2: left and right halves; 3-4: quarters, player order); else just
     // activeCamera()'s, all of it. Empty if there's no camera.
@@ -548,6 +554,7 @@ private:
         bool released = false;   // (everything let go since it was asked: the press that asked doesn't count)
         std::vector<std::string> stick;   // (a stick's four actions)
     } rebind_;
+    float trauma_ = 0.f;   // camera shake
     bool padJoining_ = false;
     int seats_[kMaxPlayers] = {-1, -1, -1, -1};   // the pad slot each local player plays with
     int joined_ = 1;

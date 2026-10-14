@@ -27,9 +27,18 @@ std::vector<std::pair<std::string, std::string>> mapBones(const Skeleton& from, 
 // `matchRestPose`: the skeletons' rest poses differ (an A-pose rig and a T-pose one): each bone is first turned
 // from its rest direction (towards its first paired child) onto its source's, then follows the source's turns in
 // the world (the whole source pose, each frame), so the clip looks the same on both
+// `plantFeet`: legs of other proportions put their feet where the source's are, scaled like the hips' travel (each
+// leg, thigh -> calf -> foot, bent by two-bone IK towards its knee), so planted feet don't slide
 AnimationClip retargetClip(const AnimationClip& clip, const Skeleton& from, const Skeleton& to,
                            const std::vector<std::pair<std::string, std::string>>& map, const std::string& name,
-                           bool matchRestPose = false);
+                           bool matchRestPose = false, bool plantFeet = false);
+
+// The clip mirrored left to right (across the skeleton's x = 0 plane): each bone moves as its other side did ("thigh.l"
+// as "thigh.r"; bones without a side as themselves), whatever its local axes, as long as the rest pose is symmetric.
+// It keeps its recipe (RetargetRecipe::mirror).
+AnimationClip mirrorClip(const AnimationClip& clip, const Skeleton& skeleton, const std::string& name);
+// Each bone's other side in a skeleton (by humanoid key, else by name: Left / Right, .L / .R, _l / _r), or itself
+std::vector<int> mirrorBones(const Skeleton& skeleton);
 
 // Skeletons in scene files
 json::Value skeletonToJson(const Skeleton& s);

@@ -1,9 +1,11 @@
-// Animation: retargeting between skeletons (assets/retarget.h), clip compression, foot placement (FootIK)
+// Animation: retargeting between skeletons (assets/retarget.h; planting feet on legs of other lengths), mirrored
+// clips, clip compression, foot placement (FootIK), camera shake
 #include "test.h"
 
 #include <cmath>
 
 #include "assets/retarget.h"
+#include "game/camera_shake.h"
 #include "game/game.h"
 #include "imgui.h"
 #include "scene/serialization.h"
@@ -290,4 +292,152 @@ TEST(foot_ik_places_feet) {
         }
         g.stop();
     }
+}
+
+namespace {
+
+// Where a bone is, in the skeleton's space, with a clip posed at `time` (bones without a track: at rest)
+Vec3 posedAt(const Skeleton& s, const AnimationClip& clip, float time, const char* name) {
+    std::vector<Quat> rot(s.bones.size());
+    std::vector<Vec3> pos(s.bones.size());
+    for (size_t i = 0; i < s.bones.size(); ++i) {
+        const Skeleton::Bone& b = s.bones[i];
+        Quat r = b.rotation;
+        Vec3 t = b.translation;
+        for (const AnimationTrack& tr : clip.tracks)
+            if (tr.target == b.name) {
+                AnimationPose p = sampleTrack(tr, time);
+                if (p.hasRotation) r = p.rotation;
+                if (p.hasTranslation) t = p.translation;
+            }
+        rot[i] = b.parent >= 0 ? normalizeQuat(rot[(size_t)b.parent] * r) : r;
+        pos[i] = b.parent >= 0 ? pos[(size_t)b.parent] + rotate(rot[(size_t)b.parent], t) : t;
+    }
+    return pos[(size_t)s.find(name)];
+}
+
+void key(AnimationTrack& tr, float t, Quat q) {
+    tr.rotation.times.push_back(t);
+    tr.rotation.values.insert(tr.rotation.values.end(), {q.x, q.y, q.z, q.w});
+    tr.rotation.width = 4;
+}
+
+}  // namespace
+
+// A step with a planted foot: the source's hips move forward while its leg (two halves of 0.5 m) bends to keep the
+// foot still. On a model 1.2 times as tall, with a long thigh and a short calf, copying the turns slides the foot;
+// with the feet planted it stays where the source's is (scaled), within a few millimetres
+TEST(retarget_plants_feet) {
+    Skeleton from, to;
+    from.bones = {bone("Hips", -1, {0, 1, 0}), bone("thigh.l", 0, {0.1f, 0, 0}), bone("calf.l", 1, {0, -0.5f, 0}),
+                  bone("foot.l", 2, {0, -0.5f, 0})};
+    to.bones = {bone("Hips", -1, {0, 1.2f, 0}), bone("thigh.l", 0, {0.12f, 0, 0}), bone("calf.l", 1, {0, -0.75f, 0}),
+                bone("foot.l", 2, {0, -0.45f, 0})};
+    AnimationClip clip;
+    clip.name = "Step";
+    clip.duration = 1.f;
+    AnimationTrack hips{"Hips", {}, {}, {}}, thigh{"thigh.l", {}, {}, {}}, calf{"calf.l", {}, {}, {}};
+    const Vec3 planted{0.1f, 0.05f, 0.15f};
+    for (int k = 0; k <= 20; ++k) {   // the leg solved by hand: the foot kept at `planted` (knee bending forwards)
+        float t = (float)k / 20.f, z = -0.15f + 0.3f * t;
+        hips.translation.times.push_back(t);
+        hips.translation.values.insert(hips.translation.values.end(), {0.f, 1.f, z});
+        hips.translation.width = 3;
+        float dy = planted.y - 1.f, dz = planted.z - z, d = std::sqrt(dy * dy + dz * dz);
+        float knee = std::acos(std::clamp((0.25f + 0.25f - d * d) / (2.f * 0.25f), -1.f, 1.f));   // inner angle
+        float toFoot = std::atan2(-dz, -dy);   // (about x: 0 straight down, + towards -z)
+        float a = std::acos(std::clamp(d / 1.f, -1.f, 1.f));   // the thigh's angle off the hip-foot line
+        key(thigh, t, axisAngle({1, 0, 0}, toFoot - a));
+        key(calf, t, axisAngle({1, 0, 0}, PI - knee));
+    }
+    clip.tracks = {hips, thigh, calf};
+    REQUIRE(length(posedAt(from, clip, 0.f, "foot.l") - planted) < 2e-3f);   // (the source's foot is planted)
+    REQUIRE(length(posedAt(from, clip, 1.f, "foot.l") - planted) < 2e-3f);
+    auto map = retarget::mapBones(from, to);
+    AnimationClip copied = retarget::retargetClip(clip, from, to, map, "Tall/Step");
+    AnimationClip planted2 = retarget::retargetClip(clip, from, to, map, "Tall/Step planted", false, true);
+    REQUIRE(planted2.retarget && planted2.retarget->plantFeet);
+    Vec3 goal = Vec3{0, 1.2f, 0} + (planted - Vec3{0, 1, 0}) * 1.2f;   // (scaled about the root by the heights)
+    float slide = 0.f, off = 0.f;
+    for (float t : {0.f, 0.25f, 0.5f, 0.75f, 1.f}) {
+        slide = std::max(slide, length(posedAt(to, copied, t, "foot.l") - posedAt(to, copied, 0.f, "foot.l")));
+        off = std::max(off, length(posedAt(to, planted2, t, "foot.l") - goal));
+    }
+    CHECK(slide > 0.03f);   // copying the turns: the foot slides
+    CHECK(off < 0.005f);    // planted
+    // (both ways, with rest poses matched too)
+    AnimationClip matched = retarget::retargetClip(clip, from, to, map, "Tall/Step matched", true, true);
+    for (float t : {0.f, 0.5f, 1.f}) CHECK(length(posedAt(to, matched, t, "foot.l") - goal) < 0.005f);
+}
+
+// A mirrored clip: the left leg's swing played by the right one (whatever their local axes), the hips' travel and
+// turn mirrored across x; bones without a side move as before, mirrored; saved as its recipe
+TEST(mirrored_clips) {
+    Skeleton s;
+    Quat axesL = axisAngle({0, 0, 1}, 90.f * DEG2RAD), axesR = axisAngle({0, 0, 1}, -90.f * DEG2RAD);   // (mirrored axes)
+    s.bones = {bone("Hips", -1, {0, 1, 0}), bone("LeftUpLeg", 0, {0.15f, 0, 0}, axesL), bone("LeftLeg", 1, {0.5f, 0, 0}),
+               bone("RightUpLeg", 0, {-0.15f, 0, 0}, axesR), bone("RightLeg", 3, {-0.5f, 0, 0}), bone("Spine", 0, {0, 0.2f, 0})};
+    std::vector<int> other = retarget::mirrorBones(s);
+    CHECK(other[1] == 3 && other[3] == 1 && other[2] == 4 && other[0] == 0 && other[5] == 5);
+    AnimationClip clip;
+    clip.name = "Kick";
+    clip.duration = 1.f;
+    AnimationTrack hips{"Hips", {}, {}, {}}, left{"LeftUpLeg", {}, {}, {}};
+    for (int k = 0; k <= 10; ++k) {
+        float t = (float)k / 10.f;
+        hips.translation.times.push_back(t);
+        hips.translation.values.insert(hips.translation.values.end(), {0.5f * t, 1.f, 0.2f * t});
+        hips.translation.width = 3;
+        key(hips, t, axisAngle({0, 1, 0}, 30.f * DEG2RAD * t));
+        key(left, t, normalizeQuat(axisAngle({1, 0, 0}, -45.f * DEG2RAD * t) * axesL));   // (swings, on its own axes)
+    }
+    clip.tracks = {hips, left};
+    AnimationClip m = retarget::mirrorClip(clip, s, "Kick (mirrored)");
+    REQUIRE(m.retarget && m.retarget->mirror);
+    for (float t : {0.f, 0.5f, 1.f}) {
+        Vec3 l = posedAt(s, clip, t, "LeftLeg"), r = posedAt(s, m, t, "RightLeg");
+        CHECK_VEC(r, test::v3(-l.x, l.y, l.z), 2e-3f);   // the right foot where the left one was, across x
+        Vec3 h = posedAt(s, clip, t, "Spine"), hm = posedAt(s, m, t, "Spine");
+        CHECK_VEC(hm, test::v3(-h.x, h.y, h.z), 2e-3f);   // the hips (and what's on them) mirrored: travel and turn
+        Vec3 l2 = posedAt(s, m, t, "LeftLeg"), r0 = posedAt(s, clip, t, "RightLeg");
+        CHECK_VEC(l2, test::v3(-r0.x, r0.y, r0.z), 2e-3f);   // ... and the left one where the right one was
+    }
+    // Saved as its recipe, made again on loading
+    MeshLibrary lib = buildMeshLibrary();
+    lib.animations.push_back(clip);
+    lib.animations.push_back(m);
+    Scene scene;
+    Entity& e = scene.create("Kicker");
+    e.animator = Animator{};
+    e.animator->clip = "Kick (mirrored)";
+    TextureLibrary tex;
+    json::Value doc = sceneToJson(scene, lib, tex);
+    MeshLibrary fresh = buildMeshLibrary();
+    fresh.animations.push_back(clip);
+    Scene back;
+    std::string error;
+    REQUIRE(sceneFromJson(doc, back, fresh, tex, error));
+    const AnimationClip* made = fresh.findAnimation("Kick (mirrored)");
+    REQUIRE(made && made->retarget && made->retarget->mirror);
+    Vec3 a = posedAt(s, *made, 1.f, "RightLeg"), b = posedAt(s, m, 1.f, "RightLeg");
+    CHECK_VEC(a, b, 1e-4f);
+}
+
+TEST(camera_shake_offsets) {
+    shake::Offset none = shake::at(0.f, 1.f);
+    CHECK(none.yaw == 0.f && none.pitch == 0.f && length(none.move) == 0.f);
+    float most = 0.f, changed = 0.f;
+    for (int k = 0; k < 200; ++k) {
+        shake::Offset o = shake::at(1.f, (float)k * 0.01f), again = shake::at(1.f, (float)k * 0.01f);
+        CHECK(o.yaw == again.yaw && o.roll == again.roll);   // (the same at the same time)
+        most = std::max({most, std::fabs(o.yaw), std::fabs(o.pitch)});
+        changed = std::max(changed, std::fabs(o.yaw - shake::at(1.f, (float)k * 0.01f + 0.05f).yaw));
+    }
+    CHECK(most <= shake::kMaxAngle + 1e-6f && most > 0.5f * shake::kMaxAngle);
+    CHECK(changed > 0.f);
+    CHECK(std::fabs(shake::at(0.5f, 0.3f).yaw) <= 0.25f * shake::kMaxAngle + 1e-6f);   // (trauma squared)
+    CHECK(shake::falloff(1.f, 2.f, 25.f) == 1.f);
+    CHECK(shake::falloff(1.f, 30.f, 25.f) == 0.f);
+    float mid = shake::falloff(1.f, 14.f, 25.f);
+    CHECK(mid > 0.f && mid < 1.f);
 }

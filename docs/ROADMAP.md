@@ -1021,7 +1021,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 72 (done) | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
 | 73 (done) | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
 | 74 (done) | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
-| 75 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
+| 75 (done) | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
 | 76 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
 | 77 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
 | 78 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
@@ -1307,3 +1307,27 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   Not done: watching locals or globals, a variable's change made by C code noticed only at the next Lua line,
   stepping across a yield into the resumer, evaluating with side effects refused (expressions run as they are),
   samples of C functions themselves (they go to the calling line).
+- **75, animation**: planting feet (RetargetRecipe::plantFeet, retargetClip's last argument, the editor's *Plant the
+  feet*): a pass after either retargeting path, every 30th of a second: both skeletons posed (world rotations and
+  positions, untracked bones at rest), each target leg found by humanoid keys (thigh -> calf -> foot, parent to
+  child) and its source foot by the map; the goal is the source foot scaled about the roots by the hips' height ratio
+  (the same scale as the hips' travel, so a planted foot stays planted); two-bone IK by the law of cosines with the
+  current knee as the bend's side, the foot keeping its world turn; the three bones' rotation keys rewritten, then
+  compressed as before. Mirroring (retarget::mirrorClip, RetargetRecipe::mirror, *Mirror the clip*): bones paired with
+  their other side (humanoid keys, else name swaps: Left / Right, .L / .R, _l / _r, L_ / R_), every 30th of a second
+  each bone's world turn from rest of its pair, reflected across x = 0 ((x, -y, -z, w)), applied to its own rest (any
+  local axes); translated bones put at their pair's reflected position. Events: AnimationEvent::particles (a count, -1
+  the emitter's burst) and ::shake; the game bursts the bone's emitter (else emits the Animator entity's look at the
+  bone) and adds trauma with distance falloff (smoothstep from 3 m to 25 m). Camera shake (game/camera_shake.{h,cpp}):
+  trauma decaying 1.6 a second, its square scaling three sine-sum noises (yaw and pitch up to 4 degrees, roll half,
+  6 cm of travel) in game time, applied in Game::cameraAt (every camera, split screen too); GameContext::shakeCamera,
+  Lua game.shakeCamera. The editor's preview fires events it passes (playing, or scrubbing forwards less than half the
+  clip; a click on the track jumps without firing): sounds through the editor's audio, particles in its preview
+  particle system, a flash on the mark; in Play the track shows the Animator's time and flashes events as it passes
+  them. Scene format 43, module API 50. Checked: a planted step on a taller model with other leg proportions (copied
+  turns slide the foot over 3 cm; planted it stays within 5 mm of the scaled goal, in both paths), a mirrored kick on
+  legs with mirrored local axes (each foot, and the hips' travel and turn, reflected), recipes saved and made again,
+  events' particles and shakes (none past 25 m, the view back exactly once the trauma's gone, kept when saved), the
+  shake's bounds and falloff. Not done: hands (IK only for legs), feet of the source sliding themselves (planted is
+  where the source's foot is), lock-step contact detection (planting only when a foot is still), particles and shakes
+  in a preview of a blend tree or layers, haptics along with the shake.

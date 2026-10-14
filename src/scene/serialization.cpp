@@ -19,7 +19,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 42;  // 42: water (waves, currents); 41: shadow softness, volumetric fog, tone mapper and grading; 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 43;  // 43: animation events' particles and camera shakes, retargeting that plants feet, mirrored clips; 42: water (waves, currents); 41: shadow softness, volumetric fog, tone mapper and grading; 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -368,9 +368,11 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
                 o.set("name", ev.name);
                 if (!ev.sound.empty()) {
                     o.set("sound", ev.sound);
-                    if (!ev.bone.empty()) o.set("bone", ev.bone);
                     if (ev.volume != 1.f) o.set("volume", ev.volume);
                 }
+                if (!ev.bone.empty() && (!ev.sound.empty() || ev.particles != 0 || ev.shake > 0.f)) o.set("bone", ev.bone);
+                if (ev.particles != 0) o.set("particles", ev.particles);
+                if (ev.shake > 0.f) o.set("shake", ev.shake);
                 list.push(std::move(o));
             }
         }
@@ -848,7 +850,8 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         a.fadeLength = c["fadeLength"].asFloat(0.f);
         for (const json::Value& o : c["events"].elements())
             a.events.push_back({clipName(o["clip"].asString()), o["time"].asFloat(0.f), o["name"].asString(),
-                                o["sound"].asString(), o["bone"].asString(), o["volume"].asFloat(1.f)});
+                                o["sound"].asString(), o["bone"].asString(), o["volume"].asFloat(1.f),
+                                o["particles"].asInt(0), o["shake"].asFloat(0.f)});
         for (const json::Value& o : c["states"].elements()) {
             AnimatorState s;
             s.name = o["name"].asString();
@@ -1246,6 +1249,8 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
             r.set("from", retarget::skeletonToJson(clip->retarget->from));
             r.set("to", retarget::skeletonToJson(clip->retarget->to));
             if (clip->retarget->matchRestPose) r.set("matchRestPose", true);
+            if (clip->retarget->plantFeet) r.set("plantFeet", true);
+            if (clip->retarget->mirror) r.set("mirror", true);
             json::Value& m = r.set("map", json::Value::array());
             for (const auto& [t, s] : clip->retarget->map) {
                 json::Value pair = json::Value::array();
@@ -1310,9 +1315,11 @@ bool assetListsFromJson(const json::Value& doc, MeshLibrary& meshes, TextureLibr
         if (!meshes.findAnimation(name)) {
             std::vector<std::pair<std::string, std::string>> map;
             for (const json::Value& m : r["map"].elements()) map.emplace_back(m[0].asString(), m[1].asString());
-            AnimationClip clip = retarget::retargetClip(*source, retarget::skeletonFromJson(r["from"]),
-                                                       retarget::skeletonFromJson(r["to"]), map, name,
-                                                       r["matchRestPose"].asBool(false));
+            AnimationClip clip = r["mirror"].asBool(false)
+                                     ? retarget::mirrorClip(*source, retarget::skeletonFromJson(r["from"]), name)
+                                     : retarget::retargetClip(*source, retarget::skeletonFromJson(r["from"]),
+                                                              retarget::skeletonFromJson(r["to"]), map, name,
+                                                              r["matchRestPose"].asBool(false), r["plantFeet"].asBool(false));
             meshes.animations.push_back(std::move(clip));
         }
         ids.animations[name] = name;

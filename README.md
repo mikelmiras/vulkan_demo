@@ -567,7 +567,17 @@ world (so differently oriented bones still bend the same way, when both rest pos
 the travel, scaled by their height. The scene saves how the clip was made and makes it again when it loads. Its
 *Bone map* shows the pairing for every bone of this model and lets you change it (or pair none); *Match rest
 poses* is for skeletons that stand differently at rest (an A-pose model and a T-pose one): each bone is first
-lined up with its partner's rest direction, so the clip looks the same on both.
+lined up with its partner's rest direction, so the clip looks the same on both. *Plant the feet* (on by default)
+fixes what copying turns can't: legs of other proportions (a long thigh, a short shin) put their feet somewhere else
+than the source's, so planted feet slide; with it each leg (thigh, calf, foot, by humanoid names) is bent by
+two-bone IK so its foot lands where the source's does, scaled to this model's height, the knee bending the way it
+did and the foot keeping its turn.
+
+**Mirroring**: *Mirror the clip* makes the clip mirrored left to right for this model (a left-handed swing from a
+right-handed one, a limp on the other leg): each bone moves as its other side did (paired by humanoid names, or by
+Left / Right, .L / .R, _l / _r in the name), mirrored across the model's middle, whatever the bones' own axes (the
+rest pose has to be symmetric); bones without a side move as before, mirrored, and the hips' travel and turn are
+mirrored too. Saved as how it was made, like a retargeted clip.
 
 **Compression**: imported clips drop the keys their neighbours' interpolation gives back anyway (to within 0.05
 degrees and half a millimetre): smaller clips, the same motion.
@@ -576,11 +586,20 @@ degrees and half a millimetre): smaller clips, the same motion.
 the entity's behaviours get `onAnimationEvent(ctx, self, "Footstep")`. In a blend tree the clip that weighs most
 fires its events (at the same point of its cycle), and layers' clips fire theirs. An event can also play a
 **sound** by itself (a built-in one or a file, at a volume) at a **bone** (an entity under the Animator's: a foot
-for footsteps), no code needed. The Animator inspector's event track shows the clip's events as marks over its
+for footsteps), a burst of **particles** there (from the bone's Particle Emitter, else the Animator entity's, with
+its look: dust from a foot), and a **camera shake** (0.3 a heavy step, 1 a slam; weaker the further the camera is,
+none past 25 m), no code needed. The Animator inspector's event track shows the clip's events as marks over its
 length: drag one to move it, double-click to add one there, click to move the preview.
 
 Outside Play, the Animator inspector previews its clip: play / pause, and a slider to scrub to any time (only
-what's drawn changes, not the scene). New events are added at the preview time.
+what's drawn changes, not the scene). New events are added at the preview time. Events fire as the preview passes
+them (playing, or scrubbing forwards): their sounds play, their particles show, and their marks flash on the track;
+in Play the track shows where the Animator is, its events flashing as they fire.
+
+**Camera shake** from code: `ctx.shakeCamera(0.5f)` (Lua `game.shakeCamera(0.5)`), or from a place in the world,
+weaker with distance: `ctx.shakeCamera(0.8f, explosion, 30.f)`. It's "trauma" (0..1, added up, fading in about two
+thirds of a second from full), shaking by its square: the camera turns (a few degrees at most) and moves (a few
+centimetres) by smooth noise in game time, so a paused game holds still.
 
 Rendering is **interpolated** between the last two fixed updates (60 Hz), so motion stays smooth at any frame
 rate: `Game::worldMatrices()` and the game camera blend by how far the frame is into the next update.

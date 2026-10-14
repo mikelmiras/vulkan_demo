@@ -240,6 +240,11 @@ struct AnimationEvent {
     std::string sound;
     std::string bone;
     float volume = 1.f;
+    // ... a burst of particles there (this many; -1: the emitter's burst size; 0: none), from the bone's own
+    // ParticleEmitter, else the Animator entity's (its look, at the bone)
+    int particles = 0;
+    // ... and a camera shake (trauma 0..1: 0.3 a footfall, 1 a slam), less the further the camera is (none past 25 m)
+    float shake = 0.f;
 };
 
 // A state machine for an Animator: states play clips; a transition moves to another state when a parameter (set

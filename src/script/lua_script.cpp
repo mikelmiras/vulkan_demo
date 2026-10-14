@@ -1150,6 +1150,12 @@ int gIsClient(lua_State* L) {
     lua_pushboolean(L, context(L).isClient());
     return 1;
 }
+int gShakeCamera(lua_State* L) {   // game.shakeCamera(amount[, position[, radius]])
+    float amount = (float)luaL_checknumber(L, 1);
+    if (lua_isnoneornil(L, 2)) context(L).shakeCamera(amount);
+    else context(L).shakeCamera(amount, toVec3(L, 2), (float)luaL_optnumber(L, 3, 25.0));
+    return 0;
+}
 int gSetPadJoining(lua_State* L) {   // game.setPadJoining(on): local players join with their pads' Start
     context(L).setPadJoining(lua_toboolean(L, 1) != 0);
     return 0;
@@ -1596,6 +1602,7 @@ lua_State* state() {
         {"cancel", gCancel},       {"send", gSend},               {"sendToTag", gSendToTag},
         {"sendToServer", gSendToServer}, {"sendToClients", gSendToClients}, {"isServer", gIsServer}, {"isClient", gIsClient},
         {"setPadJoining", gSetPadJoining}, {"localPlayers", gLocalPlayers},
+        {"shakeCamera", gShakeCamera},
         {"broadcast", gBroadcast}, {"playSound", gPlaySound},     {"playSound2D", gPlaySound2D},
         {"playMusic", gPlayMusic}, {"stopMusic", gStopMusic},     {"setBusVolume", gSetBusVolume},
         {"playMusicLayers", gPlayMusicLayers}, {"setMusicLayer", gSetMusicLayer}, {"playStinger", gPlayStinger},

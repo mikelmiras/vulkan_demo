@@ -1,4 +1,5 @@
-// Editor: the Animator inspector. Clip, preview and scrubbing outside Play, events, and the state machine.
+// Editor: the Animator inspector. Clip, preview and scrubbing outside Play (events firing as it passes them),
+// events, the state machine, retargeting and mirroring clips.
 #include "editor/editor.h"
 
 #include <algorithm>
@@ -40,6 +41,34 @@ bool stateCombo(const char* label, std::string& value, const Animator& a, const 
 
 }  // namespace
 
+void Editor::firePreviewEvents(const Entity& e, const AnimationClip& clip, float from, float to, bool wrapped) {
+    const Animator& a = *e.animator;
+    for (size_t i = 0; i < a.events.size(); ++i) {
+        const AnimationEvent& ev = a.events[i];
+        if (ev.clip != clip.name) continue;
+        bool hit = wrapped ? ev.time > from || ev.time <= to : ev.time > from && ev.time <= to;
+        if (!hit) continue;
+        eventFlash_[{e.id, i}] = ImGui::GetTime();
+        EntityId at = e.id;   // (its bone, as posed now)
+        if (!ev.bone.empty())
+            for (const Entity& b : scene_.entities)
+                if (b.name == ev.bone && scene_.isAncestor(e.id, b.id)) at = b.id;
+        if (!ev.sound.empty() && audio_) {
+            AudioEngine::PlayParams p;
+            p.volume = ev.volume;
+            audio_->play(ev.sound, p);
+        }
+        if (ev.particles != 0) {
+            const Entity* bone = scene_.find(at);
+            Mat4 w = scene_.worldMatrix(at);
+            if (bone && bone->particleEmitter) previewParticles_.burst(scene_, at, ev.particles);
+            else if (e.particleEmitter)
+                previewParticles_.emit(*e.particleEmitter, {w.m[12], w.m[13], w.m[14]},
+                                       ev.particles < 0 ? e.particleEmitter->burst : ev.particles);
+        }
+    }
+}
+
 void Editor::drawAnimatorInspector(Entity& e) {
     Animator& a = *e.animator;
     std::string clipName = a.clip;
@@ -61,7 +90,7 @@ void Editor::drawAnimatorInspector(Entity& e) {
     if (!playing() && clip) {
         bool mine = animPreview_.entity == e.id;
         if (ImGui::SmallButton(mine && animPreview_.playing ? "Pause" : "Preview")) {
-            if (!mine) animPreview_ = {e.id, 0.f, true};
+            if (!mine) animPreview_ = {e.id, 0.f, true, 0.f};
             else animPreview_.playing = !animPreview_.playing;
         }
         ImGui::SameLine();
@@ -71,9 +100,11 @@ void Editor::drawAnimatorInspector(Entity& e) {
         float t = mine ? animPreview_.time : 0.f;
         ImGui::SetNextItemWidth(-px(110.f));
         if (ImGui::SliderFloat("Time", &t, 0.f, clip->duration, "%.2f s")) {
-            animPreview_ = {e.id, t, false};   // scrubbing pauses
+            if (mine) animPreview_.time = t, animPreview_.playing = false;   // scrubbing pauses
+            else animPreview_ = {e.id, t, false, t};
         }
-        tooltip("Scrub through the clip. The preview only changes what's drawn, not the scene.");
+        tooltip("Scrub through the clip: events passed going forwards fire (their sounds, particles; a flash on the "
+                "track). The preview only changes what's drawn, not the scene.");
     } else if (animPreview_.entity == e.id) {
         animPreview_ = {};
     }
@@ -102,7 +133,13 @@ void Editor::drawAnimatorInspector(Entity& e) {
                 float x = at.x + ev.time / clip->duration * w;
                 bool near = hovered && std::fabs(ImGui::GetIO().MousePos.x - x) < px(6.f);
                 if (near) under = (int)i;
+                auto flash = eventFlash_.find({e.id, i});
+                float lit = flash == eventFlash_.end() ? 0.f : std::max(0.f, 1.f - (float)(ImGui::GetTime() - flash->second) / 0.4f);
                 ImU32 col = (int)i == eventDrag_ || near ? IM_COL32(255, 200, 90, 255) : IM_COL32(230, 150, 60, 255);
+                if (lit > 0.f) {   // (just fired)
+                    col = IM_COL32(255, 255, 220, 255);
+                    dl->AddCircleFilled(ImVec2(x, at.y + h * 0.3f), px(4.f) + px(6.f) * lit, IM_COL32(255, 240, 160, (int)(160 * lit)));
+                }
                 dl->AddTriangleFilled(ImVec2(x - px(5.f), at.y + 2.f), ImVec2(x + px(5.f), at.y + 2.f),
                                       ImVec2(x, at.y + h * 0.55f), col);
                 dl->AddLine(ImVec2(x, at.y + 2.f), ImVec2(x, at.y + h), col);
@@ -111,12 +148,25 @@ void Editor::drawAnimatorInspector(Entity& e) {
                 float x = at.x + animPreview_.time / clip->duration * w;
                 dl->AddLine(ImVec2(x, at.y), ImVec2(x, at.y + h), IM_COL32(120, 200, 255, 255), 2.f);
             }
+            if (playing() && a.playing) {   // in Play: where it is, its events flashing as it passes them
+                float now = std::fmod(std::max(a.time, 0.f), clip->duration);
+                auto seen = playSeen_.find(e.id);
+                if (seen != playSeen_.end() && seen->second != now)
+                    for (size_t i = 0; i < a.events.size(); ++i) {
+                        float t = a.events[i].time, was = seen->second;
+                        bool hit = now < was ? t > was || t <= now : t > was && t <= now;
+                        if (a.events[i].clip == a.clip && hit) eventFlash_[{e.id, i}] = ImGui::GetTime();
+                    }
+                playSeen_[e.id] = now;
+                float x = at.x + now / clip->duration * w;
+                dl->AddLine(ImVec2(x, at.y), ImVec2(x, at.y + h), IM_COL32(120, 255, 160, 255), 2.f);
+            }
             if (ImGui::IsItemClicked()) {
                 if (under >= 0) {
                     pushUndo();
                     eventDrag_ = under;
                 } else if (!playing()) {
-                    animPreview_ = {e.id, mouseT, false};   // (the preview there)
+                    animPreview_ = {e.id, mouseT, false, mouseT};   // (the preview there: a jump, nothing fires)
                 }
             }
             if (eventDrag_ >= 0 && eventDrag_ < (int)a.events.size()) {
@@ -168,6 +218,18 @@ void Editor::drawAnimatorInspector(Entity& e) {
             ImGui::SetNextItemWidth(-1.f);
             ImGui::SliderFloat("##volume", &ev.volume, 0.f, 2.f, "%.2f");
             track();
+            // ... particles and a camera shake there
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
+            ImGui::DragInt("##particles", &ev.particles, 0.2f, -1, 500, ev.particles == 0 ? "no particles"
+                           : ev.particles < 0 ? "particles: its burst" : "%d particles");
+            track();
+            tooltip("A burst from the bone's Particle Emitter (else this entity's, at the bone): how many (-1: the "
+                    "emitter's burst size)");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-1.f);
+            ImGui::SliderFloat("##shake", &ev.shake, 0.f, 1.f, ev.shake > 0.f ? "shake %.2f" : "no shake");
+            track();
+            tooltip("Shakes the camera (0.3: a heavy footstep, 1: a slam), less the further it is (none past 25 m)");
             ImGui::Unindent(px(12.f));
             ImGui::PopID();
         }
@@ -520,12 +582,16 @@ void Editor::drawAnimatorInspector(Entity& e) {
             ImGui::Checkbox("Match rest poses", &retargetMatchRest_);
             tooltip("For skeletons standing differently at rest (an A-pose model and a T-pose one): each bone is first "
                     "lined up with its source's rest direction, so the clip looks the same on both");
+            static bool plantFeet = true;
+            ImGui::Checkbox("Plant the feet", &plantFeet);
+            tooltip("Legs of other lengths put their feet where the source's are (scaled to this model's height) with "
+                    "two-bone IK, so feet that stand still don't slide");
             std::string shortName = clip.substr(clip.rfind('/') == std::string::npos ? 0 : clip.rfind('/') + 1);
             std::string name = e.name + "/" + shortName;
             if (ImGui::Button("Retarget") && !map.empty()) {
                 for (int n = 2; meshes_.findAnimation(name); ++n) name = e.name + "/" + shortName + " " + std::to_string(n);
                 meshes_.animations.push_back(retarget::retargetClip(*source, fromSkeleton, toSkeleton, map, name,
-                                                                    retargetMatchRest_));
+                                                                    retargetMatchRest_, plantFeet));
                 pushUndo();
                 a.clip = name;
                 setStatus("Made " + name + " (" + std::to_string(map.size()) + " bones)");
@@ -534,6 +600,21 @@ void Editor::drawAnimatorInspector(Entity& e) {
         }
         ImGui::TreePop();
     }
+    // Mirroring: the clip played on the other side (a left-handed swing from a right-handed one)
+    if (clip && ImGui::SmallButton("Mirror the clip")) {
+        Skeleton skeleton = retarget::skeletonOf(scene_, e.id);
+        std::string name = clip->name + " (mirrored)";
+        for (int n = 2; meshes_.findAnimation(name); ++n) name = clip->name + " (mirrored " + std::to_string(n) + ")";
+        std::vector<int> other = retarget::mirrorBones(skeleton);
+        int pairs = 0;
+        for (size_t i = 0; i < other.size(); ++i) pairs += other[i] != (int)i;
+        meshes_.animations.push_back(retarget::mirrorClip(*clip, skeleton, name));
+        pushUndo();
+        a.clip = name;
+        setStatus("Made " + name + " (" + std::to_string(pairs / 2) + " left and right bone pairs swapped)");
+    }
+    tooltip("Makes the clip mirrored left to right for this model (each bone moving as its other side did; the rest "
+            "pose should be symmetric) and plays it; saved with the scene as how it was made");
 }
 
 // The state machine as a graph: states round a circle, arrows for transitions (their conditions on hover), the

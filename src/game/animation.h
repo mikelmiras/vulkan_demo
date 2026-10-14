@@ -13,6 +13,8 @@ struct FiredAnimationEvent {
     std::string name;
     std::string sound, bone;   // (AnimationEvent's: played by the Game)
     float volume = 1.f;
+    int particles = 0;
+    float shake = 0.f;
 };
 
 // Runs the Animators' state machines, advances every playing Animator by dt seconds (times its speed) and poses
