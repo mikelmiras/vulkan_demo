@@ -17,6 +17,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <sstream>
 #include <unordered_map>
 
@@ -152,6 +153,11 @@ Entity* GameContext::findFirstWithTag(const std::string& tag) {
 }
 
 void GameContext::send(EntityId to, const Message& message) { messages_.emplace_back(to, message); }
+
+void GameContext::setPadJoining(bool on) {
+    if (game_) game_->setPadJoining(on);
+}
+int GameContext::localPlayers() const { return game_ ? game_->localPlayers() : 1; }
 
 void GameContext::sendToServer(EntityId to, const Message& message) {
     if (netRole_ != NetRole::Client) send(to, message);   // (this is the server)
@@ -824,6 +830,19 @@ void Game::runUIAction(const UIAction& a) {
     else if (verb == "@pause") paused_ = true;
     else if (verb == "@quit") ctx_.quit();
     else if (verb == "@rebind") rebind(arg, lastDevice_);   // (on the device that pressed the button)
+    else if (verb == "@rebindstick") {
+        std::vector<std::string> names;
+        for (size_t at = 0; at <= arg.size();) {
+            size_t comma = std::min(arg.find(',', at), arg.size());
+            std::string n = arg.substr(at, comma - at);
+            n.erase(0, n.find_first_not_of(' '));
+            n.erase(n.find_last_not_of(' ') + 1);
+            if (!n.empty()) names.push_back(n);
+            at = comma + 1;
+        }
+        rebindStick(names, lastDevice_);
+    } else if (verb == "@padjoin") setPadJoining(arg != "off" && arg != "0" && arg != "false");
+    else if (verb == "@resetplayers") resetPlayers();
     else if (verb == "@resetbindings") resetBindings(arg);
     else if (verb == "@load") { paused_ = false; ctx_.loadScene(arg); }
     else if (verb == "@save") ctx_.saveGame(arg.empty() ? "quicksave" : arg);
@@ -884,6 +903,74 @@ void Game::applyBindings() {
     }
     input_.setActions(actions_);
     for (InputMap& m : players_) m.setActions(actions_);
+    publishConflicts();
+}
+
+// Controls bound to two actions: input.conflict.<action> names the others ("" none), input.conflicts how many pairs
+void Game::publishConflicts() {
+    std::map<std::string, std::string> with;
+    for (const InputAction& a : actions_) with[a.name];
+    std::vector<BindingConflict> conflicts = bindingConflicts(actions_);
+    for (const BindingConflict& c : conflicts) {
+        for (auto [one, other] : {std::make_pair(c.first, c.second), std::make_pair(c.second, c.first)}) {
+            std::string& list = with[one];
+            if (("," + list + ",").find("," + other + ",") == std::string::npos) list += (list.empty() ? "" : ",") + other;
+        }
+    }
+    for (const auto& [action, others] : with) state_.set("input.conflict." + action, json::Value(others));
+    state_.set("input.conflicts", json::Value((double)conflicts.size()));
+}
+
+void Game::setPadJoining(bool on) {
+    padJoining_ = on;
+    resetPlayers();
+}
+
+void Game::resetPlayers() {
+    for (int& s : seats_) s = -1;
+    joined_ = 1;
+    startWas_.assign(pads_.size(), 1.f);   // (a Start held now doesn't join: only a new press)
+    publishSeats();
+}
+
+int Game::localPlayers() const {
+    if (padJoining_) return joined_;
+    return std::max<int>(1, (int)playerRoots_.size());
+}
+
+// Joining with Start: a pad's new press takes player 1's pad if it has none, else a seat left by an unplugged pad,
+// else the next player
+void Game::updateSeats() {
+    bool changed = false;
+    for (int& s : seats_)
+        if (s >= 0 && (s >= (int)pads_.size() || !pads_[(size_t)s].connected)) {
+            s = -1;
+            changed = true;
+        }
+    startWas_.resize(pads_.size(), 0.f);
+    for (size_t i = 0; i < pads_.size(); ++i) {
+        float start = pads_[i].connected ? pads_[i].value(ImGuiKey_GamepadStart) : 0.f;
+        bool pressed = start > 0.6f && startWas_[i] <= 0.6f;
+        startWas_[i] = start;
+        if (!pressed || std::find(std::begin(seats_), std::end(seats_), (int)i) != std::end(seats_)) continue;
+        int seat = -1;
+        for (int k = 0; k < joined_ && seat < 0; ++k)
+            if (seats_[k] < 0) seat = k;
+        if (seat < 0 && joined_ < kMaxPlayers) seat = joined_++;
+        if (seat < 0) continue;   // (full)
+        seats_[seat] = (int)i;
+        changed = true;
+    }
+    if (changed) publishSeats();
+}
+
+void Game::publishSeats() {
+    state_.set("input.players", json::Value((double)joined_));
+    for (int k = 0; k < kMaxPlayers; ++k) {
+        int s = seats_[k];
+        std::string pad = s >= 0 && s < (int)pads_.size() ? padTypeName(pads_[(size_t)s].type) : "";
+        state_.set("input.player." + std::to_string(k + 1) + ".pad", json::Value(pad));
+    }
 }
 
 int Game::playerPad(int player) const {
@@ -902,6 +989,7 @@ void Game::beginInput(bool keyboard, bool mouse, ImVec2 mouseDelta) {
     if (scene_)
         for (const Entity& e : scene_->entities)
             if (e.camera && e.camera->player > 0 && scene_->visibleInHierarchy(e.id)) cams.push_back({e.camera->player, e.id});
+    if (padJoining_) updateSeats();
     if (cams.size() >= 2) {
         std::stable_sort(cams.begin(), cams.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         if (cams.size() > (size_t)kMaxPlayers) cams.resize(kMaxPlayers);
@@ -912,16 +1000,17 @@ void Game::beginInput(bool keyboard, bool mouse, ImVec2 mouseDelta) {
             const Entity* root = scene_->find(cams[k].second);
             while (root && root->parent != kNoEntity) root = scene_->find(root->parent);
             playerRoots_.push_back(root ? root->id : cams[k].second);
-            playerPads_.push_back(k < connected.size() ? connected[k] : -1);
+            if (!padJoining_) playerPads_.push_back(k < connected.size() ? connected[k] : -1);
         }
     }
+    if (padJoining_) playerPads_.assign(std::begin(seats_), std::end(seats_));   // (the seats, cameras or not)
     for (int k = 0; k < kMaxPlayers; ++k) {
         InputMap::Sources src;
         int slot = k < (int)playerPads_.size() ? playerPads_[(size_t)k] : -1;
         src.keys = k == 0 && keys;
         src.mouse = k == 0 && mouse && !held;
         src.padState = slot >= 0 ? &pads_[(size_t)slot] : nullptr;
-        src.pad = keys && (slot >= 0 || (k == 0 && pads_.empty()));   // (no pads known: player 1 has ImGui's)
+        src.pad = keys && (slot >= 0 || (k == 0 && pads_.empty() && !padJoining_));   // (no pads known: player 1 has ImGui's)
         players_[k].beginFrame(src, k == 0 ? mouseDelta : ImVec2(0, 0));
     }
     trackDevice();
@@ -984,8 +1073,27 @@ void Game::rebind(const std::string& action, prompts::Device device) {
         ctx_.log("UI: @rebind: no action " + action);
         return;
     }
-    rebind_ = {action, device, 0.f, false};
+    rebind_ = {action, device, 0.f, false, {}};
     state_.set("input.rebinding", json::Value(action));
+    state_.set("input.rebindingDevice", json::Value(device == prompts::Device::Pad ? "pad" : "keyboard"));
+}
+
+void Game::rebindStick(const std::vector<std::string>& actions, prompts::Device device) {
+    if (actions.size() != 4) {
+        ctx_.log("UI: @rebindstick: four actions (up, down, left, right)");
+        return;
+    }
+    for (const std::string& name : actions) {
+        bool known = false;
+        for (const InputAction& a : actions_) known = known || a.name == name;
+        if (!known) {
+            ctx_.log("UI: @rebindstick: no action " + name);
+            return;
+        }
+    }
+    std::string all = actions[0] + "," + actions[1] + "," + actions[2] + "," + actions[3];
+    rebind_ = {all, device, 0.f, false, actions};
+    state_.set("input.rebinding", json::Value(all));
     state_.set("input.rebindingDevice", json::Value(device == prompts::Device::Pad ? "pad" : "keyboard"));
 }
 
@@ -1023,21 +1131,24 @@ void Game::updateRebind(float dt) {
     ImGuiKey pressedKey = ImGuiKey_None;
     int pressedMouse = -1;
     bool anyDown = false;
+    bool stick = !rebind_.stick.empty();
+    ImGuiKey group[4];
+    auto takes = [&](ImGuiKey k) { return !stick || directionGroup(k, group); };   // (a stick: only its controls)
     if (pad) {
         for (int k = ImGuiKey_GamepadStart; k <= ImGuiKey_GamepadRStickDown; ++k) {
             float v = padValue((ImGuiKey)k);
             if (v > 0.3f) anyDown = true;
-            if (v > 0.6f && pressedKey == ImGuiKey_None) pressedKey = (ImGuiKey)k;
+            if (v > 0.6f && pressedKey == ImGuiKey_None && takes((ImGuiKey)k)) pressedKey = (ImGuiKey)k;
         }
     } else {
         for (int k = ImGuiKey_NamedKey_BEGIN; k < ImGuiKey_GamepadStart; ++k) {
             if (k == ImGuiKey_Escape) continue;   // (it cancels)
             if (ImGui::IsKeyDown((ImGuiKey)k)) {
                 anyDown = true;
-                if (pressedKey == ImGuiKey_None) pressedKey = (ImGuiKey)k;
+                if (pressedKey == ImGuiKey_None && takes((ImGuiKey)k)) pressedKey = (ImGuiKey)k;
             }
         }
-        for (int b = 0; b < 5; ++b)
+        for (int b = 0; b < 5 && !stick; ++b)
             if (ImGui::IsMouseDown(b)) {
                 anyDown = true;
                 if (pressedMouse < 0 && pressedKey == ImGuiKey_None) pressedMouse = b;
@@ -1048,6 +1159,26 @@ void Game::updateRebind(float dt) {
         return;
     }
     if (pressedKey == ImGuiKey_None && pressedMouse < 0) return;
+    if (stick) {   // each of the four actions: that device's directions replaced by the group's
+        directionGroup(pressedKey, group);
+        for (size_t i = 0; i < 4; ++i)
+            for (const InputAction& a : actions_) {
+                if (a.name != rebind_.stick[i]) continue;
+                InputAction b = a;
+                b.keys.clear();
+                ImGuiKey unused[4];
+                for (ImGuiKey k : a.keys)
+                    if (isGamepadKey(k) != pad || !directionGroup(k, unused)) b.keys.push_back(k);
+                b.keys.insert(b.keys.begin(), group[i]);
+                std::string key = "settings.bind." + a.name;
+                settings_[key] = json::Value(bindingString(b));
+                state_.set(key, settings_[key]);
+            }
+        settingsSaveIn_ = 1.f;
+        done();
+        applyBindings();
+        return;
+    }
     // The new binding there; the action's others (the other device's) stay
     for (const InputAction& a : actions_) {
         if (a.name != rebind_.action) continue;

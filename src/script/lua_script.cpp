@@ -1119,6 +1119,14 @@ int gIsClient(lua_State* L) {
     lua_pushboolean(L, context(L).isClient());
     return 1;
 }
+int gSetPadJoining(lua_State* L) {   // game.setPadJoining(on): local players join with their pads' Start
+    context(L).setPadJoining(lua_toboolean(L, 1) != 0);
+    return 0;
+}
+int gLocalPlayers(lua_State* L) {
+    lua_pushinteger(L, context(L).localPlayers());
+    return 1;
+}
 int gSendToTag(lua_State* L) {
     std::string tag = luaL_checkstring(L, 1);
     context(L).sendToTag(tag, toMessage(L, 2));
@@ -1483,6 +1491,7 @@ lua_State* state() {
         {"findPath", gFindPath},   {"after", gAfter},             {"every", gEvery},
         {"cancel", gCancel},       {"send", gSend},               {"sendToTag", gSendToTag},
         {"sendToServer", gSendToServer}, {"sendToClients", gSendToClients}, {"isServer", gIsServer}, {"isClient", gIsClient},
+        {"setPadJoining", gSetPadJoining}, {"localPlayers", gLocalPlayers},
         {"broadcast", gBroadcast}, {"playSound", gPlaySound},     {"playSound2D", gPlaySound2D},
         {"playMusic", gPlayMusic}, {"stopMusic", gStopMusic},     {"setBusVolume", gSetBusVolume},
         {"playMusicLayers", gPlayMusicLayers}, {"setMusicLayer", gSetMusicLayer}, {"playStinger", gPlayStinger},

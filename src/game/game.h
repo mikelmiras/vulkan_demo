@@ -149,6 +149,9 @@ public:
     void sendToClients(EntityId to, const Message& message, uint16_t client = 0);
     bool isServer() const { return netRole_ != NetRole::Client; }   // (hosting, or not in a multiplayer game)
     bool isClient() const { return netRole_ == NetRole::Client; }
+    // Local players joining with their pads' Start (Game::setPadJoining), and how many play
+    void setPadJoining(bool on);
+    int localPlayers() const;
 
     // Timers, in game time (paused with the game), run after the update they come due in. With an owner they're
     // dropped when it's destroyed. Not kept in save games or across scene changes.
@@ -370,6 +373,14 @@ public:
     // cameras, player 1 plays with the keyboard, the mouse and the first pad, player n with the n-th pad, and the
     // behaviours under a player camera's root (its topmost ancestor) read that player's input as ctx.input().
     // Otherwise (and without pads) every pad is everyone's, through Dear ImGui.
+    // Joining with Start (setPadJoining(true), the UI action "@padjoin on"): instead of pads given out in order,
+    // a pad joins when its Start is pressed: the first one plays with player 1 (the keyboard's), the next ones are
+    // players 2, 3, 4. A pad unplugged leaves its seat waiting: the next Start takes it. The game state says how many
+    // play (input.players) and with what (input.player.<n>.pad: "xbox", "playstation", ...; "" none yet).
+    void setPadJoining(bool on);
+    bool padJoining() const { return padJoining_; }
+    void resetPlayers();   // everyone out but player 1 (with no pad)
+    int localPlayers() const;
     void setGamepads(std::vector<GamepadState> pads) { pads_ = std::move(pads); }
     const std::vector<GamepadState>& gamepads() const { return pads_; }
     const InputMap& playerInput(int player) const { return players_[std::clamp(player, 0, kMaxPlayers - 1)]; }
@@ -385,6 +396,9 @@ public:
     // game/input_bindings.h's format); Esc or 10 s cancels. The game state's input.rebinding names the action
     // while it waits (menus say "Press a button..."); the UI doesn't take input meanwhile.
     void rebind(const std::string& action, prompts::Device device);
+    // A stick as a whole ("@rebindstick move_forward,move_back,move_left,move_right": the up, down, left and right
+    // actions): the next stick or d-pad pushed (or key of a cluster: WASD, the arrows, ...) becomes all four
+    void rebindStick(const std::vector<std::string>& actions, prompts::Device device);
     bool rebinding() const { return !rebind_.action.empty(); }
     void resetBindings(const std::string& action = "");   // the scene's bindings back: all, or one action's
     const std::vector<InputAction>& bindings() const { return actions_; }   // the scene's, with the player's own
@@ -532,7 +546,15 @@ private:
         prompts::Device device = prompts::Device::Keyboard;
         float waited = 0.f;
         bool released = false;   // (everything let go since it was asked: the press that asked doesn't count)
+        std::vector<std::string> stick;   // (a stick's four actions)
     } rebind_;
+    bool padJoining_ = false;
+    int seats_[kMaxPlayers] = {-1, -1, -1, -1};   // the pad slot each local player plays with
+    int joined_ = 1;
+    std::vector<float> startWas_;   // each pad's Start last frame (presses join)
+    void updateSeats();
+    void publishSeats();
+    void publishConflicts();
     void applyBindings();        // actions_ from the scene and settings, into every InputMap
     void beginInput(bool keyboard, bool mouse, ImVec2 mouseDelta);
     void endInputStep();

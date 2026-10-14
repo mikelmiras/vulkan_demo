@@ -1019,7 +1019,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 70.4 (done) | Lighting and shadows: soft shadows (hardware-filtered PCF on a rotated disk, PCSS for the sun, blended cascades), volumetric fog lit by the sun and the lights, specular anti-aliasing, a filmic tone mapper and colour grading, Night Drive retuned with them | Asked for with 70.3: the games made with it should look more polished |
 | 71 (done) | Physics: tearing mesh soft bodies, water with waves and currents (a V-HACD-style decomposition and tears across triangles left for later) | Concave pieces split by halving; only cloth tears; still water only |
 | 72 (done) | Networking, safe: encrypted sessions (key exchange, authenticated packets), relay authentication and rate limits, private / password lobbies, reliable messages between behaviours on different machines | Packets are plain; anyone can use a relay; messages stay on one machine |
-| 73 | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
+| 73 (done) | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
 | 74 | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
 | 75 | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
 | 76 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
@@ -1266,3 +1266,25 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   he reads the game, with one he can guess it offline: a PAKE such as SPAKE2 or CPace would stop both), IPv6,
   accounts, the relay's own traffic (lobby lists, codes) unencrypted, forward secrecy beyond a session (keys are new
   each session; no rekeying within one).
+- **73, input**: joining with Start: Game::setPadJoining (GameContext, Lua game.setPadJoining, UI action @padjoin)
+  keeps four seats of pad slots; a pad's new Start press (a press held when it's turned on doesn't count) takes
+  player 1's pad if it has none, else a seat an unplugged pad left, else the next player; playerPads_ comes from the
+  seats (cameras or not), input.players and input.player.N.pad in the game state, @resetplayers. Windows HID
+  (platform/hid_pads.{h,cpp}, portable and tested; the device side in platform_win32.cpp): SetupDi enumeration every
+  2 s, the gamepad collection (usage page 1, usage 4 / 5) of Sony's DualShock 4 (and its dongle) and DualSense (and
+  Edge) and Nintendo's Pro Controller opened overlapped, a reader thread each keeping the latest state; four slots
+  after XInput's. Reports per the Linux drivers' layouts: DS4 0x01 / 0x11, DualSense 0x01 (USB 64 bytes, or
+  Bluetooth's short DS4-like one) / 0x31; reading a feature report (0x02 / 0x05) turns on Bluetooth's full reports;
+  the Pro Controller gets the USB handshake and subcommands (full report mode 0x30, player light 1), 0x3F parsed
+  too. Rumble and light bars for Sony's pads (output 0x05 / 0x02, USB layout); Dear ImGui is fed the HID pads when
+  no XInput pad is plugged in (its backend sets the gamepad keys otherwise). A stick as a whole: Game::rebindStick
+  (@rebindstick up,down,left,right) takes only a control in a direction group (a stick, the d-pad, WASD, arrows,
+  IJKL, the number pad) and gives each action that group's direction in place of its directional controls on that
+  device. Conflicts: bindingConflicts() (each pair once, with the control), input.conflict.<action> and
+  input.conflicts published whenever bindings change. Module API 49 (Game's layout). Checked: seats (joining order,
+  unplugging, re-seating, reset, back to pads in order), a stick and a key cluster rebound (buttons ignored, the
+  other device kept, the clash with the look actions reported), the default bindings conflict-free, reports for
+  every model and connection built from the layouts, output reports' bytes. Not done: tried on real pads under
+  Windows (only CI's build: the report layouts are the drivers' and dekuNukem's, untested here), the Pro
+  Controller's stick calibration (a fixed range) and rumble, Sony pads' output over Bluetooth (needs the CRC'd 0x11
+  / 0x31 reports), Joy-Cons, menus answering HID and XInput pads at once, swapping bindings on a conflict.

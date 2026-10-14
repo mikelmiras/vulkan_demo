@@ -46,11 +46,12 @@ bool isFullscreen();
 
 // Gamepad feedback, on the first pad: rumble with the heavy (low frequency) and light (high frequency) motors 0..1
 // for `seconds` (0 stops it), and a light bar's colour (DualShock 4 / DualSense, 0..1). False where the pad, the
-// OS or permissions don't allow it (Windows: no light bars through XInput; Linux: the LEDs are often root's).
+// OS or permissions don't allow it (Windows: light bars on Sony's pads read as HID; Linux: the LEDs are often root's).
 bool gamepadRumble(float low, float high, float seconds);
 bool setGamepadLight(float r, float g, float b);
-// Gamepads one by one: up to four slots (a pad keeps its slot while it's connected), what each has down and what
-// kind it is. Dear ImGui still gets them all together (menus answer any pad). macOS: the GameController framework's.
+// Gamepads one by one: slots (a pad keeps its slot while it's connected), what each has down and what kind it is.
+// Dear ImGui still gets them all together (menus answer any pad). macOS: the GameController framework's; Windows:
+// XInput's four, then four for DualShock 4s, DualSenses and Switch Pro Controllers read as HID (platform/hid_pads.h).
 std::vector<GamepadState> gamepads();
 bool gamepadRumble(int pad, float low, float high, float seconds);   // a pad's own (its slot; -1: the first)
 

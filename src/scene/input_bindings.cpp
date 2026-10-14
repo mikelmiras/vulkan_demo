@@ -27,6 +27,37 @@ std::vector<InputAction> defaultInputActions() {
     };
 }
 
+std::vector<BindingConflict> bindingConflicts(const std::vector<InputAction>& actions) {
+    std::vector<BindingConflict> out;
+    for (size_t i = 0; i < actions.size(); ++i)
+        for (size_t j = i + 1; j < actions.size(); ++j) {
+            const InputAction &a = actions[i], &b = actions[j];
+            for (ImGuiKey k : a.keys)
+                if (std::find(b.keys.begin(), b.keys.end(), k) != b.keys.end()) out.push_back({a.name, b.name, keyName(k)});
+            if (a.mouseButton >= 0 && a.mouseButton == b.mouseButton)
+                out.push_back({a.name, b.name, "Mouse" + std::to_string(a.mouseButton)});
+        }
+    return out;
+}
+
+bool directionGroup(ImGuiKey key, ImGuiKey out[4]) {
+    static const ImGuiKey kGroups[][4] = {
+        {ImGuiKey_GamepadLStickUp, ImGuiKey_GamepadLStickDown, ImGuiKey_GamepadLStickLeft, ImGuiKey_GamepadLStickRight},
+        {ImGuiKey_GamepadRStickUp, ImGuiKey_GamepadRStickDown, ImGuiKey_GamepadRStickLeft, ImGuiKey_GamepadRStickRight},
+        {ImGuiKey_GamepadDpadUp, ImGuiKey_GamepadDpadDown, ImGuiKey_GamepadDpadLeft, ImGuiKey_GamepadDpadRight},
+        {ImGuiKey_W, ImGuiKey_S, ImGuiKey_A, ImGuiKey_D},
+        {ImGuiKey_UpArrow, ImGuiKey_DownArrow, ImGuiKey_LeftArrow, ImGuiKey_RightArrow},
+        {ImGuiKey_I, ImGuiKey_K, ImGuiKey_J, ImGuiKey_L},
+        {ImGuiKey_Keypad8, ImGuiKey_Keypad5, ImGuiKey_Keypad4, ImGuiKey_Keypad6},
+    };
+    for (const auto& g : kGroups)
+        if (std::find(g, g + 4, key) != g + 4) {
+            std::copy(g, g + 4, out);
+            return true;
+        }
+    return false;
+}
+
 const char* keyName(ImGuiKey key) { return ImGui::GetKeyName(key); }   // a static table: no context needed
 
 ImGuiKey keyFromName(const std::string& name) {

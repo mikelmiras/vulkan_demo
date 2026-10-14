@@ -323,6 +323,13 @@ player 1 the keyboard, the mouse and the first pad connected, player 2 the secon
 under a player camera's root (its topmost parent: the player entity) read that player's input as `ctx.input()`
 (`ctx.rumble` shakes that player's pad). The editor's Game view shows player 1.
 
+**Joining with Start**: `ctx.setPadJoining(true)` (Lua `game.setPadJoining(true)`, the UI action `@padjoin on`)
+hands pads out as players press Start instead of in order: the first pad to press it plays with player 1 (who also
+has the keyboard), the next ones become players 2, 3 and 4. A pad unplugged leaves its seat waiting for the next
+Start; `@resetplayers` sends everyone but player 1 out. The game state says how many play (`input.players`,
+`ctx.localPlayers()`) and with what (`input.player.2.pad`: `xbox`, `playstation`, `switch`, `generic`, or `""`), so a
+"Press Start to join" screen can show the seats and turn on the cameras of the players who joined.
+
 The demo scene is a tiny game: you are the **Player** (a capsule body with a PlayerController and a camera child).
 Walk with WASD / arrow keys or the left stick, look with the mouse (click the view to capture it, or hold the right
 button) or the right stick, Space / A to jump, Shift to sprint, and collect the
@@ -341,11 +348,12 @@ dropping on the right.
   button); they're saved with the scene. Presses are latched until the next update reads them, so a quick tap is
   never missed. The keyboard is ignored while typing in a text field, and the mouse while it's over a panel.
 - **Click the game view to capture the mouse** for mouse look without holding a button; Esc releases it.
-- **Gamepads**: up to four, each read on its own (`platform::gamepads()`: XInput's pads on Windows, the
-  GameController framework's on macOS, the Linux joystick API's `/dev/input/js*` with each driver's own button codes,
+- **Gamepads**: each read on its own (`platform::gamepads()`: on Windows XInput's pads, and DualShock 4s, DualSenses
+  and Switch Pro Controllers read as HID (XInput doesn't see them: four more slots after XInput's four); the
+  GameController framework's on macOS; the Linux joystick API's `/dev/input/js*` with each driver's own button codes,
   so Sony's and Nintendo's pads have their buttons in the right places; a pad plugged in later is found within two
-  seconds). Menus answer any of them. What kind each is (Xbox, PlayStation, Switch, other) comes from its USB vendor
-  and name.
+  seconds). Menus answer any of them (on Windows the HID pads only while no XInput pad is plugged in). What kind each
+  is (Xbox, PlayStation, Switch, other) comes from its USB vendor and name.
 - **Button prompts**: `{button:jump}` in any text (UI layouts, `ctx.format`, Lua `ui.text`) shows what to press for an
   action on the device the player used last: a keycap for keys and mouse buttons, the pad's own buttons for pads
   (Xbox's coloured A B X Y, PlayStation's cross, circle, square and triangle, Switch's letters where Nintendo puts
@@ -358,9 +366,17 @@ dropping on the right.
   names the action (for a "Press a key..." text) and nothing else takes the press; Esc or 10 s cancel. Players'
   bindings are saved with their settings (`settings.bind.<action>`, e.g. `"K,GamepadR1,Mouse0"`); `@resetbindings`
   (or `@resetbindings jump`) brings the scene's back.
+- **A stick as a whole**: `@rebindstick move_forward,move_back,move_left,move_right` (the up, down, left and right
+  actions) waits for a stick or the d-pad to be pushed (buttons are ignored) and binds its four directions to the
+  four actions; on the keyboard a key of a cluster binds the whole cluster (WASD, the arrows, IJKL, the number pad's
+  8 4 5 6).
+- **Conflicts**: a control bound to two actions shows in the game state: `input.conflict.<action>` names the other
+  actions with a control in common (`""`: none), `input.conflicts` counts the pairs, so a controls menu can mark
+  them (`{input.conflict.jump}`).
 - **Rumble and light bars**: `ctx.rumble(low, high, seconds)` runs the heavy and light motors (0..1; Lua
   `input.rumble`), `ctx.setGamepadLight({r, g, b})` colours a DualShock 4 / DualSense light bar (Lua
-  `input.setLight`). Windows rumbles through XInput (no light bars there); macOS uses the pad's haptics and light;
+  `input.setLight`). Windows rumbles through XInput, and Sony's pads (and their light bars) through HID; macOS uses
+  the pad's haptics and light;
   Linux rumbles through the pad's evdev node and writes its LEDs in sysfs (often only root may: a udev rule allows
   it). The player's `settings.rumble` turns rumble off.
 - Messages logged by behaviours show at the bottom of the viewport (and on stdout).

@@ -13,15 +13,24 @@
 #include <xinput.h>
 #include <winhttp.h>
 #include <dxgi1_6.h>
+#include <bcrypt.h>    // (NTSTATUS, which hidpi.h needs)
+#include <setupapi.h>
+#include <hidsdi.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 
 #include "platform/platform.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+
+#include "platform/hid_pads.h"
 
 #include "imgui.h"
 #include "imgui_impl_win32.h"
@@ -62,6 +71,165 @@ bool loadXInput() {
             break;
         }
     return g_xinputGetState && g_xinputSetState;
+}
+
+// Sony's and Nintendo's pads, read as HID (XInput sees only Xbox pads): four slots after XInput's, each pad read on
+// a thread of its own (blocking reads), its latest state kept for gamepads()
+struct HidPad {
+    std::wstring path;
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    hidpad::Model model = hidpad::Model::None;
+    size_t inputSize = 64, outputSize = 64;
+    std::thread reader;
+    std::atomic<bool> alive{true};
+    std::mutex mutex;
+    GamepadState state;
+    float low = 0.f, high = 0.f, light[3] = {0.f, 0.f, 0.4f};
+    ULONGLONG rumbleUntil = 0;
+
+    ~HidPad() {
+        alive = false;
+        if (handle != INVALID_HANDLE_VALUE) CancelIoEx(handle, nullptr);
+        if (reader.joinable()) reader.join();
+        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+    }
+    bool write(const std::vector<uint8_t>& report) {
+        if (report.empty()) return false;
+        std::vector<uint8_t> out = report;
+        if (out.size() < outputSize) out.resize(outputSize, 0);
+        OVERLAPPED ov{};
+        ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        DWORD n = 0;
+        bool ok = WriteFile(handle, out.data(), (DWORD)out.size(), nullptr, &ov) || GetLastError() == ERROR_IO_PENDING;
+        if (ok && WaitForSingleObject(ov.hEvent, 100) != WAIT_OBJECT_0) {
+            CancelIoEx(handle, &ov);
+            ok = false;
+        }
+        ok = GetOverlappedResult(handle, &ov, &n, TRUE) && ok;
+        CloseHandle(ov.hEvent);
+        return ok;
+    }
+    void sendOutput() { write(hidpad::outputReport(model, low, high, light)); }
+    void read() {
+        if (model == hidpad::Model::SwitchPro)   // (full reports, asked for: the USB handshake fails harmlessly on Bluetooth)
+            for (const std::vector<uint8_t>& r : hidpad::switchStartup(outputSize >= 64, outputSize)) {
+                write(r);
+                Sleep(30);
+            }
+        else
+            sendOutput();   // (the light bar ours from the start)
+        std::vector<uint8_t> buf(std::max<size_t>(inputSize, 64));
+        OVERLAPPED ov{};
+        ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        while (alive) {
+            ResetEvent(ov.hEvent);
+            DWORD n = 0;
+            if (!ReadFile(handle, buf.data(), (DWORD)buf.size(), nullptr, &ov) && GetLastError() != ERROR_IO_PENDING) break;
+            while (alive && WaitForSingleObject(ov.hEvent, 100) == WAIT_TIMEOUT) {}
+            if (!alive) {
+                CancelIoEx(handle, &ov);
+                GetOverlappedResult(handle, &ov, &n, TRUE);
+                break;
+            }
+            if (!GetOverlappedResult(handle, &ov, &n, FALSE)) break;   // (unplugged)
+            std::lock_guard<std::mutex> lock(mutex);
+            hidpad::parseReport(model, buf.data(), n, state);
+        }
+        CloseHandle(ov.hEvent);
+        std::lock_guard<std::mutex> lock(mutex);
+        state.connected = false;
+        alive = false;
+    }
+};
+constexpr int kHidSlots = 4;
+std::unique_ptr<HidPad> g_hid[kHidSlots];
+ULONGLONG g_hidScanAt = 0;
+bool g_xinputAny = false;   // (an XInput pad connected: Dear ImGui's backend feeds those)
+float g_hidFed[kGamepadKeys] = {};
+
+// Every 2 s: the pads gone closed, new ones opened
+void scanHidPads() {
+    ULONGLONG now = GetTickCount64();
+    for (auto& p : g_hid)
+        if (p && !p->alive) p.reset();
+    if (now < g_hidScanAt) return;
+    g_hidScanAt = now + 2000;
+    GUID hidGuid;
+    HidD_GetHidGuid(&hidGuid);
+    HDEVINFO set = SetupDiGetClassDevsW(&hidGuid, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (set == INVALID_HANDLE_VALUE) return;
+    SP_DEVICE_INTERFACE_DATA iface{sizeof(SP_DEVICE_INTERFACE_DATA)};
+    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(set, nullptr, &hidGuid, i, &iface); ++i) {
+        DWORD size = 0;
+        SetupDiGetDeviceInterfaceDetailW(set, &iface, nullptr, 0, &size, nullptr);
+        if (size == 0) continue;
+        std::vector<uint8_t> buf(size);
+        auto* detail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W*>(buf.data());
+        detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_W);
+        if (!SetupDiGetDeviceInterfaceDetailW(set, &iface, detail, size, nullptr, nullptr)) continue;
+        std::wstring path = detail->DevicePath;
+        bool open = false;
+        for (const auto& p : g_hid) open = open || (p && p->path == path);
+        int slot = -1;
+        for (int k = kHidSlots - 1; k >= 0; --k)
+            if (!g_hid[k]) slot = k;
+        if (open || slot < 0) continue;
+        HANDLE h = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                               OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        HIDD_ATTRIBUTES attr{sizeof(HIDD_ATTRIBUTES)};
+        hidpad::Model model = HidD_GetAttributes(h, &attr) ? hidpad::modelOf(attr.VendorID, attr.ProductID) : hidpad::Model::None;
+        PHIDP_PREPARSED_DATA pre = nullptr;
+        HIDP_CAPS caps{};
+        if (model != hidpad::Model::None && HidD_GetPreparsedData(h, &pre)) {
+            if (HidP_GetCaps(pre, &caps) != HIDP_STATUS_SUCCESS || caps.UsagePage != 1 || (caps.Usage != 4 && caps.Usage != 5))
+                model = hidpad::Model::None;   // (another of the pad's collections: not its controls)
+            HidD_FreePreparsedData(pre);
+        } else {
+            model = hidpad::Model::None;
+        }
+        if (model == hidpad::Model::None) {
+            CloseHandle(h);
+            continue;
+        }
+        // Over Bluetooth, Sony's pads send their full reports once a feature report has been read
+        uint8_t feature[64] = {(uint8_t)(model == hidpad::Model::DualSense ? 0x05 : 0x02)};
+        HidD_GetFeature(h, feature, model == hidpad::Model::DualSense ? 41 : 37);
+        auto pad = std::make_unique<HidPad>();
+        pad->path = path;
+        pad->handle = h;
+        pad->model = model;
+        pad->inputSize = caps.InputReportByteLength;
+        pad->outputSize = caps.OutputReportByteLength;
+        pad->state.connected = true;
+        pad->state.type = hidpad::typeOf(model);
+        pad->state.name = hidpad::modelName(model);
+        HidPad* raw = pad.get();
+        pad->reader = std::thread([raw] { raw->read(); });
+        g_hid[slot] = std::move(pad);
+    }
+    SetupDiDestroyDeviceInfoList(set);
+}
+
+// Dear ImGui's backend feeds only XInput's pads: without one connected, the HID pads together (menus answer them)
+void feedImGuiHid() {
+    if (g_xinputAny) return;
+    ImGuiIO& io = ImGui::GetIO();
+    float v[kGamepadKeys] = {};
+    bool any = false;
+    for (auto& p : g_hid) {
+        if (!p) continue;
+        std::lock_guard<std::mutex> lock(p->mutex);
+        if (!p->state.connected) continue;
+        any = true;
+        for (int k = 0; k < kGamepadKeys; ++k) v[k] = std::max(v[k], p->state.values[k]);
+    }
+    if (any) io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    for (int k = 0; k < kGamepadKeys; ++k) {
+        if (v[k] == g_hidFed[k]) continue;
+        g_hidFed[k] = v[k];
+        io.AddKeyAnalogEvent((ImGuiKey)(ImGuiKey_GamepadStart + k), v[k] > 0.1f, v[k]);
+    }
 }
 
 // Keep the (hidden) cursor inside the client area while captured
@@ -190,6 +358,9 @@ void destroyWindow() {
 void pollEvents() {
     for (int i = 0; i < XUSER_MAX_COUNT; ++i)
         if (g_rumbleUntil[i] && GetTickCount64() >= g_rumbleUntil[i]) gamepadRumble(i, 0.f, 0.f, 0.f);
+    for (int i = 0; i < kHidSlots; ++i)
+        if (g_hid[i] && g_hid[i]->rumbleUntil && GetTickCount64() >= g_hid[i]->rumbleUntil)
+            gamepadRumble(XUSER_MAX_COUNT + i, 0.f, 0.f, 0.f);
     MSG msg;
     while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
         TranslateMessage(&msg);
@@ -253,8 +424,22 @@ bool isFullscreen() { return g_fullscreen; }
 bool gamepadRumble(float low, float high, float seconds) { return gamepadRumble(-1, low, high, seconds); }
 
 bool gamepadRumble(int pad, float low, float high, float seconds) {
-    if (!loadXInput()) return false;
     bool stop = seconds <= 0.f || (low <= 0.f && high <= 0.f);
+    if (pad >= XUSER_MAX_COUNT) {   // a HID pad's (slots after XInput's)
+        HidPad* p = pad < XUSER_MAX_COUNT + kHidSlots ? g_hid[pad - XUSER_MAX_COUNT].get() : nullptr;
+        if (!p || !p->alive) return false;
+        p->low = stop ? 0.f : low;
+        p->high = stop ? 0.f : high;
+        p->rumbleUntil = stop ? 0 : GetTickCount64() + (ULONGLONG)(seconds * 1000.f);
+        return p->write(hidpad::outputReport(p->model, p->low, p->high, p->light));
+    }
+    if (pad < 0 && !stop && !g_xinputAny)   // (no XInput pad: the first HID one)
+        for (int i = 0; i < kHidSlots; ++i)
+            if (g_hid[i] && g_hid[i]->alive) return gamepadRumble(XUSER_MAX_COUNT + i, low, high, seconds);
+    if (pad < 0 && stop)
+        for (int i = 0; i < kHidSlots; ++i)
+            if (g_hid[i] && g_hid[i]->rumbleUntil) gamepadRumble(XUSER_MAX_COUNT + i, 0.f, 0.f, 0.f);
+    if (!loadXInput()) return false;
     if (pad < 0) {   // the first one connected (stopping: every one rumbling)
         if (stop) {
             bool ok = true;
@@ -277,9 +462,17 @@ bool gamepadRumble(int pad, float low, float high, float seconds) {
     return g_xinputSetState((DWORD)pad, &v) == ERROR_SUCCESS;
 }
 
-// XInput's four pads, one by one (Dear ImGui's backend gives it the first connected; all Xbox-like)
+// XInput's four pads, one by one (Dear ImGui's backend gives it the first connected; all Xbox-like), then the HID
+// pads' four slots
 std::vector<GamepadState> gamepads() {
-    std::vector<GamepadState> out(XUSER_MAX_COUNT);
+    std::vector<GamepadState> out(XUSER_MAX_COUNT + kHidSlots);
+    scanHidPads();
+    for (int i = 0; i < kHidSlots; ++i)
+        if (g_hid[i]) {
+            std::lock_guard<std::mutex> lock(g_hid[i]->mutex);
+            out[XUSER_MAX_COUNT + i] = g_hid[i]->state;
+        }
+    g_xinputAny = false;
     if (!loadXInput()) return out;
     static ULONGLONG retry[XUSER_MAX_COUNT] = {};   // (asking an empty slot is slow: those only every 2 s)
     ULONGLONG now = GetTickCount64();
@@ -291,6 +484,7 @@ std::vector<GamepadState> gamepads() {
             continue;
         }
         retry[i] = 0;
+        g_xinputAny = true;
         GamepadState& p = out[i];
         p.connected = true;
         p.type = PadType::Xbox;
@@ -327,7 +521,18 @@ std::vector<GamepadState> gamepads() {
     return out;
 }
 
-bool setGamepadLight(float, float, float) { return false; }   // (XInput has no light bars)
+// (XInput has no light bars: the HID pads' have)
+bool setGamepadLight(float r, float g, float b) {
+    bool any = false;
+    for (auto& p : g_hid) {
+        if (!p || !p->alive || p->model == hidpad::Model::SwitchPro) continue;
+        p->light[0] = r;
+        p->light[1] = g;
+        p->light[2] = b;
+        any = p->write(hidpad::outputReport(p->model, p->low, p->high, p->light)) || any;
+    }
+    return any;
+}
 
 // The .ico's images become RT_ICON resources 1..n and its directory the RT_GROUP_ICON 1 (the one Explorer shows)
 bool setExecutableVersion(const std::filesystem::path& exe, const std::string& resource, std::string& error) {
@@ -467,9 +672,16 @@ VkSurfaceKHR createVulkanSurface(VkInstance instance) {
 
 void imguiInit() { ImGui_ImplWin32_Init(g_hwnd); }
 
-void imguiNewFrame(float) { ImGui_ImplWin32_NewFrame(); }   // the backend measures size and time itself
+void imguiNewFrame(float) {
+    ImGui_ImplWin32_NewFrame();   // the backend measures size and time itself
+    scanHidPads();
+    feedImGuiHid();
+}
 
-void imguiShutdown() { ImGui_ImplWin32_Shutdown(); }
+void imguiShutdown() {
+    for (auto& p : g_hid) p.reset();
+    ImGui_ImplWin32_Shutdown();
+}
 
 std::filesystem::path openFileDialog(const char* title, const char* extension) {
     std::wstring exts = widen(extension), wtitle = widen(title), patterns;

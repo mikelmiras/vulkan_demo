@@ -1,11 +1,13 @@
 // Gamepads one by one: binding strings, pad kinds and Linux's codes, button prompts (glyphs), local players each
-// on their own pad, prompts following the device used last, and rebinding saved in the player's settings
+// on their own pad (or joining with Start), prompts following the device used last, rebinding saved in the
+// player's settings (a stick as a whole too), binding conflicts, and HID pads' reports (Windows)
 #include "test.h"
 
 #include "game/game.h"
 #include "game/prompts.h"
 #include "game/ui.h"
 #include "imgui.h"
+#include "platform/hid_pads.h"
 #include "scene/input_bindings.h"
 
 namespace {
@@ -283,4 +285,182 @@ TEST(game_state_keeps_local_values) {
     CHECK(st.number("score") == 9.f);
     CHECK(st.text("settings.bind.jump") == "K");
     CHECK(st.text("input.rebinding") == "jump");
+}
+
+// Joining with Start: pads join as they press it (the first plays with player 1), an unplugged pad's seat waits
+// for the next press, and the game state says who plays with what
+TEST(players_join_with_start) {
+    test::ImGuiContextGuard imgui;
+    Scene s;
+    for (int n = 1; n <= 2; ++n) {
+        Entity& root = s.create("P" + std::to_string(n));
+        root.behaviours.emplace_back(std::make_unique<JumpWatch>());
+        Entity& cam = s.create("Cam" + std::to_string(n), root.id);
+        cam.camera = Camera{};
+        cam.camera->player = n;
+    }
+    Game g;
+    g.start(s, meshes());
+    g.setGamepads({pad(PadType::Xbox, ImGuiKey_GamepadStart), pad(PadType::PlayStation)});
+    g.setPadJoining(true);   // (a Start held already doesn't join)
+    for (int i = 0; i < 2; ++i) frame(g);
+    CHECK(g.playerPad(0) == -1 && g.playerPad(1) == -1);
+    CHECK(g.state().number("input.players") == 1.f && g.localPlayers() == 1);
+    g.setGamepads({pad(PadType::Xbox), pad(PadType::PlayStation, ImGuiKey_GamepadStart)});   // the second pad first
+    frame(g);
+    CHECK(g.playerPad(0) == 1 && g.playerPad(1) == -1);
+    CHECK(g.state().text("input.player.1.pad") == "playstation");
+    g.setGamepads({pad(PadType::Xbox, ImGuiKey_GamepadStart), pad(PadType::PlayStation)});
+    frame(g);
+    CHECK(g.playerPad(1) == 0 && g.localPlayers() == 2);
+    CHECK(g.state().text("input.player.2.pad") == "xbox");
+    g.setGamepads({pad(PadType::Xbox, ImGuiKey_GamepadFaceDown), pad(PadType::PlayStation)});
+    for (int i = 0; i < 3; ++i) frame(g);
+    CHECK(g.state().flag("P2.jump") && !g.state().flag("P1.jump"));
+    // Unplugged: the seat waits (still two players), a new pad's Start takes it
+    g.setGamepads({GamepadState{}, pad(PadType::PlayStation)});
+    frame(g);
+    CHECK(g.playerPad(1) == -1 && g.localPlayers() == 2);
+    CHECK(g.state().text("input.player.2.pad").empty());
+    g.setGamepads({GamepadState{}, pad(PadType::PlayStation), pad(PadType::Switch, ImGuiKey_GamepadStart)});
+    frame(g);
+    CHECK(g.playerPad(1) == 2 && g.playerPad(0) == 1);
+    CHECK(g.state().text("input.player.2.pad") == "switch");
+    g.resetPlayers();
+    frame(g);
+    CHECK(g.localPlayers() == 1 && g.playerPad(0) == -1);
+    g.setPadJoining(false);
+    frame(g);
+    CHECK(!g.padJoining() && g.playerPad(0) == 1 && g.playerPad(1) == 2);   // (pads in order again)
+    g.stop();
+}
+
+// A stick rebound as a whole: the four actions get the stick pushed (other presses ignored), the other device's
+// bindings kept; the keyboard takes a cluster of keys the same way; the clash with the look actions shows
+TEST(rebinding_a_stick_whole) {
+    test::ImGuiContextGuard imgui;
+    Scene s;
+    s.create("Anything");
+    Game g;
+    g.start(s, meshes());
+    g.resetBindings();
+    frame(g);
+    CHECK(g.state().number("input.conflicts") == 0.f);
+    CHECK(g.state().text("input.conflict.move_left").empty());
+    g.rebindStick({"move_forward", "move_back", "nothing", "move_right"}, prompts::Device::Pad);   // (no such action)
+    CHECK(!g.rebinding());
+    g.rebindStick({"move_forward", "move_back", "move_left", "move_right"}, prompts::Device::Pad);
+    CHECK(g.state().text("input.rebinding") == "move_forward,move_back,move_left,move_right");
+    frame(g);
+    g.setGamepads({pad(PadType::Xbox, ImGuiKey_GamepadFaceDown)});   // (a button: not a stick)
+    frame(g);
+    CHECK(g.rebinding());
+    g.setGamepads({pad(PadType::Xbox)});
+    frame(g);
+    g.setGamepads({pad(PadType::Xbox, ImGuiKey_GamepadRStickLeft)});
+    frame(g);
+    CHECK(!g.rebinding());
+    CHECK(g.state().text("settings.bind.move_forward") == "GamepadRStickUp,W,UpArrow");
+    CHECK(g.state().text("settings.bind.move_left") == "GamepadRStickLeft,A,LeftArrow");
+    CHECK(g.state().text("settings.bind.move_right") == "GamepadRStickRight,D,RightArrow");
+    CHECK(g.state().text("input.conflict.move_left") == "look_left");   // (the right stick looks around too)
+    CHECK(g.state().text("input.conflict.look_up") == "move_forward");
+    CHECK(g.state().number("input.conflicts") == 4.f);
+    g.setGamepads({pad(PadType::Xbox)});
+    frame(g);
+    // The keyboard: a key of a cluster (J of IJKL) is the whole cluster; the pad's stick stays
+    g.rebindStick({"move_forward", "move_back", "move_left", "move_right"}, prompts::Device::Keyboard);
+    frame(g);
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_J, true);
+    frame(g);
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_J, false);
+    frame(g);
+    CHECK(g.state().text("settings.bind.move_forward") == "I,GamepadRStickUp");
+    CHECK(g.state().text("settings.bind.move_back") == "K,GamepadRStickDown");
+    g.resetBindings();
+    frame(g);
+    CHECK(g.state().number("input.conflicts") == 0.f);
+    g.stop();
+}
+
+TEST(binding_conflicts) {
+    CHECK(bindingConflicts(defaultInputActions()).empty());
+    std::vector<InputAction> actions = {{"jump", {ImGuiKey_Space, ImGuiKey_GamepadFaceDown}},
+                                        {"use", {ImGuiKey_E, ImGuiKey_GamepadFaceDown}, ImGuiMouseButton_Left},
+                                        {"fire", {}, ImGuiMouseButton_Left}};
+    std::vector<BindingConflict> c = bindingConflicts(actions);
+    REQUIRE(c.size() == 2);
+    CHECK(c[0].first == "jump" && c[0].second == "use" && c[0].control == "GamepadFaceDown");
+    CHECK(c[1].first == "use" && c[1].second == "fire" && c[1].control == "Mouse0");
+    ImGuiKey g[4];
+    REQUIRE(directionGroup(ImGuiKey_GamepadDpadLeft, g));
+    CHECK(g[0] == ImGuiKey_GamepadDpadUp && g[3] == ImGuiKey_GamepadDpadRight);
+    CHECK(!directionGroup(ImGuiKey_Space, g));
+}
+
+// Sony's and Nintendo's reports (as the pads send them over USB and Bluetooth) into pad states
+TEST(hid_pad_reports) {
+    using hidpad::Model;
+    CHECK(hidpad::modelOf(0x054C, 0x0CE6) == Model::DualSense);
+    CHECK(hidpad::modelOf(0x054C, 0x09CC) == Model::DualShock4);
+    CHECK(hidpad::modelOf(0x057E, 0x2009) == Model::SwitchPro);
+    CHECK(hidpad::modelOf(0x045E, 0x028E) == Model::None);
+    // DualShock 4 over USB: left stick right and up, cross, the hat up, options, L2 pulled
+    uint8_t ds4[64] = {0x01, 255, 0, 128, 128, 0x20 | 0, 0x20, 0, 255, 0};
+    GamepadState s;
+    REQUIRE(hidpad::parseReport(Model::DualShock4, ds4, sizeof(ds4), s));
+    CHECK(s.connected && s.type == PadType::PlayStation && s.name == "DualShock 4");
+    CHECK(s.value(ImGuiKey_GamepadLStickRight) == 1.f && s.value(ImGuiKey_GamepadLStickUp) == 1.f);
+    CHECK(s.value(ImGuiKey_GamepadLStickLeft) == 0.f && s.value(ImGuiKey_GamepadRStickUp) == 0.f);   // (centred: none)
+    CHECK(s.value(ImGuiKey_GamepadFaceDown) == 1.f && s.value(ImGuiKey_GamepadDpadUp) == 1.f);
+    CHECK(s.value(ImGuiKey_GamepadDpadLeft) == 0.f && s.value(ImGuiKey_GamepadStart) == 1.f);
+    CHECK(s.value(ImGuiKey_GamepadL2) == 1.f && s.value(ImGuiKey_GamepadR2) == 0.f);
+    // ... over Bluetooth (0x11: two bytes on), the hat centred (8), square and R1
+    uint8_t ds4bt[78] = {0x11, 0xC0, 0x00, 128, 128, 128, 128, 0x10 | 8, 0x02, 0, 0, 0};
+    GamepadState b;
+    REQUIRE(hidpad::parseReport(Model::DualShock4, ds4bt, sizeof(ds4bt), b));
+    CHECK(b.value(ImGuiKey_GamepadFaceLeft) == 1.f && b.value(ImGuiKey_GamepadR1) == 1.f);
+    CHECK(b.value(ImGuiKey_GamepadDpadUp) == 0.f && b.value(ImGuiKey_GamepadDpadDown) == 0.f);
+    // DualSense over USB: triggers before the buttons; circle with the hat right, L1, R2 half way
+    uint8_t ds[64] = {0x01, 128, 128, 0, 128, 0, 128, 7, 0x40 | 2, 0x01};
+    GamepadState d;
+    REQUIRE(hidpad::parseReport(Model::DualSense, ds, sizeof(ds), d));
+    CHECK(d.value(ImGuiKey_GamepadFaceRight) == 1.f && d.value(ImGuiKey_GamepadDpadRight) == 1.f);
+    CHECK(d.value(ImGuiKey_GamepadDpadUp) == 0.f && d.value(ImGuiKey_GamepadL1) == 1.f);
+    CHECK_NEAR(d.value(ImGuiKey_GamepadR2), 0.5f, 0.01f);
+    CHECK(d.value(ImGuiKey_GamepadRStickLeft) == 1.f);
+    // ... over Bluetooth (0x31: one byte on), and its short report (the DualShock 4's layout)
+    uint8_t dsbt[78] = {0x31, 0x00, 128, 128, 128, 128, 0, 0, 0, 0x80 | 8, 0x20};
+    GamepadState e;
+    REQUIRE(hidpad::parseReport(Model::DualSense, dsbt, sizeof(dsbt), e));
+    CHECK(e.value(ImGuiKey_GamepadFaceUp) == 1.f && e.value(ImGuiKey_GamepadStart) == 1.f);
+    uint8_t dsshort[10] = {0x01, 128, 128, 128, 128, 0x20 | 4, 0, 0, 0, 0};
+    GamepadState f;
+    REQUIRE(hidpad::parseReport(Model::DualSense, dsshort, sizeof(dsshort), f));
+    CHECK(f.value(ImGuiKey_GamepadFaceDown) == 1.f && f.value(ImGuiKey_GamepadDpadDown) == 1.f);
+    // Switch Pro Controller, full report: B (the bottom one), plus, ZL, the left stick all the way right
+    uint8_t sw[64] = {0x30, 0, 0x8E, 0x04, 0x02, 0x80, 0xFF, 0x0F, 0x80, 0x00, 0x08, 0x80};
+    GamepadState w;
+    REQUIRE(hidpad::parseReport(Model::SwitchPro, sw, sizeof(sw), w));
+    CHECK(w.type == PadType::Switch);
+    CHECK(w.value(ImGuiKey_GamepadFaceDown) == 1.f && w.value(ImGuiKey_GamepadFaceRight) == 0.f);
+    CHECK(w.value(ImGuiKey_GamepadStart) == 1.f && w.value(ImGuiKey_GamepadL2) == 1.f);
+    CHECK(w.value(ImGuiKey_GamepadLStickRight) == 1.f && w.value(ImGuiKey_GamepadLStickUp) == 0.f);
+    CHECK(w.value(ImGuiKey_GamepadRStickUp) == 0.f && w.value(ImGuiKey_GamepadRStickDown) == 0.f);
+    uint8_t other[49] = {0x21};   // (a reply to a subcommand: no controls)
+    CHECK(!hidpad::parseReport(Model::SwitchPro, other, sizeof(other), w));
+    // Output: the light bar and motors where the drivers put them; the Switch's start-up
+    const float light[3] = {1.f, 0.f, 0.5f};
+    std::vector<uint8_t> o = hidpad::outputReport(Model::DualSense, 1.f, 0.f, light);
+    REQUIRE(o.size() == 48);
+    CHECK(o[0] == 0x02 && o[3] == 0 && o[4] == 255 && o[45] == 255 && o[46] == 0 && o[47] == 128);
+    o = hidpad::outputReport(Model::DualShock4, 0.f, 1.f, light);
+    REQUIRE(o.size() == 32);
+    CHECK(o[0] == 0x05 && o[4] == 255 && o[5] == 0 && o[6] == 255 && o[8] == 128);
+    CHECK(hidpad::outputReport(Model::SwitchPro, 1.f, 1.f, light).empty());
+    std::vector<std::vector<uint8_t>> start = hidpad::switchStartup(true, 64);
+    REQUIRE(start.size() == 6);
+    CHECK(start[0][0] == 0x80 && start[0].size() == 64);
+    CHECK(start[4][0] == 0x01 && start[4][10] == 0x03 && start[4][11] == 0x30);
+    CHECK(hidpad::switchStartup(false, 49).size() == 2);
 }

@@ -26,6 +26,16 @@ bool isGamepadKey(ImGuiKey key);
 std::string bindingString(const InputAction& action);
 bool parseBinding(const std::string& text, InputAction& action);   // (replaces its keys and mouse button)
 
+// Actions sharing a control (a key, a pad control, a mouse button): each pair once, with that control's name
+struct BindingConflict {
+    std::string first, second, control;
+};
+std::vector<BindingConflict> bindingConflicts(const std::vector<InputAction>& actions);
+
+// Sticks as a whole: the group a control belongs to (a stick, the d-pad, or a cluster of keys: WASD, the arrows,
+// IJKL, the number pad's 8 4 5 6) as its four directions, up, down, left, right; false if it's in none
+bool directionGroup(ImGuiKey key, ImGuiKey out[4]);
+
 // ---- Gamepads, one by one (platform::gamepads(): what each pad has down; Dear ImGui sees them all together)
 enum class PadType { Generic, Xbox, PlayStation, Switch };
 constexpr int kGamepadKeys = ImGuiKey_GamepadRStickDown - ImGuiKey_GamepadStart + 1;

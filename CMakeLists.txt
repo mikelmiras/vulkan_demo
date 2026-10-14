@@ -226,6 +226,7 @@ set(ENGINE_SOURCES
   src/net/net_session.cpp
   src/net/relay.cpp
   src/net/crypto.cpp
+  src/platform/hid_pads.cpp
   ${LUA_SOURCES})
 if(WIN32)
   list(APPEND ENGINE_SOURCES src/platform/platform_win32.cpp)
@@ -271,7 +272,7 @@ function(vkworld_engine_target name type)
     if(NOT MSVC)
       target_link_libraries(${name} PRIVATE gdi32 dwmapi)   # MSVC gets these via #pragma comment
     endif()
-    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32 winhttp dxgi bcrypt)
+    target_link_libraries(${name} PUBLIC comdlg32 shell32 ole32 ws2_32 winhttp dxgi bcrypt hid setupapi)
     target_compile_definitions(${name} PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
   elseif(APPLE)
     target_link_libraries(${name} PRIVATE "-framework Cocoa" "-framework GameController" "-framework CoreHaptics")
