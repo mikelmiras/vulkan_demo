@@ -999,7 +999,7 @@ Working list for turning the renderer demo into a small game engine. Each task i
   trustworthy as the manifest's server: use https), updates of AppImages and installed .dmg apps in place (an
   exported folder only), crash report symbolication on a server, a privacy notice screen.
 
-## Round 7 (planned)
+## Round 7 (done)
 
 First the editor's power use, projects, builds and asset cooking (asked for after round 6; cooking split off the
 builds task), then mostly what round 6 left out (its
@@ -1383,3 +1383,25 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   over, the notch's place and depth, scene music carrying on and cross-fading, saved and loaded. Not done: measured
   HRTFs (SOFA), early reflections and per-direction reverb (one reverb for everything), occlusion by thickness or
   material, sound propagation round corners (portals), music transitions on bars between scenes.
+
+## Round 8 (planned)
+
+Visuals and performance (asked for after round 7: better graphics, shadows, lighting models and shaders), with Night
+Drive as the showcase on the machines it's tried on (a GTX 1050 Ti, a MacBook Air M4, Intel graphics on Linux).
+Performance first: rendering fewer pixels and less often pays for everything after it.
+
+| # | Task | Why |
+|---|------|-----|
+| 79 | Render scale and upscaling: the 3D scene drawn at a fraction of the window (a setting, or dynamic to hold a frame-rate target) and brought up to full size with temporal upscaling (the TAA history at full resolution) and a sharpening pass; UI at full resolution | Every pixel is shaded once per frame at the window's size: a Retina Mac or a 1440p screen costs up to four times a 1080p one, and a slow GPU has no way to trade sharpness for frame rate |
+| 80 | Half-resolution effects and async work: SSAO, SSR and fog at half (or quarter) resolution with depth-aware upsampling, their compute on an async queue where there is one, a GPU timing overlay per pass | Screen-space effects run at full resolution one after another: the 1050 Ti spends more on them than on the scene |
+| 81 | Shadows, cached and sharper: the sun's far cascades and every light's shadow map only redrawn when what's in them moves (static casters cached, dynamic ones drawn over), cascades fitted tighter, contact shadows (a short screen-space ray march) for small details, spot-light shadows in the volumetric fog | Every shadow map is redrawn every frame; small things (a kerb, a hand) lose their shadows; headlights' beams in the fog have none |
+| 82 | Lighting model: multiple-scattering energy compensation for GGX (rough metals not darkening), a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), specular occlusion from AO, material presets | Rough surfaces lose energy; car paint and fabric look like plain plastic |
+| 83 | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
+| 84 | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
+| 85 | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
+| 86 | Materials and surfaces: parallax occlusion mapping, detail maps, decals (projected: road markings, puddles, dirt), wetness (darker, glossier, rain ripples) driven by a weather setting | Surfaces are flat textures; a wet night street, the look Night Drive wants, can't be made |
+| 87 | Water, finished: refraction and absorption by depth, caustics on the bottom, shoreline foam where it meets geometry, screen-space reflections on it | Task 71's water is a coloured surface: no depth, no sense of what's beneath |
+| 88 | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
+
+### Round 8 notes
+
