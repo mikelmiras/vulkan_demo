@@ -3,7 +3,8 @@
 layout(push_constant) uniform Ao {
     vec4 a;   // tan(fovX / 2), tan(fovY / 2), near, far
     vec4 b;   // radius (m), strength, viewport x, y (pixels)
-    vec4 c;   // viewport width, height, render scale (the depth drawn that much smaller, in the viewport's corner)
+    vec4 c;   // viewport width, height, render scale (the depth drawn that much smaller, in the viewport's corner),
+              // w = samples (12 at high quality, 8 at medium; 0: 12)
 } pc;
 // (pixels are the full-size picture's: the depth is read where each is in the picture drawn)
 ivec2 drawn(ivec2 p) { return pc.c.z > 0.0 && pc.c.z < 0.999 ? ivec2(pc.b.zw + (vec2(p) - pc.b.zw) * pc.c.z) : p; }
@@ -53,7 +54,7 @@ void main() {
     vec3 B = cross(N, T);
     float spin = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
     float radius = pc.b.x, occluded = 0.0;
-    const int kSamples = 12;
+    int kSamples = pc.c.w > 0.5 ? int(pc.c.w + 0.5) : 12;
     for (int i = 0; i < kSamples; ++i) {
         float f = (float(i) + 0.5) / float(kSamples);
         float ang = float(i) * 2.399963 + spin;               // golden-angle spiral, turned per pixel

@@ -1393,7 +1393,7 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | # | Task | Why |
 |---|------|-----|
 | 79 (done) | Render scale and upscaling: the 3D scene drawn at a fraction of the window (a setting, or dynamic to hold a frame-rate target) and brought up to full size with temporal upscaling (the TAA history at full resolution) and a sharpening pass; UI at full resolution | Every pixel is shaded once per frame at the window's size: a Retina Mac or a 1440p screen costs up to four times a 1080p one, and a slow GPU has no way to trade sharpness for frame rate |
-| 80 | Half-resolution effects and async work: SSAO, SSR and fog at half (or quarter) resolution with depth-aware upsampling, their compute on an async queue where there is one, a GPU timing overlay per pass | Screen-space effects run at full resolution one after another: the 1050 Ti spends more on them than on the scene |
+| 80 (done) | Effects scaled by quality: the lit shader's sun shadow taps and blocker search, spot-light shadow taps and screen-space reflection steps, ambient occlusion's samples and the fog's sun samples fewer at medium and low; the GPU's total in the F3 overlay (half-resolution reflections and async compute: left, see the notes) | Every quality level shaded every pixel with high's taps: medium and low only drew less far, so a slow GPU gained little from them |
 | 81 | Shadows, cached and sharper: the sun's far cascades and every light's shadow map only redrawn when what's in them moves (static casters cached, dynamic ones drawn over), cascades fitted tighter, contact shadows (a short screen-space ray march) for small details, spot-light shadows in the volumetric fog | Every shadow map is redrawn every frame; small things (a kerb, a hand) lose their shadows; headlights' beams in the fog have none |
 | 82 | Lighting model: multiple-scattering energy compensation for GGX (rough metals not darkening), a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), specular occlusion from AO, material presets | Rough surfaces lose energy; car paint and fabric look like plain plastic |
 | 83 | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
@@ -1425,3 +1425,14 @@ Performance first: rendering fewer pixels and less often pays for everything aft
   upscaled, as they smear a little with TAA), the Hi-Z pyramid remade (a short wait) when the scale steps,
   split-screen views drawn at full size, a better upscaling filter (Lanczos / FSR's EASU) without TAA, the
   editor's choice remembered.
+- **80, effects by quality**: FrameUBO::shadowParams.z carries the quality (0 low, 1 medium, 2 high) to the shaders.
+  High is as before (pixel for pixel). Medium: the sun's PCSS with 6 blocker taps and 8 filter taps (every other
+  of the 16-point disk), spot shadows 6 taps, reflections 24 steps growing 1.21x (the same 40 m) with 3 refining
+  steps, AO 8 samples, the fog's sun visibility 4 of its 8 points (a different half each frame: the cells' history
+  blends them). Low: no blocker search (a fixed 1.5-texel edge) and 4 taps, spot shadows 4, the fog 2 points (no
+  AO or reflections, as before). The F3 overlay adds the GPU's total. Night Drive on lavapipe, GPU per frame: high
+  1240 ms, medium 921, low 663 (the lit pass 712 / 507 / 383, shadows 119 / 63 / 26, fog 181 / 125 / 86); checked
+  under validation with sync checks, each picture looked at. Not done (from the plan): half-resolution reflections
+  (they're traced in the lit shader: a separate pass needs a normal and roughness buffer this forward renderer
+  doesn't write), async compute (the fog and GI on a compute queue: queue ownership and semaphores per frame, and
+  lavapipe and MoltenVK give one queue), the fog grid's own size by quality.

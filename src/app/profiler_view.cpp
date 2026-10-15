@@ -204,6 +204,11 @@ void drawProfilerOverlay(float scale) {
     ImGui::Text("frame %.2f ms (F3 hides)", sum / (double)frames.size());
     for (const profiler::Summary& s : profiler::summarize())
         if (s.depth <= 1) ImGui::Text("%*s%-18s %6.2f  max %6.2f", s.depth * 2, "", s.name.c_str(), s.avgMs, s.maxMs);
-    for (const auto& [name, t] : profiler::gpuTimes()) ImGui::Text("GPU %-18s %6.2f", name.c_str(), t);
+    float gpu = 0.f;
+    for (const auto& [name, t] : profiler::gpuTimes()) {
+        ImGui::Text("GPU %-18s %6.2f", name.c_str(), t);
+        gpu += t;
+    }
+    if (gpu > 0.f) ImGui::Text("GPU %-18s %6.2f", "total", gpu);
     ImGui::End();
 }

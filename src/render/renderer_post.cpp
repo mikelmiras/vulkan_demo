@@ -262,7 +262,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                ao ? colorStage : fragStage, ao ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
     if (ao) {
         float tanY = std::tan(info.fovY * 0.5f), tanX = tanY * (vw / vh);
-        Push p{{tanX, tanY, info.zNear, info.zFar}, {info.aoRadius, info.aoStrength, vx, vy}, {vw, vh, view >= 0 ? 1.f : scaleNow_, 0.f}, {}, {}};
+        Push p{{tanX, tanY, info.zNear, info.zFar}, {info.aoRadius, info.aoStrength, vx, vy}, {vw, vh, view >= 0 ? 1.f : scaleNow_, quality_ == Quality::High ? 12.f : 8.f}, {}, {}};
         pass(ao_.view, aoSize_, aoPipeline_, aoSet_, p, false);
         mipBarrier(cb, ao_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                    VK_ACCESS_SHADER_READ_BIT);

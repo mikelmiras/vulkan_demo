@@ -39,7 +39,9 @@ float sunLight(vec3 p, float depth, vec3 right, vec3 up, vec3 view, float side, 
                                    vec3(-0.125, 0.375, 0.375), vec3(-0.375, 0.375, -0.125), vec3(0.375, -0.375, 0.375),
                                    vec3(-0.125, -0.125, 0.125), vec3(0.125, 0.125, -0.375));
     float lit = 0.0;
-    for (int i = 0; i < 8; ++i) {
+    int points = frame.shadowParams.z > 1.5 ? 8 : frame.shadowParams.z > 0.5 ? 4 : 2;   // (by quality; the history blends)
+    for (int j = 0; j < points; ++j) {
+        int i = (j * (8 / points) + int(frame.time.y + 0.5)) & 7;   // (another set each frame below eight)
         vec3 q = p + right * (kSpread[i].x * side) + up * (kSpread[i].y * side) + view * (kSpread[i].z * deep);
         float d = depth + kSpread[i].z * deep;
         int c = 0;
@@ -50,7 +52,7 @@ float sunLight(vec3 p, float depth, vec3 right, vec3 up, vec3 view, float side, 
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) { lit += 1.0; continue; }
         lit += proj.z - 0.001 <= textureLod(cascadeDepths, vec3(uv, float(c)), 0.0).r ? 1.0 : 0.0;
     }
-    return lit / 8.0;
+    return lit / float(points);
 }
 
 void main() {

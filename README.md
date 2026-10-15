@@ -498,8 +498,10 @@ dropping on the right.
   editor uses it too until View > Anti-aliasing is set, which is remembered); players change it with the game state's
   `settings.antialiasing` (`msaa`, `taa`, `off` or `default`); `vkgame --aa msaa|taa|off` or `VKWORLD_AA=taa` override.
 - **Quality** (`settings.quality` for players, `VKWORLD_QUALITY` otherwise): `high` draws everything the scene asks
-  for; `medium` keeps the sun's shadows to 100 m and halves the lights' shadow maps; `low` keeps shadows to 60 m and
-  turns off screen-space reflections and ambient occlusion.
+  for; `medium` keeps the sun's shadows to 100 m, halves the lights' shadow maps and takes half the shadow taps,
+  fewer reflection steps, ambient occlusion samples and fog shadow samples (about a quarter off the GPU's frame);
+  `low` keeps shadows to 60 m with a fixed soft edge, and turns off screen-space reflections and ambient occlusion
+  (about half off). F3 shows each pass's GPU time and their total.
 - **Render scale and upscaling**: the 3D scene can be drawn at a fraction of the viewport (50 % to 100 % of its width
   and height: down to a quarter of the pixels to shade) and brought up to full size, the UI staying sharp at full
   size. With temporal AA it's temporal upscaling: each frame's jittered pixels land on the full-size pixels nearest

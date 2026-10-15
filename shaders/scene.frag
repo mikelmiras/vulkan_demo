@@ -101,10 +101,13 @@ float cascadeShadow(int c, vec3 p, float bias) {
     // across (a hazy one; the real sun's 0.53 makes edges too sharp to see soften)
     float size = 0.04 * frame.shadowParams.x;
     float radius = 1.5 * texel;
-    if (size > 0.0) {
+    // Quality: high 12 blocker taps and 16 filter taps, medium 6 and 8, low no blocker search (a fixed edge) and 4
+    int quality = int(frame.shadowParams.z + 0.5);
+    int taps = quality >= 2 ? 16 : quality == 1 ? 8 : 4, searches = quality >= 2 ? 12 : 6;
+    if (size > 0.0 && quality > 0) {
         float search = clamp(size * 20.0 / scale.x, 2.0 * texel, 64.0 * texel);   // (casters up to ~20 m away)
         float sum = 0.0, n = 0.0;
-        for (int i = 0; i < 12; ++i) {
+        for (int i = 0; i < searches; ++i) {
             float d = textureLod(cascadeDepths, vec3(uv + rot * kDisk[i] * search, float(c)), 0.0).r;
             if (d < z) { sum += d; n += 1.0; }
         }
@@ -113,8 +116,8 @@ float cascadeShadow(int c, vec3 p, float bias) {
         radius = clamp(behind * size / scale.x, 1.5 * texel, (frame.shadowParams.y > 0.5 ? 64.0 : 16.0) * texel);
     }
     float lit = 0.0;
-    for (int i = 0; i < 16; ++i) lit += cascadeTap(uv + rot * kDisk[i] * radius, float(c), z);
-    return lit / 16.0;
+    for (int i = 0; i < taps; ++i) lit += cascadeTap(uv + rot * kDisk[i * (16 / taps)] * radius, float(c), z);
+    return lit / float(taps);
 }
 
 // The same in a tile of the atlas (`view`'s rectangle), a fixed width, its taps kept inside the tile
@@ -128,10 +131,11 @@ float atlasShadow(int view, vec3 p, float bias) {
     vec2 lo = rect.xy + texel * 0.5, hi = rect.xy + rect.zw - texel * 0.5;
     vec2 at = rect.xy + uv * rect.zw;
     mat2 rot = diskRotation();
+    int taps = frame.shadowParams.z > 1.5 ? 12 : frame.shadowParams.z > 0.5 ? 6 : 4;   // (by quality)
     float lit = 0.0;
-    for (int i = 0; i < 12; ++i)
-        lit += atlasTap(clamp(at + rot * kDisk[i] * texel * 1.75, lo, hi), proj.z - bias);
-    return lit / 12.0;
+    for (int i = 0; i < taps; ++i)
+        lit += atlasTap(clamp(at + rot * kDisk[i * (12 / taps)] * texel * 1.75, lo, hi), proj.z - bias);
+    return lit / float(taps);
 }
 
 // The sun: the cascade covering this distance from the camera (beyond the last one: lit), blended into the next
@@ -320,7 +324,11 @@ vec4 screenReflection(vec3 r) {
     vec2 scale = frame.prevViewport.zw * 0.5 / size, offset = (frame.prevViewport.xy + frame.prevViewport.zw * 0.5) / size;
     float t = 0.1, step = 0.12, last = 0.0;
     const float maxDistance = 40.0;
-    for (int i = 0; i < 40 && t < maxDistance; ++i) {
+    // (medium quality: fewer, longer steps over the same distance, fewer to refine the hit)
+    bool fine = frame.shadowParams.z > 1.5;
+    int steps = fine ? 40 : 24, refine = fine ? 5 : 3;
+    float grow = fine ? 1.12 : 1.21;
+    for (int i = 0; i < steps && t < maxDistance; ++i) {
         vec4 clip = clip0 + clipDir * t;
         if (clip.w <= 1e-4) break;
         vec2 ndc = clip.xy / clip.w;
@@ -331,7 +339,7 @@ vec4 screenReflection(vec3 r) {
         // (behind it by less than a step, or a little more: thin things aren't missed between two samples)
         if (rayZ > sceneZ && rayZ < sceneZ + max(0.25 + t * 0.04, step * 1.5)) {
             float lo = last, hi = t;   // (the crossing, closer)
-            for (int k = 0; k < 5; ++k) {
+            for (int k = 0; k < refine; ++k) {
                 float mid = 0.5 * (lo + hi);
                 vec4 c = clip0 + clipDir * mid;
                 if (c.w <= 1e-4) break;   // (behind the last frame's camera: no point on its picture)
@@ -347,7 +355,7 @@ vec4 screenReflection(vec3 r) {
         }
         last = t;
         t += step;
-        step *= 1.12;
+        step *= grow;
     }
     return vec4(0.0);
 }
