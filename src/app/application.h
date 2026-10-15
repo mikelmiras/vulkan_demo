@@ -21,6 +21,9 @@ public:
         std::string gpu;   // Renderer::setGpuPreference ("": the fastest)
         bool shipping = false;   // a shipping game: no validation layer (Renderer::setValidationAllowed)
         std::filesystem::path pipelineCache;   // Renderer::setPipelineCachePath ("": none)
+        // macOS Retina screens: render in their pixels (sharp; four times the pixels to fill) rather than one per
+        // point (platform::setHiDpi). VKWORLD_HIDPI=1 / 0 overrides. Elsewhere the window is always in pixels.
+        bool hiDpi = true;
     };
 
     // Parses the common options (--fullscreen, --screenshot, --frames) and removes them from argv;
@@ -69,12 +72,16 @@ public:
     // `textures` on first use
     GameUI::TextureLookup uiTextures(TextureLibrary& textures);
     float uiScale() const { return uiScale_; }
+    // The UI's look: 0 dark, 1 high contrast (black panels, white text, bright outlines and highlights)
+    void setTheme(int theme);
+    int theme() const { return theme_; }
     void windowSize(uint32_t& width, uint32_t& height) const { width = width_; height = height_; }
 
 private:
     Options options_;
     Renderer renderer_;
     float uiScale_ = 1.f;
+    int theme_ = 0;
     uint32_t width_ = 0, height_ = 0;
     int frameCount_ = 0;
     bool quit_ = false;

@@ -3,6 +3,7 @@
 #include "core/version.h"
 #include "scene/project_templates.h"
 #include "script/lua_debugger.h"
+#include "game/prompts.h"
 #include "game/strings.h"
 
 #include <cctype>
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <algorithm>
 #include <functional>
+#include <map>
 
 #include "misc/cpp/imgui_stdlib.h"
 #include "platform/platform.h"
@@ -207,6 +209,7 @@ void Editor::drawMenuBar() {
         ImGui::MenuItem("Capture mouse on click", nullptr, &captureOnClick_);
         ImGui::Separator();
         ImGui::MenuItem("Input bindings...", nullptr, &showInputBindings_);
+        if (ImGui::MenuItem("String tables...", nullptr, &showStringTables_)) strings_.loaded = false;
         bool debugging = scripting::debugger::listening();
         if (ImGui::MenuItem("Lua debugger (port 4711)", nullptr, debugging)) {
             if (debugging) {
@@ -242,6 +245,12 @@ void Editor::drawMenuBar() {
                               "viewport staying with yours");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("While playing: where bodies touch (dots) and which way they push (lines)");
         ImGui::MenuItem("Profiler", "F3", &showProfiler_);
+        if (ImGui::BeginMenu("Theme")) {
+            if (ImGui::MenuItem("Dark", nullptr, theme_ == 0)) theme_ = 0;
+            if (ImGui::MenuItem("High contrast", nullptr, theme_ == 1)) theme_ = 1;
+            tooltip("Black panels, white text, every control outlined, yellow where the focus is");
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("Power")) {   // (app/application.h's pacing: Editor::pacing)
             ImGui::MenuItem("Realtime viewport", nullptr, &realtimeViewport_);
             tooltip("Draw every frame, as the game does (live global illumination, effects that change over time).\n"
@@ -588,6 +597,16 @@ void Editor::drawInputBindings() {
     std::vector<InputAction>& actions = scene_.inputActions;
     ImGui::TextWrapped("Game code reads these actions by name (ctx.input().down(\"jump\")). Saved with the scene; "
                        "changes apply from the next Play.");
+    const char* pads[] = {"Xbox", "PlayStation", "Switch"};
+    ImGui::SetNextItemWidth(px(130.f));
+    ImGui::Combo("Pad shown", &bindingsPad_, pads, 3);
+    tooltip("Whose buttons the pad bindings show as (the glyphs games show in {button:...} prompts)");
+    std::map<std::string, std::string> clashes;   // action -> the others sharing a control with it
+    for (const BindingConflict& c : bindingConflicts(actions)) {
+        clashes[c.first] += (clashes[c.first].empty() ? "" : ", ") + c.second + " (" + c.control + ")";
+        clashes[c.second] += (clashes[c.second].empty() ? "" : ", ") + c.first + " (" + c.control + ")";
+    }
+    PadType padType = bindingsPad_ == 1 ? PadType::PlayStation : bindingsPad_ == 2 ? PadType::Switch : PadType::Xbox;
 
     // Waiting for a key: the first key or gamepad button pressed is bound (Esc cancels)
     if (bindingCapture_ >= (int)actions.size()) bindingCapture_ = -1;
@@ -620,13 +639,26 @@ void Editor::drawInputBindings() {
             ImGui::PushID(i);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(-FLT_MIN);
+            auto clash = clashes.find(a.name);
+            ImGui::SetNextItemWidth(clash != clashes.end() ? -px(22.f) : -FLT_MIN);
             ImGui::InputText("##name", &a.name);
             track();
+            if (clash != clashes.end()) {   // (a control it shares with another action)
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(1.f, 0.6f, 0.2f, 1.f), "!");
+                tooltip(("Shares a control with " + clash->second).c_str());
+            }
             ImGui::TableNextColumn();
             int removeKey = -1;
             for (int k = 0; k < (int)a.keys.size(); ++k) {
                 ImGui::PushID(k);
+                if (isGamepadKey(a.keys[(size_t)k])) {   // the pad's own button, as games show it
+                    ImGui::BeginGroup();
+                    drawShapedText(prompts::padGlyph(padType, a.keys[(size_t)k]), ImGui::GetTextLineHeight(),
+                                   ImGui::GetTextLineHeight() * 1.6f);
+                    ImGui::EndGroup();
+                    ImGui::SameLine(0.f, 2.f);
+                }
                 std::string label = std::string(keyName(a.keys[(size_t)k])) + "  x";
                 if (ImGui::SmallButton(label.c_str())) removeKey = k;
                 tooltip("Click to remove");

@@ -29,7 +29,7 @@ double nowSeconds() {
 
 // The look, at a scale (sizes and fonts: the window's in physical pixels on HiDPI displays). Again whenever the
 // display's scale changes (a window moved to another monitor): fonts are drawn at the size asked for (ImGui 1.92)
-void applyStyle(float scale) {
+void applyStyle(float scale, int theme = 0) {
     ImGuiStyle fresh;
     ImGui::GetStyle() = fresh;
     ImGui::StyleColorsDark();
@@ -42,11 +42,76 @@ void applyStyle(float scale) {
     s.FramePadding = ImVec2(7, 4);
     s.ItemSpacing = ImVec2(7, 5);
     s.Colors[ImGuiCol_WindowBg].w = 0.96f;
+    if (theme == 1) {   // high contrast: black and white, every control outlined, yellow where the focus is
+        ImVec4* c = s.Colors;
+        const ImVec4 black(0, 0, 0, 1), white(1, 1, 1, 1), grey(0.75f, 0.75f, 0.75f, 1), yellow(1.f, 0.9f, 0.f, 1),
+            cyan(0.f, 0.85f, 1.f, 1), dark(0.12f, 0.12f, 0.12f, 1), blue(0.05f, 0.25f, 0.6f, 1);
+        for (int i = 0; i < ImGuiCol_COUNT; ++i) c[i] = black;
+        c[ImGuiCol_Text] = white;
+        c[ImGuiCol_TextDisabled] = grey;
+        c[ImGuiCol_Border] = white;
+        c[ImGuiCol_FrameBg] = black;
+        c[ImGuiCol_FrameBgHovered] = dark;
+        c[ImGuiCol_FrameBgActive] = blue;
+        c[ImGuiCol_TitleBg] = dark;
+        c[ImGuiCol_TitleBgActive] = blue;
+        c[ImGuiCol_TitleBgCollapsed] = dark;
+        c[ImGuiCol_MenuBarBg] = dark;
+        c[ImGuiCol_ScrollbarBg] = black;
+        c[ImGuiCol_ScrollbarGrab] = grey;
+        c[ImGuiCol_ScrollbarGrabHovered] = white;
+        c[ImGuiCol_ScrollbarGrabActive] = yellow;
+        c[ImGuiCol_CheckMark] = yellow;
+        c[ImGuiCol_SliderGrab] = cyan;
+        c[ImGuiCol_SliderGrabActive] = yellow;
+        c[ImGuiCol_Button] = dark;
+        c[ImGuiCol_ButtonHovered] = blue;
+        c[ImGuiCol_ButtonActive] = ImVec4(0.6f, 0.5f, 0.f, 1);
+        c[ImGuiCol_Header] = blue;
+        c[ImGuiCol_HeaderHovered] = ImVec4(0.1f, 0.35f, 0.8f, 1);
+        c[ImGuiCol_HeaderActive] = ImVec4(0.6f, 0.5f, 0.f, 1);
+        c[ImGuiCol_Separator] = grey;
+        c[ImGuiCol_SeparatorHovered] = cyan;
+        c[ImGuiCol_SeparatorActive] = yellow;
+        c[ImGuiCol_ResizeGrip] = grey;
+        c[ImGuiCol_ResizeGripHovered] = cyan;
+        c[ImGuiCol_ResizeGripActive] = yellow;
+        c[ImGuiCol_Tab] = dark;
+        c[ImGuiCol_TabHovered] = blue;
+        c[ImGuiCol_TabSelected] = blue;
+        c[ImGuiCol_TabSelectedOverline] = yellow;
+        c[ImGuiCol_TabDimmed] = dark;
+        c[ImGuiCol_TabDimmedSelected] = dark;
+        c[ImGuiCol_TableHeaderBg] = dark;
+        c[ImGuiCol_TableBorderStrong] = white;
+        c[ImGuiCol_TableBorderLight] = grey;
+        c[ImGuiCol_TableRowBgAlt] = ImVec4(0.08f, 0.08f, 0.08f, 1);
+        c[ImGuiCol_TextSelectedBg] = blue;
+        c[ImGuiCol_PlotLines] = cyan;
+        c[ImGuiCol_PlotHistogram] = yellow;
+        c[ImGuiCol_DragDropTarget] = yellow;
+        c[ImGuiCol_NavCursor] = yellow;
+        c[ImGuiCol_ModalWindowDimBg] = ImVec4(0, 0, 0, 0.6f);
+        c[ImGuiCol_PopupBg] = black;
+        s.WindowBorderSize = 2.f;
+        s.FrameBorderSize = 1.f;
+        s.PopupBorderSize = 2.f;
+        s.TabBorderSize = 1.f;
+    }
     if (scale > 1.f) s.ScaleAllSizes(scale);
     s.FontScaleDpi = scale;
 }
 
-void setupImGuiStyle(float scale) {
+// The UI's scale: VKWORLD_UI_SCALE if set (0.5 to 4), else the display's
+float uiScaleNow() {
+    if (const char* v = std::getenv("VKWORLD_UI_SCALE")) {
+        float s = (float)std::atof(v);
+        if (s >= 0.5f && s <= 4.f) return s;
+    }
+    return std::max(platform::dpiScale(), 1.f);
+}
+
+void setupImGuiStyle(float scale) {   // (before the theme is known: the dark one)
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;   // (the editor keeps its panel layout in a file of its own: editor_prefs.h)
     for (const auto& font : platform::uiFontCandidates()) {
@@ -57,6 +122,12 @@ void setupImGuiStyle(float scale) {
 }
 
 }  // namespace
+
+void Application::setTheme(int theme) {
+    if (theme == theme_) return;
+    theme_ = theme;
+    applyStyle(uiScale_, theme_);
+}
 
 Application::Options Application::parseArgs(int& argc, char** argv, Options o) {
     int out = 1;
@@ -80,6 +151,9 @@ Application::Options Application::parseArgs(int& argc, char** argv, Options o) {
 
 bool Application::init(const Options& options, MeshLibrary& meshes, TextureLibrary& textures) {
     options_ = options;
+    bool hiDpi = options.hiDpi;
+    if (const char* v = std::getenv("VKWORLD_HIDPI")) hiDpi = std::atoi(v) != 0;
+    platform::setHiDpi(hiDpi);
     if (!platform::createWindow(options.title.c_str(), options.width, options.height)) {
         std::fprintf(stderr, "fatal: cannot create window\n");
         return false;
@@ -91,7 +165,7 @@ bool Application::init(const Options& options, MeshLibrary& meshes, TextureLibra
     renderer_.setPipelineCachePath(options.pipelineCache);
     renderer_.init(width_, height_, meshes, textures);
 
-    uiScale_ = std::max(platform::dpiScale(), 1.f);
+    uiScale_ = uiScaleNow();
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     setupImGuiStyle(uiScale_);
@@ -136,9 +210,9 @@ bool Application::beginFrame(float& dt) {
         if (quit_ || platform::closeRequested()) return false;
         platform::pollEvents();
         platform::windowSize(width_, height_);
-        if (float scale = std::max(platform::dpiScale(), 1.f); std::fabs(scale - uiScale_) > 0.01f) {   // (another monitor)
+        if (float scale = uiScaleNow(); std::fabs(scale - uiScale_) > 0.01f) {   // (another monitor)
             uiScale_ = scale;
-            applyStyle(scale);
+            applyStyle(scale, theme_);
         }
         renderer_.resize(width_, height_);
 

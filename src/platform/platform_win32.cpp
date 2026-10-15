@@ -629,6 +629,7 @@ void windowSize(uint32_t& width, uint32_t& height) {
 }
 
 float dpiScale() { return g_dpiScale; }
+void setHiDpi(bool) {}   // (always: the window is in pixels)
 
 bool displayLuminance(float& peak, float& frameAverage, float& min) {
     // The DXGI output showing the window (Windows 10's IDXGIOutput6 knows its light levels)

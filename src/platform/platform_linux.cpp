@@ -325,6 +325,7 @@ void setFullscreen(bool fullscreen) { VKWORLD_ON_WINDOW(setFullscreen(fullscreen
 bool isFullscreen() { return VKWORLD_ON_WINDOW(isFullscreen()); }
 void setWindowIcon(const uint8_t* rgba, uint32_t width, uint32_t height) { VKWORLD_ON_WINDOW(setWindowIcon(rgba, width, height)); }
 float dpiScale() { return VKWORLD_ON_WINDOW(dpiScale()); }
+void setHiDpi(bool) {}   // (X11 and Wayland windows are in pixels already)
 
 bool displayLuminance(float& peak, float& frameAverage, float& min) {
     // Each connector the kernel's DRM drivers know: its status and EDID in sysfs

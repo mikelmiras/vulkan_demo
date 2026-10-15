@@ -22,7 +22,12 @@ The libraries themselves are loaded when the program starts, so a build runs on 
 On a Wayland session the window is a native Wayland one when the compositor draws window decorations itself (KDE,
 sway, Hyprland, ...); elsewhere (GNOME) it goes through XWayland, which gets a title bar. `VKWORLD_PLATFORM=wayland`
 or `=x11` picks one. On HiDPI displays a native Wayland window is drawn in physical pixels (fractional scales too:
-125 %, 150 %), as on Windows, and the UI follows the scale, also when the window moves to another display.
+125 %, 150 %), as on Windows, and the UI follows the scale, also when the window moves to another display. On X11
+the UI takes the desktop's scale from `Xft.dpi` (what KDE's and GNOME's scaling settings set; else `GDK_SCALE`) and
+the window opens that much bigger. On a Mac's Retina screen the editor draws in the screen's pixels (sharp text and
+lines); games keep one pixel per point (a quarter of the pixels to fill) unless `VKWORLD_HIDPI=1` (`=0` turns the
+editor's off too). `VKWORLD_UI_SCALE=1.5` sets the UI's scale by hand anywhere. View > Theme > *High contrast* gives
+the editor black panels, white text, outlined controls and yellow focus.
 
 ```sh
 cmake -S . -B build
@@ -1078,6 +1083,14 @@ ui.text(40, 30, ctx.format("{@hud.score}: {score}"), 48);   // {@key}: the strin
 ui.button(x, y, w, h, ctx.text("pause.resume", "Resume"));
 ctx.setLanguage("es");                                       // switch while playing
 ```
+
+**Game > String tables** edits them all at once: a row per key, a column per language (*Add language* makes a
+`strings/<code>.json`), empty cells marked red with a count of what each language lacks, a filter and *Missing
+only*. Text in scripts the editor's own font can't show (Arabic, Hebrew, CJK, Thai...) is drawn in its cell as the
+game draws it, shaped and joined, and the selected text is previewed below at size, right-aligned when it runs right
+to left, in the game's font or one from `fonts/` (letters it lacks from `fonts/fallback/`, then the system's). *Save*
+writes every language back (nested by the dots). The Input bindings window shows pad bindings as the glyphs games
+show (Xbox, PlayStation or Switch) and marks actions that share a control with another.
 
 HudText, HudBar and PauseMenu translate `{@key}`s (the pause menu's buttons use `pause.resume`, `pause.save`,
 `pause.load`, `pause.quit`). The project's language (project.json `"language"`, Game > Language in the editor) is

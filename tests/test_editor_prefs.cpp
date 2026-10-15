@@ -14,12 +14,14 @@ TEST(editor_prefs_roundtrip) {
     p.showAssets = false;
     p.cameraSpeed = 30.f;
     p.maximizeOnPlay = true;
+    p.theme = 1;   // (high contrast)
     p.recentProjects = {"/games/a", "/games/b"};
     auto file = test::tempPath("prefs/editor_prefs.json");
     REQUIRE(editor_prefs::save(file, p));
     EditorPrefs back;
     REQUIRE(editor_prefs::load(file, back));
     CHECK(back == p);
+    CHECK(back.theme == 1);
     CHECK(back.tool == 3 && back.snapRotate == 45.f && !back.showAssets && back.recentProjects.size() == 2);
     CHECK(!std::filesystem::exists(file.string() + ".tmp"));
 

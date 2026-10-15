@@ -371,6 +371,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> launchArgs(argv, argv + argc);   // (to start again the same way after an update)
     Application::Options defaults;
     defaults.title = "Vulkan World";
+    defaults.hiDpi = false;   // (a game on a Retina Mac: a point per pixel, the frame rate before sharpness)
     Application::Options options = Application::parseArgs(argc, argv, defaults);
 
     MeshLibrary meshes = buildMeshLibrary();

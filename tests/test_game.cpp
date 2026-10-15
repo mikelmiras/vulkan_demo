@@ -2,9 +2,11 @@
 #include "test.h"
 
 #include <fstream>
+#include <iterator>
 
 #include "core/project.h"
 #include "game/game.h"
+#include "game/strings.h"
 #include "scene/serialization.h"
 #include "imgui.h"
 
@@ -418,4 +420,46 @@ TEST(game_split_screen_cameras) {
     REQUIRE(one.size() == 1);
     CHECK(one[0].rect[2] == 1.f && one[0].rect[3] == 1.f);
     g2.stop();
+}
+
+// The editor's string tables: every language loaded flat, edited, saved back nested by the dots (a key that is
+// another's prefix stays flat), missing texts listed, English first
+TEST(string_tables_edit_and_save) {
+    std::filesystem::path root = test::tempPath("strings-project");
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "strings");
+    std::ofstream(root / "strings" / "en.json") << R"({"menu": {"resume": "Resume", "quit": "Quit"}, "hud.score": "Score"})";
+    std::ofstream(root / "strings" / "ar.json") << R"({"menu": {"resume": "\u0627\u0633\u062a\u0626\u0646\u0627\u0641"}})";
+    StringTables t;
+    REQUIRE(t.load(root));
+    REQUIRE(t.languages.size() == 2);
+    CHECK(t.languages[0] == "en" && t.languages[1] == "ar");
+    CHECK(t.text["menu.quit"]["en"] == "Quit");
+    CHECK(t.missing("ar") == std::vector<std::string>({"hud.score", "menu.quit"}));
+    CHECK(StringTables::rightToLeft(t.text["menu.resume"]["ar"]));
+    CHECK(!StringTables::rightToLeft("Resume"));
+    t.addLanguage("es");
+    t.addLanguage("de");
+    CHECK(t.languages == std::vector<std::string>({"en", "ar", "de", "es"}));
+    t.text["menu.quit"]["es"] = "Salir";
+    t.text["menu"]["en"] = "Menu";   // (a key that is also the others' prefix)
+    std::string error;
+    REQUIRE(t.save(root, error));
+    // Read back by the game's own loader: nested and flat both come back the same
+    StringTable es, en;
+    REQUIRE(es.load(root, "es"));
+    CHECK(es.get("menu.quit") == "Salir");
+    CHECK(es.get("menu.resume") == "Resume");   // (from English)
+    REQUIRE(en.load(root, "en"));
+    CHECK(en.get("menu") == "Menu" && en.get("hud.score") == "Score" && en.get("menu.resume") == "Resume");
+    json::Value doc;
+    std::string text;
+    std::ifstream f(root / "strings" / "es.json");
+    text.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    REQUIRE(json::parse(text, doc, error));
+    CHECK(doc["menu"]["quit"].asString() == "Salir");   // (nested again)
+    StringTables again;
+    REQUIRE(again.load(root));
+    CHECK(again.text["menu.quit"]["es"] == "Salir" && again.text["menu"]["en"] == "Menu");
+    CHECK(!StringTables().load(test::tempPath("no-strings-here")));
 }

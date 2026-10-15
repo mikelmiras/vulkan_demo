@@ -3,6 +3,8 @@
 // encoded absolute luminance, 10 bits; scRGB: linear Rec.709 in half floats, 1.0 = 80 nits.
 #pragma once
 
+#include <string>
+
 #include <vulkan/vulkan.h>
 
 #include <cstddef>
@@ -34,6 +36,10 @@ struct Luminance {
 };
 // The HDR static metadata data block in an EDID's CTA-861 extensions (false if there's none)
 bool parseEdidLuminance(const uint8_t* edid, size_t size, Luminance& out);
+
+// X11's UI scale: Xft.dpi from the root window's X resources ("Xft.dpi:\t192" -> 2), else GDK_SCALE (an integer:
+// GNOME's), over 96 dpi; 1 if neither says
+float xResourcesScale(const std::string& resources, const char* gdkScale);
 
 // What the swapchain tells the display about the picture (VK_EXT_hdr_metadata): the primaries it's mastered in
 // (Rec.2020 for HDR10, Rec.709 for scRGB), D65 white, and its light levels (the display's own: the tone mapper

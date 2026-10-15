@@ -12,10 +12,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "imgui.h"
 #include "platform/imgui_impl_xcb.h"
+#include "render/display.h"
 
 namespace platform::x11 {
 
@@ -26,6 +28,7 @@ xcb_window_t g_window = 0, g_root = 0;
 xcb_atom_t g_wmDelete = 0;
 uint32_t g_width = 0, g_height = 0;
 bool g_closeRequested = false;
+float g_scale = 1.f;   // (the desktop's UI scale: Xft.dpi)
 bool g_imguiReady = false;
 bool g_captured = false, g_fullscreen = false;
 float g_mouseDx = 0.f, g_mouseDy = 0.f;
@@ -94,6 +97,17 @@ bool createWindow(const char* title, uint32_t width, uint32_t height) {
     for (int i = 0; i < screenNum; ++i) xcb_screen_next(&it);
     xcb_screen_t* screen = it.data;
     g_root = screen->root;
+    {   // the desktop's UI scale (HiDPI): the window as big as asked for at that scale
+        xcb_get_property_cookie_t c = xcb_get_property(g_conn, 0, g_root, XCB_ATOM_RESOURCE_MANAGER, XCB_ATOM_STRING, 0, 1 << 16);
+        std::string resources;
+        if (xcb_get_property_reply_t* r = xcb_get_property_reply(g_conn, c, nullptr)) {
+            resources.assign((const char*)xcb_get_property_value(r), (size_t)xcb_get_property_value_length(r));
+            std::free(r);
+        }
+        g_scale = display::xResourcesScale(resources, std::getenv("GDK_SCALE"));
+        width = (uint32_t)(width * g_scale);
+        height = (uint32_t)(height * g_scale);
+    }
 
     g_width = width;
     g_height = height;
@@ -217,7 +231,7 @@ void windowSize(uint32_t& width, uint32_t& height) {
     height = g_height;
 }
 
-float dpiScale() { return 1.f; }
+float dpiScale() { return g_scale; }
 
 const char* vulkanSurfaceExtension() { return VK_KHR_XCB_SURFACE_EXTENSION_NAME; }
 

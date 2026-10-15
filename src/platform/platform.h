@@ -57,6 +57,9 @@ bool gamepadRumble(int pad, float low, float high, float seconds);   // a pad's 
 
 // Content scale of the window's monitor (1.0 = 96 DPI on Windows, always 1.0 on X11)
 float dpiScale();
+// macOS: render in the screen's pixels on Retina screens (sharp, four times the pixels) rather than one per point;
+// call before createWindow. (Other platforms always use the screen's pixels.)
+void setHiDpi(bool on);
 // How bright the window's display can go (nits; false if it doesn't say): DXGI's output description on Windows,
 // the EDID's HDR metadata on Linux (the brightest connected display: which one shows the window isn't known), the
 // screen's extended dynamic range headroom on macOS (times 100 nits)

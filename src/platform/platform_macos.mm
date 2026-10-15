@@ -1,12 +1,15 @@
 // macOS platform layer: Cocoa window with a CAMetalLayer (Vulkan via MoltenVK / KosmicKrisp) + Dear ImGui's OSX backend.
-// Rendering is done at one pixel per point: the editor and renderer share window coordinates, so the framebuffer must
-// match ImGui's DisplaySize.
+// The editor and renderer share window coordinates, so the framebuffer must match ImGui's DisplaySize. With HiDPI on
+// (setHiDpi: the editor's default) that's in the screen's pixels (a Retina screen's two per point): the layer, the
+// window size and Dear ImGui's display size and mouse positions (the backend's are in points: scaled here) all
+// are, and the UI scales up with dpiScale(). Off (games, unless VKWORLD_HIDPI=1): one pixel per point, as before.
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <GameController/GameController.h>
 #import <CoreHaptics/CoreHaptics.h>
 #define VK_USE_PLATFORM_METAL_EXT
+#include <cfloat>
 #include <cstring>
 #include <vulkan/vulkan.h>
 
@@ -24,6 +27,7 @@
 
 #include "imgui.h"
 #include "imgui_impl_osx.h"
+#include "imgui_internal.h"   // (the input queue: the backend's mouse positions in points, scaled to pixels)
 
 // Gamepad feedback (gamepadRumble below)
 static id g_hapticEngine = nil;   // CHHapticEngine
@@ -52,6 +56,8 @@ static GCController* g_hapticPad = nil;
 
 namespace platform {
 namespace {
+bool g_hiDpi = false;
+ImU32 g_scaledUpTo = 0;   // (mouse events scaled so far: the queue's EventIds)
 NSWindow* g_window = nil;
 VkwView* g_view = nil;
 VkwWindowDelegate* g_delegate = nil;
@@ -341,18 +347,23 @@ bool windowFocused() { return g_window && g_window.isKeyWindow; }
 
 bool closeRequested() { return g_closeRequested; }
 
+void setHiDpi(bool on) { g_hiDpi = on; }
+
+float dpiScale() { return g_hiDpi && g_window ? (float)g_window.backingScaleFactor : 1.f; }
+
 void windowSize(uint32_t& width, uint32_t& height) {
     if (!g_window || g_window.miniaturized) {
         width = height = 0;
         return;
     }
     NSSize size = g_view.bounds.size;
-    width = (uint32_t)size.width;
-    height = (uint32_t)size.height;
-    ((CAMetalLayer*)g_view.layer).drawableSize = CGSizeMake(width, height);
+    float scale = dpiScale();
+    width = (uint32_t)(size.width * scale);
+    height = (uint32_t)(size.height * scale);
+    CAMetalLayer* layer = (CAMetalLayer*)g_view.layer;
+    layer.contentsScale = scale;
+    layer.drawableSize = CGSizeMake(width, height);
 }
-
-float dpiScale() { return 1.f; }
 
 bool displayLuminance(float& peak, float& frameAverage, float& min) {
     // Extended dynamic range: how far past SDR white the screen can go at most (1: an SDR screen)
@@ -383,7 +394,19 @@ void imguiInit() { ImGui_ImplOSX_Init(g_view); }
 
 void imguiNewFrame(float) {
     ImGui_ImplOSX_NewFrame(g_view);
-    ImGui::GetIO().DisplayFramebufferScale = ImVec2(1.f, 1.f);   // the swapchain is not Retina-scaled (see top)
+    ImGuiIO& io = ImGui::GetIO();
+    float scale = dpiScale();
+    io.DisplaySize = ImVec2(io.DisplaySize.x * scale, io.DisplaySize.y * scale);
+    io.DisplayFramebufferScale = ImVec2(1.f, 1.f);   // (the swapchain is in the same pixels as the UI: see top)
+    ImGuiContext& g = *ImGui::GetCurrentContext();
+    for (ImGuiInputEvent& e : g.InputEventsQueue) {   // (the backend's positions are in points)
+        if (e.EventId <= g_scaledUpTo) continue;
+        g_scaledUpTo = e.EventId;
+        if (e.Type == ImGuiInputEventType_MousePos && e.MousePos.PosX > -FLT_MAX) {
+            e.MousePos.PosX *= scale;
+            e.MousePos.PosY *= scale;
+        }
+    }
 }
 
 void imguiShutdown() { ImGui_ImplOSX_Shutdown(); }

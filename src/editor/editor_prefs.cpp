@@ -31,6 +31,7 @@ json::Value EditorPrefs::toJson() const {
     v.set("realtimeViewport", realtimeViewport);
     v.set("frameCap", frameCap);
     v.set("throttleInBackground", throttleInBackground);
+    v.set("theme", theme);
     v.set("maximizeOnPlay", maximizeOnPlay);
     v.set("captureOnClick", captureOnClick);
     json::Value recent = json::Value::array();
@@ -60,6 +61,7 @@ EditorPrefs EditorPrefs::fromJson(const json::Value& v) {
     p.realtimeViewport = v["realtimeViewport"].asBool(p.realtimeViewport);
     p.frameCap = std::clamp(v["frameCap"].asInt(p.frameCap), 0, 500);
     p.throttleInBackground = v["throttleInBackground"].asBool(p.throttleInBackground);
+    p.theme = std::clamp(v["theme"].asInt(p.theme), 0, 1);
     p.maximizeOnPlay = v["maximizeOnPlay"].asBool(p.maximizeOnPlay);
     p.captureOnClick = v["captureOnClick"].asBool(p.captureOnClick);
     for (const json::Value& r : v["recentProjects"].elements())
@@ -73,7 +75,7 @@ bool EditorPrefs::operator==(const EditorPrefs& o) const {
            showInspector == o.showInspector && showAssets == o.showAssets && showColliders == o.showColliders &&
            showProfiler == o.showProfiler && previewParticles == o.previewParticles && cameraSpeed == o.cameraSpeed &&
            cameraFov == o.cameraFov && antialiasing == o.antialiasing && realtimeViewport == o.realtimeViewport &&
-           frameCap == o.frameCap && throttleInBackground == o.throttleInBackground && maximizeOnPlay == o.maximizeOnPlay && captureOnClick == o.captureOnClick &&
+           frameCap == o.frameCap && throttleInBackground == o.throttleInBackground && theme == o.theme && maximizeOnPlay == o.maximizeOnPlay && captureOnClick == o.captureOnClick &&
            recentProjects == o.recentProjects;
 }
 

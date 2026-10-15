@@ -152,6 +152,7 @@ void Editor::frame(float dt, const std::string& gpuName, const RenderStats& stat
     drawAddPopup();
     drawImportPopup();
     if (showInputBindings_) drawInputBindings();
+    if (showStringTables_) drawStringTables();
     if (animGraphEntity_ != kNoEntity) drawAnimatorGraph();
     drawGameView();
     if (showProfiler_) drawProfilerWindow(&showProfiler_, project::saveDir("Editor").parent_path() / "traces");
@@ -561,6 +562,7 @@ void Editor::applyPrefs(const EditorPrefs& p) {
     showColliders_ = p.showColliders, showProfiler_ = p.showProfiler;
     previewParticles_on_ = p.previewParticles;
     realtimeViewport_ = p.realtimeViewport, frameCap_ = p.frameCap, throttleInBackground_ = p.throttleInBackground;
+    theme_ = p.theme;
     cam_.speed = p.cameraSpeed;
     cam_.fovY = p.cameraFov * DEG2RAD;
     antialiasing_ = p.antialiasing;
@@ -579,6 +581,7 @@ EditorPrefs Editor::currentPrefs() const {
     p.showColliders = showColliders_, p.showProfiler = showProfiler_;
     p.previewParticles = previewParticles_on_;
     p.realtimeViewport = realtimeViewport_, p.frameCap = frameCap_, p.throttleInBackground = throttleInBackground_;
+    p.theme = theme_;
     p.cameraSpeed = cam_.speed;
     p.cameraFov = std::round(cam_.fovY / DEG2RAD * 10.f) / 10.f;
     p.antialiasing = antialiasing_;

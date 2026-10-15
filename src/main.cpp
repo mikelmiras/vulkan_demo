@@ -131,6 +131,7 @@ int main(int argc, char** argv) {
     while (!editor.quitRequested() && app.beginFrame(dt)) {
         editor.setIdle(app.drawingIdle());
         if (editor.uiScale() != app.uiScale()) editor.setUiScale(app.uiScale());   // (moved to another display)
+        app.setTheme(editor.theme());
         editor.frame(dt, app.renderer().gpuName(), app.renderer().stats());
         Application::Pacing pacing = app.pacing();   // (the editor sleeps while nothing changes: View > Power)
         editor.pacing(pacing.lazy, pacing.maxFps, pacing.unfocusedFps);

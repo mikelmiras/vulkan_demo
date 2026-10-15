@@ -1,5 +1,7 @@
 #include "render/display.h"
 
+#include <cstdlib>
+
 #include <algorithm>
 #include <cmath>
 
@@ -56,6 +58,19 @@ float pqDecode(float value) {
 Vec3 rec709To2020(Vec3 c) {
     return {0.6274f * c.x + 0.3293f * c.y + 0.0433f * c.z, 0.0691f * c.x + 0.9195f * c.y + 0.0114f * c.z,
             0.0164f * c.x + 0.0880f * c.y + 0.8956f * c.z};
+}
+
+float xResourcesScale(const std::string& resources, const char* gdkScale) {
+    size_t at = resources.find("Xft.dpi:");
+    if (at != std::string::npos) {
+        float dpi = (float)std::atof(resources.c_str() + at + 8);   // (atof skips the tab)
+        if (dpi >= 48.f && dpi <= 960.f) return dpi / 96.f;
+    }
+    if (gdkScale && *gdkScale) {
+        int s = std::atoi(gdkScale);
+        if (s >= 1 && s <= 8) return (float)s;
+    }
+    return 1.f;
 }
 
 bool parseEdidLuminance(const uint8_t* edid, size_t size, Luminance& out) {

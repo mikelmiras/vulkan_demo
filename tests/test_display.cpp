@@ -80,3 +80,12 @@ TEST(display_hdr_metadata) {
     CHECK_NEAR(s.green[1], 0.6f, 1e-4f);   // Rec.709
     CHECK(s.maxFrameAverageLight == 500.f);   // (unknown: half the peak)
 }
+
+// X11's UI scale: Xft.dpi in the X resources (KDE, GNOME, xrdb), else GDK_SCALE, else 1
+TEST(display_x_resources_scale) {
+    CHECK_NEAR(display::xResourcesScale("Xcursor.size:\t24\nXft.dpi:\t192\nXft.antialias:\t1\n", nullptr), 2.0, 1e-6);
+    CHECK_NEAR(display::xResourcesScale("Xft.dpi: 144\n", "3"), 1.5, 1e-6);   // (Xft.dpi first)
+    CHECK_NEAR(display::xResourcesScale("Xcursor.size:\t24\n", "2"), 2.0, 1e-6);
+    CHECK_NEAR(display::xResourcesScale("", nullptr), 1.0, 1e-6);
+    CHECK_NEAR(display::xResourcesScale("Xft.dpi:\tnonsense\n", "abc"), 1.0, 1e-6);
+}

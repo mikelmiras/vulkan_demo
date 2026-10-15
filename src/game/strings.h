@@ -29,3 +29,18 @@ private:
     std::string language_ = "en";
     std::map<std::string, std::string> strings_;
 };
+
+// Every language's string table at once, as the editor's string table window edits them: keys (dotted, flat) and
+// each language's text. Saved back nested by the dots ("menu.resume" -> {"menu": {"resume": ...}}), keys sorted;
+// a key that is also another's prefix ("menu" and "menu.resume") stays flat.
+struct StringTables {
+    std::vector<std::string> languages;   // English first, then by code
+    std::map<std::string, std::map<std::string, std::string>> text;   // key -> language -> text
+
+    bool load(const std::filesystem::path& projectRoot);   // false if there's no strings/ folder
+    bool save(const std::filesystem::path& projectRoot, std::string& error) const;
+    std::string toJson(const std::string& language) const;   // a language's file
+    void addLanguage(const std::string& code);
+    std::vector<std::string> missing(const std::string& language) const;   // keys with no text in it
+    static bool rightToLeft(const std::string& text);   // has Hebrew or Arabic letters (for the preview's alignment)
+};

@@ -1023,7 +1023,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 74 (done) | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
 | 75 (done) | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
 | 76 (done) | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
-| 77 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
+| 77 (done) | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
 | 78 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
 
 ### Round 7 notes
@@ -1350,3 +1350,21 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   Not done: files removed by an update stay, installs needing administrator rights (Program Files, /Applications
   owned by root), macOS app bundles re-signed after an update, Windows / macOS HTTP range requests (resuming is per
   chunk), key rotation (one key per game).
+- **77, editor**: StringTables (game/strings: every language loaded flat; saved nested by the dots, keys sorted,
+  a key that's also another's prefix kept flat; written atomically; missing(); rightToLeft() from UTF-8 lead bytes
+  of Hebrew and Arabic) behind Game > String tables (editor_strings.cpp): a table of keys by languages, cells
+  InputText (missing ones red), cells needing shaping (shaping::needsShaping) drawn over with GameUI's shaped text
+  while not being edited, a preview of the selected text with Editor::drawShapedText (a GameUI canvas scaled so its
+  36-unit text is the size asked, into the panel's draw list), a font picked from fonts/. Input bindings: pad keys
+  with prompts::padGlyph glyphs (a pad picked), actions sharing a control flagged (bindingConflicts). High contrast:
+  Application::setTheme (black, white text, borders on frames, yellow focus and checks, cyan grabs), EditorPrefs
+  theme, View > Theme. HiDPI: X11 reads RESOURCE_MANAGER's Xft.dpi (display::xResourcesScale, else GDK_SCALE) and
+  opens the window that much bigger; macOS (platform::setHiDpi, Application::Options::hiDpi: the editor on, games off,
+  VKWORLD_HIDPI overriding) sizes the CAMetalLayer and the window in backing pixels, scales Dear ImGui's display
+  size and the OSX backend's queued mouse positions (by EventId, once each) to pixels; VKWORLD_UI_SCALE everywhere.
+  Checked: the tables' load / edit / save / reload through the game's own loader, Xft.dpi parsing, the theme saved
+  in the prefs, the editor under validation with the window open (Arabic shaped and right-aligned with a fallback
+  font; Latin, missing cells), in high contrast. Not done: tried on a Mac (CI only builds it: the user's Retina
+  check pending), X11 rescaling when Xft.dpi changes while running, per-monitor X11 scales, editing text right to
+  left in place (cells type as ImGui does: left to right), the editor's own font with non-Latin glyphs, CSV
+  import / export for translators.

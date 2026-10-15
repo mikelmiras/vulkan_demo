@@ -312,6 +312,7 @@ endif()
 add_executable(vkworld
   src/main.cpp
   src/editor/editor.cpp
+  src/editor/editor_strings.cpp
   src/editor/editor_panels.cpp
   src/editor/editor_outliner.cpp
   src/editor/editor_animation.cpp

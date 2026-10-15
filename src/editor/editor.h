@@ -58,6 +58,7 @@ public:
     bool busy() const;
     void setIdle(bool idle) { idle_ = idle; }   // (this frame is the sleeping editor's heartbeat: no FPS to show)
     bool quitRequested() const { return quit_; }
+    int theme() const { return theme_; }   // (View > Theme: Application::setTheme)
     void openScene(const std::string& path);   // like File > Load
     // Makes `dir` the current project (creating its project.json if it has none) and opens its start scene
     void openProject(const std::filesystem::path& dir);
@@ -116,6 +117,12 @@ private:
     void drawAddMenuItems();
     void drawImportPopup();
     void drawInputBindings();
+    void drawStringTables();
+    // Text as the game draws it (shaped: right to left, joined scripts, CJK, emoji; prompts' glyphs), in a panel at
+    // the cursor, wrapped to `width`, `pixels` high a line; returns its height
+    float drawShapedText(const std::string& text, float pixels, float width, const std::string& font = "", bool rightToLeft = false);
+    float drawShapedTextAt(ImVec2 at, const std::string& text, float pixels, float width, const std::string& font = "",
+                           bool rightToLeft = false);   // (the same at a place, taking no space)
     // ---- Project and assets (editor_assets.cpp)
     enum class AssetKind { Folder, Scene, Prefab, Model, Texture, Sound, Script, Other };
     struct AssetEntry {
@@ -338,6 +345,13 @@ private:
     bool maximizeOnPlay_ = false;
     bool captureOnClick_ = true;      // clicking the game view captures the mouse (Esc releases it)
     bool showInputBindings_ = false;
+    bool showStringTables_ = false;
+    struct StringEditor {   // (the String tables window)
+        StringTables tables;
+        bool loaded = false, dirty = false, missingOnly = false;
+        std::string filter, newKey, newLanguage, selectedKey, selectedLanguage, font;
+    } strings_;
+    int bindingsPad_ = 0;   // (Input bindings: the pad whose glyphs show: Xbox, PlayStation, Switch)
     int bindingCapture_ = -1;         // action waiting for a key press in the bindings window
     bool keyTakenByBindings_ = false; // that key press mustn't also trigger a shortcut
     bool gameCameraActive_ = false;
@@ -360,6 +374,7 @@ private:
     ParticleSystem previewParticles_;   // emitters outside Play (View > Preview particles)
     bool previewParticles_on_ = true;
     bool realtimeViewport_ = false, throttleInBackground_ = true;   // (View > Power)
+    int theme_ = 0;   // (View > Theme: the host applies it, Application::setTheme)
     int frameCap_ = 60;
     NavGrid navPreview_;
     EntityId animGraphEntity_ = kNoEntity;   // whose state machine the graph window shows

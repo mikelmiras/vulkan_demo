@@ -23,6 +23,7 @@ struct EditorPrefs {
     bool realtimeViewport = false;
     int frameCap = 60;
     bool throttleInBackground = true;
+    int theme = 0;   // the UI's look: 0 dark, 1 high contrast (Application::setTheme)
     // Play
     bool maximizeOnPlay = false, captureOnClick = true;
     std::vector<std::string> recentProjects;   // folders, newest first
