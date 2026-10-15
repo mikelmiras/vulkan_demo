@@ -253,6 +253,11 @@ bool sameNavigationSettings(const NavigationSettings& a, const NavigationSetting
            a.maxClimb == b.maxClimb && a.maxSlope == b.maxSlope;
 }
 
+bool sameAudioSettings(const AudioSettings& a, const AudioSettings& b) {
+    return a.music == b.music && a.musicVolume == b.musicVolume && a.musicFade == b.musicFade &&
+           a.reverbFromWorld == b.reverbFromWorld && a.reverbAmount == b.reverbAmount;
+}
+
 SceneDelta diffScenes(const Scene& before, const Scene& after) {
     SceneDelta d;
     std::unordered_map<EntityId, size_t> inAfter;
@@ -285,6 +290,7 @@ SceneDelta diffScenes(const Scene& before, const Scene& after) {
     if (!sameInputActions(before.inputActions, after.inputActions)) d.inputActions = before.inputActions;
     if (!sameRenderSettings(before.render, after.render)) d.render = before.render;
     if (!sameNavigationSettings(before.navigation, after.navigation)) d.navigation = before.navigation;
+    if (!sameAudioSettings(before.audio, after.audio)) d.audio = before.audio;
     if (!sameLayerSettings(before.layers, after.layers)) d.layers = before.layers;
     return d;
 }
@@ -318,5 +324,6 @@ void applyDelta(Scene& scene, const SceneDelta& d) {
     if (d.inputActions) scene.inputActions = *d.inputActions;
     if (d.render) scene.render = *d.render;
     if (d.navigation) scene.navigation = *d.navigation;
+    if (d.audio) scene.audio = *d.audio;
     if (d.layers) scene.layers = *d.layers;
 }

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <filesystem>
 #include <fstream>
 
@@ -503,4 +504,140 @@ TEST(audio_occlusion_in_game) {
     frame();
     CHECK_NEAR(audio.occlusion(sound), 0.4, 1e-5);
     g.stop();
+}
+
+namespace {
+
+Entity& addWall(Scene& s, const char* name, Vec3 at, Vec3 size) {
+    Entity& w = s.create(name);
+    w.transform.position[0] = at.x;
+    w.transform.position[1] = at.y;
+    w.transform.position[2] = at.z;
+    w.collider = Collider{};
+    w.collider->size = {size.x, size.y, size.z};
+    return w;
+}
+
+}  // namespace
+
+// A sound round the edge of a wall is only partly muffled (five rays: the one through the wall's edge counts double)
+TEST(audio_occlusion_partial) {
+    test::ImGuiContextGuard imgui;
+    AudioEngine audio;
+    REQUIRE(audio.init(false));
+    MeshLibrary meshes = buildMeshLibrary();
+    Scene s;
+    s.create("Camera").camera = Camera{};   // at the origin, looking down -Z
+    Entity& src = s.create("Speaker");
+    src.transform.position[2] = -10.f;
+    src.audioSource = AudioSource{};
+    addWall(s, "Wall", {-4.9f, 0.f, -5.f}, {10.f, 10.f, 0.5f});   // (it ends at x = 0.1: just past the line to it)
+    Game g;
+    g.setAudio(&audio);
+    g.start(s, meshes);
+    ImGui::NewFrame();
+    g.frame(1.f / 60.f, true, true);
+    ImGui::EndFrame();
+    REQUIRE(audio.spatialSounds().size() == 1);
+    float occ = audio.occlusion(audio.spatialSounds()[0].sound);
+    CHECK(occ > 0.75f && occ < 0.9f);   // (5 of 6: the ray past the edge on the right gets through)
+    g.stop();
+}
+
+TEST(audio_room_estimate) {
+    std::vector<float> open(26, -1.f), small(26, 3.f), hall(26, 30.f), half(26, -1.f);
+    for (size_t i = 0; i < 13; ++i) half[i] = 3.f;
+    AudioEngine::Room o = AudioEngine::estimateRoom(open), r = AudioEngine::estimateRoom(small),
+                      h = AudioEngine::estimateRoom(hall), p = AudioEngine::estimateRoom(half);
+    CHECK(o.wet == 0.f);
+    CHECK_NEAR(r.wet, 0.5, 1e-5);
+    CHECK(h.roomSize > r.roomSize && h.damping < r.damping);
+    CHECK(p.wet > 0.05f && p.wet < r.wet);   // (half closed in: some)
+    CHECK(AudioEngine::estimateRoom({}).wet == 0.f);
+}
+
+// Reverb from the world: a closed room rings, open ground doesn't; a reverb zone takes over inside it
+TEST(audio_reverb_from_world) {
+    test::ImGuiContextGuard imgui;
+    MeshLibrary meshes = buildMeshLibrary();
+    auto wetIn = [&](bool walls, bool zone) {
+        AudioEngine audio;
+        audio.init(false);
+        Scene s;
+        s.create("Camera").camera = Camera{};
+        s.audio.reverbFromWorld = true;
+        if (walls) {   // a room 8 m across around the camera
+            addWall(s, "Floor", {0, -2.f, 0}, {8, 0.2f, 8});
+            addWall(s, "Ceiling", {0, 2.f, 0}, {8, 0.2f, 8});
+            addWall(s, "North", {0, 0, -4.f}, {8, 4, 0.2f});
+            addWall(s, "South", {0, 0, 4.f}, {8, 4, 0.2f});
+            addWall(s, "East", {4.f, 0, 0}, {0.2f, 4, 8});
+            addWall(s, "West", {-4.f, 0, 0}, {0.2f, 4, 8});
+        }
+        if (zone) s.create("Zone").reverbZone = ReverbZone{50.f, 1.f, 0.05f, 0.3f, 0.5f};
+        Game g;
+        g.setAudio(&audio);
+        g.start(s, meshes);
+        for (int i = 0; i < 3; ++i) {
+            ImGui::NewFrame();
+            g.frame(1.f / 60.f, true, true);
+            ImGui::EndFrame();
+        }
+        float wet = audio.reverbWet();
+        g.stop();
+        return wet;
+    };
+    CHECK(wetIn(true, false) > 0.4f);
+    CHECK(wetIn(false, false) == 0.f);
+    CHECK_NEAR(wetIn(true, true), 0.05, 1e-4);   // (the zone's, all of it inside)
+}
+
+// Elevation on headphones: the outer ear's notch moves up as the sound rises, and cuts where it sits
+TEST(audio_elevation_notch) {
+    auto magnitude = [](const AudioEngine::Biquad& b, float hz, float rate) {
+        float w = 2.f * 3.14159265f * hz / rate;
+        std::complex<float> z = std::polar(1.f, -w), z2 = z * z;
+        return std::abs((b.b0 + b.b1 * z + b.b2 * z2) / (1.f + b.a1 * z + b.a2 * z2));
+    };
+    AudioEngine::Biquad below = AudioEngine::pinnaNotch(-0.7f, 48000.f), level = AudioEngine::pinnaNotch(0.f, 48000.f),
+                        above = AudioEngine::pinnaNotch(0.7f, 48000.f);
+    CHECK(below.frequency < level.frequency && level.frequency < above.frequency);
+    CHECK(magnitude(level, level.frequency, 48000.f) < 0.4f);           // (about 10 dB down there)
+    CHECK(magnitude(level, 1000.f, 48000.f) > 0.97f);                   // (voices pass)
+    CHECK(magnitude(below, level.frequency, 48000.f) > magnitude(level, level.frequency, 48000.f));
+}
+
+// A scene's music: started with the scene, kept when the next scene has the same, cross-faded to another's; saved
+TEST(audio_scene_music) {
+    test::ImGuiContextGuard imgui;
+    AudioEngine audio;
+    REQUIRE(audio.init(false));
+    MeshLibrary meshes = buildMeshLibrary();
+    std::string one = writeTone("scene1.wav", 440.f, 1.f), two = writeTone("scene2.wav", 550.f, 1.f);
+    Scene s;
+    s.create("Thing");
+    s.audio.music = one;
+    s.audio.musicFade = 0.5f;
+    Game g;
+    g.setAudio(&audio);
+    g.start(s, meshes);
+    REQUIRE(audio.musicClip() == one);
+    AudioEngine::Sound first = audio.music();
+    g.stop();
+    g.start(s, meshes);   // (the same track: carries on)
+    CHECK(audio.music() == first);
+    s.audio.music = two;
+    g.stop();
+    g.start(s, meshes);
+    CHECK(audio.musicClip() == two && audio.music() != first);
+    g.stop();
+    TextureLibrary tex;
+    s.audio.reverbFromWorld = true;
+    s.audio.reverbAmount = 1.5f;
+    json::Value doc = sceneToJson(s, meshes, tex);
+    Scene back;
+    std::string error;
+    REQUIRE(sceneFromJson(doc, back, meshes, tex, error));
+    CHECK(back.audio.music == two && back.audio.musicFade == 0.5f && back.audio.reverbFromWorld);
+    CHECK_NEAR(back.audio.reverbAmount, 1.5, 1e-6);
 }

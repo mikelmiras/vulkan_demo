@@ -243,6 +243,39 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
 
         drawLayerSettings();
 
+        ImGui::SeparatorText("Sound");
+        {
+            AudioSettings& au = scene_.audio;
+            ImGui::InputTextWithHint("Music", "(none: what plays carries on)", &au.music);
+            track();
+            if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Sound, dropped)) {
+                pushUndo();
+                au.music = project::toStored(dropped.u8string());
+            }
+            tooltip("Played when the scene starts or is loaded, cross-fading from the music before (the same track carries "
+                    "on): drop a sound file from the Assets panel");
+            if (ImGui::SmallButton("Browse##music")) {
+                std::filesystem::path path = platform::openFileDialog("Music", "wav,mp3,flac,ogg");
+                ImGui::GetIO().ClearInputKeys();
+                ImGui::GetIO().ClearInputMouse();
+                if (!path.empty()) { pushUndo(); au.music = project::toStored(path.u8string()); }
+            }
+            if (!au.music.empty()) {
+                ImGui::SliderFloat("Music volume", &au.musicVolume, 0.f, 2.f, "%.2f");
+                track();
+                ImGui::DragFloat("Cross-fade", &au.musicFade, 0.05f, 0.f, 10.f, "%.1f s", ImGuiSliderFlags_AlwaysClamp);
+                track();
+            }
+            ImGui::Checkbox("Reverb from the world", &au.reverbFromWorld);
+            track();
+            tooltip("Rays from the listener measure how closed in it is and how big the room: corridors and halls ring, "
+                    "open ground stays dry. Reverb zones take over inside them.");
+            if (au.reverbFromWorld) {
+                ImGui::SliderFloat("Reverb amount", &au.reverbAmount, 0.f, 2.f, "%.2f");
+                track();
+            }
+        }
+
         ImGui::SeparatorText("Multiplayer");
         {
             NetworkSettings& n = scene_.network;

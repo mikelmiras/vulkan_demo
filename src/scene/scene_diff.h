@@ -25,10 +25,11 @@ struct SceneDelta {
     std::optional<RenderSettings> render;
     std::optional<NavigationSettings> navigation;
     std::optional<LayerSettings> layers;
+    std::optional<AudioSettings> audio;
 
     bool empty() const {
         return entities.empty() && added.empty() && !order && !prefabs && !inputActions && !render && !navigation &&
-               !layers;
+               !layers && !audio;
     }
     size_t entityCount() const { return entities.size() + added.size(); }
 };

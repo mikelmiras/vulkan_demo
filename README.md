@@ -744,15 +744,22 @@ WAV / MP3 / FLAC file.
   (`ctx.setBusVolume("music", 0.5f)`); `ctx.duck("music", 0.3f, 2.f)` lowers one for a while, easing back.
 - **Music** streams (decoded as it plays, not all up front) and loops on the music bus, cross-fading from one
   track to the next: `ctx.playMusic("music/theme.ogg", 2.f)`, or the built-in **MusicPlayer** behaviour. Audio
-  Sources can stream too (long ambience).
+  Sources can stream too (long ambience). A scene can have its own **music** (Inspector with nothing selected,
+  *Sound*: a track, its volume, a cross-fade): it starts with the scene and cross-fades from what was playing when
+  the scene is loaded, and a next scene with the same track lets it carry on without a seam.
 - **Reverb Zone** component: while the camera is inside one, effects and ambience echo (wet, room size, damping),
-  easing in at its edge.
+  easing in at its edge. **Reverb from the world** (the scene's *Sound* settings) works it out instead: 26 rays
+  from the camera five times a second measure how closed in it is and how far the walls are, so corridors and halls
+  ring and open ground stays dry, with *Reverb amount* to taste; zones take over where there are some.
 - **Doppler**: moving 3D sounds (and a moving camera) shift in pitch.
 - **Occlusion**: a solid collider between the camera and a 3D sound muffles it (fewer highs, quieter), easing as
-  things move; the Audio Source's *Occlusion* says how much (0: heard through walls).
+  things move; the Audio Source's *Occlusion* says how much (0: heard through walls). Five rays go to the sound and to
+  points half a metre around it, so a sound round a door's edge or over a low wall is only partly muffled.
 - **Headphones**: binaural panning for 3D sounds, from a spherical-head model rather than measured HRTFs: the far
-  ear hears a sound up to 0.66 ms later and muffled by the head, and sounds behind are a little duller. It tells
-  left from right and front from back on headphones; on speakers (the default) sounds pan with equal power.
+  ear hears a sound up to 0.66 ms later and muffled by the head, sounds behind are a little duller, and height comes
+  through the outer ear's notch (a dip that rises in pitch, 6 to 10.5 kHz, as the sound goes from below to above;
+  sounds below are duller too). It tells left from right, front from back and up from down on headphones; on
+  speakers (the default) sounds pan with equal power.
 - **Layered music and stingers**: `ctx.playMusicLayers({"music/base.ogg", "music/drums.ogg"}, {1.f, 0.f}, 1.f,
   120.f)` starts stems of the same length together; `ctx.setMusicLayer(1, 1.f, 2.f)` fades the drums in (a fight
   starting). `ctx.playStinger("music/hit.ogg", "beat")` plays a short phrase on the music's next beat (or "bar", or

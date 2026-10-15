@@ -10,8 +10,9 @@
 // Spatial sounds go through a little filter of their own: occlusion (setOcclusion: muffled and quieter, as behind a
 // wall; the game sets it from rays through the scene) and the panning, either for speakers (equal-power) or, with
 // setHeadphones(true), binaural: a spherical-head model (the far ear hears it up to 0.66 ms later and muffled by
-// the head; sounds behind are a little duller), not measured HRTFs, but enough to tell left from right and front
-// from back on headphones.
+// the head; sounds behind are a little duller; sounds above and below through the outer ear's notch, higher in pitch
+// the higher they are, those below duller), not measured HRTFs, but enough to tell left from right, front from back
+// and up from down on headphones.
 //
 // Music can be layered (stems started together, faded in and out on their own: setMusicLayerVolume) and have
 // stingers (short phrases) played over it on its next beat or bar.
@@ -83,6 +84,7 @@ public:
     // Music: one track at a time, streamed and looping on the music bus, cross-fading into the next
     Sound playMusic(const std::string& clip, float fadeSeconds = 1.f, float volume = 1.f);
     void stopMusic(float fadeSeconds = 1.f);
+    const std::string& musicClip() const;   // what the music is playing ("" none: its first layer's clip)
     Sound music() const { return music_; }
     // A layered track: the clips (stems of the same length) start on the same sample and loop together; volumes[i]
     // is layer i's (missing: 1). bpm / beatsPerBar: its tempo, for stingers (0: they play at once).
@@ -109,11 +111,23 @@ public:
     std::vector<SpatialSound> spatialSounds() const;   // playing ones, for working out their occlusion
     // Headphones: binaural panning (see above) for every spatial sound, playing ones too; off: speakers
     void setHeadphones(bool on);
+    // (the binaural mode's elevation cue: the notch the outer ear makes, moving up in pitch as the sound rises; a
+    // second-order filter, its centre frequency in `frequency`)
+    struct Biquad {
+        float b0 = 1.f, b1 = 0.f, b2 = 0.f, a1 = 0.f, a2 = 0.f, frequency = 0.f;
+    };
+    static Biquad pinnaNotch(float elevation, float sampleRate);
     bool headphones() const;
 
     // The room the listener is in: how much reverb effects and ambience get (0: dry), how big and how muffled
     void setReverb(float wet, float roomSize = 0.7f, float damping = 0.5f);
     float reverbWet() const;
+    // Reverb from the world: rays from the listener in every direction, each one's distance to what it hit (< 0:
+    // nothing within reach). Closed in (most hit) means wetter; far walls a bigger room, less damped.
+    struct Room {
+        float wet = 0.f, roomSize = 0.5f, damping = 0.5f;
+    };
+    static Room estimateRoom(const std::vector<float>& distances);
 
     void update(float dt = -1.f);   // once per frame: fades, ducking, releases finished sounds (dt < 0: measured)
 

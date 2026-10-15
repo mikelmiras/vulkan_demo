@@ -1024,7 +1024,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 75 (done) | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
 | 76 (done) | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
 | 77 (done) | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
-| 78 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
+| 78 (done) | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
 
 ### Round 7 notes
 - Task 65: Application::Pacing (lazy, maxFps, unfocusedFps, settleSeconds, idleSeconds) and decide() (plain, tested:
@@ -1368,3 +1368,18 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   check pending), X11 rescaling when Xft.dpi changes while running, per-monitor X11 scales, editing text right to
   left in place (cells type as ImGui does: left to right), the editor's own font with non-Latin glyphs, CSV
   import / export for translators.
+- **78, audio**: occlusion through partial openings: Game::occludeSounds casts five rays, to the sound and to
+  points 0.5 m to its sides and above / below (across the line to it), the direct one weighing double, the amount the
+  blocked share (the same rules for what doesn't count). Reverb from the world (AudioSettings::reverbFromWorld,
+  scene format 44): every 0.2 s 26 rays (a cube's face, edge and corner directions, 60 m) from the listener;
+  AudioEngine::estimateRoom: enclosure (the share that hit) gives wet 0.5 * e^1.5, the mean hit distance the room size
+  (0.25 + d / 25) and damping (0.7 - d / 60); eased half way per update, scaled by reverbAmount, zones blended over it
+  by their weight. Elevation on headphones: the spatial node's target elevation (the direction's y), eased like the
+  others; a peaking cut (RBJ) at 8 kHz + 2.5 kHz * elevation, 10 dB, shallower towards straight up or down, after the
+  behind filter; below also nudges that filter duller (AudioEngine::pinnaNotch, tested by its response). Scene music
+  (AudioSettings::music, musicVolume, musicFade; AudioEngine::musicClip): Game::begin plays it unless it's already the
+  music. Inspector: the scene's Sound settings. Module API 51. Checked: a sound past a wall's edge 5/6 muffled, the
+  room estimate (open, closed, half, a hall), a closed room ringing and open ground dry in the game, a zone taking
+  over, the notch's place and depth, scene music carrying on and cross-fading, saved and loaded. Not done: measured
+  HRTFs (SOFA), early reflections and per-direction reverb (one reverb for everything), occlusion by thickness or
+  material, sound propagation round corners (portals), music transitions on bars between scenes.

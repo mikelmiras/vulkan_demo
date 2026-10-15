@@ -555,6 +555,9 @@ private:
         std::vector<std::string> stick;   // (a stick's four actions)
     } rebind_;
     float trauma_ = 0.f;   // camera shake
+    AudioEngine::Room room_;      // (AudioSettings::reverbFromWorld) the room around the listener, eased
+    float roomTimer_ = 0.f;
+    void startSceneMusic();
     bool padJoining_ = false;
     int seats_[kMaxPlayers] = {-1, -1, -1, -1};   // the pad slot each local player plays with
     int joined_ = 1;
@@ -585,6 +588,7 @@ private:
     void putSettings();               // into the game state (at start, and over a loaded save game's)
     void syncSettings(float dt);      // the state's edits taken, applied to the audio
     void occludeSounds(EntityId listenerEntity);
+    EntityId listenerBody(EntityId listenerEntity) const;
     GameContext ctx_;
     std::vector<std::pair<float, std::string>> log_;
     float accumulator_ = 0.f, time_ = 0.f, updateMs_ = 0.f;

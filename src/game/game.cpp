@@ -617,6 +617,7 @@ void Game::begin(bool fresh, bool keepPhysics) {
     startNavigation();
     prepareContext(0.f);
     startAudio();
+    startSceneMusic();
     std::vector<std::string> missing;   // behaviours whose game module isn't loaded: they do nothing
     for (const Entity& e : scene_->entities)
         for (const BehaviourPtr& b : e.behaviours)
@@ -1469,6 +1470,13 @@ void Game::fixedUpdate(float dt) {
 // ---------------------------------------------------------------------------------------------
 // Audio
 // ---------------------------------------------------------------------------------------------
+// The scene's music (AudioSettings): cross-faded from what's playing, unless that's the same track (it carries on)
+void Game::startSceneMusic() {
+    if (!audio_ || !audio_->ready() || !scene_ || scene_->audio.music.empty()) return;
+    if (audio_->musicClip() == scene_->audio.music) return;
+    audio_->playMusic(scene_->audio.music, scene_->audio.musicFade, scene_->audio.musicVolume);
+}
+
 void Game::startAudio() {
     attached_.clear();
     soundPos_.clear();
@@ -1538,22 +1546,60 @@ void Game::updateAudio(float dt) {
         float w = std::clamp((z.radius - d) / std::max(z.blend, 1e-3f), 0.f, 1.f);
         if (w > bestWeight) { bestWeight = w; best = &z; }
     }
-    if (best) audio_->setReverb(best->wet * bestWeight, best->roomSize, best->damping);
-    else audio_->setReverb(0.f);
+    // ... over the room the world makes around the listener (rays five times a second), eased in
+    AudioEngine::Room world;
+    if (scene_->audio.reverbFromWorld && haveListener_) {
+        roomTimer_ -= std::max(dt, 0.f);
+        if (roomTimer_ <= 0.f) {
+            roomTimer_ = 0.2f;
+            static const std::vector<Vec3> kDirections = [] {   // (the 26 directions of a cube's faces, edges, corners)
+                std::vector<Vec3> d;
+                for (int x = -1; x <= 1; ++x)
+                    for (int y = -1; y <= 1; ++y)
+                        for (int z = -1; z <= 1; ++z)
+                            if (x || y || z) d.push_back(normalize(Vec3{(float)x, (float)y, (float)z}));
+                return d;
+            }();
+            std::vector<float> distances;
+            RaycastHit hit;
+            for (const Vec3& d : kDirections)
+                distances.push_back(physics_.raycast(listener, d, 60.f, hit, listenerBody(listenerEntity)) ? hit.distance : -1.f);
+            AudioEngine::Room target = AudioEngine::estimateRoom(distances);
+            float k = room_.wet <= 0.f && room_.roomSize == 0.5f ? 1.f : 0.5f;   // (eased, but the first at once)
+            room_.wet += (target.wet - room_.wet) * k;
+            room_.roomSize += (target.roomSize - room_.roomSize) * k;
+            room_.damping += (target.damping - room_.damping) * k;
+        }
+        world = room_;
+        world.wet = std::clamp(world.wet * scene_->audio.reverbAmount, 0.f, 1.f);
+    }
+    if (best) {   // (a zone takes over as the listener goes into it)
+        float w = bestWeight;
+        audio_->setReverb(best->wet * w + world.wet * (1.f - w), best->roomSize * w + world.roomSize * (1.f - w),
+                          best->damping * w + world.damping * (1.f - w));
+    } else {
+        audio_->setReverb(world.wet, world.roomSize, world.damping);
+    }
     audio_->update(dt);
 }
 
 // Occlusion: a ray from the listener to each spatial sound; a solid collider in between muffles it (by its
 // AudioSource's occlusion; one-shots fully). The listener's own body (the camera's nearest ancestor with a
 // collider) and whatever is within half a metre of the sound (its own collider) don't count.
-void Game::occludeSounds(EntityId listenerEntity) {
-    EntityId body = kNoEntity;
+EntityId Game::listenerBody(EntityId listenerEntity) const {   // (the camera's nearest ancestor with a collider)
     for (EntityId id = listenerEntity; id != kNoEntity;) {
         const Entity* e = scene_->find(id);
         if (!e) break;
-        if (e->collider) { body = id; break; }
+        if (e->collider) return id;
         id = e->parent;
     }
+    return kNoEntity;
+}
+
+// ... through five rays: to the sound and to four points half a metre around it (across the line to it), the one to
+// the sound counting double: a sound round a door's edge, or behind a low wall, is only partly muffled
+void Game::occludeSounds(EntityId listenerEntity) {
+    EntityId body = listenerBody(listenerEntity);
     std::unordered_map<AudioEngine::Sound, EntityId> owners;
     for (const auto& [entity, sound] : attached_) owners[sound] = entity;
     for (const AudioEngine::SpatialSound& s : audio_->spatialSounds()) {
@@ -1566,10 +1612,23 @@ void Game::occludeSounds(EntityId listenerEntity) {
         float amount = 0.f;
         Vec3 d = s.position - listener_;
         float dist = length(d);
-        RaycastHit hit;
-        if (strength > 0.f && dist > 0.6f && physics_.raycast(listener_, d, dist - 0.5f, hit, body) &&
-            hit.entity != owner && !(owner != kNoEntity && scene_->isAncestor(owner, hit.entity)))
-            amount = strength;
+        if (strength > 0.f && dist > 0.6f) {
+            Vec3 dir = d * (1.f / dist);
+            Vec3 side = cross(dir, Vec3{0, 1, 0});
+            side = length(side) > 1e-3f ? normalize(side) : Vec3{1, 0, 0};
+            Vec3 up = cross(side, dir);
+            const Vec3 offsets[5] = {{}, side * 0.5f, side * -0.5f, up * 0.5f, up * -0.5f};
+            float blocked = 0.f;
+            for (int k = 0; k < 5; ++k) {
+                Vec3 to = s.position + offsets[k] - listener_;
+                float len = length(to);
+                RaycastHit hit;
+                if (physics_.raycast(listener_, to, len - 0.5f, hit, body) && hit.entity != owner &&
+                    !(owner != kNoEntity && scene_->isAncestor(owner, hit.entity)))
+                    blocked += k == 0 ? 2.f : 1.f;
+            }
+            amount = strength * blocked / 6.f;
+        }
         audio_->setOcclusion(s.sound, amount);
     }
 }

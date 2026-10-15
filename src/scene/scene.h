@@ -651,6 +651,17 @@ struct NavigationSettings {
     float maxSlope = 45.f;      // steepest walkable surface, degrees
 };
 
+// A scene's sound: its music (started when the scene starts or is loaded, cross-faded from what was playing; the
+// same track carries on; "": whatever plays goes on), and reverb worked out from the world around the listener
+// (rays: how closed in, how big the room; reverb zones take over where they are)
+struct AudioSettings {
+    std::string music;
+    float musicVolume = 1.f;
+    float musicFade = 2.f;          // seconds of cross-fade
+    bool reverbFromWorld = false;
+    float reverbAmount = 1.f;       // 0..2: how strong that reverb is
+};
+
 // Multiplayer (net/net_session.h): what a joining player gets
 struct NetworkSettings {
     std::string playerPrefab;      // spawned for each client that joins ("": clients only watch)
@@ -738,6 +749,7 @@ public:
     NavigationSettings navigation;
     LayerSettings layers;
     NetworkSettings network;
+    AudioSettings audio;
 
     Entity& create(const std::string& name, EntityId parent = kNoEntity);   // appended with a fresh id
     Entity& add(Entity e);   // keeps e.id if it's free, otherwise assigns a new one
