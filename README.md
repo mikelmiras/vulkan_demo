@@ -149,6 +149,24 @@ files are moved aside (`<file>.old-update`, removed at the next start) and put b
 --install-update` does the same from a command line (a launcher, a script) and exits. The game must be somewhere
 its player may write (a per-user install, an unpacked folder: not Program Files or a read-only image).
 
+**Delta updates**: the export's update pack also comes as a chunked release, `update/manifest.json` and
+`update/chunks/` (put the folder online as it is and point `updateUrl` at the manifest). Every file is cut into
+chunks by its content (a rolling hash: an edit only changes the chunks around it) named by their SHA-256, so
+installing downloads only the chunks the installed version doesn't already have, from any earlier version (a
+level changed in a 2 GB pack: a few megabytes), checks each one, and replaces only the files that changed.
+`update.progress` (0-100) and `update.downloaded` (bytes) follow it. **Resuming**: chunks are kept as they arrive
+(`<game>/.update/chunks`), so a download cut off (a lost connection, the game closed) picks up where it stopped,
+also after a restart. **AppImages** update in place: the export lists the AppImage too (`linux-appimage`), and a
+game run from one rebuilds the new AppImage from the old one's chunks and puts it where the old one is, under its
+name. A release for several platforms: `vkgame --merge-manifests manifest.json linux.json windows.json macos.json`.
+
+**Signed updates**: `vkgame --update-keygen key.txt` makes a signing key (the secret in `key.txt`: keep it out of the
+project and version control) and prints its public half: put it in `project.json` as `"updateKey"`. From then on
+the game only takes a manifest signed with that key (Ed25519, over the whole manifest: every file's and chunk's
+digest), so a compromised server or a hijacked URL can't hand players anything else. Sign with `vkgame
+--sign-manifest manifest.json key.txt`, or export with `VKWORLD_UPDATE_KEY_FILE=key.txt` to sign as it's made.
+GitHub releases can't be signed this way: with an `updateKey`, use your own manifest.
+
 **Crash reports, sent**: with a `"crashReportUrl"` in `project.json`, a game whose last run crashed sets
 `crash.lastRun` for a menu to ask the player, and `@sendcrashreport` sends that report (`@dismisscrashreport`: no);
 players who always agree turn on `settings.sendCrashReports` (off unless they do). The report goes as a plain-text

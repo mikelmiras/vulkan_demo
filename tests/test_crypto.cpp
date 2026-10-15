@@ -154,3 +154,56 @@ TEST(crypto_channels) {
     CHECK(!wrong.open(p5.data(), p5.size(), 5, out));
     CHECK(crypto::passwordKey("") == crypto::Key{});
 }
+
+TEST(crypto_sha512) {
+    auto hexOf = [](const std::array<uint8_t, 64>& d) { return toHex(d.data(), d.size()); };
+    CHECK(hexOf(crypto::sha512("abc", 3)) ==
+          "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f");
+    std::vector<uint8_t> data;
+    for (int r = 0; r < 3; ++r)
+        for (int i = 0; i < 256; ++i) data.push_back((uint8_t)i);
+    CHECK(hexOf(crypto::sha512(data.data(), data.size())) ==
+          "f1721f49518ee462a3d81def26d81037cd474b4254b85ad7c8f1509594d0177bbb996ee9625813852bacac108c2a72c83a8587050fec1dcda64730d6470953e6");
+    std::vector<uint8_t> zeros(112, 0);   // (111 bytes: padding fits one block; 112: it takes two)
+    CHECK(hexOf(crypto::sha512(zeros.data(), 111)) ==
+          "77ddd3a542e530fd047b8977c657ba6ce72f1492e360b2b2212cd264e75ec03882e4ff0525517ab4207d14c70c2259ba88d4d335ee0e7e20543d22102ab1788c");
+    CHECK(hexOf(crypto::sha512(zeros.data(), 112)) ==
+          "2be2e788c8a8adeaa9c89a7f78904cacea6e39297d75e0573a73c756234534d6627ab4156b48a6657b29ab8beb73334040ad39ead81446bb09c70704ec707952");
+}
+
+TEST(crypto_ed25519) {
+    struct Vector {
+        const char *seed, *message, *publicKey, *signature;
+    } vectors[] = {   // RFC 8032's first two, and one of ours (checked with Python's cryptography)
+        {"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", "",
+         "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a",
+         "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"},
+        {"4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb", "r",
+         "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+         "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"},
+        {"0000000000000000000000000000000000000000000000000000000000000001", "manifest body",
+         "4cb5abf6ad79fbf5abbccafcc269d85cd2651ed4b885b5869f241aedf0a5ba29",
+         "67d8e949f4c28da1837b516f6a46104b3af919213290be690b06f44e7e74f34476f6e6eb06c3b8afb9d5ba7b2a1c1532f841928e1255cb0917aea31a9cf8df0e"},
+    };
+    for (const Vector& v : vectors) {
+        uint8_t seed[32];
+        REQUIRE(crypto::fromHex(v.seed, seed, 32));
+        crypto::SigningKey key = crypto::SigningKey::fromSeed(seed);
+        CHECK(toHex(key.publicKey.data(), 32) == v.publicKey);
+        std::array<uint8_t, 64> sig = crypto::sign(key, v.message, std::strlen(v.message));
+        CHECK(toHex(sig.data(), 64) == v.signature);
+        CHECK(crypto::verify(key.publicKey.data(), v.message, std::strlen(v.message), sig.data()));
+        std::string other = std::string(v.message) + "!";
+        CHECK(!crypto::verify(key.publicKey.data(), other.data(), other.size(), sig.data()));   // another message
+        sig[5] ^= 1;
+        CHECK(!crypto::verify(key.publicKey.data(), v.message, std::strlen(v.message), sig.data()));   // a changed signature
+    }
+    crypto::SigningKey a = crypto::SigningKey::generate(), b = crypto::SigningKey::generate();
+    std::array<uint8_t, 64> sig = crypto::sign(a, "hello", 5);
+    CHECK(crypto::verify(a.publicKey.data(), "hello", 5, sig.data()));
+    CHECK(!crypto::verify(b.publicKey.data(), "hello", 5, sig.data()));   // someone else's key
+    CHECK(crypto::toHex("\x01\xab", 2) == "01ab");
+    uint8_t two[2];
+    CHECK(crypto::fromHex("01AB", two, 2) && two[0] == 1 && two[1] == 0xab);
+    CHECK(!crypto::fromHex("01", two, 2) && !crypto::fromHex("zz00", two, 2));
+}

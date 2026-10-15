@@ -103,6 +103,7 @@ bool load(const fs::path& dir, Settings& out, std::string& error) {
     if (!doc["language"].asString().empty()) s.language = doc["language"].asString();
     if (!doc["gameVersion"].asString().empty()) s.gameVersion = doc["gameVersion"].asString();
     s.updateUrl = doc["updateUrl"].asString();
+    s.updateKey = doc["updateKey"].asString();
     s.relay = doc["relay"].asString();
     s.relaySecret = doc["relaySecret"].asString();
     s.crashReportUrl = doc["crashReportUrl"].asString();
@@ -140,6 +141,7 @@ bool save(const fs::path& dir, const Settings& settings, std::string& error) {
     if (settings.language != "en") doc.set("language", settings.language);
     doc.set("gameVersion", settings.gameVersion);
     if (!settings.updateUrl.empty()) doc.set("updateUrl", settings.updateUrl);
+    if (!settings.updateKey.empty()) doc.set("updateKey", settings.updateKey);
     if (!settings.relay.empty()) doc.set("relay", settings.relay);
     if (!settings.relaySecret.empty()) doc.set("relaySecret", settings.relaySecret);
     if (!settings.crashReportUrl.empty()) doc.set("crashReportUrl", settings.crashReportUrl);

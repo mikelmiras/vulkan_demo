@@ -262,7 +262,7 @@ bool makeUpdatePack(const fs::path& out, const std::string& name, const project:
         if (!it->is_regular_file(ec)) continue;
         std::string rel = fs::relative(it->path(), out, ec).generic_u8string(), ext = it->path().extension().u8string();
         if (ext == ".vkwupdate" || ext == ".sha256" || ext == ".dmg" || ext == ".AppImage" || rel.find("-setup.exe") != std::string::npos ||
-            rel.find(".dmg-staging") != std::string::npos)
+            rel.find(".dmg-staging") != std::string::npos || rel.rfind("update/", 0) == 0)
             continue;
         files.push_back({rel, it->path()});
     }
@@ -270,6 +270,39 @@ bool makeUpdatePack(const fs::path& out, const std::string& name, const project:
     if (!vfs::writePack(result.updatePack, files, false, error)) return false;
     result.updateSha256 = sha256::ofFile(result.updatePack);
     std::ofstream(fs::path(result.updatePack) += ".sha256") << result.updateSha256 << "  " << result.updatePack.filename().u8string() << "\n";
+    // The chunked release (app/updates.h): update/manifest.json and update/chunks/, to put on a web server as they are
+    fs::path folder = out / "update";
+    std::vector<updates::ReleaseFile> described;
+    for (const auto& [rel, path] : files) {
+        updates::ReleaseFile f;
+        if (!updates::describeFile(path, rel, f, error, folder / "chunks")) return false;
+        described.push_back(std::move(f));
+    }
+    json::Value manifest = json::Value::object();
+    manifest.set("version", settings.gameVersion);
+    manifest.set("url", "");
+    manifest.set("notes", "");
+    json::Value& downloads = manifest.set("downloads", json::Value::object());
+    json::Value& mine = downloads.set(updates::platformKey(), json::Value::object());
+    mine.set("files", updates::filesToJson(described));
+    mine.set("chunks", "chunks/");
+    if (result.package.extension() == ".AppImage") {   // (the AppImage, updated as one file)
+        updates::ReleaseFile f;
+        if (!updates::describeFile(result.package, result.package.filename().u8string(), f, error, folder / "chunks")) return false;
+        json::Value& app = downloads.set("linux-appimage", json::Value::object());
+        app.set("files", updates::filesToJson({f}));
+        app.set("chunks", "chunks/");
+    }
+    if (const char* keyFile = std::getenv("VKWORLD_UPDATE_KEY_FILE")) {   // (signed with the game's key, if given)
+        std::string key;
+        std::ifstream(keyFile) >> key;
+        if (!updates::signManifest(manifest, key, error)) {
+            error = "signing the update: " + error;
+            return false;
+        }
+    }
+    result.updateManifest = folder / "manifest.json";
+    std::ofstream(result.updateManifest) << json::write(manifest);
     return true;
 }
 

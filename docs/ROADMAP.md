@@ -1022,7 +1022,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
 | 73 (done) | Input, more: players joining by pressing Start, DualSense / Switch pads on Windows (HID), rebinding a stick as a whole, binding conflicts shown in menus | Pads are given out in order; Windows sees only XInput pads |
 | 74 (done) | Scripting tools, more: setting variables while stopped, coroutines as threads, data breakpoints (a field changing), a wall-clock sampling profiler with lines | The debugger can only look; samples count instructions, not time |
 | 75 (done) | Animation, more: IK targets kept when retargeting between different bone lengths, mirrored clips, scrubbing events while playing, particle and camera-shake event actions | Feet slide after retargeting; events can only play sounds |
-| 76 | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
+| 76 (done) | Shipping, more: delta updates, resumable downloads, signed update manifests, updating AppImages and installed apps in place | Whole packs are downloaded again; an update is only as safe as its manifest's server |
 | 77 | Editor: a string table editor with an RTL / CJK preview, shaped text and glyph prompts in the editor's own panels, a high-contrast editor theme, HiDPI on X11 and macOS | The editor shows only Latin text; strings are edited as JSON by hand |
 | 78 | Audio: occlusion and reverb from the physics world (rays, room size), HRTF for headphones, streaming music with crossfades between scenes | Audio occlusion is a per-source setting; panning only |
 
@@ -1331,3 +1331,22 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   shake's bounds and falloff. Not done: hands (IK only for legs), feet of the source sliding themselves (planted is
   where the source's foot is), lock-step contact detection (planting only when a foot is still), particles and shakes
   in a preview of a blend tree or layers, haptics along with the shake.
+- **76, shipping updates**: chunked releases (app/updates): content-defined chunking with a gear rolling hash (a
+  fixed splitmix64 table, so cuts match everywhere), cut where the hash's top 16 bits are 0 after 16 KB, at 256 KB
+  at most (64 KB on average); the manifest lists each platform's files (path, size, SHA-256, executable, chunks) and
+  where chunks are (relative to the manifest's URL). Installing chunks the old files of the same paths, skips files
+  already identical, downloads the missing chunks (each checked, written atomically into .update/chunks), rebuilds
+  the changed files in .update/staged (checked whole) and swaps only those in. cleanUp keeps .update/chunks until an
+  install is applied (the "applied" marker swapIn writes), so downloads resume across restarts. AppImages: when
+  APPIMAGE is set the platform is "linux-appimage" and the install target is that file (renamed into place; the
+  restart runs it again). Signing: Ed25519 (TweetNaCl's arithmetic on the X25519 field code, SHA-512 with constants
+  computed exactly, checked against RFC 8032 and Python vectors; S < L enforced) over json::write of the manifest
+  without its "signature"; project.json "updateKey"; vkgame --update-keygen, --sign-manifest, --merge-manifests;
+  exports write update/manifest.json + chunks (the AppImage too), signed with VKWORLD_UPDATE_KEY_FILE.
+  update.progress and update.downloaded in the game state. Checked: chunk bounds and stability under an insertion,
+  signed / unsigned / altered / other-key manifests, a delta install over an older version (a third of the size
+  fetched), an interrupted download resumed after a restart with nothing fetched twice, an up-to-date install
+  fetching nothing, a damaged chunk refused, an AppImage replaced in place, the export's chunked release complete.
+  Not done: files removed by an update stay, installs needing administrator rights (Program Files, /Applications
+  owned by root), macOS app bundles re-signed after an update, Windows / macOS HTTP range requests (resuming is per
+  chunk), key rotation (one key per game).

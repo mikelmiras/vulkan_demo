@@ -1,8 +1,10 @@
-// Cryptography for multiplayer sessions and the relay: small, dependency-free, constant-time where it matters.
+// Cryptography for multiplayer sessions, the relay and signed updates: small, dependency-free, constant-time where it
+// matters.
 //
 //   - X25519 (RFC 7748): Diffie-Hellman key agreement (each side's key pair; both get the same shared secret)
 //   - ChaCha20-Poly1305 (RFC 8439): authenticated encryption (a packet can be neither read nor changed in transit)
 //   - BLAKE2s-256 (RFC 7693): hashing, keyed hashing (MACs) and deriving keys
+//   - Ed25519 (RFC 8032, with SHA-512): signatures
 //   - randomBytes: the operating system's secure random numbers
 //
 // Plain code with no engine dependencies (vkrelay is built with it).
@@ -59,6 +61,23 @@ bool open(const Key& key, const uint8_t nonce[12], const void* aad, size_t aadSi
 // (the parts, exposed for their tests)
 void chacha20(const Key& key, uint32_t counter, const uint8_t nonce[12], uint8_t* data, size_t size);   // xor in place
 void poly1305(uint8_t tag[16], const void* message, size_t size, const uint8_t key[32]);
+
+// SHA-512 (FIPS 180-4), for Ed25519
+std::array<uint8_t, 64> sha512(const void* data, size_t size);
+
+// Ed25519 signatures (RFC 8032): a key pair from a 32-byte seed (the secret), messages signed with it, checked with
+// the public key alone (update manifests: app/updates.h)
+struct SigningKey {
+    std::array<uint8_t, 32> seed{}, publicKey{};
+    static SigningKey fromSeed(const uint8_t seed[32]);
+    static SigningKey generate();
+};
+std::array<uint8_t, 64> sign(const SigningKey& key, const void* message, size_t size);
+bool verify(const uint8_t publicKey[32], const void* message, size_t size, const uint8_t signature[64]);
+
+// Hex text of bytes, and back (false: not hex, or not `size` bytes)
+std::string toHex(const void* data, size_t size);
+bool fromHex(const std::string& text, uint8_t* out, size_t size);
 
 // A password's key, mixed into a key exchange so only those who know it agree on the keys (zeros: no password)
 Key passwordKey(const std::string& password);

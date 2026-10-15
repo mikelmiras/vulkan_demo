@@ -28,6 +28,9 @@ struct Settings {
     // settings.checkUpdates): JSON {"version": "1.1.0", "url": "...", "notes": "..."}, or a GitHub API "releases/latest"
     // URL. Empty: no check.
     std::string updateUrl;
+    // The Ed25519 public key (64 hex digits: vkgame --update-keygen) its update manifests must be signed with; empty:
+    // unsigned ones are taken too (app/updates.h)
+    std::string updateKey;
     // The relay server its multiplayer lobbies are on ("relay.example.com[:27100]", net/relay.h; vkrelay runs one).
     // Empty: games are joined by address only.
     std::string relay;

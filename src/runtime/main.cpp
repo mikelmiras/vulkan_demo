@@ -7,6 +7,8 @@
 //          [--server [port] [--seconds N]]   (a dedicated multiplayer server: no window, no GPU; N: stop after)
 //          [--lobbies]   (lists the game's lobbies on the relay, and exits)
 //          [--install-update]   (checks the project's updateUrl, installs a newer version if there is one, and exits)
+//   vkgame --update-keygen key.txt | --sign-manifest manifest.json key.txt | --merge-manifests out.json a.json ...
+//          (signing update manifests: app/updates.h)
 //
 // Without a scene it plays the start scene of the project (a folder with project.json: the one given, the working
 // directory or the executable's folder), then scene.vkw in those folders, and falls back to the built-in demo. The mouse is captured for the game: Esc releases it, a click takes it back.
@@ -23,6 +25,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <thread>
 
 #include "app/application.h"
@@ -42,6 +46,7 @@
 #include "game/game.h"
 #include "script/lua_script.h"
 #include "assets/asset_db.h"
+#include "net/crypto.h"
 #include "net/net_session.h"
 #include "net/relay.h"
 #include "scene/terrain.h"
@@ -203,13 +208,81 @@ int runServer(Game& game, Scene& scene, MeshLibrary& meshes, const std::string& 
 
 // --install-update: the check, then (if a newer version is out for this platform) the install, waited for; 0 when up
 // to date or installed
+// Where an update goes: the game's folder (the one with the .app on macOS), or, run from an AppImage, the AppImage's
+// (the AppImage file itself replaced: renameTo is its name)
+struct UpdateTarget {
+    std::filesystem::path dir;
+    std::string renameTo;
+};
+UpdateTarget updateTarget() {
+    std::filesystem::path appImage = updates::appImagePath();
+    if (!appImage.empty()) return {appImage.parent_path(), appImage.filename().u8string()};
+    std::filesystem::path dir = platform::executableDir();
+    if (dir.parent_path().filename() == "Contents" && dir.parent_path().parent_path().extension() == ".app")
+        dir = dir.parent_path().parent_path().parent_path();
+    return {dir, ""};
+}
+
+// --update-keygen key.txt: a new signing key for update manifests (the secret into the file; the public key printed);
+// --sign-manifest manifest.json key.txt; --merge-manifests out.json a.json b.json ... (each platform's downloads)
+int updateTool(const std::string& verb, const std::vector<std::string>& args) {
+    std::string error;
+    auto load = [&](const std::string& path, json::Value& doc) {
+        std::ifstream f(std::filesystem::u8path(path));
+        std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        return f.good() || !text.empty() ? json::parse(text, doc, error) : (error = "cannot read " + path, false);
+    };
+    if (verb == "--update-keygen") {
+        crypto::SigningKey key = crypto::SigningKey::generate();
+        std::ofstream f(std::filesystem::u8path(args[0]));
+        f << crypto::toHex(key.seed.data(), 32) << "\n";
+        if (!f) {
+            std::fprintf(stderr, "update-keygen: cannot write %s\n", args[0].c_str());
+            return 1;
+        }
+        std::printf("secret key: %s (keep it out of the project and out of version control)\n", args[0].c_str());
+        std::printf("public key: %s\n(put it in project.json as \"updateKey\")\n", crypto::toHex(key.publicKey.data(), 32).c_str());
+        return 0;
+    }
+    if (verb == "--sign-manifest") {
+        json::Value doc;
+        std::string key;
+        std::ifstream(std::filesystem::u8path(args[1])) >> key;
+        if (!load(args[0], doc) || !updates::signManifest(doc, key, error)) {
+            std::fprintf(stderr, "sign-manifest: %s\n", error.c_str());
+            return 1;
+        }
+        std::ofstream(std::filesystem::u8path(args[0])) << json::write(doc);
+        std::printf("signed %s\n", args[0].c_str());
+        return 0;
+    }
+    // --merge-manifests: the first one's version, url and notes, everyone's downloads (unsigned: sign it after)
+    json::Value out;
+    for (size_t i = 1; i < args.size(); ++i) {
+        json::Value doc;
+        if (!load(args[i], doc)) {
+            std::fprintf(stderr, "merge-manifests: %s: %s\n", args[i].c_str(), error.c_str());
+            return 1;
+        }
+        if (out.isNull()) {
+            out = json::Value::object();
+            for (const char* k : {"version", "url", "notes"}) out.set(k, doc[k]);
+            out.set("downloads", json::Value::object());
+        }
+        for (const auto& [platform, d] : doc["downloads"].members()) out.members().back().second.set(platform, d);
+    }
+    std::ofstream(std::filesystem::u8path(args[0])) << json::write(out);
+    std::printf("merged %zu manifests into %s\n", args.size() - 1, args[0].c_str());
+    return 0;
+}
+
 int installUpdateNow(const project::Settings& settings) {
     if (settings.updateUrl.empty()) {
         std::fprintf(stderr, "update: the project has no updateUrl\n");
         return 1;
     }
     updates::Check check;
-    check.start(settings.updateUrl, settings.gameVersion);
+    check.start(settings.updateUrl, settings.gameVersion, nullptr, settings.updateKey);
     while (!check.ready()) std::this_thread::sleep_for(std::chrono::milliseconds(20));
     if (!check.error().empty()) {
         std::fprintf(stderr, "update: %s\n", check.error().c_str());
@@ -220,13 +293,12 @@ int installUpdateNow(const project::Settings& settings) {
         return 0;
     }
     updates::Release r = check.release();
-    std::filesystem::path dir = platform::executableDir();
-    if (dir.parent_path().filename() == "Contents" && dir.parent_path().parent_path().extension() == ".app")
-        dir = dir.parent_path().parent_path().parent_path();
+    UpdateTarget target = updateTarget();
+    std::filesystem::path dir = target.dir;
     updates::cleanUp(dir);   // (the last update's leftovers)
     std::printf("update: installing %s %s into %s\n", settings.name.c_str(), r.version.c_str(), dir.u8string().c_str());
     updates::Install install;
-    install.start(r, dir);
+    install.start(r, dir, nullptr, target.renameTo);
     for (;;) {
         updates::Install::Stage st = install.stage();
         if (st == updates::Install::Stage::Ready || st == updates::Install::Stage::Failed) break;
@@ -293,6 +365,9 @@ void drawHud(const Game& game, bool captured, float scale, bool shipping) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc >= 3 && (!std::strcmp(argv[1], "--update-keygen") || (!std::strcmp(argv[1], "--sign-manifest") && argc >= 4) ||
+                      (!std::strcmp(argv[1], "--merge-manifests") && argc >= 4)))
+        return updateTool(argv[1], std::vector<std::string>(argv + 2, argv + argc));
     std::vector<std::string> launchArgs(argv, argv + argc);   // (to start again the same way after an update)
     Application::Options defaults;
     defaults.title = "Vulkan World";
@@ -490,12 +565,12 @@ int main(int argc, char** argv) {
     // Is there a newer version of this game? (asked once, in the background; menus show update.* when there is)
     updates::Check updateCheck;
     if (!settings.updateUrl.empty() && options.screenshotPath.empty() && game.state().flag("settings.checkUpdates"))
-        updateCheck.start(settings.updateUrl, settings.gameVersion);
+        updateCheck.start(settings.updateUrl, settings.gameVersion, nullptr, settings.updateKey);
     // ... and installing it from the game's menus ("@update", then "@restart"), into the folder the game is in (the
     // one with the .app on macOS); the last update's leftovers go now
-    std::filesystem::path installDir = platform::executableDir();
-    if (installDir.parent_path().filename() == "Contents" && installDir.parent_path().parent_path().extension() == ".app")
-        installDir = installDir.parent_path().parent_path().parent_path();
+    UpdateTarget updateTo = updateTarget();
+    std::filesystem::path installDir = updateTo.dir;
+    if (!updates::appImagePath().empty()) launchArgs[0] = updates::appImagePath().u8string();   // (the AppImage again)
     updates::cleanUp(installDir);
     updates::Release outRelease;   // (what the check found, when it's newer)
     updates::Install install;
@@ -513,7 +588,7 @@ int main(int argc, char** argv) {
         if (verb == "update") {
             if (outRelease.version.empty()) logLine("update: no newer version is out");
             else if (install.stage() == updates::Install::Stage::Idle || install.stage() == updates::Install::Stage::Failed)
-                install.start(outRelease, installDir);
+                install.start(outRelease, installDir, nullptr, updateTo.renameTo);
         } else if (verb == "restart") {
             if (!install.apply(hostError)) logLine("update: %s", hostError.c_str());
             else if (!platform::startProgram(launchArgs)) logLine("update: installed, but the game couldn't start again: start it yourself");
@@ -560,7 +635,7 @@ int main(int argc, char** argv) {
             if (updateCheck.newer()) {
                 updates::Release r = updateCheck.release();
                 outRelease = r;
-                game.state().set("update.installable", json::Value(!r.download.empty() && r.sha256.size() == 64));
+                game.state().set("update.installable", json::Value(r.chunked() || (!r.download.empty() && r.sha256.size() == 64)));
                 game.state().set("update.available", json::Value(true));
                 game.state().set("update.version", json::Value(r.version));
                 game.state().set("update.url", json::Value(r.url));
@@ -616,12 +691,16 @@ int main(int argc, char** argv) {
         }
         publishNetwork(game, net, lobbyQuery, lobbyList, netPublished);
         {   // where an update being installed and a crash report being sent stand (when that changes)
+            int percent = (int)(install.progress() * 100.f);
             std::string now = std::string(updates::Install::stageName(install.stage())) + "|" + install.error() + "|" +
+                              std::to_string(percent) + "|" +
                               (crashUpload.busy() ? "1" : "0") + (crashUpload.sent() ? "1" : "0") + crashUpload.error();
             if (now != hostPublished) {
                 hostPublished = now;
                 game.state().set("update.stage", json::Value(std::string(updates::Install::stageName(install.stage()))));
                 game.state().set("update.error", json::Value(install.error()));
+                game.state().set("update.downloaded", json::Value((double)install.downloaded()));
+                game.state().set("update.progress", json::Value((double)percent));
                 game.state().set("crash.sending", json::Value(crashUpload.busy()));
                 game.state().set("crash.sent", json::Value(crashUpload.sent()));
                 game.state().set("crash.error", json::Value(crashUpload.error()));

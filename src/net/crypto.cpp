@@ -188,6 +188,264 @@ void x25519(uint8_t out[32], const uint8_t scalar[32], const uint8_t point[32]) 
     pack(out, a);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Ed25519 (after TweetNaCl): points in extended coordinates (X, Y, Z, T) on the twisted Edwards curve
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+const Fe kZero = {}, kOne = {1};
+const Fe kD = {0x78a3, 0x1359, 0x4dca, 0x75eb, 0xd8ab, 0x4141, 0x0a4d, 0x0070, 0xe898, 0x7779, 0x4079, 0x8cc7, 0xfe73, 0x2b6f, 0x6cee, 0x5203};
+const Fe kD2 = {0xf159, 0x26b2, 0x9b94, 0xebd6, 0xb156, 0x8283, 0x149a, 0x00e0, 0xd130, 0xeef3, 0x80f2, 0x198e, 0xfce7, 0x56df, 0xd9dc, 0x2406};
+const Fe kBaseX = {0xd51a, 0x8f25, 0x2d60, 0xc956, 0xa7b2, 0x9525, 0xc760, 0x692c, 0xdc5c, 0xfdd6, 0xe231, 0xc0a4, 0x53fe, 0xcd6e, 0x36d3, 0x2169};
+const Fe kBaseY = {0x6658, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666, 0x6666};
+const Fe kSqrtM1 = {0xa0b0, 0x4a0e, 0x1b27, 0xc4ee, 0xe478, 0xad2f, 0x1806, 0x2f43, 0xd7a7, 0x3dfb, 0x0099, 0x2b4d, 0xdf0b, 0x4fc1, 0x2480, 0x2b83};
+// The group's order, L = 2^252 + 27742317777372353535851937790883648493, little-endian bytes
+const int64_t kL[32] = {0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10};
+
+void copyFe(Fe o, const Fe a) {
+    for (int i = 0; i < 16; ++i) o[i] = a[i];
+}
+bool feDiffers(const Fe a, const Fe b) {
+    uint8_t x[32], y[32];
+    pack(x, a);
+    pack(y, b);
+    return !equal(x, y, 32);
+}
+uint8_t parity(const Fe a) {
+    uint8_t d[32];
+    pack(d, a);
+    return d[0] & 1;
+}
+void pow2523(Fe o, const Fe in) {   // in^((p - 5) / 8)
+    Fe c;
+    copyFe(c, in);
+    for (int a = 250; a >= 0; --a) {
+        square(c, c);
+        if (a != 1) mul(c, c, in);
+    }
+    copyFe(o, c);
+}
+
+using Point = Fe[4];
+
+void pointAdd(Point p, Point q) {   // p += q
+    Fe a, b, c, d, t, e, f, g, h;
+    sub(a, p[1], p[0]);
+    sub(t, q[1], q[0]);
+    mul(a, a, t);
+    add(b, p[0], p[1]);
+    add(t, q[0], q[1]);
+    mul(b, b, t);
+    mul(c, p[3], q[3]);
+    mul(c, c, kD2);
+    mul(d, p[2], q[2]);
+    add(d, d, d);
+    sub(e, b, a);
+    sub(f, d, c);
+    add(g, d, c);
+    add(h, b, a);
+    mul(p[0], e, f);
+    mul(p[1], h, g);
+    mul(p[2], g, f);
+    mul(p[3], e, h);
+}
+
+void pointSwap(Point p, Point q, int64_t b) {
+    for (int i = 0; i < 4; ++i) select(p[i], q[i], b);
+}
+
+void pointPack(uint8_t* r, Point p) {
+    Fe tx, ty, zi;
+    invert(zi, p[2]);
+    mul(tx, p[0], zi);
+    mul(ty, p[1], zi);
+    pack(r, ty);
+    r[31] ^= (uint8_t)(parity(tx) << 7);
+}
+
+void scalarMult(Point p, Point q, const uint8_t* s) {   // p = s * q (q is spent)
+    copyFe(p[0], kZero);
+    copyFe(p[1], kOne);
+    copyFe(p[2], kOne);
+    copyFe(p[3], kZero);
+    for (int i = 255; i >= 0; --i) {
+        int64_t b = (s[i / 8] >> (i & 7)) & 1;
+        pointSwap(p, q, b);
+        pointAdd(q, p);
+        pointAdd(p, p);
+        pointSwap(p, q, b);
+    }
+}
+
+void scalarBase(Point p, const uint8_t* s) {
+    Point q;
+    copyFe(q[0], kBaseX);
+    copyFe(q[1], kBaseY);
+    copyFe(q[2], kOne);
+    mul(q[3], kBaseX, kBaseY);
+    scalarMult(p, q, s);
+}
+
+// x (64 limbs of a byte or more) mod L, into 32 bytes
+void modL(uint8_t* r, int64_t x[64]) {
+    int64_t carry;
+    for (int i = 63; i >= 32; --i) {
+        carry = 0;
+        int j;
+        for (j = i - 32; j < i - 12; ++j) {
+            x[j] += carry - 16 * x[i] * kL[j - (i - 32)];
+            carry = (x[j] + 128) >> 8;
+            x[j] -= carry * 256;
+        }
+        x[j] += carry;
+        x[i] = 0;
+    }
+    carry = 0;
+    for (int j = 0; j < 32; ++j) {
+        x[j] += carry - (x[31] >> 4) * kL[j];
+        carry = x[j] >> 8;
+        x[j] &= 255;
+    }
+    for (int j = 0; j < 32; ++j) x[j] -= carry * kL[j];
+    for (int i = 0; i < 32; ++i) {
+        x[i + 1] += x[i] >> 8;
+        r[i] = (uint8_t)(x[i] & 255);
+    }
+}
+
+void reduce(uint8_t* r) {   // 64 bytes mod L, into the first 32
+    int64_t x[64];
+    for (int i = 0; i < 64; ++i) x[i] = r[i];
+    for (int i = 0; i < 64; ++i) r[i] = 0;
+    modL(r, x);
+}
+
+// The point a public key encodes, negated (what verifying wants); false if it isn't one
+bool unpackNegated(Point r, const uint8_t p[32]) {
+    Fe t, chk, num, den, den2, den4, den6;
+    copyFe(r[2], kOne);
+    unpack(r[1], p);
+    square(num, r[1]);
+    mul(den, num, kD);
+    sub(num, num, r[2]);
+    add(den, r[2], den);
+    square(den2, den);
+    square(den4, den2);
+    mul(den6, den4, den2);
+    mul(t, den6, num);
+    mul(t, t, den);
+    pow2523(t, t);
+    mul(t, t, num);
+    mul(t, t, den);
+    mul(t, t, den);
+    mul(r[0], t, den);
+    square(chk, r[0]);
+    mul(chk, chk, den);
+    if (feDiffers(chk, num)) mul(r[0], r[0], kSqrtM1);
+    square(chk, r[0]);
+    mul(chk, chk, den);
+    if (feDiffers(chk, num)) return false;
+    if (parity(r[0]) == (p[31] >> 7)) sub(r[0], kZero, r[0]);
+    mul(r[3], r[0], r[1]);
+    return true;
+}
+
+// The secret scalar and the nonce prefix from a seed (SHA-512, clamped)
+std::array<uint8_t, 64> expand(const uint8_t seed[32]) {
+    std::array<uint8_t, 64> d = sha512(seed, 32);
+    d[0] &= 248;
+    d[31] &= 127;
+    d[31] |= 64;
+    return d;
+}
+
+}  // namespace
+
+SigningKey SigningKey::fromSeed(const uint8_t seed[32]) {
+    SigningKey k;
+    std::memcpy(k.seed.data(), seed, 32);
+    std::array<uint8_t, 64> d = expand(seed);
+    Point p;
+    scalarBase(p, d.data());
+    pointPack(k.publicKey.data(), p);
+    return k;
+}
+
+SigningKey SigningKey::generate() {
+    uint8_t seed[32];
+    randomBytes(seed, sizeof(seed));
+    return fromSeed(seed);
+}
+
+std::array<uint8_t, 64> sign(const SigningKey& key, const void* message, size_t size) {
+    std::array<uint8_t, 64> d = expand(key.seed.data());
+    std::vector<uint8_t> buf(64 + size);   // R | A | message (R's room first holds the nonce prefix)
+    std::memcpy(buf.data() + 64, message, size);
+    std::memcpy(buf.data() + 32, d.data() + 32, 32);
+    std::array<uint8_t, 64> r = sha512(buf.data() + 32, size + 32);
+    reduce(r.data());
+    Point p;
+    scalarBase(p, r.data());
+    pointPack(buf.data(), p);
+    std::memcpy(buf.data() + 32, key.publicKey.data(), 32);
+    std::array<uint8_t, 64> h = sha512(buf.data(), size + 64);
+    reduce(h.data());
+    int64_t x[64] = {};
+    for (int i = 0; i < 32; ++i) x[i] = r[(size_t)i];
+    for (int i = 0; i < 32; ++i)
+        for (int j = 0; j < 32; ++j) x[i + j] += (int64_t)h[(size_t)i] * d[(size_t)j];
+    std::array<uint8_t, 64> sig;
+    std::memcpy(sig.data(), buf.data(), 32);
+    modL(sig.data() + 32, x);
+    return sig;
+}
+
+bool verify(const uint8_t publicKey[32], const void* message, size_t size, const uint8_t signature[64]) {
+    // S must be below L (no other encodings of the same signature)
+    for (int i = 31; i >= 0; --i) {
+        if (signature[32 + i] < kL[i]) break;
+        if (signature[32 + i] > kL[i] || i == 0) return false;
+    }
+    Point q;
+    if (!unpackNegated(q, publicKey)) return false;
+    std::vector<uint8_t> buf(64 + size);
+    std::memcpy(buf.data(), signature, 32);
+    std::memcpy(buf.data() + 32, publicKey, 32);
+    std::memcpy(buf.data() + 64, message, size);
+    std::array<uint8_t, 64> h = sha512(buf.data(), buf.size());
+    reduce(h.data());
+    Point p, base;
+    scalarMult(p, q, h.data());
+    scalarBase(base, signature + 32);
+    pointAdd(p, base);
+    uint8_t t[32];
+    pointPack(t, p);
+    return equal(t, signature, 32);
+}
+
+std::string toHex(const void* data, size_t size) {
+    static const char* digits = "0123456789abcdef";
+    const auto* p = static_cast<const uint8_t*>(data);
+    std::string s;
+    for (size_t i = 0; i < size; ++i) {
+        s += digits[p[i] >> 4];
+        s += digits[p[i] & 15];
+    }
+    return s;
+}
+
+bool fromHex(const std::string& text, uint8_t* out, size_t size) {
+    if (text.size() != size * 2) return false;
+    auto nibble = [](char c) { return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1; };
+    for (size_t i = 0; i < size; ++i) {
+        int hi = nibble(text[2 * i]), lo = nibble(text[2 * i + 1]);
+        if (hi < 0 || lo < 0) return false;
+        out[i] = (uint8_t)(hi << 4 | lo);
+    }
+    return true;
+}
+
 KeyPair KeyPair::generate() {
     static const uint8_t kBase[32] = {9};
     KeyPair k;
@@ -200,6 +458,85 @@ bool sharedSecret(const KeyPair& mine, const Key& theirs, Key& out) {
     x25519(out.data(), mine.secret.data(), theirs.data());
     static const uint8_t kZero[32] = {};
     return !equal(out.data(), kZero, 32);
+}
+
+// ---------------------------------------------------------------------------------------------
+// SHA-512
+// ---------------------------------------------------------------------------------------------
+namespace {
+
+const uint64_t kK512[80] = {
+    0x428a2f98d728ae22ULL, 0x7137449123ef65cdULL, 0xb5c0fbcfec4d3b2fULL, 0xe9b5dba58189dbbcULL,
+    0x3956c25bf348b538ULL, 0x59f111f1b605d019ULL, 0x923f82a4af194f9bULL, 0xab1c5ed5da6d8118ULL,
+    0xd807aa98a3030242ULL, 0x12835b0145706fbeULL, 0x243185be4ee4b28cULL, 0x550c7dc3d5ffb4e2ULL,
+    0x72be5d74f27b896fULL, 0x80deb1fe3b1696b1ULL, 0x9bdc06a725c71235ULL, 0xc19bf174cf692694ULL,
+    0xe49b69c19ef14ad2ULL, 0xefbe4786384f25e3ULL, 0x0fc19dc68b8cd5b5ULL, 0x240ca1cc77ac9c65ULL,
+    0x2de92c6f592b0275ULL, 0x4a7484aa6ea6e483ULL, 0x5cb0a9dcbd41fbd4ULL, 0x76f988da831153b5ULL,
+    0x983e5152ee66dfabULL, 0xa831c66d2db43210ULL, 0xb00327c898fb213fULL, 0xbf597fc7beef0ee4ULL,
+    0xc6e00bf33da88fc2ULL, 0xd5a79147930aa725ULL, 0x06ca6351e003826fULL, 0x142929670a0e6e70ULL,
+    0x27b70a8546d22ffcULL, 0x2e1b21385c26c926ULL, 0x4d2c6dfc5ac42aedULL, 0x53380d139d95b3dfULL,
+    0x650a73548baf63deULL, 0x766a0abb3c77b2a8ULL, 0x81c2c92e47edaee6ULL, 0x92722c851482353bULL,
+    0xa2bfe8a14cf10364ULL, 0xa81a664bbc423001ULL, 0xc24b8b70d0f89791ULL, 0xc76c51a30654be30ULL,
+    0xd192e819d6ef5218ULL, 0xd69906245565a910ULL, 0xf40e35855771202aULL, 0x106aa07032bbd1b8ULL,
+    0x19a4c116b8d2d0c8ULL, 0x1e376c085141ab53ULL, 0x2748774cdf8eeb99ULL, 0x34b0bcb5e19b48a8ULL,
+    0x391c0cb3c5c95a63ULL, 0x4ed8aa4ae3418acbULL, 0x5b9cca4f7763e373ULL, 0x682e6ff3d6b2b8a3ULL,
+    0x748f82ee5defb2fcULL, 0x78a5636f43172f60ULL, 0x84c87814a1f0ab72ULL, 0x8cc702081a6439ecULL,
+    0x90befffa23631e28ULL, 0xa4506cebde82bde9ULL, 0xbef9a3f7b2c67915ULL, 0xc67178f2e372532bULL,
+    0xca273eceea26619cULL, 0xd186b8c721c0c207ULL, 0xeada7dd6cde0eb1eULL, 0xf57d4f7fee6ed178ULL,
+    0x06f067aa72176fbaULL, 0x0a637dc5a2c898a6ULL, 0x113f9804bef90daeULL, 0x1b710b35131c471bULL,
+    0x28db77f523047d84ULL, 0x32caab7b40c72493ULL, 0x3c9ebe0a15c9bebcULL, 0x431d67c49c100d4cULL,
+    0x4cc5d4becb3e42b6ULL, 0x597f299cfc657e2aULL, 0x5fcb6fab3ad6faecULL, 0x6c44198c4a475817ULL,
+};
+
+uint64_t rotr64(uint64_t v, int n) { return v >> n | v << (64 - n); }
+
+void sha512Block(uint64_t h[8], const uint8_t* p) {
+    uint64_t w[80];
+    for (int i = 0; i < 16; ++i) {
+        w[i] = 0;
+        for (int k = 0; k < 8; ++k) w[i] = w[i] << 8 | p[i * 8 + k];
+    }
+    for (int i = 16; i < 80; ++i) {
+        uint64_t s0 = rotr64(w[i - 15], 1) ^ rotr64(w[i - 15], 8) ^ (w[i - 15] >> 7);
+        uint64_t s1 = rotr64(w[i - 2], 19) ^ rotr64(w[i - 2], 61) ^ (w[i - 2] >> 6);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+    uint64_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], k = h[7];
+    for (int i = 0; i < 80; ++i) {
+        uint64_t t1 = k + (rotr64(e, 14) ^ rotr64(e, 18) ^ rotr64(e, 41)) + ((e & f) ^ (~e & g)) + kK512[i] + w[i];
+        uint64_t t2 = (rotr64(a, 28) ^ rotr64(a, 34) ^ rotr64(a, 39)) + ((a & b) ^ (a & c) ^ (b & c));
+        k = g;
+        g = f;
+        f = e;
+        e = d + t1;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += k;
+}
+
+}  // namespace
+
+std::array<uint8_t, 64> sha512(const void* data, size_t size) {
+    uint64_t h[8] = {0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL, 0x3c6ef372fe94f82bULL, 0xa54ff53a5f1d36f1ULL,
+                     0x510e527fade682d1ULL, 0x9b05688c2b3e6c1fULL, 0x1f83d9abfb41bd6bULL, 0x5be0cd19137e2179ULL};
+    const auto* p = static_cast<const uint8_t*>(data);
+    size_t whole = size / 128 * 128;
+    for (size_t at = 0; at < whole; at += 128) sha512Block(h, p + at);
+    uint8_t last[256] = {};
+    size_t rest = size - whole;
+    std::memcpy(last, p + whole, rest);
+    last[rest] = 0x80;
+    size_t blocks = rest + 1 + 16 > 128 ? 2 : 1;
+    uint64_t bits = (uint64_t)size * 8;
+    for (int i = 0; i < 8; ++i) last[blocks * 128 - 1 - i] = (uint8_t)(bits >> (8 * i));
+    for (size_t b = 0; b < blocks; ++b) sha512Block(h, last + b * 128);
+    std::array<uint8_t, 64> out;
+    for (int i = 0; i < 8; ++i)
+        for (int k = 0; k < 8; ++k) out[(size_t)(i * 8 + k)] = (uint8_t)(h[i] >> (56 - 8 * k));
+    return out;
 }
 
 // ---------------------------------------------------------------------------------------------

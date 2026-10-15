@@ -29,7 +29,9 @@ struct ExportOptions {
     //   Windows  an installer (per user: Start menu entry, uninstaller; needs NSIS's makensis, or VKWORLD_MAKENSIS)
     bool package = false;
     // Also an update pack (app/updates.h): the whole export as one pack, <game>-<gameVersion>-<platform>.vkwupdate,
-    // with its SHA-256 next to it (.sha256) for the update manifest; games already out install it themselves
+    // with its SHA-256 next to it (.sha256) for the update manifest; games already out install it themselves. And a
+    // chunked release, update/manifest.json and update/chunks/ (the AppImage too, on Linux), signed when
+    // VKWORLD_UPDATE_KEY_FILE names the game's secret key (vkgame --update-keygen): players download only what changed
     bool updatePack = false;
     // A shipping build: the game runs without the developer tools (vkgame's F3 profiler and frame counter, the Lua
     // debugger, --trace, the validation layer), as build.json in its data says
@@ -49,6 +51,7 @@ struct ExportResult {
     std::filesystem::path package;      // (ExportOptions::package) the AppImage, .dmg or installer made
     std::filesystem::path updatePack;   // (ExportOptions::updatePack) the .vkwupdate made
     std::string updateSha256;           // ... and its digest
+    std::filesystem::path updateManifest;   // ... and the chunked release: update/manifest.json (update/chunks/ next to it)
     int cooked = 0;                     // (ExportOptions::cook) textures and models cooked
 };
 
