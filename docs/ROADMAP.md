@@ -1395,7 +1395,7 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 79 (done) | Render scale and upscaling: the 3D scene drawn at a fraction of the window (a setting, or dynamic to hold a frame-rate target) and brought up to full size with temporal upscaling (the TAA history at full resolution) and a sharpening pass; UI at full resolution | Every pixel is shaded once per frame at the window's size: a Retina Mac or a 1440p screen costs up to four times a 1080p one, and a slow GPU has no way to trade sharpness for frame rate |
 | 80 (done) | Effects scaled by quality: the lit shader's sun shadow taps and blocker search, spot-light shadow taps and screen-space reflection steps, ambient occlusion's samples and the fog's sun samples fewer at medium and low; the GPU's total in the F3 overlay (half-resolution reflections and async compute: left, see the notes) | Every quality level shaded every pixel with high's taps: medium and low only drew less far, so a slow GPU gained little from them |
 | 81 (done) | Shadows cached: each shadow map drawn again only when its camera, its atlas tile or its casters change, the sun's far cascades on a schedule; spot and point lights' shadows in the volumetric fog (contact shadows and tighter cascades: left, see the notes) | Every shadow map is redrawn every frame; headlights' beams in the fog have no shadows |
-| 82 | Lighting model: multiple-scattering energy compensation for GGX (rough metals not darkening), a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), specular occlusion from AO, material presets | Rough surfaces lose energy; car paint and fabric look like plain plastic |
+| 82 (done) | Lighting model: multiple-scattering energy compensation for GGX, a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), material presets (specular occlusion: left, see the notes) | Rough surfaces lose energy; car paint and fabric look like plain plastic |
 | 83 | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
 | 84 | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
 | 85 | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
@@ -1452,3 +1452,18 @@ Performance first: rendering fewer pixels and less often pays for everything aft
   the city looked at. Not done: contact shadows (a short screen-space march: needs the current depth in the lit
   pass), cascades fitted to what's on screen (they cover the view's slices whole), static casters cached apart from
   moving ones within one map (a car passing a lamp redraws the lamp's whole tile).
+- **82, lighting model**: MeshRenderer gains clearcoat, clearcoatRoughness, sheen and anisotropy (scene format 45,
+  module API 52), carried in a new vec4 of the instance data (Instance.layers, the vertex shaders' vLayers at
+  location 10; foliage: none). scene.frag's shade() takes a Surface: GGX (or, with anisotropy, Burley's two
+  roughnesses with Heitz's height-correlated visibility, along a tangent frame from screen-space derivatives) with
+  the specular times 1 + f0 (1 / E - 1), E the split-sum's single-scattering response for f0 = 1 (Karis's fit,
+  envDFG): Fdez-Aguera's / Kulla-Conty's compensation; sheen: Estevez-Kulla's Charlie distribution at roughness 0.5
+  with Neubelt's visibility, tinted halfway from the colour to white, the base dimmed a quarter of its amount; clear
+  coat: a second GGX lobe (f0 0.04, Kelemen's visibility) on the surface's normal before its normal map, the layers
+  under it dimmed by its Fresnel. The ambient: the compensated split sum with a reflection bent towards the
+  anisotropy's direction (Filament's bent normal), a sheen rim term, the coat's own environment reflection over the
+  rest. Inspector: the three sliders and ten presets. Checked: saved and loaded (and none on materials without),
+  five spheres (plastic, rough gold, car paint, velvet, brushed metal) under a sun under validation with sync
+  checks. Not done: specular occlusion (the AO is applied in the composite, not known to the lit shader), glTF's
+  KHR_materials_clearcoat / _sheen / _anisotropy imported, the anisotropy's direction turnable or from a map, a
+  sheen colour and roughness of their own, the coat's own normal map.

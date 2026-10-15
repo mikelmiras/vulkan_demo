@@ -88,6 +88,7 @@ struct InstanceData {
     float emissive[4];   // rgb (linear, times strength), w = alpha cutoff
     float stream[4];     // texture streaming: x = the texture to report the finest level wanted of (-1: none),
                          // y = log2 of its larger side (texture_streaming.h)
+    float layers[4];     // clear coat, its roughness, sheen, anisotropy
 };
 
 // The six planes of a view-projection's frustum (Vulkan clip space: 0 <= z <= w), as (normal, distance)

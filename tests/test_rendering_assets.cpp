@@ -180,7 +180,12 @@ TEST(materials_and_render_settings_saved) {
     mr.emissive = {1.f, 0.5f, 0.f};
     mr.emissiveStrength = 3.f;
     mr.emissiveTexture = textures().find("Checker");
+    mr.clearcoat = 0.9f;
+    mr.clearcoatRoughness = 0.1f;
+    mr.sheen = 0.6f;
+    mr.anisotropy = -0.4f;
     e.meshRenderer = mr;
+    s.create("Plain").meshRenderer = MeshRenderer{};
     s.render.exposure = 1.3f;
     s.render.bloomStrength = 0.2f;
     s.render.sky = {0.1f, 0.2f, 0.3f};
@@ -212,6 +217,12 @@ TEST(materials_and_render_settings_saved) {
     CHECK(l.emissiveTexture == mr.emissiveTexture);
     CHECK_VEC(l.emissive, test::v3(1.f, 0.5f, 0.f), 1e-6f);
     CHECK_NEAR(l.emissiveStrength, 3.0, 1e-6);
+    CHECK_NEAR(l.clearcoat, 0.9, 1e-6);
+    CHECK_NEAR(l.clearcoatRoughness, 0.1, 1e-6);
+    CHECK_NEAR(l.sheen, 0.6, 1e-6);
+    CHECK_NEAR(l.anisotropy, -0.4, 1e-6);
+    const MeshRenderer& unlayered = *loaded.findByName("Plain")->meshRenderer;   // (none: as before)
+    CHECK(unlayered.clearcoat == 0.f && unlayered.sheen == 0.f && unlayered.anisotropy == 0.f);
     CHECK_NEAR(loaded.render.exposure, 1.3, 1e-6);
     CHECK_NEAR(loaded.render.bloomStrength, 0.2, 1e-6);
     CHECK_NEAR(loaded.render.fogDensity, 0.01, 1e-6);

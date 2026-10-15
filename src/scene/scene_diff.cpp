@@ -19,7 +19,8 @@ bool eq(const MeshRenderer& a, const MeshRenderer& b) {
            a.metalRoughTexture == b.metalRoughTexture && a.normalTexture == b.normalTexture &&
            a.normalScale == b.normalScale && eq(a.emissive, b.emissive) && a.emissiveStrength == b.emissiveStrength &&
            a.emissiveTexture == b.emissiveTexture && a.alphaMode == b.alphaMode && a.opacity == b.opacity &&
-           a.alphaCutoff == b.alphaCutoff;
+           a.alphaCutoff == b.alphaCutoff && a.clearcoat == b.clearcoat && a.clearcoatRoughness == b.clearcoatRoughness &&
+           a.sheen == b.sheen && a.anisotropy == b.anisotropy;
 }
 bool eq(const Camera& a, const Camera& b) {
     return a.fovY == b.fovY && a.zNear == b.zNear && a.zFar == b.zFar && a.player == b.player;

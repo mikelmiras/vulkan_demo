@@ -394,10 +394,51 @@ void Editor::drawComponents(Entity& e) {
             ImGui::Checkbox("Checker pattern", &mr.checker);
             track();
             ImGui::SeparatorText("Material");
+            {   // presets: a starting point (the colour and textures stay)
+                struct Preset {
+                    const char* name;
+                    float metallic, roughness, clearcoat, clearcoatRoughness, sheen, anisotropy;
+                };
+                static const Preset presets[] = {
+                    {"Plastic", 0.f, 0.45f, 0.f, 0.05f, 0.f, 0.f},      {"Rubber", 0.f, 0.9f, 0.f, 0.05f, 0.f, 0.f},
+                    {"Polished metal", 1.f, 0.15f, 0.f, 0.05f, 0.f, 0.f}, {"Rough metal", 1.f, 0.65f, 0.f, 0.05f, 0.f, 0.f},
+                    {"Brushed metal", 1.f, 0.35f, 0.f, 0.05f, 0.f, 0.7f}, {"Car paint", 0.5f, 0.4f, 1.f, 0.04f, 0.f, 0.f},
+                    {"Lacquered wood", 0.f, 0.6f, 0.8f, 0.08f, 0.f, 0.f}, {"Cloth", 0.f, 0.85f, 0.f, 0.05f, 1.f, 0.f},
+                    {"Velvet", 0.f, 0.95f, 0.f, 0.05f, 1.f, 0.f},          {"Stone", 0.f, 0.8f, 0.f, 0.05f, 0.f, 0.f},
+                };
+                if (ImGui::BeginCombo("Preset", "(choose to apply)")) {
+                    for (const Preset& p : presets)
+                        if (ImGui::Selectable(p.name)) {
+                            pushUndo();
+                            mr.metallic = p.metallic;
+                            mr.roughness = p.roughness;
+                            mr.clearcoat = p.clearcoat;
+                            mr.clearcoatRoughness = p.clearcoatRoughness;
+                            mr.sheen = p.sheen;
+                            mr.anisotropy = p.anisotropy;
+                        }
+                    ImGui::EndCombo();
+                }
+                tooltip("Sets metallic, roughness and the layers below to a kind of material (the colour and textures stay)");
+            }
             ImGui::SliderFloat("Metallic", &mr.metallic, 0.f, 1.f, "%.2f");
             track();
             ImGui::SliderFloat("Roughness", &mr.roughness, 0.f, 1.f, "%.2f");
             track();
+            ImGui::SliderFloat("Clear coat", &mr.clearcoat, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("A clear varnish over the material with a sharp reflection of its own: car paint, lacquer, a polished floor");
+            if (mr.clearcoat > 0.f) {
+                ImGui::SliderFloat("Coat roughness", &mr.clearcoatRoughness, 0.f, 1.f, "%.2f");
+                track();
+            }
+            ImGui::SliderFloat("Sheen", &mr.sheen, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("Cloth's soft glow at grazing angles (velvet, felt, fabric), tinted by the colour");
+            ImGui::SliderFloat("Anisotropy", &mr.anisotropy, -1.f, 1.f, "%.2f");
+            track();
+            tooltip("Highlights stretched across the surface, like brushed metal: along the texture's u (above 0) or v "
+                    "(below)");
             auto texturePicker = [&](const char* label, int& id, const char* help) {
                 int item = id + 1;   // 0 = none
                 if (ImGui::Combo(

@@ -423,6 +423,12 @@ dropping on the right.
   import all of these. Built-in meshes have box-mapped texture coordinates; imported ones use their own. Textures
   get mipmaps and anisotropic filtering, and are read as sRGB colour or as plain data, whichever the slot needs.
   The demo scene's "Materials" row shows them.
+  Over the base, layers: a **clear coat** (a varnish with its own sharp reflection over the base's: car paint,
+  lacquer; its roughness apart), **sheen** (cloth's soft glow at grazing angles: velvet, felt) and **anisotropy**
+  (highlights stretched across the surface along the texture's u or v: brushed metal). The specular keeps the
+  light that bounces between microfacets (multiple-scattering compensation), so rough metals don't turn dull and
+  dark. The inspector's *Preset* sets a kind of material at once (plastic, rubber, polished, rough or brushed metal,
+  car paint, lacquered wood, cloth, velvet, stone).
 - **Lights**: Light components, directional (shines along the entity's -Z), point (colour, intensity, range) or
   spot (a cone along -Z, with a soft edge). The first directional light is the sun; up to 1024 point and spot lights
   (nearest the camera) light each frame, through **clustered** lighting: the view is cut into 16 x 9 tiles and 24

@@ -50,6 +50,7 @@ layout(location = 6) flat in vec4 vEmissive;
 layout(location = 7) in vec4 vSplat;
 layout(location = 8) in float vHole;
 layout(location = 9) flat in vec4 vStream;
+layout(location = 10) flat in vec4 vLayers;   // clear coat, its roughness, sheen, anisotropy
 
 layout(location = 0) out vec4 outColor;
 
@@ -186,27 +187,70 @@ float visibilitySmith(float NdotV, float NdotL, float a) {
 }
 vec3 fresnelSchlick(float VdotH, vec3 f0) { return f0 + (1.0 - f0) * pow(1.0 - VdotH, 5.0); }
 
+// The surface being lit: its base layer, and the layers over it
+struct Surface {
+    vec3 N, V, base;
+    float metallic, rough;
+    vec3 f0, energy;      // energy: the specular scaled up for the light that bounces between microfacets
+    float coat, coatRough;
+    vec3 coatN;           // (the coat follows the surface, not its normal map)
+    float sheen;
+    vec3 sheenColor;
+    float aniso;
+    vec3 T, B;            // (anisotropy's directions: along the texture's u and v)
+};
+
 // Light reflected towards V from a light of `radiance` along L. Intensities mean "how bright a white matte surface
 // facing the light looks", hence the PI.
-vec3 shade(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 base, float metallic, float rough) {
-    float NdotL = max(dot(N, L), 0.0);
-    if (NdotL <= 0.0) return vec3(0.0);
-    vec3 H = normalize(L + V);
-    float NdotV = max(dot(N, V), 1e-4), NdotH = max(dot(N, H), 0.0), VdotH = clamp(dot(V, H), 0.0, 1.0);   // (pow of a negative is NaN)
-    float a = max(rough * rough, 0.002);
-    vec3 f0 = mix(vec3(0.04), base, metallic);
-    vec3 F = fresnelSchlick(VdotH, f0);
-    vec3 spec = distributionGGX(NdotH, a) * visibilitySmith(NdotV, NdotL, a) * F;
-    vec3 diffuse = (1.0 - F) * (1.0 - metallic) * base / PI;
-    return (diffuse + spec) * radiance * NdotL * PI;
+vec3 shade(Surface s, vec3 L, vec3 radiance) {
+    float NdotL = max(dot(s.N, L), 0.0);
+    float coatNdotL = s.coat > 0.0 ? max(dot(s.coatN, L), 0.0) : 0.0;
+    if (NdotL <= 0.0 && coatNdotL <= 0.0) return vec3(0.0);
+    vec3 V = s.V, H = normalize(L + V);
+    float NdotV = max(dot(s.N, V), 1e-4), NdotH = max(dot(s.N, H), 0.0), VdotH = clamp(dot(V, H), 0.0, 1.0);   // (pow of a negative is NaN)
+    float a = max(s.rough * s.rough, 0.002);
+    vec3 F = fresnelSchlick(VdotH, s.f0);
+    float dv;
+    if (abs(s.aniso) > 0.01) {   // anisotropic GGX (Burley's roughnesses; Heitz's visibility): stretched highlights
+        float at = max(a * (1.0 + s.aniso), 0.002), ab = max(a * (1.0 - s.aniso), 0.002);
+        vec3 d = vec3(ab * dot(s.T, H), at * dot(s.B, H), at * ab * NdotH);
+        float w2 = at * ab / max(dot(d, d), 1e-12);
+        float D = at * ab * w2 * w2 / PI;
+        float lv = NdotL * length(vec3(at * dot(s.T, V), ab * dot(s.B, V), NdotV));
+        float ll = NdotV * length(vec3(at * dot(s.T, L), ab * dot(s.B, L), NdotL));
+        dv = D * 0.5 / max(lv + ll, 1e-5);
+    } else {
+        dv = distributionGGX(NdotH, a) * visibilitySmith(NdotV, NdotL, a);
+    }
+    vec3 spec = dv * F * s.energy;
+    vec3 diffuse = (1.0 - F) * (1.0 - s.metallic) * s.base / PI;
+    vec3 result = (diffuse + spec) * NdotL;
+    if (s.sheen > 0.0) {   // cloth: Estevez & Kulla's "Charlie" sheen (roughness 0.5), Neubelt's visibility
+        const float invA = 4.0;   // (1 / 0.5 squared)
+        float sin2h = max(1.0 - NdotH * NdotH, 0.0078125);
+        float D = (2.0 + invA) * pow(sin2h, invA * 0.5) / (2.0 * PI);
+        float vis = 1.0 / max(4.0 * (NdotL + NdotV - NdotL * NdotV), 1e-4);
+        result = result * (1.0 - 0.25 * s.sheen) + s.sheenColor * (D * vis * NdotL);
+    }
+    if (s.coat > 0.0) {   // a clear coat: its own sharp GGX lobe (f0 0.04, Kelemen's visibility), dimming what's under it
+        float ca = max(s.coatRough * s.coatRough, 0.002);
+        float Fc = (0.04 + 0.96 * pow(1.0 - VdotH, 5.0)) * s.coat;
+        float lobe = distributionGGX(max(dot(s.coatN, H), 0.0), ca) * 0.25 / max(VdotH * VdotH, 1e-4);
+        result = result * (1.0 - Fc) + vec3(lobe * Fc * coatNdotL);
+    }
+    return result * radiance * PI;
 }
 
-// Split-sum environment BRDF, analytic fit (Karis, "Physically Based Shading on Mobile")
-vec3 envBRDF(vec3 f0, float rough, float NdotV) {
+// Split-sum environment BRDF, analytic fit (Karis, "Physically Based Shading on Mobile"): the specular's scale and
+// bias (f0 * x + y)
+vec2 envDFG(float rough, float NdotV) {
     const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022), c1 = vec4(1.0, 0.0425, 1.04, -0.04);
     vec4 r = rough * c0 + c1;
     float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
-    vec2 ab = vec2(-1.04, 1.04) * a004 + r.zw;
+    return vec2(-1.04, 1.04) * a004 + r.zw;
+}
+vec3 envBRDF(vec3 f0, float rough, float NdotV) {
+    vec2 ab = envDFG(rough, NdotV);
     return f0 * ab.x + ab.y;
 }
 
@@ -449,6 +493,7 @@ void main() {
 
     vec3 N = normalize(vNormal);
     if (!gl_FrontFacing && vParams.x > -0.5) N = -N;   // (two-sided surfaces; foliage keeps its normals)
+    vec3 surfaceN = N;   // (a clear coat's: smooth over the normal map)
     if (vMaterial.z > 0.0) N = perturbNormal(N, vMaterial.z);
     if (water) {
         // Ripples on the waves (small ones, drifting with the current), foam where a crest peaks, and the surface
@@ -482,14 +527,54 @@ void main() {
     vec3 V = normalize(frame.camPos.xyz - vWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
 
+    // The surface: its layers (Instance.layers), and the energy the single-bounce specular misses (Fdez-Aguera's
+    // multiple-scattering compensation: rough metals keep their brightness)
+    Surface s;
+    s.N = N;
+    s.V = V;
+    s.base = base;
+    s.metallic = metallic;
+    s.rough = rough;
+    s.f0 = mix(vec3(0.04), base, metallic);
+    vec2 dfg = envDFG(rough, NdotV);
+    s.energy = 1.0 + s.f0 * (1.0 / max(dfg.x + dfg.y, 1e-3) - 1.0);
+    s.coat = water || terrain ? 0.0 : clamp(vLayers.x, 0.0, 1.0);
+    s.coatRough = clamp(vLayers.y, 0.02, 1.0);
+    s.coatN = surfaceN;
+    s.sheen = water || terrain ? 0.0 : clamp(vLayers.z, 0.0, 1.0);
+    s.sheenColor = s.sheen * mix(base, vec3(1.0), 0.5);
+    s.aniso = water || terrain ? 0.0 : clamp(vLayers.w, -0.95, 0.95);
+    s.T = vec3(1.0, 0.0, 0.0);
+    s.B = vec3(0.0, 0.0, 1.0);
+    vec3 R = reflect(-V, N);
+    if (abs(s.aniso) > 0.01) {   // the texture's u and v across the surface (screen-space derivatives), and the
+                                 // reflection bent towards the highlight's stretch
+        vec3 dp1 = dFdx(vWorldPos), dp2 = dFdy(vWorldPos);
+        vec2 duv1 = dFdx(vUV), duv2 = dFdy(vUV);
+        vec3 t = cross(dp2, N) * duv1.x + cross(N, dp1) * duv2.x;
+        t = t - N * dot(N, t);
+        s.T = dot(t, t) > 1e-20 ? normalize(t) : normalize(cross(N, abs(N.y) < 0.99 ? vec3(0, 1, 0) : vec3(1, 0, 0)));
+        s.B = cross(N, s.T);
+        vec3 along = s.aniso >= 0.0 ? s.B : s.T;
+        vec3 bent = cross(cross(along, V), along);
+        R = reflect(-V, normalize(mix(N, bent, abs(s.aniso) * 0.8)));
+    }
+
     // Ambient: hemisphere light, diffuse plus a reflection of it (so metals aren't black in the shade)
-    vec3 f0 = mix(vec3(0.04), base, metallic);
-    vec3 color = base * (1.0 - metallic) * irradiance(N) + envBRDF(f0, rough, NdotV) * environment(reflect(-V, N), rough);
+    vec3 f0 = s.f0;
+    vec3 color = base * (1.0 - metallic) * irradiance(N) + (f0 * dfg.x + dfg.y) * s.energy * environment(R, rough);
+    if (s.sheen > 0.0)   // (cloth's rim of light from all around)
+        color = color * (1.0 - 0.25 * s.sheen) + s.sheenColor * irradiance(N) * (0.05 + 0.6 * pow(1.0 - NdotV, 4.0));
+    if (s.coat > 0.0) {   // (the coat's own reflection over the rest)
+        float cv = max(dot(s.coatN, V), 1e-4);
+        vec3 coatEnv = envBRDF(vec3(0.04), s.coatRough, cv) * s.coat;
+        color = color * (1.0 - coatEnv.x) + coatEnv * environment(reflect(-V, s.coatN), s.coatRough);
+    }
 
     // Sun
     vec3 L = normalize(-frame.sunDir.xyz);
-    float vis = dot(N, L) > 0.0 ? sunVisibility(N, L) : 0.0;
-    color += shade(N, V, L, frame.sunColor.rgb, base, metallic, rough) * vis;
+    float vis = dot(N, L) > 0.0 || (s.coat > 0.0 && dot(s.coatN, L) > 0.0) ? sunVisibility(N, L) : 0.0;
+    color += shade(s, L, frame.sunColor.rgb) * vis;
 
     // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone. The main view
     // shades with its cluster's lights; probe views (clusterGrid.w = 0) with every light.
@@ -536,7 +621,7 @@ void main() {
             light *= atlasShadow(shadowView + face, vWorldPos + N * (0.02 + 0.01 * dist), 0.0002);
         }
         if (light <= 0.0) continue;
-        color += shade(N, V, Lp, li.color.rgb * light, base, metallic, rough);
+        color += shade(s, Lp, li.color.rgb * light);
     }
 
     if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;   // (water: its waves there)

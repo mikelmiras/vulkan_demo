@@ -37,6 +37,7 @@ struct DrawItem {
     Vec3 emissive;              // linear, times its strength
     int alphaMode = 0;          // 0 opaque, 1 mask (cut out below alphaCutoff), 2 blend (see-through)
     float opacity = 1.f, alphaCutoff = 0.5f;
+    float clearcoat = 0.f, clearcoatRoughness = 0.05f, sheen = 0.f, anisotropy = 0.f;
     // A terrain (scene/terrain.h): its mesh's skin weights mix four layers, each a texture (sRGB) times a tint
     bool terrain = false;
     int layerTextures[4] = {-1, -1, -1, -1};

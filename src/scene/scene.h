@@ -49,6 +49,11 @@ struct MeshRenderer {
     AlphaMode alphaMode = AlphaMode::Opaque;
     float opacity = 1.f;              // Blend: how much it hides what's behind (0..1)
     float alphaCutoff = 0.5f;         // Mask: below this it's a hole
+    // Layers over the base (glTF's KHR_materials_clearcoat, _sheen, _anisotropy, simplified)
+    float clearcoat = 0.f;            // a clear varnish over it (car paint, lacquer): its own sharp reflection
+    float clearcoatRoughness = 0.05f;
+    float sheen = 0.f;                // cloth's soft rim of light at grazing angles (velvet, felt), tinted by the colour
+    float anisotropy = 0.f;           // -1..1: highlights stretched across (brushed metal), along the texture's u (> 0) or v
 };
 const char* alphaModeName(MeshRenderer::AlphaMode mode);
 

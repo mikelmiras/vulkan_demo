@@ -305,6 +305,10 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
                        {o.metallic, o.roughness, o.normalTexture >= 0 ? o.normalScale : 0.f, (float)o.alphaMode},
                        {o.emissive.x, o.emissive.y, o.emissive.z, o.alphaCutoff}};
         d.color[3] = o.alphaMode == 2 ? o.opacity : 1.f;
+        d.layers[0] = o.clearcoat;
+        d.layers[1] = o.clearcoatRoughness;
+        d.layers[2] = o.sheen;
+        d.layers[3] = o.anisotropy;
         int lead = streaming_ ? leadOf(o) : -1;
         d.stream[0] = (float)lead;
         if (lead >= 0) {

@@ -88,6 +88,10 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
         d.alphaMode = (int)mr.alphaMode;
         d.opacity = mr.opacity;
         d.alphaCutoff = mr.alphaCutoff;
+        d.clearcoat = mr.clearcoat;
+        d.clearcoatRoughness = mr.clearcoatRoughness;
+        d.sheen = mr.sheen;
+        d.anisotropy = mr.anisotropy;
         if (joints && e.skin && meshes && d.mesh >= 0 && d.mesh < meshes->count() && meshes->get(d.mesh).skinned) {
             // Joint matrix = (the mesh's world)^-1 * the joint's world * inverse bind: the shader applies the model
             // matrix on top, so a skinned vertex lands where its joints put it
