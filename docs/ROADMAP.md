@@ -1394,7 +1394,7 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 |---|------|-----|
 | 79 (done) | Render scale and upscaling: the 3D scene drawn at a fraction of the window (a setting, or dynamic to hold a frame-rate target) and brought up to full size with temporal upscaling (the TAA history at full resolution) and a sharpening pass; UI at full resolution | Every pixel is shaded once per frame at the window's size: a Retina Mac or a 1440p screen costs up to four times a 1080p one, and a slow GPU has no way to trade sharpness for frame rate |
 | 80 (done) | Effects scaled by quality: the lit shader's sun shadow taps and blocker search, spot-light shadow taps and screen-space reflection steps, ambient occlusion's samples and the fog's sun samples fewer at medium and low; the GPU's total in the F3 overlay (half-resolution reflections and async compute: left, see the notes) | Every quality level shaded every pixel with high's taps: medium and low only drew less far, so a slow GPU gained little from them |
-| 81 | Shadows, cached and sharper: the sun's far cascades and every light's shadow map only redrawn when what's in them moves (static casters cached, dynamic ones drawn over), cascades fitted tighter, contact shadows (a short screen-space ray march) for small details, spot-light shadows in the volumetric fog | Every shadow map is redrawn every frame; small things (a kerb, a hand) lose their shadows; headlights' beams in the fog have none |
+| 81 (done) | Shadows cached: each shadow map drawn again only when its camera, its atlas tile or its casters change, the sun's far cascades on a schedule; spot and point lights' shadows in the volumetric fog (contact shadows and tighter cascades: left, see the notes) | Every shadow map is redrawn every frame; headlights' beams in the fog have no shadows |
 | 82 | Lighting model: multiple-scattering energy compensation for GGX (rough metals not darkening), a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), specular occlusion from AO, material presets | Rough surfaces lose energy; car paint and fabric look like plain plastic |
 | 83 | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
 | 84 | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
@@ -1436,3 +1436,19 @@ Performance first: rendering fewer pixels and less often pays for everything aft
   (they're traced in the lit shader: a separate pass needs a normal and roughness buffer this forward renderer
   doesn't write), async compute (the fog and GI on a compute queue: queue ownership and semaphores per frame, and
   lavapipe and MoltenVK give one queue), the fog grid's own size by quality.
+- **81, cached shadows**: each shadow layer (the four cascades, every atlas tile) remembers its camera, its tile and a
+  hash of its casters (FNV-1a in prepareInstances over each caster's mesh, level of detail, transform, alpha mode and
+  cut-out material, the in-place vertex rewrites of its mesh (terrains, soft bodies), the frame number for skinned
+  ones, and the library's version); recordShadows draws only layers whose camera, tile or hash changed (unused
+  cascades cleared once). The images start readable, so they go from readable to drawing and back (kept, not
+  discarded) and only when something is drawn into them; the atlas pass loads instead of discarding. The third and
+  fourth cascades are redrawn every second / fourth frame (Renderer::cascadeDue, never on the same frame, tested);
+  between, the frame data keeps their last camera and scale (what they hold), so a moving camera redraws the two
+  near ones each frame. VKWORLD_SHADOW_CACHE=0, RenderStats::shadowViewsDrawn. Fog: binding 5 (the atlas) also for
+  compute; fog_inject.comp compares each spot / point light's shadow once at the cell's (jittered) point (the cube
+  face towards it for point lights). Night Drive on lavapipe: the shadow pass 101-139 ms a frame uncached, 2-14 ms
+  cached with a ~100 ms frame when a far cascade's turn comes as the camera moves; pictures the same with and without
+  (the demo within its run-to-run noise; Night Drive identical but for the frame-time text); a moving camera through
+  the city looked at. Not done: contact shadows (a short screen-space march: needs the current depth in the lit
+  pass), cascades fitted to what's on screen (they cover the view's slices whole), static casters cached apart from
+  moving ones within one map (a car passing a lamp redraws the lamp's whole tile).

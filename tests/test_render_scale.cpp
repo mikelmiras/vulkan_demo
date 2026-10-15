@@ -1,4 +1,4 @@
-// Render scale: dynamic resolution's choice of scale (render/renderer.h: nextDynamicScale)
+// Render scale: dynamic resolution's choice of scale (render/renderer.h: nextDynamicScale); cached shadows' schedule
 #include "test.h"
 
 #include "render/renderer.h"
@@ -22,4 +22,19 @@ TEST(render_scale_dynamic_choice) {
     for (int i = 0; i < 20; ++i) s = Renderer::nextDynamicScale(s, cost(s), 16.7f, 1.f);
     CHECK(s == settled);
     CHECK(Renderer::nextDynamicScale(0.7f, 0.f, 16.7f, 1.f) == 0.7f);   // (no timestamps: as it is)
+}
+
+TEST(shadow_cascade_schedule) {
+    int due[4] = {};
+    for (uint64_t f = 0; f < 400; ++f) {
+        int far = 0;
+        for (uint32_t c = 0; c < 4; ++c)
+            if (Renderer::cascadeDue(f, c)) {
+                ++due[c];
+                far += c >= 2;
+            }
+        CHECK(far <= 1);   // (the two far ones never on the same frame: the cost spread out)
+    }
+    CHECK(due[0] == 400 && due[1] == 400);
+    CHECK(due[2] == 200 && due[3] == 100);
 }

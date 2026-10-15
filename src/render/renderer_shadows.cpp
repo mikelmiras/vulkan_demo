@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 #include "render/light_clusters.h"
 #include "render/renderer_internal.h"
@@ -57,6 +58,12 @@ void Renderer::destroyShadowArray(ShadowArray& a) {
     a = {};
 }
 
+bool Renderer::cascadeDue(uint64_t frame, uint32_t c) {
+    if (c < 2) return true;
+    uint64_t period = c == 2 ? 2 : 4;
+    return (frame + c) % period == 0;
+}
+
 uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool sunShadows,
                                   const std::vector<const LightInfo*>& lights, FrameUBO& u,
                                   std::vector<int>& shadowLayer) {
@@ -78,6 +85,19 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
     u.shadowParams[1] = aa_ == Antialiasing::Temporal ? 1.f : 0.f;   // (the taps turn per pixel only where TAA blends them)
     u.shadowParams[2] = quality_ == Quality::Low ? 0.f : quality_ == Quality::Medium ? 1.f : 2.f;   // (the shaders' taps)
     if (sunShadows) layers |= (1ull << kCascades) - 1;
+    // The farther cascades on a schedule (the second every frame, the third every second, the fourth every fourth):
+    // between, their last camera and scale are kept (what they hold was drawn with them)
+    shadowDeferred_ = 0;
+    if (sunShadows && shadowCacheOn_)
+        for (uint32_t c = 2; c < kCascades; ++c) {
+            ShadowCache& k = shadowCache_[c];
+            if (!k.valid || k.empty || cascadeDue(frameCounter_, c)) continue;
+            u.shadowViewProj[c] = k.viewProj;
+            std::memcpy(u.cascadeScale[c], k.scale, sizeof(k.scale));
+            shadowDeferred_ |= 1ull << c;
+        }
+    for (uint32_t c = 0; c < kCascades; ++c)   // (what a cascade drawn now is drawn with)
+        if (!(shadowDeferred_ & (1ull << c))) std::memcpy(shadowCache_[c].scale, u.cascadeScale[c], sizeof(u.cascadeScale[c]));
     // ---- Spot and point lights casting shadows, in view, most important first (the order given): a tile each
     // for spots, six for point lights (a cube around them, a little wider than 90 degrees per face, so filtering
     // near an edge stays inside). Tiles shrink down the list: 1024, then 512 from the third light, 256 from the
@@ -180,15 +200,47 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
         b.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, VK_REMAINING_ARRAY_LAYERS};
         vkCmdPipelineBarrier(cb, src, dst, 0, 0, nullptr, 0, nullptr, 1, &b);
     };
+    shadowsDrawn_ = 0;
     if (!shadowLayers_) return;   // (both stay readable, as last frame left them)
-    bool atlasUsed = (shadowLayers_ >> kCascades) != 0;
-    std::vector<VkImage> images{cascades_.image};
-    if (atlasUsed) images.push_back(atlas_.image);
-    // The previous frame's sampling must finish first; the old contents are discarded
+    // Which layers to draw: those whose camera, place or casters changed since they were drawn (all, without the
+    // cache); kept ones aren't touched
+    auto changed = [&](uint32_t layer) {
+        if (shadowDeferred_ & (1ull << layer)) return false;
+        const ShadowCache& k = shadowCache_[layer];
+        if (!shadowCacheOn_ || !k.valid || k.empty || k.signature != shadowSignature_[layer]) return true;
+        if (std::memcmp(k.viewProj.m, shadowViewProj_[layer].m, sizeof(k.viewProj.m)) != 0) return true;
+        const ShadowTile& t = shadowTiles_[layer];
+        return layer >= kCascades && (k.tile.x != t.x || k.tile.y != t.y || k.tile.size != t.size);
+    };
+    uint64_t draw = 0, clearOnly = 0;
+    for (uint32_t layer = 0; layer < kShadowLayers; ++layer) {
+        bool active = (shadowLayers_ >> layer) & 1;
+        if (active && changed(layer)) draw |= 1ull << layer;
+        // (an unused cascade reads as lit: cleared once, then left)
+        if (!active && layer < kCascades && !(shadowCacheOn_ && shadowCache_[layer].valid && shadowCache_[layer].empty))
+            clearOnly |= 1ull << layer;
+    }
+    const uint64_t cascadeBits = (1ull << kCascades) - 1;
+    bool cascadesTouched = ((draw | clearOnly) & cascadeBits) != 0, atlasTouched = (draw >> kCascades) != 0;
+    if (!cascadesTouched && !atlasTouched) return;   // (all as they were)
+    std::vector<VkImage> images;
+    if (cascadesTouched) images.push_back(cascades_.image);
+    if (atlasTouched) images.push_back(atlas_.image);
+    bool atlasUsed = atlasTouched;
+    // The previous frame's sampling must finish first; what's kept stays (the layout from readable, not undefined)
     for (VkImage image : images)
-        barrier(image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        barrier(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, depthStages,
                 VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+    auto remember = [&](uint32_t layer, bool empty) {
+        ShadowCache& k = shadowCache_[layer];
+        k.viewProj = shadowViewProj_[layer];
+        k.signature = shadowSignature_[layer];
+        k.tile = shadowTiles_[layer];
+        k.valid = true;
+        k.empty = empty;
+        ++shadowsDrawn_;
+    };
     auto drawView = [&](uint32_t layer, uint32_t x, uint32_t y, uint32_t size) {
         VkViewport vp{(float)x, (float)y, (float)size, (float)size, 0.f, 1.f};
         VkRect2D sc{{(int32_t)x, (int32_t)y}, {size, size}};
@@ -212,8 +264,9 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
             }
         }
     };
-    // The sun's cascades: a layer each (every one cleared: unused ones read as "lit")
+    // The sun's cascades: a layer each (cleared and drawn; unused ones cleared, reading as "lit")
     for (uint32_t layer = 0; layer < kCascades; ++layer) {
+        if (!(((draw | clearOnly) >> layer) & 1)) continue;
         VkRenderingAttachmentInfo sd{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         sd.imageView = cascades_.layers[layer];
         sd.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -225,15 +278,16 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
         ri.layerCount = 1;
         ri.pDepthAttachment = &sd;
         vkCmdBeginRendering(cb, &ri);
-        if (shadowLayers_ & (1ull << layer)) drawView(layer, 0, 0, cascades_.size);
+        if ((draw >> layer) & 1) drawView(layer, 0, 0, cascades_.size);
         vkCmdEndRendering(cb);
+        remember(layer, !((draw >> layer) & 1));
     }
     // The atlas: one pass, each view cleared and drawn in its tile (the rest is never read)
     if (atlasUsed) {
         VkRenderingAttachmentInfo sd{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         sd.imageView = atlas_.layers[0];
         sd.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        sd.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        sd.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;   // (the tiles not drawn again keep theirs)
         sd.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
         ri.renderArea = {{0, 0}, {atlas_.size, atlas_.size}};
@@ -241,13 +295,14 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
         ri.pDepthAttachment = &sd;
         vkCmdBeginRendering(cb, &ri);
         for (uint32_t layer = kCascades; layer < kShadowLayers; ++layer) {
-            if (!(shadowLayers_ & (1ull << layer))) continue;
+            if (!((draw >> layer) & 1)) continue;
             const ShadowTile& t = shadowTiles_[layer];
             VkClearAttachment clear{VK_IMAGE_ASPECT_DEPTH_BIT, 0, {}};
             clear.clearValue.depthStencil = {1.f, 0};
             VkClearRect rect{{{(int32_t)t.x, (int32_t)t.y}, {t.size, t.size}}, 0, 1};
             vkCmdClearAttachments(cb, 1, &clear, 1, &rect);
             drawView(layer, t.x, t.y, t.size);
+            remember(layer, false);
         }
         vkCmdEndRendering(cb);
     }
@@ -256,4 +311,5 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
                 depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,   // (the fog reads them too)
                 VK_ACCESS_SHADER_READ_BIT);
+    stats_.shadowViewsDrawn = shadowsDrawn_;
 }

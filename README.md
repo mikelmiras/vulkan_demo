@@ -437,6 +437,11 @@ dropping on the right.
   are **PCSS** (percentage-closer soft shadows): sharp where an object meets the ground, softer further from it,
   as wide as the sun's size says (Scene look > *Shadow softness*: 1 a slightly hazy sun, 0 as sharp as the maps
   allow), and cascades blend into each other over the last fifth of each, so where one takes over doesn't show.
+  **Cached**: a shadow map is only drawn again when what it holds changes (its camera, its place in the atlas, or any
+  caster in it moving, animating or changing): a still street lamp's shadows cost nothing frame after frame, and the
+  sun's two far cascades catch up with a moving camera every second and fourth frame (`VKWORLD_SHADOW_CACHE=0`:
+  everything every frame). In **volumetric fog**, spot and point lights' shadows cut their beams and halos too
+  (headlights stop at the wall they light).
   Cut-outs cast shadows with their holes; see-through materials cast one only where they're mostly opaque (glass:
   none).
 - **Ambient occlusion**: corners, creases and the ground under things darken a little (screen-space, from the

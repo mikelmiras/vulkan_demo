@@ -145,6 +145,7 @@ struct RenderStats {
     uint32_t objects = 0;      // drawn in the main pass (after culling)
     uint32_t culled = 0;       // outside the view
     uint32_t shadowCasters = 0;
+    uint32_t shadowViewsDrawn = 0;   // shadow maps drawn this frame (the rest kept from before: Renderer's cache)
     uint64_t textureBytes = 0;    // textures on the GPU (streaming keeps it under its budget)
     uint64_t textureBudget = 0;
 };
@@ -216,6 +217,9 @@ public:
     float gpuFrameMs() const { return gpuFrameMs_; }   // the last measured frame's GPU time (0: no timestamps)
     // The dynamic choice (plain: tested): the next scale from the current one, the GPU's frame time and the budget
     static float nextDynamicScale(float now, float gpuMs, float budgetMs, float maxScale);
+    // Cached shadows' schedule (plain: tested): whether the sun's cascade `c` may be drawn again on frame `frame`
+    // (the near two every frame, the third every second, the fourth every fourth, never both on one frame)
+    static bool cascadeDue(uint64_t frame, uint32_t c);
 
 private:
     static constexpr int MAX_FRAMES = 2;
@@ -482,6 +486,22 @@ private:
     float viewSplits_[kMaxViews][4] = {};
     bool shadowMapReady_ = false;   // in SHADER_READ_ONLY layout
     uint64_t shadowLayers_ = 0;     // this frame's shadow views to render (bits 0-3 cascades, then the atlas's)
+    // Cached shadows: each layer keeps what it was last drawn with (its camera, its place in the atlas, a hash of its
+    // casters: meshes, levels, transforms, vertices rewritten), and is only drawn again when one of them changes; the
+    // farther cascades are brought up to date every second / fourth frame (their old cameras kept meanwhile).
+    // VKWORLD_SHADOW_CACHE=0: every layer every frame, as before.
+    struct ShadowCache {
+        Mat4 viewProj;
+        uint64_t signature = 0;
+        ShadowTile tile;
+        float scale[4] = {};
+        bool valid = false, empty = false;
+    };
+    ShadowCache shadowCache_[kShadowLayers];
+    uint64_t shadowSignature_[kShadowLayers] = {};   // (this frame's, from prepareInstances)
+    uint64_t shadowDeferred_ = 0;    // layers kept from an earlier frame by the cascades' schedule
+    bool shadowCacheOn_ = true;
+    uint32_t shadowsDrawn_ = 0;      // layers drawn this frame (stats)
     // Lights (binding 14) and their clusters (binding 15), per frame
     Buffer lights_[MAX_FRAMES], clusters_[MAX_FRAMES];
     void createLightBuffers();

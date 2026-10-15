@@ -126,7 +126,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     std::vector<Frustum> shadowViews;
     std::vector<uint32_t> shadowLayers;
     for (uint32_t l = 0; l < kShadowLayers; ++l)
-        if (shadowLayers_ & (1ull << l)) {
+        if ((shadowLayers_ & (1ull << l)) && !(shadowDeferred_ & (1ull << l))) {   // (kept ones: nothing to draw)
             shadowViews.emplace_back(shadowViewProj_[l]);
             shadowLayers.push_back(l);
         }
@@ -175,6 +175,30 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         Vec3 da = centre(a) - info.camPos, db = centre(b) - info.camPos;
         return dot(da, da) > dot(db, db);
     });
+    // Each shadow layer's casters, hashed (FNV-1a): what's drawn into it (mesh, level, material for cut-outs, where,
+    // vertices rewritten in place); skinned ones change every frame
+    for (size_t k = 0; k < casters.size(); ++k) {
+        uint64_t h = 1469598103934665603ull ^ meshes_->version;
+        auto mix = [&](const void* data, size_t size) {
+            const auto* p = static_cast<const uint8_t*>(data);
+            for (size_t b = 0; b < size; ++b) h = (h ^ p[b]) * 1099511628211ull;
+        };
+        for (uint32_t i : casters[k]) {
+            const DrawItem& o = items[i];
+            mix(&o.mesh, sizeof(o.mesh));
+            mix(&lods[i], sizeof(int));
+            mix(o.model.m, sizeof(o.model.m));
+            mix(&o.alphaMode, sizeof(o.alphaMode));
+            if (o.alphaMode != 0) {
+                VkDescriptorSet set = textureSet(o);
+                mix(&set, sizeof(set));
+            }
+            if (o.jointOffset >= 0) mix(&frameCounter_, sizeof(frameCounter_));
+            auto rewritten = meshes_->rewritten.find((uint32_t)meshes_->get(o.mesh).vertexOffset);
+            if (rewritten != meshes_->rewritten.end()) mix(&rewritten->second.second, sizeof(uint64_t));
+        }
+        shadowSignature_[shadowLayers[k]] = h;
+    }
     size_t casterCount = 0;
     for (auto& list : casters) {   // solid ones by mesh; ones with holes after them, by material
         std::stable_sort(list.begin(), list.end(), [&](uint32_t a, uint32_t b) {

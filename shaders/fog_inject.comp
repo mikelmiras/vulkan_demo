@@ -16,6 +16,7 @@ struct Light {
 };
 layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; };
 layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]; };
+layout(set = 0, binding = 5) uniform sampler2DShadow shadowAtlas;   // spot and point lights' (tiles; comparing)
 layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D scatter;
 layout(set = 1, binding = 2) uniform sampler3D history;   // last frame's cells (the other frame in flight's)
@@ -28,6 +29,18 @@ float halton(int i, int b) {
         r += f * float(k % b);
     }
     return r;
+}
+
+// Whether a light reaches p, from its shadow (one comparison in its tile of the atlas: the cell's point moves each
+// frame and the history blends them, so a beam's shadow has soft edges)
+float lightShadow(int view, vec3 p) {
+    vec4 clip = frame.shadowViewProj[view] * vec4(p, 1.0);
+    if (clip.w <= 1e-4) return 1.0;
+    vec3 proj = clip.xyz / clip.w;
+    vec2 uv = proj.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0 || proj.z < 0.0) return 1.0;
+    vec4 rect = frame.shadowRect[view];
+    return texture(shadowAtlas, vec3(rect.xy + uv * rect.zw, proj.z - 0.0002));
 }
 
 // How much of the cell around p the sun reaches: its shadow looked up at eight points spread through the cell (`side`:
@@ -98,6 +111,16 @@ void main() {
             float q = dist / (0.2 * range);
             float l = window * window / (1.0 + q * q);
             if (li.color.w > 0.5) l *= smoothstep(li.dir.w, li.params.x, dot(travel, li.dir.xyz));   // (a spot's cone)
+            int shadowView = int(li.params.y);
+            if (l > 0.0 && shadowView >= 0) {   // (what's in its way: beams cut off behind a car, a lamp's cone by a wall)
+                if (li.color.w > 0.5) {
+                    l *= lightShadow(shadowView, p);
+                } else {   // a point light's cube: the face towards p
+                    vec3 m = abs(d);
+                    int face = m.x >= m.y && m.x >= m.z ? (d.x > 0.0 ? 0 : 1) : m.y >= m.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5);
+                    l *= lightShadow(shadowView + face, p);
+                }
+            }
             light += li.color.rgb * l * fogPhase(travel, view, g) * strength;
         }
     }
