@@ -500,6 +500,15 @@ dropping on the right.
 - **Quality** (`settings.quality` for players, `VKWORLD_QUALITY` otherwise): `high` draws everything the scene asks
   for; `medium` keeps the sun's shadows to 100 m and halves the lights' shadow maps; `low` keeps shadows to 60 m and
   turns off screen-space reflections and ambient occlusion.
+- **Render scale and upscaling**: the 3D scene can be drawn at a fraction of the viewport (50 % to 100 % of its width
+  and height: down to a quarter of the pixels to shade) and brought up to full size, the UI staying sharp at full
+  size. With temporal AA it's temporal upscaling: each frame's jittered pixels land on the full-size pixels nearest
+  their samples and the full-size history keeps the rest, so still parts of the picture get close to native
+  detail over a few frames; without, a sharpened bilinear upscale. *Dynamic resolution* picks the scale from the
+  GPU's frame time to hold 60 frames a second (`VKWORLD_TARGET_FPS`), in steps of 5 %, never above the set scale.
+  Players set them with `settings.renderScale` (0.5 to 1) and `settings.dynamicResolution`; the editor in View >
+  Render scale; `VKWORLD_RENDER_SCALE=0.75` anywhere. Worth it on big and Retina screens (with `VKWORLD_HIDPI=1` on a
+  Mac, 67 % costs about what one pixel per point did) and on slow GPUs.
 - **Depth prepass**: opaque things' depth is drawn first with a cheap shader, then the lit pass shades only the
   pixel in front (a city's ground, roads, sidewalks and buildings stacked on each other are lit once, not four
   times). `VKWORLD_PREPASS=0` turns it off. Point lights are clustered over the depth range of what's in view.

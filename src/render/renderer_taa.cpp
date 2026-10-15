@@ -62,7 +62,7 @@ void Renderer::destroyTaaImages(TaaState& t) {
 }
 
 // A different sub-pixel offset every frame (Halton 2, 3: eight of them), the same for every view
-void Renderer::jitterView(const SceneRenderInfo& info, FrameUBO& u, TaaState& t) {
+void Renderer::jitterView(const SceneRenderInfo& info, FrameUBO& u, TaaState& t, const SceneRenderInfo* display) {
     auto halton = [](uint32_t i, uint32_t b) {
         float f = 1.f, r = 0.f;
         for (; i > 0; i /= b) {
@@ -71,21 +71,24 @@ void Renderer::jitterView(const SceneRenderInfo& info, FrameUBO& u, TaaState& t)
         }
         return r;
     };
-    float vw = std::max(info.viewportW, 1.f), vh = std::max(info.viewportH, 1.f);
+    float vw = std::max(info.viewportW, 1.f), vh = std::max(info.viewportH, 1.f);   // (the picture drawn: its pixels)
     Mat4 jitter;
-    jitter.m[12] = (halton(jitterIndex_, 2) - 0.5f) * 2.f / vw;
-    jitter.m[13] = (halton(jitterIndex_, 3) - 0.5f) * 2.f / vh;
+    t.jitterPx[0] = halton(jitterIndex_, 2) - 0.5f;
+    t.jitterPx[1] = halton(jitterIndex_, 3) - 0.5f;
+    jitter.m[12] = t.jitterPx[0] * 2.f / vw;
+    jitter.m[13] = t.jitterPx[1] * 2.f / vh;
     u.viewProj = jitter * info.viewProj;
     // From this frame's clip space to last frame's: where each pixel was. Both without the jitter, so a still view
     // finds its history exactly at the same pixel (no blur creeping in from resampling)
     t.reproject = t.prevViewProj * inverse(info.viewProj);
-    float viewport[4] = {info.viewportX, info.viewportY, info.viewportW, info.viewportH};
+    const SceneRenderInfo& kept = display ? *display : info;   // (the history's: full size, whatever the scale)
+    float viewport[4] = {kept.viewportX, kept.viewportY, kept.viewportW, kept.viewportH};
     if (std::memcmp(viewport, t.viewport, sizeof(viewport)) != 0) t.history = false;   // (moved or resized)
     std::memcpy(t.viewport, viewport, sizeof(viewport));
     t.prevViewProj = info.viewProj;
 }
 
-void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaState& t) {
+void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaState& t, float scale) {
     const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     const VkPipelineStageFlags transfer = VK_PIPELINE_STAGE_TRANSFER_BIT;
@@ -117,22 +120,28 @@ void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaSta
     VkRect2D sc{{0, 0}, extent_};
     vkCmdSetViewport(cb, 0, 1, &vp);
     vkCmdSetScissor(cb, 0, 1, &sc);
-    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, taaPipeline_);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, aa_ == Antialiasing::Temporal ? taaPipeline_ : taaUpscalePipeline_);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, taaLayout_, 0, 1, &t.sets[t.index], 0, nullptr);
     struct Push {
         Mat4 reproject;
         float viewport[4];   // the scene's rectangle in the image (pixels)
-        float params[4];     // x = how much history (0: none), y, z = 1 / image size
+        float params[4];     // x = how much history (0: none), y, z = 1 / image size, w = the render scale
+        float extra[4];      // xy = this frame's jitter (drawn pixels), z = sharpening (upscaled)
     } p;
     p.reproject = t.reproject;
     p.viewport[0] = info.viewportX;
     p.viewport[1] = info.viewportY;
     p.viewport[2] = std::max(info.viewportW, 1.f);
     p.viewport[3] = std::max(info.viewportH, 1.f);
-    p.params[0] = t.history ? 0.9f : 0.f;
+    const bool temporal = aa_ == Antialiasing::Temporal;
+    p.params[0] = t.history && temporal ? 0.9f : 0.f;   // (upscaling alone: no history)
     p.params[1] = 1.f / (float)extent_.width;
     p.params[2] = 1.f / (float)extent_.height;
-    p.params[3] = 0.f;
+    p.params[3] = std::clamp(scale, 0.5f, 1.f);
+    p.extra[0] = temporal ? t.jitterPx[0] : 0.f;
+    p.extra[1] = temporal ? t.jitterPx[1] : 0.f;
+    p.extra[2] = scale < 0.999f ? (temporal ? 0.25f : 0.5f) : 0.f;
+    p.extra[3] = 0.f;
     vkCmdPushConstants(cb, taaLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(p), &p);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);

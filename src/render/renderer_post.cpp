@@ -126,7 +126,7 @@ void Renderer::createPostImages() {
         wa.pImageInfo = &depthInfo;
         vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
     }
-    if (aa_ == Antialiasing::Temporal) createTaaImages(taa_);
+    if (aa_ == Antialiasing::Temporal || upscaling()) createTaaImages(taa_);   // (temporal AA's, or the upscaler's)
     // Reflections' picture of the last frame, and the capture's inputs (the depth, this frame's picture)
     prevColor_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                              VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
@@ -262,7 +262,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                ao ? colorStage : fragStage, ao ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
     if (ao) {
         float tanY = std::tan(info.fovY * 0.5f), tanX = tanY * (vw / vh);
-        Push p{{tanX, tanY, info.zNear, info.zFar}, {info.aoRadius, info.aoStrength, vx, vy}, {vw, vh, 0.f, 0.f}, {}, {}};
+        Push p{{tanX, tanY, info.zNear, info.zFar}, {info.aoRadius, info.aoStrength, vx, vy}, {vw, vh, view >= 0 ? 1.f : scaleNow_, 0.f}, {}, {}};
         pass(ao_.view, aoSize_, aoPipeline_, aoSet_, p, false);
         mipBarrier(cb, ao_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                    VK_ACCESS_SHADER_READ_BIT);
@@ -313,7 +313,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     if (view < 0 && reflectionsOn(info) && info.items && ssrCapturePipeline_ && vw >= 1.f && vh >= 1.f) {
         imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target, fragStage,
                      VK_ACCESS_SHADER_READ_BIT, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-        Push p{{info.zNear, info.zFar, 0.f, 0.f}, {}, {}, {}, {}};
+        Push p{{info.zNear, info.zFar, 0.f, 0.f}, {vx, vy, scaleNow_, 0.f}, {}, {}, {}};
         pass(prevColor_.view, extent_, ssrCapturePipeline_, ssrSet_, p, false);
         imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, target, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);

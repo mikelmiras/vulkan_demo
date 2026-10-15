@@ -1392,7 +1392,7 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 
 | # | Task | Why |
 |---|------|-----|
-| 79 | Render scale and upscaling: the 3D scene drawn at a fraction of the window (a setting, or dynamic to hold a frame-rate target) and brought up to full size with temporal upscaling (the TAA history at full resolution) and a sharpening pass; UI at full resolution | Every pixel is shaded once per frame at the window's size: a Retina Mac or a 1440p screen costs up to four times a 1080p one, and a slow GPU has no way to trade sharpness for frame rate |
+| 79 (done) | Render scale and upscaling: the 3D scene drawn at a fraction of the window (a setting, or dynamic to hold a frame-rate target) and brought up to full size with temporal upscaling (the TAA history at full resolution) and a sharpening pass; UI at full resolution | Every pixel is shaded once per frame at the window's size: a Retina Mac or a 1440p screen costs up to four times a 1080p one, and a slow GPU has no way to trade sharpness for frame rate |
 | 80 | Half-resolution effects and async work: SSAO, SSR and fog at half (or quarter) resolution with depth-aware upsampling, their compute on an async queue where there is one, a GPU timing overlay per pass | Screen-space effects run at full resolution one after another: the 1050 Ti spends more on them than on the scene |
 | 81 | Shadows, cached and sharper: the sun's far cascades and every light's shadow map only redrawn when what's in them moves (static casters cached, dynamic ones drawn over), cascades fitted tighter, contact shadows (a short screen-space ray march) for small details, spot-light shadows in the volumetric fog | Every shadow map is redrawn every frame; small things (a kerb, a hand) lose their shadows; headlights' beams in the fog have none |
 | 82 | Lighting model: multiple-scattering energy compensation for GGX (rough metals not darkening), a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), specular occlusion from AO, material presets | Rough surfaces lose energy; car paint and fabric look like plain plastic |
@@ -1404,4 +1404,24 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 88 | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
 
 ### Round 8 notes
-
+- **79, render scale and upscaling**: every image stays the window's size; the scene is drawn into the viewport's
+  corner at the scale (Renderer::render makes a copy of the SceneRenderInfo with the smaller viewport: culling, the
+  Hi-Z pyramid, the frame data (its viewport size: the fog's and reflections' screen maths), the jitter (in the
+  drawn picture's pixels), the prepass, the fog and the scene pass use it). The temporal pass then fills the full
+  viewport: with temporal AA (taa.frag, scale in params.w, the jitter in extra.xy) each full-size pixel takes the
+  drawn pixel whose jittered sample is nearest, weighed by a Gaussian of the distance (alpha = 0.1 / scale squared
+  times it), over its clamped, reprojected full-size history (bilinear where there's no history: disocclusions);
+  without (MSAA or off) the same pass compiled without the history (taa_upscale.frag: no depth read, so MSAA's
+  multisampled depth can stay bound) does a bilinear upscale sharpened against its four neighbours and clamped to
+  the 3 x 3 range (no halos). The result is copied into the HDR image as before, so bloom and the composite are
+  unchanged; AO and the reflections' capture, which read depth after it, map their pixels into the drawn picture
+  (push constants: scale and corner). Dynamic resolution (Renderer::nextDynamicScale, tested): the GPU's frame
+  time (first to last timestamp) against 90 % of the budget, the wanted scale from the pixel count, gone towards in
+  5 % steps (up to four at once, down a step early, up only past a whole step), held 30 frames after each change.
+  settings.renderScale / dynamicResolution, View > Render scale, VKWORLD_RENDER_SCALE / VKWORLD_TARGET_FPS. Checked
+  under validation with sync checks: the demo at 100 % (unchanged) and 50 % with TAA, MSAA and off, the editor at 67
+  %, Night Drive and the sample game; at 50 % with TAA still parts are about as sharp as native after a few frames.
+  Not done: motion vectors (moving objects get the camera's reprojection only: their edges step a little when
+  upscaled, as they smear a little with TAA), the Hi-Z pyramid remade (a short wait) when the scale steps,
+  split-screen views drawn at full size, a better upscaling filter (Lanczos / FSR's EASU) without TAA, the
+  editor's choice remembered.

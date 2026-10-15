@@ -70,6 +70,15 @@ add_custom_command(
   DEPENDS ${CMAKE_SOURCE_DIR}/shaders/scene.frag ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
   COMMENT "Compiling scene_early.frag")
 list(APPEND SPIRV_OUTPUTS ${out})
+# The temporal pass without the history (upscaling alone: no depth read, so MSAA's multisampled depth can be bound)
+set(out ${CMAKE_BINARY_DIR}/shaders/taa_upscale.frag.spv)
+add_custom_command(
+  OUTPUT ${out}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+  COMMAND ${GLSLC} -DUPSCALE_ONLY ${CMAKE_SOURCE_DIR}/shaders/taa.frag -o ${out}
+  DEPENDS ${CMAKE_SOURCE_DIR}/shaders/taa.frag
+  COMMENT "Compiling taa_upscale.frag")
+list(APPEND SPIRV_OUTPUTS ${out})
 add_custom_target(shaders ALL DEPENDS ${SPIRV_OUTPUTS})
 
 # Vendored third-party UI libraries (Dear ImGui v1.92.9b-docking, ImGuizmo), compiled into the engine library: there must be
@@ -420,6 +429,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_network.cpp
     tests/test_relay.cpp
     tests/test_crypto.cpp
+    tests/test_render_scale.cpp
     tests/test_gamepads.cpp
     tests/test_text_shaping.cpp
     tests/test_shipping.cpp

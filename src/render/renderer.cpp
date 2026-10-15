@@ -60,6 +60,8 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     textures_ = &textures;
     if (const char* v = std::getenv("VKWORLD_UI_LAYER"); v && !std::strcmp(v, "1")) uiLayerForced_ = true;
     if (const char* v = std::getenv("VKWORLD_PREPASS"); v && !std::strcmp(v, "0")) prepass_ = false;
+    if (const char* v = std::getenv("VKWORLD_RENDER_SCALE"))   // (before the post images: the upscaler's are made with them)
+        renderScaleSet_ = scaleNow_ = std::clamp((float)std::atof(v), 0.5f, 1.f);
     if (const char* v = std::getenv("VKWORLD_QUALITY")) {
         if (!std::strcmp(v, "low")) quality_ = Quality::Low;
         else if (!std::strcmp(v, "medium")) quality_ = Quality::Medium;
@@ -780,11 +782,12 @@ void Renderer::createPipelines() {
     pl.pushConstantRangeCount = 1;
     pl.pPushConstantRanges = &pcr;
     VK_CHECK(vkCreatePipelineLayout(device_, &pl, nullptr, &postLayout_));
-    // The temporal anti-aliasing pass: the same images, more push constants (a matrix)
-    VkPushConstantRange taaRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 96};
+    // The temporal anti-aliasing (and upscaling) pass: the same images, more push constants (a matrix, the scale)
+    VkPushConstantRange taaRange{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 112};
     pl.pPushConstantRanges = &taaRange;
     VK_CHECK(vkCreatePipelineLayout(device_, &pl, nullptr, &taaLayout_));
     taaPipeline_ = createPostPipeline("taa.frag.spv", hdrFormat_, false, taaLayout_);
+    taaUpscalePipeline_ = createPostPipeline("taa_upscale.frag.spv", hdrFormat_, false, taaLayout_);
     bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
@@ -1240,6 +1243,7 @@ void Renderer::readGpuTimes() {
     std::vector<std::pair<std::string, float>> times;
     for (size_t i = 1; i < names.size(); ++i)
         times.emplace_back(names[i], (float)((double)((t[i] - t[i - 1]) & mask) * timestampPeriod_ / 1e6));
+    gpuFrameMs_ = (float)((double)((t[names.size() - 1] - t[0]) & mask) * timestampPeriod_ / 1e6);
     profiler::setGpuTimes(std::move(times));
 }
 
@@ -1269,7 +1273,8 @@ void Renderer::initImGui() {
 // Frame
 // ---------------------------------------------------------------------------------------------
 
-void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui) {
+void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, const SceneRenderInfo& scene,
+                              ImDrawData* ui) {
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cb, &bi));
@@ -1313,7 +1318,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &mainSlot);
 
     recordInstanceUpload(cb);   // (what changed in the instances: before anything reads them)
-    recordCulling(cb, info);    // (compute: before any rendering)
+    recordCulling(cb, scene);   // (compute: before any rendering)
 
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
@@ -1346,11 +1351,11 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
 
     // ---- The depth prepass (opaque things' depth: the lit pass then shades each pixel once), then the volumetric
     // fog, which looks at that depth (each cell column's surface: scene.frag weighs columns by it at edges)
-    const float sx = std::clamp(info.viewportX, 0.f, (float)extent_.width), sy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
-    const float sw = std::min(info.viewportW, (float)extent_.width - sx), sh = std::min(info.viewportH, (float)extent_.height - sy);
+    const float sx = std::clamp(scene.viewportX, 0.f, (float)extent_.width), sy = std::clamp(scene.viewportY, 0.f, (float)extent_.height);
+    const float sw = std::min(scene.viewportW, (float)extent_.width - sx), sh = std::min(scene.viewportH, (float)extent_.height - sy);
     const bool prepassed = prepass_ && info.items && sw >= 1.f && sh >= 1.f;
     if (prepassed) {
-        recordPrepass(cb, info, sceneBatches_, gpuCulled_, {{(int32_t)sx, (int32_t)sy}, {(uint32_t)sw, (uint32_t)sh}});
+        recordPrepass(cb, scene, sceneBatches_, gpuCulled_, {{(int32_t)sx, (int32_t)sy}, {(uint32_t)sw, (uint32_t)sh}});
         timestamp(cb, "Depth prepass");
     }
     if (fogOn_) {
@@ -1359,7 +1364,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                          VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
-        recordFog(cb, info, readDepth, {{(int32_t)sx, (int32_t)sy}, {(uint32_t)sw, (uint32_t)sh}});
+        recordFog(cb, scene, readDepth, {{(int32_t)sx, (int32_t)sy}, {(uint32_t)sw, (uint32_t)sh}});
         if (readDepth)
             imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
                          VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, depthStages,
@@ -1400,11 +1405,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     ri.pStencilAttachment = &depthAtt;
     vkCmdBeginRendering(cb, &ri);
 
-    // Clamp the editor's viewport rectangle to the framebuffer
-    float vx = std::clamp(info.viewportX, 0.f, (float)extent_.width);
-    float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
-    float vw = std::min(info.viewportW, (float)extent_.width - vx);
-    float vh = std::min(info.viewportH, (float)extent_.height - vy);
+    // Clamp the editor's viewport rectangle to the framebuffer (the scene's: smaller with a render scale)
+    float vx = sx, vy = sy, vw = sw, vh = sh;
     if (info.items && vw >= 1.f && vh >= 1.f) {
         VkViewport viewport{vx, vy, vw, vh, 0.f, 1.f};
         VkRect2D scissor{{(int32_t)vx, (int32_t)vy}, {(uint32_t)vw, (uint32_t)vh}};
@@ -1419,7 +1421,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             }
             drawBatch(cb, b);
         };
-        drawOpaque(cb, info, sceneBatches_, gpuCulled_, false);
+        drawOpaque(cb, scene, sceneBatches_, gpuCulled_, false);
         if (gpuCulled_) stats_.triangles += gpuTriangles_;   // (a frame or two old)
 
         // The sky, wherever nothing was drawn
@@ -1458,13 +1460,15 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depthStages,
                      VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
-        if (info.items) recordHiz(cb, info);
+        if (info.items) recordHiz(cb, scene);
     }
 
     timestamp(cb, "Scene");
-    if (aa_ == Antialiasing::Temporal && info.items) {   // blended with the frames before (renderer_taa.cpp)
-        recordTaa(cb, info, taa_);
-        timestamp(cb, "Temporal AA");
+    // Blended with the frames before (renderer_taa.cpp); drawn smaller: brought up to full size there too (without
+    // temporal AA: a sharpened upscale, no history)
+    if ((aa_ == Antialiasing::Temporal || scaleNow_ < 0.999f) && info.items && taa_.img[0].image) {
+        recordTaa(cb, info, taa_, scaleNow_);
+        timestamp(cb, aa_ == Antialiasing::Temporal ? "Temporal AA" : "Upscale");
     }
     // ---- The UI in a layer of its own (HDR output): blended in by the composite, in linear light
     if (uiLayered_) {
@@ -1708,17 +1712,68 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     u.time[1] = (float)(frameCounter_ % 16);   // (texture streaming's reporting pixels move each frame)
 }
 
+float Renderer::nextDynamicScale(float now, float gpuMs, float budgetMs, float maxScale) {
+    if (gpuMs <= 0.f || budgetMs <= 0.f) return std::clamp(now, 0.5f, maxScale);
+    // Pixels go as the scale squared: the scale that would take the frame to 90 % of its budget, gone towards in steps of
+    // 5 % (half the way's worth of them, up to four), down as soon as it's a step too slow, up only past a whole step
+    // (no going back and forth around one)
+    float want = std::clamp(now * std::sqrt(0.9f * budgetMs / gpuMs), 0.5f, maxScale);
+    float gap = want - now;
+    if (gap > -0.025f && gap < 0.05f) return std::clamp(now, 0.5f, maxScale);
+    float steps = std::clamp(std::round(std::fabs(gap) / 0.05f * 0.5f), 1.f, 4.f);
+    float next = std::round((now + (gap < 0.f ? -steps : steps) * 0.05f) * 20.f) / 20.f;
+    return std::clamp(gap < 0.f ? std::max(next, want - 0.025f) : std::min(next, want), 0.5f, maxScale);
+}
+
+void Renderer::setRenderScale(float scale) {
+    if (const char* v = std::getenv("VKWORLD_RENDER_SCALE")) scale = (float)std::atof(v);
+    scale = std::clamp(scale, 0.5f, 1.f);
+    bool was = upscaling();
+    renderScaleSet_ = scale;
+    if (!dynamicResolution_) scaleNow_ = scale;
+    else scaleNow_ = std::min(scaleNow_, scale);
+    if (was != upscaling() && device_) {   // (the upscaling pass's images come and go)
+        vkDeviceWaitIdle(device_);
+        recreateSwapchain();
+    }
+}
+
+void Renderer::setDynamicResolution(bool on, float targetFps) {
+    targetFps_ = std::clamp(targetFps, 15.f, 360.f);
+    if (on == dynamicResolution_) return;
+    bool was = upscaling();
+    dynamicResolution_ = on;
+    scaleNow_ = renderScaleSet_;
+    if (was != upscaling() && device_) {
+        vkDeviceWaitIdle(device_);
+        recreateSwapchain();
+    }
+}
+
 void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     if (width_ == 0 || height_ == 0) return;
     PROFILE_SCOPE("Render (CPU)");
     if (resized_) recreateSwapchain();
+    // Render scale: this frame's (dynamic: from the last measured frame, held a while after each change), and the
+    // scene's viewport at it
+    if (dynamicResolution_ && --scaleHold_ <= 0) {
+        float next = nextDynamicScale(scaleNow_, gpuFrameMs_, 1000.f / targetFps_, renderScaleSet_);
+        if (next != scaleNow_) scaleHold_ = 30;
+        scaleNow_ = next;
+    }
+    if (!supports(Antialiasing::Temporal)) scaleNow_ = 1.f;   // (no depth to read: no upscaling either)
+    SceneRenderInfo scene = info;
+    if (scaleNow_ < 0.999f) {
+        scene.viewportW = std::max(1.f, std::floor(info.viewportW * scaleNow_));
+        scene.viewportH = std::max(1.f, std::floor(info.viewportH * scaleNow_));
+    }
     if (meshes_->version != uploadedMeshVersion_) uploadMeshes();
     if (info.antialiasing >= 0 && info.antialiasing != (int)aa_) setAntialiasing((Antialiasing)info.antialiasing);
     reuploadChangedTextures();   // (before any of this frame's material sets are made: it may remake them all)
     uploadEnvironment(info.environment);
     updateCookies(info);
     updateProbes(info);
-    if (occlusion_ && gpuCulling_) ensureHiz(info);   // (sized to the viewport)
+    if (occlusion_ && gpuCulling_) ensureHiz(scene);   // (sized to the viewport the scene is drawn in)
 
     {
         PROFILE_SCOPE("Wait for the GPU");
@@ -1757,7 +1812,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     }
     planGi(info);   // (probes' faces: before this view too)
     FrameUBO u{};
-    fillFrameUBO(info, u, true);
+    fillFrameUBO(scene, u, true);
     setProbeData(u);
     finishGi(u);
     // Volumetric fog: the main view's (only with something to draw and its shadows worked out)
@@ -1819,7 +1874,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     }
     if (aa_ == Antialiasing::Temporal) {   // jittered, a different sub-pixel offset every frame
         jitterIndex_ = jitterIndex_ % 8 + 1;
-        jitterView(info, u, taa_);
+        jitterView(scene, u, taa_, &info);
         for (size_t v = 0; v < viewCount; ++v) {   // (the views' too, into their slots)
             jitterView((*info.views)[v], viewUbos[v], viewImages_[v].taa);
             std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &viewUbos[v], sizeof(FrameUBO));
@@ -1836,7 +1891,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     VK_CHECK(vkResetCommandBuffer(cmd_[frame_], 0));
     {
         PROFILE_SCOPE("Record commands");
-        recordCommands(cmd_[frame_], imageIndex, info, ui);
+        recordCommands(cmd_[frame_], imageIndex, info, scene, ui);
     }
 
     VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1881,7 +1936,7 @@ void Renderer::shutdown() {
     destroySampledPipelines();
     for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
                          compositeViewPipeline_,
-                         taaPipeline_})
+                         taaPipeline_, taaUpscalePipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, taaLayout_, nullptr);
     destroyPostImages();

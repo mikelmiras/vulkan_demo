@@ -375,6 +375,8 @@ private:
     bool previewParticles_on_ = true;
     bool realtimeViewport_ = false, throttleInBackground_ = true;   // (View > Power)
     int theme_ = 0;   // (View > Theme: the host applies it, Application::setTheme)
+    float renderScale_ = 1.f;   // (View > Render scale)
+    bool renderDynamic_ = false;
     int frameCap_ = 60;
     NavGrid navPreview_;
     EntityId animGraphEntity_ = kNoEntity;   // whose state machine the graph window shows

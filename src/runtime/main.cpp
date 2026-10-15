@@ -834,6 +834,10 @@ int main(int argc, char** argv) {
             if (!std::getenv("VKWORLD_QUALITY"))
                 app.renderer().setQuality(q == "low" ? Renderer::Quality::Low : q == "medium" ? Renderer::Quality::Medium
                                                                                           : Renderer::Quality::High);
+            // Render scale (0.5..1) and dynamic resolution (holding 60 frames a second, or VKWORLD_TARGET_FPS)
+            app.renderer().setRenderScale((float)game.state().number("settings.renderScale", 1.f));
+            const char* fps = std::getenv("VKWORLD_TARGET_FPS");
+            app.renderer().setDynamicResolution(game.state().flag("settings.dynamicResolution"), fps ? (float)std::atof(fps) : 60.f);
             std::string a = game.state().text("settings.antialiasing");
             if (!aaGiven && (a == "msaa" || a == "taa" || a == "off"))
                 app.renderer().setAntialiasing(a == "taa" ? Renderer::Antialiasing::Temporal

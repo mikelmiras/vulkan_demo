@@ -205,6 +205,17 @@ public:
     enum class Quality { Low, Medium, High };
     void setQuality(Quality q) { quality_ = q; }
     Quality quality() const { return quality_; }   // (nits: the display's, VKWORLD_HDR_PEAK's, or 1000)
+    // Render scale: the 3D scene drawn at this fraction of the viewport's width and height (0.5..1: a quarter to all
+    // the pixels), brought up to full size by temporal upscaling (with temporal AA: this frame's few pixels and the
+    // full-size history; otherwise a sharpened bilinear upscale); the UI stays at full size. Dynamic: the scale
+    // follows the GPU's frame time to hold `targetFps` (between 0.5 and the set scale, in steps of 5 %).
+    // VKWORLD_RENDER_SCALE overrides the set scale. Changing whether it upscales at all waits for the GPU.
+    void setRenderScale(float scale);
+    void setDynamicResolution(bool on, float targetFps = 60.f);
+    float renderScale() const { return scaleNow_; }   // (this frame's: the dynamic one's choice)
+    float gpuFrameMs() const { return gpuFrameMs_; }   // the last measured frame's GPU time (0: no timestamps)
+    // The dynamic choice (plain: tested): the next scale from the current one, the GPU's frame time and the budget
+    static float nextDynamicScale(float now, float gpuMs, float budgetMs, float maxScale);
 
 private:
     static constexpr int MAX_FRAMES = 2;
@@ -329,17 +340,25 @@ private:
         bool fresh = false;          // just made: not yet in a readable layout
         Mat4 prevViewProj, reproject;
         float viewport[4] = {};
+        float jitterPx[2] = {};      // this frame's jitter, in the drawn picture's pixels
     };
     void createTaaImages(TaaState& t);    // (the main view's with the post images, when temporal; views' on use)
     void destroyTaaImages(TaaState& t);
-    void recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaState& t);
+    void recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaState& t, float scale = 1.f);
     // This frame's jitter for a view (into `u`), and its reprojection from last frame
-    void jitterView(const SceneRenderInfo& info, render_detail::FrameUBO& u, TaaState& t);
+    // (`display`: the viewport the history is kept at, when the scene is drawn smaller: render scale)
+    void jitterView(const SceneRenderInfo& info, render_detail::FrameUBO& u, TaaState& t, const SceneRenderInfo* display = nullptr);
     Antialiasing aa_ = Antialiasing::Msaa;
+    // Render scale: the set one, the dynamic one's state, this frame's
+    float renderScaleSet_ = 1.f, scaleNow_ = 1.f, gpuFrameMs_ = 0.f, targetFps_ = 60.f;
+    bool dynamicResolution_ = false;
+    int scaleHold_ = 0;   // (frames before the dynamic scale may change again)
+    bool upscaling() const { return renderScaleSet_ < 0.999f || dynamicResolution_; }
     VkSampleCountFlagBits maxSamples_ = VK_SAMPLE_COUNT_1_BIT;
     TaaState taa_;
     VkPipelineLayout taaLayout_ = VK_NULL_HANDLE;
     VkPipeline taaPipeline_ = VK_NULL_HANDLE;
+    VkPipeline taaUpscalePipeline_ = VK_NULL_HANDLE;   // (upscaling alone: taa.frag without the history)
     uint32_t jitterIndex_ = 0;
     // Reflection probes (renderer_probes.cpp): baked on first sight, the nearest four bound (set 0, bindings 9-12)
     struct BakedProbe {
@@ -404,7 +423,9 @@ private:
     float timestampPeriod_ = 1.f;   // ns per tick
     void timestamp(VkCommandBuffer cb, const char* name);
     void readGpuTimes();
-    void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, ImDrawData* ui);
+    // (`scene`: `info` with the viewport the scene is drawn into: smaller with a render scale under 1)
+    void recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, const SceneRenderInfo& scene,
+                        ImDrawData* ui);
 
     uint32_t findMemoryType(uint32_t typeBits, VkMemoryPropertyFlags props);
     Buffer createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, const void* data = nullptr);

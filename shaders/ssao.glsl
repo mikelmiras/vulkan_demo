@@ -1,19 +1,21 @@
 // Screen-space ambient occlusion from the scene's depth: how much of the hemisphere above each point nearby
 // geometry hides, as a factor for the composite (1: open). Half size; a 12-sample kernel turned per pixel.
-#ifdef MULTISAMPLED
-layout(set = 0, binding = 0) uniform sampler2DMS depthMap;
-float depthAt(ivec2 p) { return texelFetch(depthMap, p, 0).r; }
-ivec2 depthSize() { return textureSize(depthMap); }
-#else
-layout(set = 0, binding = 0) uniform sampler2D depthMap;
-float depthAt(ivec2 p) { return texelFetch(depthMap, p, 0).r; }
-ivec2 depthSize() { return textureSize(depthMap, 0); }
-#endif
 layout(push_constant) uniform Ao {
     vec4 a;   // tan(fovX / 2), tan(fovY / 2), near, far
     vec4 b;   // radius (m), strength, viewport x, y (pixels)
-    vec4 c;   // viewport width, height
+    vec4 c;   // viewport width, height, render scale (the depth drawn that much smaller, in the viewport's corner)
 } pc;
+// (pixels are the full-size picture's: the depth is read where each is in the picture drawn)
+ivec2 drawn(ivec2 p) { return pc.c.z > 0.0 && pc.c.z < 0.999 ? ivec2(pc.b.zw + (vec2(p) - pc.b.zw) * pc.c.z) : p; }
+#ifdef MULTISAMPLED
+layout(set = 0, binding = 0) uniform sampler2DMS depthMap;
+float depthAt(ivec2 p) { return texelFetch(depthMap, drawn(p), 0).r; }
+ivec2 depthSize() { return textureSize(depthMap); }
+#else
+layout(set = 0, binding = 0) uniform sampler2D depthMap;
+float depthAt(ivec2 p) { return texelFetch(depthMap, drawn(p), 0).r; }
+ivec2 depthSize() { return textureSize(depthMap, 0); }
+#endif
 
 layout(location = 0) out vec4 outColor;
 

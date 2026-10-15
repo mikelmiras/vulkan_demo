@@ -7,6 +7,7 @@
 #include "game/strings.h"
 
 #include <cctype>
+#include <cmath>
 #include <cfloat>
 #include <cstdio>
 #include <filesystem>
@@ -262,6 +263,27 @@ void Editor::drawMenuBar() {
             ImGui::SeparatorText("Frame-rate cap");
             for (int i = 0; i < 4; ++i)
                 if (ImGui::MenuItem(names[i], nullptr, frameCap_ == caps[i])) frameCap_ = caps[i];
+            ImGui::EndMenu();
+        }
+        if (renderer_ && ImGui::BeginMenu("Render scale")) {   // (the viewport's 3D drawn smaller, upscaled)
+            const float scales[] = {1.f, 0.85f, 0.75f, 2.f / 3.f, 0.5f};
+            const char* names[] = {"100 % (native)", "85 %", "75 %", "67 %", "50 %"};
+            for (int i = 0; i < 5; ++i)
+                if (ImGui::MenuItem(names[i], nullptr, !renderDynamic_ && std::fabs(renderScale_ - scales[i]) < 0.01f)) {
+                    renderScale_ = scales[i];
+                    renderDynamic_ = false;
+                    renderer_->setDynamicResolution(false);
+                    renderer_->setRenderScale(renderScale_);
+                }
+            if (ImGui::MenuItem("Dynamic (60 fps)", nullptr, renderDynamic_)) {
+                renderDynamic_ = !renderDynamic_;
+                renderer_->setRenderScale(1.f);
+                renderer_->setDynamicResolution(renderDynamic_, 60.f);
+            }
+            tooltip("The 3D view drawn at a fraction of its size and brought up to full size (temporal upscaling with "
+                    "temporal AA): fewer pixels to shade on a big or Retina screen or a slow GPU. Dynamic: the scale "
+                    "follows the GPU's frame time");
+            ImGui::TextDisabled("Now %.0f %%", renderer_->renderScale() * 100.f);
             ImGui::EndMenu();
         }
         if (renderer_ && ImGui::BeginMenu("Anti-aliasing")) {
