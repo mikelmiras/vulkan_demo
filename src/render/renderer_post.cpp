@@ -126,6 +126,10 @@ void Renderer::createPostImages() {
         wa.pImageInfo = &depthInfo;
         vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
     }
+    // Motion vectors (the prepass writes them with temporal AA; the temporal pass reads them)
+    velocity_ = createImage(VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                            VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    velocityFresh_ = true;
     if (aa_ == Antialiasing::Temporal || upscaling()) createTaaImages(taa_);   // (temporal AA's, or the upscaler's)
     // Auto-exposure: the luminance (its mips: blits) and the exposure, now and last frame's; the composite reads
     // them (bindings 4, 5: something valid even without, the formats the shaders expect)
@@ -267,6 +271,7 @@ void Renderer::writeSsrBinding() {
 
 void Renderer::destroyPostImages() {
     if (refraction_.image) destroyImage(refraction_);
+    if (velocity_.image) destroyImage(velocity_);
     if (prevMip0_) vkDestroyImageView(device_, prevMip0_, nullptr);
     prevMip0_ = VK_NULL_HANDLE;
     if (prevColor_.image) destroyImage(prevColor_);

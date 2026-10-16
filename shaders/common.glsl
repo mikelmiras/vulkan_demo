@@ -50,6 +50,9 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 waterInfo;       // x = 1: refraction (binding 26) this frame, y = how many water boxes
     vec4 waterBox[4];     // each water's rectangle: min x, min z, max x, max z
     vec4 waterLevel[4];   // its level (y) and depth
+    mat4 motionViewProj;      // motion vectors: this frame's camera without temporal AA's jitter ...
+    mat4 motionPrevViewProj;  // ... and last frame's
+    vec4 motion;              // x = seconds since last frame, y = 1: the prepass writes them
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness
@@ -128,6 +131,8 @@ struct Instance {
     vec4 stream;   // texture streaming: x = the texture whose detail to report (-1: none), y = log2 of its size
     vec4 layers;   // clear coat, its roughness, sheen, anisotropy
     vec4 surface;  // parallax depth (0: none), detail tiling, detail strength (0: none), w = 1: sheltered from weather
+    mat4 prevModel;  // last frame's model matrix (motion vectors)
+    vec4 motion;     // x = last frame's joints' first matrix (-1: none)
 };
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
     Instance instances[];
@@ -142,6 +147,13 @@ layout(std430, set = 0, binding = 3) readonly buffer Joints {
 
 // The instance's model matrix, with the skeleton's deformation for skinned meshes (vertex shaders only: they
 // declare inJoints / inWeights at locations 3 and 4)
+// The same with last frame's model and joints (motion vectors)
+#define PREV_SKINNED_MODEL(inst) \
+    ((inst).motion.x < 0.0 ? (inst).prevModel : (inst).prevModel * ( \
+        inWeights.x * joints[int((inst).motion.x) + int(inJoints.x)] + \
+        inWeights.y * joints[int((inst).motion.x) + int(inJoints.y)] + \
+        inWeights.z * joints[int((inst).motion.x) + int(inJoints.z)] + \
+        inWeights.w * joints[int((inst).motion.x) + int(inJoints.w)]))
 #define SKINNED_MODEL(inst) \
     ((inst).params.w < 0.0 ? (inst).model : (inst).model * ( \
         inWeights.x * joints[int((inst).params.w) + int(inJoints.x)] + \

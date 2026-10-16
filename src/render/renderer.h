@@ -25,6 +25,7 @@ namespace render_detail { struct FrameUBO; }   // render/renderer_internal.h
 // One mesh to draw. The renderer knows nothing about the scene: callers flatten it into these.
 struct DrawItem {
     Mat4 model;
+    uint32_t key = 0;           // which object it is, frame to frame (its entity's; 0: none): its motion is kept by it
     int mesh = 0;               // id in the MeshLibrary
     Vec3 color{1, 1, 1};        // sRGB; multiplies the texture
     int texture = -1;           // id in the TextureLibrary, or -1
@@ -277,6 +278,7 @@ private:
         bool shadow = false;             // into a shadow map (depth only), even with a fragment shader
         uint32_t attributeMask = 0;      // which of position / normal / uv (bits 0-2) instead (0: vertexAttributes)
         bool noColor = false;            // the scene's depth (and stencil) only: the depth prepass's own rendering
+        VkFormat colorFormat = VK_FORMAT_UNDEFINED;   // (the colour attachment's, if not the HDR image's)
     };
 
     void createInstance();
@@ -774,6 +776,28 @@ private:
     // and the sky, the capture copies the picture and its distances here (set 0, binding 26), and goes on with the
     // see-through things; water reads what's behind it there
     Image refraction_;
+    // Motion vectors (renderer_instances.cpp: prepareMotion): with temporal AA, the depth prepass also writes each
+    // pixel's motion since last frame (velocity_, RG16F, uv units; kNoVelocity where nothing was drawn), from each
+    // object's last model matrix and joints (kept by DrawItem::key) and last frame's unjittered camera
+    static constexpr float kNoVelocity = 30000.f;
+    Image velocity_;
+    bool velocityFresh_ = false;
+    bool velocityOn_ = false;        // this frame's prepass writes it
+    VkPipeline prepassVelocityPipeline_ = VK_NULL_HANDLE, prepassFoliageVelocityPipeline_ = VK_NULL_HANDLE;
+    struct Motion {
+        Mat4 model;
+        std::vector<Mat4> joints;
+        uint64_t frame = 0;          // (seen in: older ones are dropped)
+    };
+    std::unordered_map<uint32_t, Motion> motion_;
+    std::vector<Mat4> prevModels_;       // per draw item this frame: its model matrix last frame
+    std::vector<int> prevJointOffsets_;  // ... its joints last frame, in the joints buffer after this frame's (-1: none)
+    std::vector<Mat4> prevJoints_;
+    Mat4 motionPrevViewProj_;
+    bool motionPrevValid_ = false;
+    uint64_t motionFrame_ = 0;
+    bool velocityDrawn_ = false;     // this frame's prepass wrote them (the temporal pass reads them)
+    void prepareMotion(const SceneRenderInfo& info);
     bool refractionFresh_ = false;
     bool refractOn_ = false;        // this frame's main view does it
     void writeRefractionBinding();

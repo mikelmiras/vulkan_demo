@@ -71,6 +71,15 @@ add_custom_command(
   DEPENDS ${CMAKE_SOURCE_DIR}/shaders/scene.frag ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
   COMMENT "Compiling scene_early.frag")
 list(APPEND SPIRV_OUTPUTS ${out})
+# The depth prepass writing motion vectors too (temporal AA)
+set(out ${CMAKE_BINARY_DIR}/shaders/depth_prepass_velocity.frag.spv)
+add_custom_command(
+  OUTPUT ${out}
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+  COMMAND ${GLSLC} -DVELOCITY ${CMAKE_SOURCE_DIR}/shaders/depth_prepass.frag -o ${out}
+  DEPENDS ${CMAKE_SOURCE_DIR}/shaders/depth_prepass.frag
+  COMMENT "Compiling depth_prepass_velocity.frag")
+list(APPEND SPIRV_OUTPUTS ${out})
 # The temporal pass without the history (upscaling alone: no depth read, so MSAA's multisampled depth can be bound)
 set(out ${CMAKE_BINARY_DIR}/shaders/taa_upscale.frag.spv)
 add_custom_command(

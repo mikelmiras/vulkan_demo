@@ -12,12 +12,13 @@ layout(set = 0, binding = 0) uniform sampler2D current;
 layout(set = 0, binding = 1) uniform sampler2D history;
 #ifndef UPSCALE_ONLY
 layout(set = 0, binding = 2) uniform sampler2D depthMap;
+layout(set = 0, binding = 3) uniform sampler2D velocityMap;   // each drawn pixel's motion since last frame (uv)
 #endif
 layout(push_constant) uniform Push {
     mat4 reproject;   // this frame's clip space -> last frame's
     vec4 viewport;    // the scene's rectangle in the image (pixels: full size)
     vec4 params;      // x = how much history (0: none yet), y, z = 1 / image size, w = render scale
-    vec4 extra;       // xy = this frame's jitter (drawn pixels), z = sharpening (0: none)
+    vec4 extra;       // xy = this frame's jitter (drawn pixels), z = sharpening (0: none), w = 1: motion vectors
 } pc;
 
 layout(location = 0) in vec2 vUV;
@@ -68,6 +69,10 @@ void main() {
     vec2 ndc = (px - vp.xy) / vp.zw * 2.0 - 1.0;
     vec4 prev = pc.reproject * vec4(ndc, depth, 1.0);
     vec2 prevPx = (prev.xy / prev.w * 0.5 + 0.5) * vp.zw + vp.xy;
+    if (pc.extra.w > 0.5) {   // moving things: where they were, by their own motion (the sky's: by the depth)
+        vec2 v = texelFetch(velocityMap, ivec2(scaled ? vp.xy + (px - vp.xy) * scale : px), 0).rg;
+        if (v.x < 10000.0) prevPx = px - v * vp.zw;
+    }
     bool seen = prevPx.x >= vp.x && prevPx.y >= vp.y && prevPx.x < vp.x + vp.z && prevPx.y < vp.y + vp.w;
     if (scaled && seen) {
         // Upscaling: this frame's drawn pixel whose (jittered) sample falls nearest this pixel, weighed by how near

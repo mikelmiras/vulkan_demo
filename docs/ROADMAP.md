@@ -1572,7 +1572,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 
 | # | Task | Why |
 |---|------|-----|
-| 89 | Motion vectors: a velocity per pixel from each object's last-frame transform (and skinning, and the waves), for temporal AA and the temporal effects (SSGI, fog's history, upscaling) instead of reprojecting by depth alone | Moving things (the taxi, animated characters, water) smear and ghost under temporal AA: their history is looked up where the static world was |
+| 89 (done) | Motion vectors: a velocity per pixel from each object's last-frame transform (and skinning, and the waves), for temporal AA and the temporal effects (SSGI, fog's history, upscaling) instead of reprojecting by depth alone | Moving things (the taxi, animated characters, water) smear and ghost under temporal AA: their history is looked up where the static world was |
 | 90 | Clustered decals: decals binned into the light clusters (each pixel tests only the decals of its cluster), decal normal maps (cracks, tyre tracks, manhole covers), more than 64 | Every pixel tests every decal drawn; flat decals look painted on |
 | 91 | Half-resolution effects: screen-space reflections, SSGI and ambient occlusion traced at half size and brought up with a depth-aware (bilateral) upsample, temporally accumulated | Round 8's screen-space effects run per pixel in the lit shader; on a 1050 Ti at 1080p they're most of the frame |
 | 92 | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
@@ -1582,4 +1582,21 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | 96 | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
 | 97 | Shadows: tighter cascades (fitted to the visible depth range), cached shadows for static point lights' cubes, shadow-map space culled by the Hi-Z pyramid | Shadows still take a large share at medium and high; many cascades cover empty space |
 | 98 | A GPU benchmark: engine_bench --gpu timing the frame's passes on the stress scene and Night Drive (fixed camera paths), baselines per GPU, and quality presets picked from them on first run | Round 8 couldn't be measured on the 1050 Ti or the M4 here; a game should start at settings its GPU can hold |
+
+### Round 9 notes
+- **89, motion vectors**: DrawItem gains key (its entity's id, times four plus its kind: terrain, water, mesh);
+  prepareMotion keeps each key's model matrix and joints (the slice up to the next skinned item's offset in the
+  joints buffer) and gives this frame's items last frame's (unchanged if it wasn't drawn last frame), the joints
+  appended after this frame's in binding 3. InstanceData gains prevModel and motion (last frame's joints' offset);
+  the frame data the unjittered camera now and last frame (motionViewProj, motionPrevViewProj) and the frame time
+  (the waves at their last time). scene.vert / foliage.vert output both clip positions (locations 12, 13), and
+  with temporal AA the prepass draws with depth_prepass_velocity.frag into velocity_ (RG16F, uv units, cleared to
+  kNoVelocity), so the lit pipelines are unchanged. taa.frag (binding 3; push extra.w = 1) takes the history
+  from px - velocity * viewport, the depth's reprojection where nothing was drawn (the sky). Module API 59.
+  Checked: a cube sliding past a still camera keeps its tiles sharp with them, smears without (VKWORLD_PREPASS=0),
+  the falling playground likewise; under validation with sync checks (TAA, render scale 0.7, MSAA, the editor,
+  Night Drive). Lavapipe, Night Drive: the prepass 22.5 -> 35 ms, the temporal pass 60 -> 66 (of about 1290).
+  Not done: motion vectors without the prepass (VKWORLD_PREPASS=0: depth only, as before), for see-through things
+  and particles (drawn after it), the extra views (split-screen: depth only), the history taken from the nearest
+  depth's motion of a 3 x 3 (edges of moving things), SSGI's and the fog's histories following them.
 

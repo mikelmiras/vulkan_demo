@@ -83,8 +83,52 @@ void Renderer::drawBatch(VkCommandBuffer cb, const Batch& b) {
     vkCmdDrawIndexed(cb, r.indexCount, b.count, r.firstIndex, r.vertexOffset, b.first);
 }
 
+// Each item's motion since last frame (by its key): its model matrix then, and its joints then (appended to the
+// joints buffer after this frame's), for the motion vectors; this frame's kept for the next. Items not seen last
+// frame (new, or back in view) haven't moved.
+void Renderer::prepareMotion(const SceneRenderInfo& info) {
+    ++motionFrame_;
+    const size_t n = info.items ? info.items->size() : 0;
+    const size_t jointCount = info.joints ? info.joints->size() : 0;
+    prevModels_.resize(n);
+    prevJointOffsets_.assign(n, -1);
+    prevJoints_.clear();
+    // (each skinned item's joints run from its offset to the next one's in the buffer: terrains' layers in it too)
+    std::vector<int> starts;
+    for (size_t i = 0; i < n; ++i) {
+        const DrawItem& o = (*info.items)[i];
+        if (o.jointOffset >= 0) starts.push_back(o.jointOffset);
+        if (o.terrain && o.terrainLayers >= 0) starts.push_back(o.terrainLayers);
+    }
+    std::sort(starts.begin(), starts.end());
+    for (size_t i = 0; i < n; ++i) {
+        const DrawItem& o = (*info.items)[i];
+        prevModels_[i] = o.model;
+        if (!o.key) continue;
+        auto it = motion_.find(o.key);
+        const bool known = it != motion_.end() && it->second.frame + 1 == motionFrame_;
+        if (known) prevModels_[i] = it->second.model;
+        Motion& m = known ? it->second : motion_[o.key];
+        m.model = o.model;
+        m.frame = motionFrame_;
+        if (o.jointOffset >= 0 && (size_t)o.jointOffset < jointCount) {
+            auto next = std::upper_bound(starts.begin(), starts.end(), o.jointOffset);
+            const size_t end = next == starts.end() ? jointCount : std::min((size_t)*next, jointCount);
+            const Mat4* now = info.joints->data() + o.jointOffset;
+            const size_t count = end - (size_t)o.jointOffset;
+            prevJointOffsets_[i] = (int)(jointCount + prevJoints_.size());
+            if (known && m.joints.size() == count) prevJoints_.insert(prevJoints_.end(), m.joints.begin(), m.joints.end());
+            else prevJoints_.insert(prevJoints_.end(), now, now + count);
+            m.joints.assign(now, now + count);
+        }
+    }
+    for (auto it = motion_.begin(); it != motion_.end();)   // (gone: forgotten)
+        it = it->second.frame + 2 < motionFrame_ ? motion_.erase(it) : std::next(it);
+}
+
 void Renderer::uploadJoints(const SceneRenderInfo& info) {
-    size_t count = info.joints ? info.joints->size() : 0;
+    size_t now = info.joints ? info.joints->size() : 0;
+    size_t count = now + prevJoints_.size();   // (and last frame's, for the motion vectors)
     Buffer& buf = joints_[frame_];
     if (!buf.buffer || buf.size < std::max<size_t>(count, 1) * sizeof(Mat4)) {
         // This frame's fence has been waited on: its old buffer and descriptor set are free
@@ -102,7 +146,9 @@ void Renderer::uploadJoints(const SceneRenderInfo& info) {
         w.pBufferInfo = &bi;
         vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
     }
-    if (count) std::memcpy(buf.mapped, info.joints->data(), count * sizeof(Mat4));
+    if (now) std::memcpy(buf.mapped, info.joints->data(), now * sizeof(Mat4));
+    if (!prevJoints_.empty())
+        std::memcpy(static_cast<Mat4*>(buf.mapped) + now, prevJoints_.data(), prevJoints_.size() * sizeof(Mat4));
 }
 
 void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
@@ -359,13 +405,19 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         size_t outlineSlot = items.size();
         for (size_t i = 0; i < total; ++i) {
             InstanceData d;
+            size_t item = i;
             if (i < items.size()) {
                 d = instanceOf(items[i], srgbToLinear(items[i].color));
             } else {
                 while (!items[outlineSlot - items.size()].outlined) ++outlineSlot;   // (the next outlined item)
-                d = instanceOf(items[outlineSlot - items.size()], kOutlineSrgb);
+                item = outlineSlot - items.size();
+                d = instanceOf(items[item], kOutlineSrgb);
                 ++outlineSlot;
             }
+            // (where it was last frame: the motion vectors)
+            d.prevModel = item < prevModels_.size() ? prevModels_[item] : items[item].model;
+            d.motion[0] = item < prevJointOffsets_.size() ? (float)prevJointOffsets_[item] : -1.f;
+            d.motion[1] = d.motion[2] = d.motion[3] = 0.f;
             uint8_t* mirror = instanceMirror_.data() + i * stride;
             if (std::memcmp(mirror, &d, stride) == 0) continue;
             std::memcpy(mirror, &d, stride);

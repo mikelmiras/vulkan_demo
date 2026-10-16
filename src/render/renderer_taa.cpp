@@ -35,14 +35,17 @@ void Renderer::createTaaImages(TaaState& t) {
                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                           VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
     t.fresh = true;   // (made readable by the first pass: this may run before there's a command pool)
-    // Set k writes img[k]: it reads this frame's image, img[1 - k] (the history) and the depth
+    // Set k writes img[k]: it reads this frame's image, img[1 - k] (the history), the depth and (the main view's)
+    // the motion vectors (the extra views' bind something valid there, never read: they have none)
     for (int k = 0; k < 2; ++k) {
-        VkDescriptorImageInfo infos[3] = {
+        const bool mainView = &t == &taa_ && velocity_.image;
+        VkDescriptorImageInfo infos[4] = {
             {postSampler_, hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
             {postSampler_, t.img[1 - k].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-            {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL}};
-        VkWriteDescriptorSet w[3];
-        for (uint32_t i = 0; i < 3; ++i) {
+            {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
+            {nearestSampler_, mainView ? velocity_.view : t.img[1 - k].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+        VkWriteDescriptorSet w[4];
+        for (uint32_t i = 0; i < 4; ++i) {
             w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             w[i].dstSet = t.sets[k];
             w[i].dstBinding = i;
@@ -50,7 +53,7 @@ void Renderer::createTaaImages(TaaState& t) {
             w[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             w[i].pImageInfo = &infos[i];
         }
-        vkUpdateDescriptorSets(device_, 3, w, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
     }
     t.history = false;
 }
@@ -141,7 +144,7 @@ void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaSta
     p.extra[0] = temporal ? t.jitterPx[0] : 0.f;
     p.extra[1] = temporal ? t.jitterPx[1] : 0.f;
     p.extra[2] = scale < 0.999f ? (temporal ? 0.25f : 0.5f) : 0.f;
-    p.extra[3] = 0.f;
+    p.extra[3] = &t == &taa_ && velocityDrawn_ ? 1.f : 0.f;   // (the motion vectors, where they were drawn)
     vkCmdPushConstants(cb, taaLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(p), &p);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);

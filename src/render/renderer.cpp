@@ -684,7 +684,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 
     VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     rci.colorAttachmentCount = colorless ? 0 : 1;
-    rci.pColorAttachmentFormats = &hdrFormat_;   // (the scene renders into the HDR image)
+    rci.pColorAttachmentFormats = d.colorFormat != VK_FORMAT_UNDEFINED ? &d.colorFormat : &hdrFormat_;   // (the scene: HDR)
     rci.depthAttachmentFormat = depthOnly ? shadowFormat_ : depthFormat_;
     rci.stencilAttachmentFormat = depthOnly ? VK_FORMAT_UNDEFINED : depthFormat_;
 
@@ -823,6 +823,16 @@ void Renderer::createSampledPipelines() {
     depth.vertShader = "foliage.vert.spv";
     depth.cull = VK_CULL_MODE_NONE;
     prepassFoliagePipeline_ = createPipeline(depth);
+    if (samples_ == VK_SAMPLE_COUNT_1_BIT) {   // (with temporal AA: the motion vectors too)
+        depth.fragShader = "depth_prepass_velocity.frag.spv";
+        depth.noColor = false;
+        depth.colorWrite = true;
+        depth.colorFormat = VK_FORMAT_R16G16_SFLOAT;
+        prepassFoliageVelocityPipeline_ = createPipeline(depth);
+        depth.vertShader = "scene.vert.spv";
+        depth.cull = VK_CULL_MODE_BACK_BIT;
+        prepassVelocityPipeline_ = createPipeline(depth);
+    }
     sceneEarlyPipeline_ = createPipeline({"scene.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
                                           false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
     foliageEarlyPipeline_ = createPipeline({"foliage.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_NONE,
@@ -847,7 +857,8 @@ void Renderer::createSampledPipelines() {
 void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &ssrCapturePipeline_,
                           &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
-                          &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_}) {
+                          &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
+                          &prepassVelocityPipeline_, &prepassFoliageVelocityPipeline_}) {
         if (*p) vkDestroyPipeline(device_, *p, nullptr);
         *p = VK_NULL_HANDLE;
     }
@@ -1320,6 +1331,11 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         lumFresh_ = false;
     }
+    if (velocityFresh_ && velocity_.image) {   // (motion vectors' image, just made: readable from now)
+        mipBarrier(cb, velocity_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        velocityFresh_ = false;
+    }
     if (refractionFresh_ && refraction_.image) {   // (water's refraction picture, just made: readable from now)
         mipBarrier(cb, refraction_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
@@ -1395,6 +1411,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     const float sx = std::clamp(scene.viewportX, 0.f, (float)extent_.width), sy = std::clamp(scene.viewportY, 0.f, (float)extent_.height);
     const float sw = std::min(scene.viewportW, (float)extent_.width - sx), sh = std::min(scene.viewportH, (float)extent_.height - sy);
     const bool prepassed = prepass_ && info.items && sw >= 1.f && sh >= 1.f;
+    velocityDrawn_ = prepassed && velocityOn_;
     if (prepassed) {
         recordPrepass(cb, scene, sceneBatches_, gpuCulled_, {{(int32_t)sx, (int32_t)sy}, {(uint32_t)sw, (uint32_t)sh}});
         timestamp(cb, "Depth prepass");
@@ -1663,8 +1680,10 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
 
 void Renderer::drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const std::vector<Batch>& batches, bool culled,
                           bool depthOnly) {
-    VkPipeline pipeline = depthOnly ? prepassPipeline_ : prepass_ ? sceneEarlyPipeline_ : scenePipeline_;
-    VkPipeline plants = depthOnly ? prepassFoliagePipeline_ : prepass_ ? foliageEarlyPipeline_ : foliagePipeline_;
+    VkPipeline pipeline = depthOnly ? (velocityOn_ ? prepassVelocityPipeline_ : prepassPipeline_)
+                                    : prepass_ ? sceneEarlyPipeline_ : scenePipeline_;
+    VkPipeline plants = depthOnly ? (velocityOn_ ? prepassFoliageVelocityPipeline_ : prepassFoliagePipeline_)
+                                  : prepass_ ? foliageEarlyPipeline_ : foliagePipeline_;
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     VkDescriptorSet bound = VK_NULL_HANDLE;
     for (size_t i = 0; i < batches.size(); ++i) {
@@ -1700,12 +1719,31 @@ void Renderer::recordPrepass(VkCommandBuffer cb, const SceneRenderInfo& info, co
     ri.layerCount = 1;
     ri.pDepthAttachment = &depthAtt;
     ri.pStencilAttachment = &depthAtt;
+    // With temporal AA, each pixel's motion too (where nothing's drawn: kNoVelocity, so the history is found by
+    // the depth: the sky)
+    VkRenderingAttachmentInfo velocity{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    if (velocityOn_) {
+        mipBarrier(cb, velocity_.image, 0, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        velocity.imageView = velocity_.view;
+        velocity.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        velocity.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        velocity.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        velocity.clearValue.color = {{kNoVelocity, 0.f, 0.f, 0.f}};
+        ri.colorAttachmentCount = 1;
+        ri.pColorAttachments = &velocity;
+    }
     vkCmdBeginRendering(cb, &ri);
     VkViewport viewport{(float)area.offset.x, (float)area.offset.y, (float)area.extent.width, (float)area.extent.height, 0.f, 1.f};
     vkCmdSetViewport(cb, 0, 1, &viewport);
     vkCmdSetScissor(cb, 0, 1, &area);
     drawOpaque(cb, info, batches, culled, true);
     vkCmdEndRendering(cb);
+    if (velocityOn_)
+        mipBarrier(cb, velocity_.image, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                   VK_ACCESS_SHADER_READ_BIT);
 }
 
 
@@ -1806,6 +1844,15 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         refractOn_ = anyWater && aoSupported_ && ssrCapturePipeline_ && refraction_.image;
         u.waterInfo[0] = refractOn_ ? 1.f : 0.f;
         u.waterInfo[1] = (float)boxes;
+    }
+    if (shadows) {   // motion vectors: the camera now and last frame, unjittered (the prepass writes them with temporal AA)
+        velocityOn_ = aa_ == Antialiasing::Temporal && prepass_ && info.items && prepassVelocityPipeline_ && velocity_.image;
+        u.motionViewProj = info.viewProj;
+        u.motionPrevViewProj = motionPrevValid_ ? motionPrevViewProj_ : info.viewProj;
+        u.motion[0] = std::clamp(info.frameSeconds, 0.f, 0.25f);
+        u.motion[1] = velocityOn_ ? 1.f : 0.f;
+        motionPrevViewProj_ = info.viewProj;
+        motionPrevValid_ = true;
     }
     if (shadows) writeDecals(info, u);   // (and the weather)
     else u.weather[0] = info.wetness, u.weather[1] = info.puddles, u.weather[2] = info.rain;
@@ -2015,6 +2062,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
     {
         PROFILE_SCOPE("Instances");
+        prepareMotion(info);   // (before the instances and joints: where each was last frame)
         prepareInstances(info);
         uploadJoints(info);
         uploadParticles(info);

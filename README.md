@@ -528,8 +528,11 @@ dropping on the right.
   tonemapper (colours below about 0.8 come out as they are). Sky colour, fog, ambient, exposure and bloom are
   per-scene settings (Inspector, with nothing selected).
 - **Anti-aliasing**: 4x MSAA by default; or **temporal** (each frame drawn with a different sub-pixel offset and
-  blended with the frames before, found where they were through the depth and clamped to the colours around each
-  pixel so moving things don't smear): it also smooths shading and thin lines, and costs much less than MSAA on
+  blended with the frames before, found where they were and clamped to the colours around each pixel so moving
+  things don't smear). Where they were comes from **motion vectors**: the depth prepass also writes each pixel's
+  motion since last frame, from each object's last transform, skinned joints and waves as well as the camera's,
+  so a moving car or a running character keeps its detail; the sky's comes from the depth. It also smooths shading
+  and thin lines, and costs much less than MSAA on
   slower GPUs. A project chooses what its game starts with (`"antialiasing"` in project.json, Project Settings; the
   editor uses it too until View > Anti-aliasing is set, which is remembered); players change it with the game state's
   `settings.antialiasing` (`msaa`, `taa`, `off` or `default`); `vkgame --aa msaa|taa|off` or `VKWORLD_AA=taa` override.

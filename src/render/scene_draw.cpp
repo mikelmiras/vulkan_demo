@@ -16,6 +16,7 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
             DrawItem d;
             d.model = worlds[i];
             d.mesh = e.terrain->meshes[0];
+            d.key = e.id * 4u + 1u;
             d.terrain = true;
             d.roughness = 0.9f;
             d.outlined = (e.id == outlined && outlined != kNoEntity) ||
@@ -56,6 +57,7 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
             d.alphaMode = 2;
             d.opacity = 1.f - std::clamp(w.clarity, 0.f, 1.f) * 0.85f;
             d.water = true;
+            d.key = e.id * 4u + 2u;
             d.waveHeight = std::max(w.waveHeight, 0.f);
             d.waveLength = std::max(w.waveLength, 0.05f);
             d.waveDirection = w.waveDirection * DEG2RAD - yaw;
@@ -69,6 +71,7 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
         if (!e.meshRenderer || !scene.visibleInHierarchy(e.id)) continue;
         DrawItem d;
         d.model = worlds[i];
+        d.key = e.id * 4u + 3u;
         d.mesh = e.meshRenderer->mesh;
         if (e.softBody && e.softBody->mesh >= 0 && (!meshes || e.softBody->mesh < meshes->count()))
             d.mesh = e.softBody->mesh;   // (its own deforming copy: physics/soft_body.h)

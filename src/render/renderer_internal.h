@@ -80,6 +80,11 @@ struct FrameUBO {
     float waterInfo[4];
     float waterBox[4][4];
     float waterLevel[4][4];
+    // Motion vectors: this frame's camera and last frame's, both without temporal AA's jitter; x = seconds since last
+    // frame (the waves' motion), y = 1: the prepass writes them
+    Mat4 motionViewProj;
+    Mat4 motionPrevViewProj;
+    float motion[4];
 };
 
 // A decal (set 0, binding 24): render/decals.h picks them
@@ -109,6 +114,8 @@ struct InstanceData {
                          // y = log2 of its larger side (texture_streaming.h)
     float layers[4];     // clear coat, its roughness, sheen, anisotropy
     float surface[4];    // parallax depth (0: none), detail tiling, detail strength (0: none), w = 1: sheltered
+    Mat4 prevModel;      // last frame's model matrix (motion vectors)
+    float motion[4];     // x = last frame's joints' first matrix (-1: none)
 };
 
 // The six planes of a view-projection's frustum (Vulkan clip space: 0 <= z <= w), as (normal, distance)

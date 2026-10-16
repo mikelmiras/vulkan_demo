@@ -21,6 +21,8 @@ layout(location = 8) out float vHole;   // terrains: > 0 on triangles using a ho
 layout(location = 9) flat out vec4 vStream;   // texture streaming (Instance.stream)
 layout(location = 10) flat out vec4 vLayers;  // clear coat, its roughness, sheen, anisotropy (Instance.layers)
 layout(location = 11) flat out vec4 vSurface; // parallax, detail, sheltered (Instance.surface)
+layout(location = 12) out vec4 vClipNow;      // motion vectors (the prepass): where it is, unjittered ...
+layout(location = 13) out vec4 vClipBefore;   // ... and where it was last frame
 
 invariant gl_Position;   // (the depth prepass and the lit pass after it must land on the same depths)
 
@@ -49,4 +51,16 @@ void main() {
         vSplat = vec4(offset.y / max(inst.emissive.x * 1.65, 1e-3), 0.0, 0.0, 0.0);   // (1: the highest a crest goes)
     }
     gl_Position = frame.viewProj * world;
+    if (frame.motion.y > 0.5) {   // (last frame: its model, joints and waves then)
+        vec4 before = PREV_SKINNED_MODEL(inst) * vec4(inPos, 1.0);
+        if (inst.params.x > 2.5) {
+            vec3 offset, normal;
+            gerstner(before.xz, inst.stream.y - frame.motion.x, inst.emissive, offset, normal);
+            before.xyz += offset;
+        }
+        vClipNow = frame.motionViewProj * world;
+        vClipBefore = frame.motionPrevViewProj * before;
+    } else {
+        vClipNow = vClipBefore = vec4(0.0, 0.0, 0.0, 1.0);
+    }
 }
