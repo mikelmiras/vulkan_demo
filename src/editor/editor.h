@@ -365,6 +365,7 @@ private:
     std::vector<PlantSet> plants_;
     std::vector<ProbeInfo> probes_;
     std::vector<DecalInfo> decals_;
+    std::vector<GpuEmitterInfo> gpuEmitters_;
     uint32_t probeBakes_ = 0;   // bumped by Bake: every reflection probe is baked again
     void addReflectionProbe();
     void addDecal();

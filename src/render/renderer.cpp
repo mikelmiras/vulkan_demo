@@ -734,7 +734,7 @@ void Renderer::createPipelines() {
         {15, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, fragFog, nullptr},   // their clusters
         {16, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr},     // foliage instances
         {17, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // GI probes (renderer_gi.cpp)
-        {18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // last frame (reflections)
+        {18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // last frame (reflections; GPU particles)
         {19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // texture streaming's reports
         {20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // the sun's cascades' depths
         {21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // volumetric fog
@@ -1255,6 +1255,7 @@ void Renderer::createResources(const MeshLibrary&) {
     createCulling();
     createLightBuffers();
     createDecalBuffers();
+    createGpuParticles();
     createGi();
     writeSsrBinding();
     writeRefractionBinding();
@@ -1455,6 +1456,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         timestamp(cb, "Volumetric fog");
     }
     if (prepassed) recordTrace(cb, scene);   // (reflections and GI at half size: renderer_trace.cpp)
+    recordGpuParticles(cb);
 
     // ---- Pass 1: 3D scene (MSAA, resolved into the HDR image)
     Vec3 sky = srgbToLinear(info.sky);
@@ -1463,7 +1465,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color.clearValue.color = {{sky.x, sky.y, sky.z, 1.f}};
     // (water: the pass stops after the opaque things to copy the picture for its refraction, then goes on)
-    const bool splitForWater = refractOn_ && info.items && !transparentBatches_.empty();
+    const bool splitForWater = refractOn_ && info.items &&
+                               (!transparentBatches_.empty() || particleAlpha_ + particleAdditive_ + gpuParticleSlots_ > 0);
     if (colorMsaa_.image) {
         color.imageView = colorMsaa_.view;
         color.storeOp = splitForWater ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -1583,6 +1586,10 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         if (particleAdditive_) {
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAdditivePipeline_);
             vkCmdDraw(cb, 6, particleAdditive_, 0, particleAlpha_);
+        }
+        if (gpuParticleSlots_) {   // (the GPU's: as many as its pass counted, after the CPU's)
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAdditivePipeline_);
+            vkCmdDrawIndirect(cb, gpuIndirect_[frame_].buffer, 0, 1, sizeof(VkDrawIndirectCommand));
         }
 
         for (const Batch& b : outlineBatches_) {
@@ -1874,7 +1881,9 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
                 u.waterLevel[boxes][1] = d.waterDepth;
                 ++boxes;
             }
-        refractOn_ = anyWater && aoSupported_ && ssrCapturePipeline_ && refraction_.image;
+        // (and soft particles, which fade where they meet what's behind them: the same copy)
+        const bool anyParticles = (info.particles && !info.particles->empty()) || (info.gpuEmitters && !info.gpuEmitters->empty());
+        refractOn_ = (anyWater || anyParticles) && aoSupported_ && ssrCapturePipeline_ && refraction_.image;
         u.waterInfo[0] = refractOn_ ? 1.f : 0.f;
         u.waterInfo[1] = (float)boxes;
     }
@@ -2060,12 +2069,15 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         fogPrevRange_[1] = u.fogRange[1];
     }
     fogHistory_ = fogOn_;
+    gpuSplash_ = false;
+    gpuDt_ = std::clamp(info.frameSeconds, 0.f, 0.1f);
     if (captureOn(info) && ssrValid_) {   // the last frame's camera, for rays into its picture
         u.prevViewProj = ssrViewProj_;
         u.prevCamPos[0] = ssrCamPos_.x, u.prevCamPos[1] = ssrCamPos_.y, u.prevCamPos[2] = ssrCamPos_.z;
         u.prevCamPos[3] = reflectionsOn(info) ? 1.f : 0.f;
         u.prevCamForward[0] = ssrCamForward_.x, u.prevCamForward[1] = ssrCamForward_.y, u.prevCamForward[2] = ssrCamForward_.z;
         u.prevCamForward[3] = ssgiOn(info) ? std::clamp(info.ssgiIntensity, 0.f, 1.f) : 0.f;
+        gpuSplash_ = true;   // (GPU particles can find what they hit in that picture)
         std::memcpy(u.prevViewport, ssrViewport_, sizeof(ssrViewport_));
     }
     ssrValid_ = captureOn(info) && info.items && ssrCapturePipeline_;   // (this frame's picture is captured)
@@ -2113,6 +2125,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         prepareMotion(info);   // (before the instances and joints: where each was last frame)
         prepareInstances(info);
         uploadJoints(info);
+        prepareGpuParticles(info);   // (before the particles' buffer is sized: theirs go after the CPU's)
         uploadParticles(info);
     }
 
@@ -2159,6 +2172,7 @@ void Renderer::shutdown() {
     destroyGi();
     destroyFog();
     destroySky();
+    destroyGpuParticles();
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);

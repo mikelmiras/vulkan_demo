@@ -39,7 +39,8 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/gi_project.comp shaders/ssr_capture.frag shaders/ssr_capture_ms.frag shaders/depth_prepass.frag
                    shaders/fog_inject.comp shaders/fog_integrate.comp shaders/fog_surface.comp shaders/luminance.frag
                    shaders/adapt.frag shaders/sky_transmittance.frag shaders/sky_view.frag shaders/sky_multiple.frag
-                   shaders/ssr_trace.frag shaders/gi_trace.frag)
+                   shaders/ssr_trace.frag shaders/gi_trace.frag
+                   shaders/particles.comp)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -228,6 +229,7 @@ set(ENGINE_SOURCES
   src/render/renderer_sky.cpp
   src/render/renderer_decals.cpp
   src/render/renderer_trace.cpp
+  src/render/renderer_particles.cpp
   src/assets/mesh_lod.cpp
   src/assets/retarget.cpp
   src/render/renderer_lights.cpp

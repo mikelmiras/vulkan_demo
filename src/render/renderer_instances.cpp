@@ -490,7 +490,7 @@ void Renderer::uploadParticles(const SceneRenderInfo& info) {
         Vec3 da = a->position - info.camPos, db = b->position - info.camPos;
         return dot(da, da) > dot(db, db);
     });
-    size_t count = alpha.size() + additive.size();
+    size_t count = alpha.size() + additive.size() + gpuParticleSlots_;   // (the GPU's after them)
     Buffer& buf = particles_[frame_];
     if (!buf.buffer || buf.size < std::max<size_t>(count, 1) * sizeof(Gpu)) {
         // This frame's fence has been waited on: its old buffer and descriptor set are free

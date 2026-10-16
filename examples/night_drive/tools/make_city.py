@@ -283,13 +283,14 @@ entity("Headlights", (0, 0.2, -2.4), rot=(-14, 0, 0), parent=taxi,
 entity("Tail glow", (0, 0.3, 2.6), parent=taxi, light=point_light((1.0, 0.08, 0.04), 0.6, 4.0))
 # Rain round the taxi (so wherever the camera follows it): streaks falling from a sphere above it, slanting a little
 # in the wind, lit by the lamps, the neon and the headlights (dark elsewhere: they show where there's light)
-# (seen from 100 m up: drops drawn a few centimetres wide, streaks a metre long, or they'd be under a pixel)
+# (seen from 100 m up: drops drawn a few centimetres wide, streaks a metre long, or they'd be under a pixel; on the
+# GPU: thousands, splashing where they land)
 entity("Rain", (0, 9, 0), rot=(172, 0, 0), parent=taxi, particles={
-    "rate": 2600, "burst": 0, "playOnStart": True, "duration": 0, "lifetime": 0.95, "lifetimeRandom": 0.15,
+    "rate": 7000, "burst": 0, "playOnStart": True, "duration": 0, "lifetime": 0.95, "lifetimeRandom": 0.15,
     "speed": 11.0, "speedRandom": 0.15, "spread": 3, "radius": 20, "gravity": 0.0, "drag": 0.0,
     "startSize": 0.08, "endSize": 0.08, "startColor": [0.75, 0.8, 0.9], "endColor": [0.75, 0.8, 0.9],
-    "startAlpha": 0.45, "endAlpha": 0.45, "intensity": 2.5, "additive": True, "maxParticles": 3000,
-    "stretch": 0.09, "lit": True})
+    "startAlpha": 0.45, "endAlpha": 0.45, "intensity": 2.5, "additive": True, "maxParticles": 8000,
+    "stretch": 0.09, "lit": True, "gpu": True})
 for name, (x, z) in (("Wheel FL", (-0.85, -1.45)), ("Wheel FR", (0.85, -1.45)), ("Wheel BL", (-0.85, 1.45)), ("Wheel BR", (0.85, 1.45))):
     entity(name, (x, -0.25, z), parent=taxi)
     wheel = next_id[0] - 1

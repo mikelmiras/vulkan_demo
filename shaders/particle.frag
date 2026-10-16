@@ -1,7 +1,8 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
-// A soft round dot, or a streak (soft across, fading towards its tail). Additive particles output light (blended
+// A soft round dot, or a streak (soft across, fading towards its tail), fading where it meets what is behind it
+// (soft particles, where the opaque picture was copied). Additive particles output light (blended
 // ONE, ONE), others colour over what's behind. Lit ones (rain) take their colour times the light reaching them:
 // the sun, the sky's and the point and spot lights of their cluster, scattered mostly onwards (a drop in a beam
 // seen against the light shines brightest), without shadows.
@@ -14,6 +15,8 @@ struct Light {
 };
 layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; };
 layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]; };
+// The opaque picture and its distances (renderer.cpp copies it before the see-through things): soft particles
+layout(set = 0, binding = 26) uniform sampler2D behind;
 
 layout(location = 0) in vec2 vCorner;
 layout(location = 1) in vec4 vColor;
@@ -69,6 +72,12 @@ void main() {
         float d = length(vCorner);
         if (d >= 1.0) discard;
         a = vColor.a * (1.0 - smoothstep(0.35, 1.0, d));
+    }
+    if (frame.waterInfo.x > 0.5) {   // soft: fading out where what's behind is close (no hard line into the ground)
+        float sceneZ = texelFetch(behind, ivec2(gl_FragCoord.xy), 0).a;
+        float myZ = dot(vWorld - frame.camPos.xyz, frame.camForward.xyz);
+        a *= clamp((sceneZ - myZ) / 0.35, 0.0, 1.0);
+        if (a <= 0.0) discard;
     }
     vec3 rgb = vKind.y > 0.5 ? vColor.rgb * lightAt(vWorld) : vColor.rgb;
     outColor = vec4(rgb * a, a);   // premultiplied: the blend states take it from here

@@ -29695,7 +29695,7 @@
    },
    "parent": 851,
    "particles": {
-    "rate": 2600,
+    "rate": 7000,
     "burst": 0,
     "playOnStart": true,
     "duration": 0,
@@ -29723,9 +29723,10 @@
     "endAlpha": 0.45,
     "intensity": 2.5,
     "additive": true,
-    "maxParticles": 3000,
+    "maxParticles": 8000,
     "stretch": 0.09,
-    "lit": true
+    "lit": true,
+    "gpu": true
    }
   },
   {

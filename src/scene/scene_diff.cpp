@@ -136,7 +136,7 @@ bool eq(const ParticleEmitter& a, const ParticleEmitter& b) {
            a.drag == b.drag && a.startSize == b.startSize && a.endSize == b.endSize && eq(a.startColor, b.startColor) &&
            eq(a.endColor, b.endColor) && a.startAlpha == b.startAlpha && a.endAlpha == b.endAlpha &&
            a.intensity == b.intensity && a.additive == b.additive && a.maxParticles == b.maxParticles &&
-           a.stretch == b.stretch && a.lit == b.lit;
+           a.stretch == b.stretch && a.lit == b.lit && a.gpu == b.gpu;
 }
 bool eq(const PrefabLink& a, const PrefabLink& b) { return a.prefab == b.prefab && a.source == b.source; }
 bool eq(const Skin& a, const Skin& b) {

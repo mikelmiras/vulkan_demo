@@ -80,6 +80,18 @@ struct LightInfo {
 };
 
 // A reflection probe to draw with (ReflectionProbe, scene/scene.h): baked when its key is new
+// A particle emitter simulated on the GPU (ParticleEmitter::gpu, collectGpuEmitters): where it is and how it looks
+struct GpuEmitterInfo {
+    uint32_t key = 0;   // (its entity: its particles are kept by it)
+    Vec3 position, up{0, 1, 0};
+    float rate = 20.f, lifetime = 1.5f, lifetimeRandom = 0.3f, speed = 2.f, speedRandom = 0.5f, spread = 25.f;
+    float radius = 0.f, gravity = 0.f, drag = 0.f, startSize = 0.2f, endSize = 0.05f, stretch = 0.f;
+    Vec3 startColor{1, 1, 1}, endColor{1, 1, 1};   // linear, times the brightness
+    float startAlpha = 1.f, endAlpha = 0.f;
+    bool lit = false;
+    int maxParticles = 500;
+};
+
 // A decal (Decal, collectDecals): its box and what it does to the surfaces in it (render/decals.h picks which are drawn)
 struct DecalInfo {
     Mat4 toBox;                 // world -> its box's space (-0.5..0.5 each way; it projects down its -y)
@@ -171,6 +183,8 @@ struct SceneRenderInfo {
     float skyIntensity = 1.f, skyRotation = 0.f;   // brightness, turn around the vertical (radians)
     const std::vector<ProbeInfo>* probes = nullptr;   // the four nearest the camera are used
     const std::vector<DecalInfo>* decals = nullptr;   // the nearest Renderer::kMaxDecals are drawn (main view's camera)
+    const std::vector<GpuEmitterInfo>* gpuEmitters = nullptr;   // simulated on the GPU (main view; null: none run)
+    bool gpuEmitting = true;   // (they emit: false keeps what's flying)
     // Weather (RenderSettings'): wetness, puddles and rain
     float wetness = 0.f, puddles = 0.5f, rain = 0.f;
     int antialiasing = -1;   // a Renderer::Antialiasing to switch to (-1: keep the current one)
@@ -460,7 +474,7 @@ private:
                             std::vector<int>& shadowLayer);
     void recordShadows(VkCommandBuffer cb);
     // GPU pass times (core/profiler.h): timestamps between the passes, read back a couple of frames later
-    static constexpr uint32_t kMaxTimestamps = 8;
+    static constexpr uint32_t kMaxTimestamps = 16;
     VkQueryPool timestamps_[MAX_FRAMES] = {};
     std::vector<const char*> stampNames_[MAX_FRAMES];
     uint32_t timestampBits_ = 0;
@@ -682,6 +696,27 @@ private:
     void recordInstanceUpload(VkCommandBuffer cb);
     Buffer joints_[MAX_FRAMES];      // skinning matrices (storage buffer)
     Buffer particles_[MAX_FRAMES];   // particles to draw (storage buffer)
+    // GPU particles (renderer_particles.cpp): a ring of slots per emitter in one state buffer, written to the draw
+    // list after the CPU's particles by a compute pass, drawn indirectly
+    struct GpuRing {
+        uint32_t key, offset, slots, head;
+        float pending;   // (fractional particles owed by the rate)
+    };
+    std::vector<std::pair<uint32_t, uint32_t>> gpuLayout_;   // (key, slots) as laid out
+    std::vector<GpuRing> gpuRings_;
+    uint32_t gpuTotalSlots_ = 0, gpuParticleSlots_ = 0, gpuEmitterCount_ = 0;
+    bool gpuClearState_ = false, gpuSplash_ = false;
+    float gpuDt_ = 0.f;
+    Buffer gpuParticleState_, gpuEmitterBuffers_[MAX_FRAMES], gpuIndirect_[MAX_FRAMES];
+    VkDescriptorSetLayout gpuParticleSetLayout_ = VK_NULL_HANDLE;
+    VkPipelineLayout gpuParticleLayout_ = VK_NULL_HANDLE;
+    VkPipeline gpuParticlePipeline_ = VK_NULL_HANDLE;
+    VkDescriptorPool gpuParticlePool_ = VK_NULL_HANDLE;
+    VkDescriptorSet gpuParticleSets_[MAX_FRAMES] = {};
+    void createGpuParticles();
+    void destroyGpuParticles();
+    void prepareGpuParticles(const SceneRenderInfo& info);
+    void recordGpuParticles(VkCommandBuffer cb);
     VkPipeline particleAlphaPipeline_ = VK_NULL_HANDLE, particleAdditivePipeline_ = VK_NULL_HANDLE;
     Buffer skinBuffer_;
     size_t vertexCapacity_ = 0, indexCapacity_ = 0, uploadedVertices_ = 0, uploadedIndices_ = 0;

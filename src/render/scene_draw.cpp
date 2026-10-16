@@ -178,6 +178,30 @@ std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>
     return lights;
 }
 
+std::vector<GpuEmitterInfo> collectGpuEmitters(const Scene& scene, const std::vector<Mat4>& worlds) {
+    std::vector<GpuEmitterInfo> out;
+    for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i) {
+        const Entity& e = scene.entities[i];
+        if (!e.particleEmitter || !e.particleEmitter->gpu || !e.particleEmitter->playOnStart || !scene.visibleInHierarchy(e.id))
+            continue;
+        const Mat4& m = worlds[i];
+        GpuEmitterInfo g;
+        g.key = e.id;
+        g.position = {m.m[12], m.m[13], m.m[14]};
+        g.up = normalize(transformDir(m, {0, 1, 0}));
+        const ParticleEmitter& p = *e.particleEmitter;
+        g.rate = p.rate, g.lifetime = p.lifetime, g.lifetimeRandom = p.lifetimeRandom, g.speed = p.speed;
+        g.speedRandom = p.speedRandom, g.spread = p.spread, g.radius = p.radius, g.gravity = p.gravity, g.drag = p.drag;
+        g.startSize = p.startSize, g.endSize = p.endSize, g.stretch = p.stretch;
+        g.startColor = srgbToLinear(p.startColor) * p.intensity;
+        g.endColor = srgbToLinear(p.endColor) * p.intensity;
+        g.startAlpha = p.startAlpha, g.endAlpha = p.endAlpha, g.lit = p.lit;
+        g.maxParticles = std::clamp(p.maxParticles, 1, 65536);
+        out.push_back(g);
+    }
+    return out;
+}
+
 std::vector<DecalInfo> collectDecals(const Scene& scene, const std::vector<Mat4>& worlds) {
     std::vector<DecalInfo> decals;
     for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i) {

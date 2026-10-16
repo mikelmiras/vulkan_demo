@@ -454,6 +454,9 @@ struct ParticleEmitter {
     int maxParticles = 500;
     float stretch = 0.f;            // streaks along their motion, as long as this many seconds of it (rain); 0: dots
     bool lit = false;               // lit by the scene's lights (rain in the headlights) instead of glowing on its own
+    // Simulated on the GPU (renderer_particles.cpp): thousands cost little, drops that hit something splash; additive
+    // only (they aren't sorted), and game code's bursts still come from the CPU
+    bool gpu = false;
 };
 
 // Marks an entity as part of a copy ("instance") of a prefab

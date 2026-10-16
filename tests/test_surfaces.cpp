@@ -143,3 +143,35 @@ TEST(decals_culled_to_the_view) {
     CHECK(f.visible(Vec3{7, 0, -10}, 2.f));    // (the edge at x = 5.77 there: 7 - 2 reaches in)
     CHECK(!f.visible(Vec3{0, 0, -150}, 1.f));  // (past the far plane)
 }
+
+TEST(gpu_particle_emitters_collected_and_saved) {
+    Scene scene;
+    Entity& rain = scene.create("Rain");
+    rain.transform.position[1] = 10.f;
+    rain.transform.rotation[0] = 180.f;   // (pointing down)
+    ParticleEmitter p;
+    p.gpu = true;
+    p.rate = 5000.f;
+    p.maxParticles = 9000;
+    p.intensity = 2.f;
+    p.startColor = {1.f, 1.f, 1.f};
+    rain.particleEmitter = p;
+    const EntityId rainId = rain.id;   // (the next create may move the entities)
+    Entity& sparks = scene.create("Sparks");
+    sparks.particleEmitter = ParticleEmitter{};   // (the CPU's)
+    std::vector<GpuEmitterInfo> gpu = collectGpuEmitters(scene, scene.worldMatrices());
+    REQUIRE(gpu.size() == 1);
+    CHECK(gpu[0].key == rainId);
+    CHECK_NEAR(gpu[0].position.y, 10.0, 1e-5);
+    CHECK_NEAR(gpu[0].up.y, -1.0, 1e-4);
+    CHECK(gpu[0].maxParticles == 9000);
+    CHECK_NEAR(gpu[0].startColor.x, 2.0, 1e-5);   // (linear, times the brightness)
+    MeshLibrary meshes = buildMeshLibrary();
+    std::string error;
+    auto path = test::tempPath("gpu_particles.vkw").string();
+    REQUIRE(saveScene(path, scene, meshes, textures(), error));
+    Scene loaded;
+    REQUIRE(loadScene(path, loaded, meshes, textures(), error));
+    CHECK(loaded.findByName("Rain")->particleEmitter->gpu);
+    CHECK(!loaded.findByName("Sparks")->particleEmitter->gpu);
+}

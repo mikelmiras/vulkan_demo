@@ -760,6 +760,7 @@ int main(int argc, char** argv) {
         std::vector<PlantSet> plants = collectPlants(scene, worlds, meshes);
         std::vector<ProbeInfo> probes = collectProbes(scene, worlds);
         std::vector<DecalInfo> decals = collectDecals(scene, worlds);
+        std::vector<GpuEmitterInfo> gpuEmitters = collectGpuEmitters(scene, worlds);
         std::vector<ParticleDraw> particles;
         game.particles().collect(particles);
         SceneRenderInfo info;
@@ -768,6 +769,7 @@ int main(int argc, char** argv) {
         info.lights = &lights;
         info.probes = &probes;
         info.decals = &decals;
+        info.gpuEmitters = &gpuEmitters;
         info.joints = &joints;
         info.particles = &particles;
         info.sky = scene.render.sky;

@@ -811,7 +811,11 @@ a cone around the entity's +Y, an emitting sphere, gravity, drag, size, colour a
 blending. **Stretch** draws them as streaks along their motion (as long as that many seconds of it: rain, sparks
 flying) instead of dots; **Lit** makes them take the scene's light (the sun, the sky's, and the point and spot
 lights of their part of the view, scattered mostly forwards; no shadows) instead of glowing: rain that shows in the
-headlights and under the lamps and is dark elsewhere. Particles stay where they were emitted and outlive their entity. The editor previews emitters outside
+headlights and under the lamps and is dark elsewhere. **On the GPU** simulates an emitter in a compute pass:
+thousands of particles cost little, and drops that hit what's on screen splash there (with screen-space
+reflections or GI on: they find it in the last frame's picture); additive only (they aren't sorted), and game
+code's bursts from it still come from the CPU. Particles are **soft**: they fade where they meet the surfaces
+behind them instead of cutting a hard line (the solid picture is copied for it mid-frame, as for water). Particles stay where they were emitted and outlive their entity. The editor previews emitters outside
 Play (View > Preview particles; Inspector > Preview burst). Game code bursts an entity's emitter or emits any look
 anywhere:
 

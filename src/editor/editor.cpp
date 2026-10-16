@@ -262,6 +262,9 @@ void Editor::buildDrawItems() {
     probes_ = collectProbes(scene_, worlds_, probeBakes_);
     decals_ = collectDecals(scene_, worlds_);
     particles_.clear();
+    gpuEmitters_.clear();   // (GPU emitters: while playing, and in the preview)
+    if (playing() || (previewParticles_on_ && (realtimeViewport_ || selectionHasEmitter())))
+        gpuEmitters_ = collectGpuEmitters(scene_, worlds_);
     if (playing()) {
         previewParticles_.clear();
         game_.particles().collect(particles_);
@@ -281,6 +284,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.lights = &lights_;
     info.probes = &probes_;
     info.decals = &decals_;
+    info.gpuEmitters = &gpuEmitters_;
     info.joints = &joints_;
     info.particles = &particles_;
     const RenderSettings& r = scene_.render;

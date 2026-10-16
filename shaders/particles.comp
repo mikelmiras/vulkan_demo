@@ -1,0 +1,110 @@
+#version 450
+// Particles on the GPU (renderer_particles.cpp): one thread per slot of every GPU emitter's ring. Slots the emitter's
+// head passes this frame spawn a particle (a direction in its cone, a point in its sphere, a speed and a life, from a
+// hash); the rest age, fall, slow down and move. A drop that passes behind what the last frame's picture shows there
+// has hit it: it splashes (a short-lived spreading dot, where it hit). Each live one is written to the draw list
+// after the CPU's particles, counted by the indirect draw's instance count.
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 18) uniform sampler2D lastFrame;   // (the last frame's picture: rgb, distance in a)
+
+struct State {
+    vec4 posAge;    // xyz, age (s)
+    vec4 velLife;   // xyz (m/s), life (s; age >= life: dead)
+    vec4 misc;      // x = 1: splashing, y = when the splash began (age)
+};
+struct Emitter {
+    vec4 pos;       // xyz, w = how many it spawns this frame
+    vec4 up;        // xyz, w = cos of the cone's half-angle
+    vec4 a;         // lifetime, its randomness, speed, its randomness
+    vec4 b;         // radius, gravity, drag, stretch
+    vec4 size;      // start, end, x = 1: lit
+    vec4 colour0;   // rgb (linear, times brightness), alpha: at birth
+    vec4 colour1;   // ... at death
+    uvec4 range;    // first slot, slots, head (the next to spawn), seed
+};
+struct Draw {
+    vec4 posSize, color, streak;   // (particle.vert's)
+};
+layout(std430, set = 1, binding = 0) buffer States { State states[]; };
+layout(std430, set = 1, binding = 1) readonly buffer Emitters { Emitter emitters[]; };
+layout(std430, set = 1, binding = 2) writeonly buffer Draws { Draw draws[]; };
+layout(std430, set = 1, binding = 3) buffer Indirect { uint vertexCount, instanceCount, firstVertex, firstInstance; } indirect;
+layout(push_constant) uniform Push {
+    uint emitterCount, total;
+    float dt;
+    uint flags;   // 1: splash on what the last frame's picture shows
+} pc;
+
+float hash(uint x) {
+    x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
+    return float(x & 0xFFFFFFu) / 16777216.0;
+}
+
+void main() {
+    uint slot = gl_GlobalInvocationID.x;
+    if (slot >= pc.total) return;
+    int e = -1;
+    for (uint k = 0u; k < pc.emitterCount; ++k)
+        if (slot >= emitters[k].range.x && slot < emitters[k].range.x + emitters[k].range.y) { e = int(k); break; }
+    if (e < 0) return;
+    Emitter em = emitters[e];
+    State s = states[slot];
+    uint cap = em.range.y, index = slot - em.range.x;
+    uint fromHead = (index + cap - em.range.z % cap) % cap;
+    if (float(fromHead) < em.pos.w) {   // (spawned this frame)
+        uint seed = slot * 9781u + em.range.w * 6271u;
+        vec3 up = normalize(em.up.xyz);
+        vec3 side = abs(up.y) < 0.9 ? normalize(cross(up, vec3(0.0, 1.0, 0.0))) : normalize(cross(up, vec3(1.0, 0.0, 0.0)));
+        vec3 other = cross(up, side);
+        float z = 1.0 - hash(seed) * (1.0 - em.up.w), phi = hash(seed + 1u) * 6.2831853, r = sqrt(max(0.0, 1.0 - z * z));
+        vec3 dir = up * z + side * (r * cos(phi)) + other * (r * sin(phi));
+        vec3 offset = vec3(hash(seed + 2u), hash(seed + 3u), hash(seed + 4u)) * 2.0 - 1.0;
+        offset *= pow(hash(seed + 5u), 0.3333) / max(length(offset), 1e-4);   // (anywhere in the sphere)
+        s.posAge = vec4(em.pos.xyz + offset * em.b.x, 0.0);
+        s.velLife = vec4(dir * (em.a.z * (1.0 + (hash(seed + 6u) * 2.0 - 1.0) * em.a.w)),
+                         max(0.05, em.a.x * (1.0 + (hash(seed + 7u) * 2.0 - 1.0) * em.a.y)));
+        s.misc = vec4(0.0);
+    } else if (s.posAge.w < s.velLife.w) {
+        s.posAge.w += pc.dt;
+        if (s.misc.x < 0.5) {
+            vec3 v = s.velLife.xyz;
+            v.y -= em.b.y * pc.dt;
+            v *= max(0.0, 1.0 - em.b.z * pc.dt);
+            s.posAge.xyz += v * pc.dt;
+            s.velLife.xyz = v;
+            if ((pc.flags & 1u) != 0u) {   // hit what's drawn: splash there
+                vec4 c = frame.prevViewProj * vec4(s.posAge.xyz, 1.0);
+                if (c.w > 1e-4 && all(lessThan(abs(c.xy / c.w), vec2(1.0)))) {
+                    vec2 size = vec2(textureSize(lastFrame, 0));
+                    vec2 uv = (c.xy / c.w * 0.5 + 0.5) * frame.prevViewport.zw / size + frame.prevViewport.xy / size;
+                    float sceneZ = textureLod(lastFrame, uv, 0.0).a;
+                    float z = dot(s.posAge.xyz - frame.prevCamPos.xyz, frame.prevCamForward.xyz);
+                    if (z > sceneZ + 0.02 && z < sceneZ + 1.5) {
+                        // (back onto the surface, a little in front: soft particles fade into what's just behind)
+                        s.posAge.xyz -= frame.prevCamForward.xyz * (z - sceneZ + 0.25);
+                        s.velLife.xyz = vec3(0.0);
+                        s.misc = vec4(1.0, s.posAge.w, 0.0, 0.0);
+                        s.velLife.w = s.posAge.w + 0.18;
+                    }
+                }
+            }
+        }
+    }
+    states[slot] = s;
+    if (s.posAge.w >= s.velLife.w) return;
+    float t = clamp(s.posAge.w / max(s.velLife.w, 1e-4), 0.0, 1.0);
+    vec4 colour = mix(em.colour0, em.colour1, t);
+    float size = mix(em.size.x, em.size.y, t);
+    vec3 streak = s.velLife.xyz * em.b.w;
+    if (s.misc.x > 0.5) {   // (a splash: a dot spreading and fading over its 0.18 s)
+        float k = clamp((s.posAge.w - s.misc.y) / 0.18, 0.0, 1.0);
+        size = max(em.size.x, 0.02) * (1.5 + 3.0 * k);
+        colour.a *= 1.0 - k;
+        streak = vec3(0.0);
+    }
+    uint n = atomicAdd(indirect.instanceCount, 1u);
+    draws[indirect.firstInstance + n] = Draw(vec4(s.posAge.xyz, size), colour, vec4(streak, em.size.z));
+}

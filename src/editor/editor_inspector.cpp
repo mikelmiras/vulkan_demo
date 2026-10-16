@@ -813,6 +813,10 @@ void Editor::drawComponents(Entity& e) {
             track();
             tooltip("Lit by the scene's lights and sun (rain shows in the headlights and under lamps) instead of "
                     "glowing on their own");
+            ImGui::Checkbox("On the GPU", &p.gpu);
+            track();
+            tooltip("Simulated on the GPU: thousands cost little, and drops splash where they hit something; additive only "
+                    "(not sorted)");
             ImGui::DragFloat("Duration", &p.duration, 0.05f, 0.f, 1000.f, p.duration > 0.f ? "%.2f s" : "for ever");
             track();
             ImGui::DragFloat("Lifetime", &p.lifetime, 0.01f, 0.05f, 60.f, "%.2f s");

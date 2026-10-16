@@ -1578,7 +1578,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | 92 (done) | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
 | 93 (done) | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
 | 94 (done) | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
-| 95 | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
+| 95 (done) | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
 | 96 | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
 | 97 | Shadows: tighter cascades (fitted to the visible depth range), cached shadows for static point lights' cubes, shadow-map space culled by the Hi-Z pyramid | Shadows still take a large share at medium and high; many cascades cover empty space |
 | 98 | A GPU benchmark: engine_bench --gpu timing the frame's passes on the stress scene and Night Drive (fixed camera paths), baselines per GPU, and quality presets picked from them on first run | Round 8 couldn't be measured on the 1050 Ti or the M4 here; a game should start at settings its GPU can hold |
@@ -1662,4 +1662,19 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   specks, 3 streaks, a fixed seed; the composite's binding 6, post sets now 7 bindings). Checked: saved and loaded,
   Night Drive with auto-exposure, local tone mapping and dirt under validation with sync checks. Not done: a lens
   dirt image of the scene's choosing, bloom shaped by an aperture (a kernel image).
+- **95, GPU particles**: ParticleEmitter::gpu (scene format 55, module API 64); ParticleSystem leaves those emitters'
+  emission to the GPU (bursts still CPU). collectGpuEmitters copies each one's look (linear colours) into a
+  GpuEmitterInfo; renderer_particles.cpp lays out a ring of maxParticles slots per emitter in one device-local state
+  buffer (laid out afresh, cleared by vkCmdFillBuffer, when the set of emitters changes), counts each frame's spawns
+  on the CPU (rate * dt, the fraction kept), and particles.comp (one thread a slot) spawns where the head passes,
+  moves the rest, splashes drops that land behind last frame's picture's distance (0.18 s spreading dots, 25 cm in
+  front of the surface), and writes the live ones after the CPU's in the frame's particle buffer, counted into an
+  indirect draw (reset by vkCmdUpdateBuffer, then the additive pipeline). Set 0 binding 18 is visible to compute.
+  Soft particles: the opaque copy (refraction_) is made when particles are drawn as well as water, and
+  particle.frag fades by the distance to it (0.35 m). Timestamps 8 -> 16 (the frame now has more passes than fit:
+  the trace lost its last ones). Night Drive's rain on the GPU at 7000 a second (8000 slots): its pass 1.3 ms on
+  lavapipe, the frame 1317 ms (1248 before, with a third of the rain, no copy, hard particles). Checked: emitters
+  collected and saved (tests); Night Drive (rain, splashes, CPU steam), MSAA, the demo, the editor under validation
+  with sync checks. Not done: sorting (see-through GPU particles), collisions without a captured picture, GPU
+  particles in split-screen views and probes, game-paused GPU particles (they move on the frame time).
 

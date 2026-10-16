@@ -56,7 +56,8 @@ void ParticleSystem::update(const Scene& scene, const std::vector<Mat4>& worlds,
             g.started = true;
             if (emitting && g.look.playOnStart && g.look.burst > 0) spawn(g, pos, up, g.look.burst);
         }
-        if (emitting && g.look.playOnStart && (g.look.duration <= 0.f || g.elapsed < g.look.duration)) {
+        // (GPU emitters emit on the GPU: renderer_particles.cpp; only their bursts come through here)
+        if (emitting && g.look.playOnStart && !g.look.gpu && (g.look.duration <= 0.f || g.elapsed < g.look.duration)) {
             g.pending += g.look.rate * dt;
             int n = (int)g.pending;
             g.pending -= (float)n;
