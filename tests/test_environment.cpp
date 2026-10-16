@@ -86,7 +86,7 @@ TEST(environment_from_probe_faces) {
     Environment env = environment::fromProbeFaces(px, size);
     REQUIRE(env.sky.width == 512 && env.sky.height == 256);
     for (int f = 0; f < 6; ++f) {
-        Vec3 want = environment::kProbeFaceForward[f];
+        Vec3 want = environment::probeFaceForward(f);
         size_t best = 0;
         float bestDot = -2.f;
         for (uint32_t y = 0; y < env.sky.height; ++y)

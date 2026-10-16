@@ -145,8 +145,13 @@ Vec3 irradiance(const Environment& env, Vec3 n) {
     return e * (1.f / kPi);
 }
 
+namespace {
 const Vec3 kProbeFaceForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 const Vec3 kProbeFaceUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, 1, 0}};
+}  // namespace
+
+Vec3 probeFaceForward(int face) { return kProbeFaceForward[face % 6]; }
+Vec3 probeFaceUp(int face) { return kProbeFaceUp[face % 6]; }
 
 namespace {
 float fromHalf(uint16_t h) {

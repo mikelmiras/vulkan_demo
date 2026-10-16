@@ -67,13 +67,13 @@ void Renderer::bakeFace(const SceneRenderInfo& info, ProbeBake& b, int face) {
     SceneRenderInfo f = info;
     f.views = nullptr;
     f.camPos = b.probe.position;
-    f.camForward = environment::kProbeFaceForward[face];
+    f.camForward = environment::probeFaceForward(face);
     f.fovY = 90.f * DEG2RAD;
     f.aspect = 1.f;
     f.zNear = 0.05f;
     f.zFar = 1000.f;
     f.viewProj = perspective(f.fovY, 1.f, f.zNear, f.zFar, true) *
-                 lookAt(b.probe.position, b.probe.position + environment::kProbeFaceForward[face], environment::kProbeFaceUp[face]);
+                 lookAt(b.probe.position, b.probe.position + environment::probeFaceForward(face), environment::probeFaceUp(face));
     f.viewportX = f.viewportY = 0.f;
     f.viewportW = f.viewportH = (float)b.size;
     FrameUBO u{};

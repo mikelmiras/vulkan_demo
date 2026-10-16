@@ -40,7 +40,9 @@ Vec3 directionAt(float u, float v);   // image coordinates (0..1) -> direction
 // A reflection probe's six views (renderer_probes.cpp: 90 degrees each, looking along these with these up; images
 // y down) and their pixels read back (RGBA half floats, size x size each, in this order) made into a 512 x 256
 // panorama, then built like a sky image
-extern const Vec3 kProbeFaceForward[6], kProbeFaceUp[6];
+// (functions, not arrays: the engine is a DLL on Windows, and its data isn't exported)
+Vec3 probeFaceForward(int face);
+Vec3 probeFaceUp(int face);
 Environment fromProbeFaces(const std::vector<uint16_t>& rgbaHalf, uint32_t size);
 void uvOf(Vec3 dir, float& u, float& v);
 // Evaluates the irradiance at a normal (what the shader does): radiance-weighted cosine sum, divided by pi
