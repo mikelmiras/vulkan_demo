@@ -63,6 +63,7 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     if (const char* v = std::getenv("VKWORLD_SHADOW_FIT"); v && !std::strcmp(v, "0")) fittedCascades_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_CULL"); v && !std::strcmp(v, "0")) casterCulling_ = false;
     if (const char* v = std::getenv("VKWORLD_LEAN_SHADING"); v && !std::strcmp(v, "0")) leanShading_ = false;
+    if (const char* v = std::getenv("VKWORLD_SSS"); v && !std::strcmp(v, "0")) sssWanted_ = false;
     if (const char* v = std::getenv("VKWORLD_AO_LIT"); v && !std::strcmp(v, "0")) aoLitWanted_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_CACHE"); v && !std::strcmp(v, "0")) shadowCacheOn_ = false;
     if (const char* v = std::getenv("VKWORLD_RENDER_SCALE"))   // (before the post images: the upscaler's are made with them)
@@ -915,6 +916,7 @@ void Renderer::createSampledPipelines() {
                                              VK_FORMAT_R16G16B16A16_SFLOAT, false);
         cameraFxPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "camera_fx_ms.frag.spv" : "camera_fx.frag.spv",
                                                hdrFormat_, false);
+        sssPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "sss_ms.frag.spv" : "sss.frag.spv", hdrFormat_, false);
         fxTilesPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "camera_fx_tiles_ms.frag.spv"
                                                                                  : "camera_fx_tiles.frag.spv",
                                               VK_FORMAT_R16_SFLOAT, false);
@@ -926,7 +928,7 @@ void Renderer::createSampledPipelines() {
 
 void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &aoTemporalPipeline_, &ssrCapturePipeline_,
-                          &shaftsPipeline_, &cameraFxPipeline_, &fxTilesPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
+                          &shaftsPipeline_, &cameraFxPipeline_, &fxTilesPipeline_, &sssPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
                           &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
                           &sceneLayeredPipeline_, &sceneEarlyLayeredPipeline_,
                           &prepassVelocityPipeline_, &prepassFoliageVelocityPipeline_}) {
@@ -1188,7 +1190,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
     // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation; +1: the sky's)
-    const uint32_t postSetCount = 2 * kMaxBloomMips + 12 + 2 * kMaxViews;   // (+1: the camera effects'; +2: AO's history)
+    const uint32_t postSetCount = 2 * kMaxBloomMips + 14 + 2 * kMaxViews;   // (+1: the camera effects'; +2: AO's history; +2: SSS)
     VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
@@ -1215,6 +1217,8 @@ void Renderer::createResources(const MeshLibrary&) {
     fxSet_ = postSets[9 + 2 * kMaxBloomMips + 2 * kMaxViews];
     aoTemporalSets_[0] = postSets[10 + 2 * kMaxBloomMips + 2 * kMaxViews];
     aoTemporalSets_[1] = postSets[11 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    sssSets_[0] = postSets[12 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    sssSets_[1] = postSets[13 + 2 * kMaxBloomMips + 2 * kMaxViews];
     {   // (the luminance image is mipped by blits: its format must allow filtered ones)
         VkFormatProperties fp;
         vkGetPhysicalDeviceFormatProperties(gpu_, VK_FORMAT_R16_SFLOAT, &fp);
@@ -1670,6 +1674,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         if (info.items) recordHiz(cb, scene);
     }
+    if (sssOn_) recordSubsurface(cb, scene);   // (light spread under skin and wax: before the history blends it)
 
     timestamp(cb, "Scene");
     // Blended with the frames before (renderer_taa.cpp); drawn smaller: brought up to full size there too (without
@@ -2032,8 +2037,11 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         // (and contact shadows, which need only this frame's depth)
         const bool contact = info.contactShadows && quality_ != Quality::Low;
         const bool traceWanted = ((captureOn(info) && ssrValid_) || contact) && aoSupported_ && ssrTracePipeline_;
-        velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted || info.motionBlur > 0.f) && prepass_ && info.items &&
+        // (subsurface diffusion needs the prepass's surface too: on while last frame showed subsurface materials)
+        const bool sss = sssWanted_ && sssSeen_ && sssPipeline_ && aoSupported_ && quality_ != Quality::Low;
+        velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted || info.motionBlur > 0.f || sss) && prepass_ && info.items &&
                       prepassVelocityPipeline_ && velocity_.image;
+        sssOn_ = sss && velocityOn_;
         traceOn_ = traceWanted && velocityOn_;
         // (ambient occlusion before lighting: with the prepass and a depth to read; else the composite's, as before)
         aoLitOn_ = prepass_ && info.items && aoSupported_ && aoPipeline_ && info.aoStrength > 0.f && quality_ != Quality::Low &&

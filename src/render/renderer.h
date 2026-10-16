@@ -877,6 +877,14 @@ private:
     VkDescriptorSet aoSet_ = VK_NULL_HANDLE;
     VkPipeline aoPipeline_ = VK_NULL_HANDLE;
     VkPipeline cameraFxPipeline_ = VK_NULL_HANDLE;   // depth of field and motion blur (camera_fx.glsl): fxSet_
+    // Subsurface diffusion (sss.glsl, renderer_post.cpp): across from hdr_ into sssTemp_ (sssSets_[0]), down back
+    // (sssSets_[1]); on while subsurface materials were in view last frame (sssSeen_: prepareInstances)
+    VkPipeline sssPipeline_ = VK_NULL_HANDLE;
+    Image sssTemp_;
+    VkDescriptorSet sssSets_[2] = {};
+    bool sssSeen_ = false, sssOn_ = false;
+    bool sssWanted_ = true;          // (VKWORLD_SSS=0: none, to compare)
+    void recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene);
     VkPipeline fxTilesPipeline_ = VK_NULL_HANDLE;    // (its near field's tiles: fxTiles_)
     VkPipeline shaftsPipeline_ = VK_NULL_HANDLE;   // light shafts (shafts.glsl): half size, over the depth (aoSet_)
     // Screen-space reflections: this frame's picture and distances captured after the post passes (prevColor_, set

@@ -1866,7 +1866,7 @@ traffic lights.
 | 112 (done) | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
 | 113 (done) | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
 | 114 (done) | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
-| 115 | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
+| 115 (done) | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
 | 116 | Light shafts from lamps (the brightest few in view, without volumetric fog) and from the sun through occluders off screen (its shadow map marched in the half-size pass) | Shafts come only from the sun, and only from what's on screen |
 | 117 | Sharper temporal AA: motion vectors dilated to the nearest depth, variance clipping of the history, a contrast-adaptive sharpening pass after it (and after the upscaler) | TAA softens the picture and ghosts behind thin moving things |
 | 118 | Night Drive's crossroads: traffic lights (red, amber, green on the poles, their glow on the wet road) that the traffic stops for, and cars yielding at the crossroads | The traffic drives through every crossroads without stopping |
@@ -1953,4 +1953,16 @@ traffic lights.
   shadowed spot in the demo the same picture with and without (0.024% of pixels); Night Drive and the demo the same
   within run-to-run noise; under validation with sync checks. Not done: the spot's cone direction in the test
   (it's treated as a point light: conservative), split-screen views' cascades.
+- **115, screen-space subsurface diffusion**: the prepass's surface image (gbuffer_) keeps the subsurface amount in
+  w (1 + subsurface where drawn; the traces only test w > 0.5); sss.glsl (plain and multisampled) after the lit pass
+  and the Hi-Z, before temporal AA: across from hdr_ into sssTemp_ (sssSets_[0]), then down back into hdr_
+  (sssSets_[1]; the sets written with the trace bindings, once the surface image exists), 11 taps as wide as 2 cm
+  seen from the pixel times its subsurface, per-channel Gaussians (red 1, green 0.45, blue 0.25 of the width),
+  taps only on subsurface pixels within the scatter's depth; the outline's marker and everything else passed
+  through. It needs the prepass's surface: velocityOn_ is on while subsurface materials were in view the frame
+  before (sssSeen_, from the main view's prepareInstances: not a probe's), costing nothing otherwise.
+  VKWORLD_SSS=0 to compare. Checked: two 30 cm balls under a metre away, subsurface 1 and 0 (only the subsurface
+  one changes: 5% of its pixels by more than 2 levels, up to 27), TAA, MSAA, no AA, render scale 0.7, Night Drive,
+  the editor, under validation with sync checks. Not done: the diffuse light alone blurred (the specular is too: a
+  little softer highlights), the subsurface colour's own profile (a fixed skin-like one), thickness.
 

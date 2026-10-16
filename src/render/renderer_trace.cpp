@@ -62,6 +62,21 @@ void Renderer::writeTraceBindings() {
             w[k].pImageInfo = &images[k].second;
         }
         vkUpdateDescriptorSets(device_, (uint32_t)w.size(), w.data(), 0, nullptr);
+        if (aoSupported_ && sssSets_[i] && sssTemp_.image) {   // (subsurface diffusion: the picture, the depth, the surface)
+            VkDescriptorImageInfo infos[3] = {{postSampler_, i == 0 ? hdr_.view : sssTemp_.view, readable},
+                                              {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
+                                              {nearestSampler_, gbuffer_.view, readable}};
+            VkWriteDescriptorSet t[3];
+            for (uint32_t k = 0; k < 3; ++k) {
+                t[k] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                t[k].dstSet = sssSets_[i];
+                t[k].dstBinding = k;
+                t[k].descriptorCount = 1;
+                t[k].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                t[k].pImageInfo = &infos[k];
+            }
+            vkUpdateDescriptorSets(device_, 3, t, 0, nullptr);
+        }
         if (aoSupported_ && aoTemporalSets_[i]) {   // (AO before lighting: the depth, the motion, its history)
             VkDescriptorImageInfo infos[3] = {{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
                                               {nearestSampler_, velocity_.view, readable},

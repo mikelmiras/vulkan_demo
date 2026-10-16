@@ -134,6 +134,8 @@ void Renderer::createPostImages() {
     // depth, the motion vectors)
     fx_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
                       extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    sssTemp_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
+                           extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
     fxTiles_ = createImage(VK_FORMAT_R16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                            VK_IMAGE_ASPECT_COLOR_BIT, (extent_.width + 7) / 8, (extent_.height + 7) / 8, VK_SAMPLE_COUNT_1_BIT, 1);
     fxTilesFresh_ = true;
@@ -366,6 +368,7 @@ void Renderer::destroyPostImages() {
     if (shafts_.image) destroyImage(shafts_);
     if (fx_.image) destroyImage(fx_);
     if (fxTiles_.image) destroyImage(fxTiles_);
+    if (sssTemp_.image) destroyImage(sssTemp_);
     if (velocity_.image) destroyImage(velocity_);
     for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_[0], &aoLit_[1],
                        &velocityMs_, &gbufferMs_})
@@ -386,6 +389,51 @@ void Renderer::destroyPostImages() {
     if (bloom_.image) destroyImage(bloom_);
     if (ao_.image) destroyImage(ao_);
     if (hdr_.image) destroyImage(hdr_);
+}
+
+// Subsurface diffusion (sss.glsl): after the lit pass (the picture a target, the depth readable), across into
+// sssTemp_ and down back into the picture, which is left a target for temporal AA as it was found
+void Renderer::recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene) {
+    const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    const float vx = std::clamp(scene.viewportX, 0.f, (float)extent_.width), vy = std::clamp(scene.viewportY, 0.f, (float)extent_.height);
+    const float vw = std::max(std::min(scene.viewportW, (float)extent_.width - vx), 1.f);
+    const float vh = std::max(std::min(scene.viewportH, (float)extent_.height - vy), 1.f);
+    float push[24] = {1.f, 0.f, 0.02f, std::tan(scene.fovY * 0.5f), vx, vy, vw, vh, scene.zNear, scene.zFar, 1.f, 0.f};   // (2 cm)
+    auto pass = [&](VkImageView out, VkDescriptorSet set) {
+        VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        att.imageView = out;
+        att.imageLayout = target;
+        att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;   // (every pixel written: the rest passed through)
+        att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        ri.renderArea = {{0, 0}, extent_};
+        ri.layerCount = 1;
+        ri.colorAttachmentCount = 1;
+        ri.pColorAttachments = &att;
+        vkCmdBeginRendering(cb, &ri);
+        VkViewport vp{0.f, 0.f, (float)extent_.width, (float)extent_.height, 0.f, 1.f};
+        VkRect2D sc{{0, 0}, extent_};
+        vkCmdSetViewport(cb, 0, 1, &vp);
+        vkCmdSetScissor(cb, 0, 1, &sc);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, sssPipeline_);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &set, 0, nullptr);
+        vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), push);
+        vkCmdDraw(cb, 3, 1, 0, 0);
+        vkCmdEndRendering(cb);
+    };
+    mipBarrier(cb, hdr_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+               VK_ACCESS_SHADER_READ_BIT);
+    mipBarrier(cb, sssTemp_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, target, fragStage, 0, colorStage,
+               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    pass(sssTemp_.view, sssSets_[0]);   // (across)
+    mipBarrier(cb, sssTemp_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+               VK_ACCESS_SHADER_READ_BIT);
+    mipBarrier(cb, hdr_.image, 0, 1, readable, target, fragStage, VK_ACCESS_SHADER_READ_BIT, colorStage,
+               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    push[0] = 0.f, push[1] = 1.f;
+    pass(hdr_.view, sssSets_[1]);   // (down, back into the picture)
 }
 
 void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, int view) {

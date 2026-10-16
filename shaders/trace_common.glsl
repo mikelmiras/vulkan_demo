@@ -6,7 +6,8 @@ layout(set = 0, binding = 29) uniform sampler2DMS sceneDepth;   // this frame's 
 #else
 layout(set = 0, binding = 29) uniform sampler2D sceneDepth;     // this frame's (the prepass's), full size
 #endif
-layout(set = 0, binding = 30) uniform sampler2D sceneSurface;   // xy = normal (octahedral), z = roughness, w = 1: drawn
+layout(set = 0, binding = 30) uniform sampler2D sceneSurface;   // xy = normal (octahedral), z = roughness, w >= 1: drawn
+                                                                 // (1 + subsurface: sss.glsl's)
 layout(set = 0, binding = 36) uniform sampler2D sceneVelocity;  // motion since last frame (uv; huge: none)
 
 vec3 fromOctahedral(vec2 p) {

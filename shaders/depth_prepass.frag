@@ -20,6 +20,7 @@ layout(location = 8) in float vHole;
 // AA), and its surface: the normal (without its map, octahedral) and roughness (the half-size traces)
 layout(location = 12) in vec4 vClipNow;
 layout(location = 13) in vec4 vClipBefore;
+layout(location = 14) flat in vec4 vScatter;   // (y: subsurface, kept in the surface's w for sss.glsl)
 layout(location = 0) out vec2 outVelocity;
 layout(location = 1) out vec4 outSurface;
 vec2 octahedral(vec3 n) {
@@ -43,6 +44,7 @@ void main() {
     vec3 n = normalize(vNormal);
     if (!gl_FrontFacing && vParams.x > -0.5) n = -n;   // (two-sided surfaces; foliage keeps its normals)
     float rough = vParams.x > 0.5 ? 0.9 : clamp(vMaterial.y * (vParams.x > 1.5 ? 1.0 : texture(metalRoughMap, vUV).g), 0.02, 1.0);
-    outSurface = vec4(octahedral(n), rough, 1.0);
+    float subsurface = vParams.x > 1.5 ? 0.0 : clamp(vScatter.y, 0.0, 1.0);   // (terrains and water: none)
+    outSurface = vec4(octahedral(n), rough, 1.0 + subsurface);   // (w: drawn, and how much it scatters)
 #endif
 }

@@ -211,6 +211,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     // Visible items, sorted so that equal (texture, mesh) pairs sit together and can be drawn as one batch
     std::vector<uint32_t> visible, transparent;
     visible.reserve(items.size());
+    bool subsurface = false;   // (in view: subsurface diffusion wanted next frame)
     for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
         const DrawItem& o = items[i];
         const Mesh& mesh = meshes_->get(o.mesh);
@@ -219,6 +220,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         if (gpu && o.alphaMode != 2) visible.push_back(i);
         else if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) (o.alphaMode == 2 ? transparent : visible).push_back(i);
         else stats_.culled++;
+        if (o.subsurface > 0.01f && o.alphaMode != 2 && !o.water && (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)))
+            subsurface = true;
         // Its shadow in view (shadows::castsIntoView): for the sun's two cascades drawn every frame, the view's own
         // volume; for the two drawn every few frames, a wider one (what the camera may turn to before they're redrawn)
         bool shadowNear = true, shadowFar = true;
@@ -250,6 +253,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
             if (skinned || shadowViews[k].visible(o.model, mesh.boundsMin, mesh.boundsMax)) casters[k].push_back(i);
         }
     }
+    if (gpuCulling) sssSeen_ = subsurface;   // (the main view's alone: not a probe's faces)
     std::stable_sort(visible.begin(), visible.end(), [&](uint32_t a, uint32_t b) {
         const bool la = !leanShading_ || hasMaterialLayers(items[a]), lb = !leanShading_ || hasMaterialLayers(items[b]);   // (lean materials first: one pipeline switch)
         if (la != lb) return lb;
