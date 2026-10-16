@@ -273,6 +273,10 @@ public:
     // VKWORLD_RENDER_SCALE overrides the set scale. Changing whether it upscales at all waits for the GPU.
     void setRenderScale(float scale);
     void setDynamicResolution(bool on, float targetFps = 60.f);
+    // Sharpening after temporal AA or the upscaler (contrast-adaptive, 0..1; 0.3 by default, a fifth more when
+    // upscaling, which softens more); VKWORLD_SHARPEN overrides it
+    void setSharpness(float s) { sharpness_ = std::clamp(s, 0.f, 1.f); }
+    float sharpness() const { return sharpness_; }
     float renderScale() const { return scaleNow_; }   // (this frame's: the dynamic one's choice)
     float gpuFrameMs() const { return gpuFrameMs_; }   // the last measured frame's GPU time (0: no timestamps)
     // The dynamic choice (plain: tested): the next scale from the current one, the GPU's frame time and the budget
@@ -893,7 +897,8 @@ private:
     bool sssSeen_ = false, sssOn_ = false;
     bool sssWanted_ = true;          // (VKWORLD_SSS=0: none, to compare)
     VkPipeline sharpenPipeline_ = VK_NULL_HANDLE;   // contrast-adaptive sharpening after temporal AA (sharpen.frag)
-    float sharpenOverride_ = -1.f;   // (VKWORLD_SHARPEN=0..1; otherwise 0.3 after temporal AA, 0.5 upscaling)
+    float sharpenOverride_ = -1.f;   // (VKWORLD_SHARPEN=0..1; otherwise sharpness_, + 0.2 upscaling)
+    float sharpness_ = 0.3f;         // (setSharpness: the player's settings.sharpness)
     void recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene);
     void createTintedLit();
     // The reflections' near pyramid (near_z.comp; set 0 binding 39): the nearest distance of last frame's picture

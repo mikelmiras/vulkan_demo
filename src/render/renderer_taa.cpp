@@ -151,7 +151,7 @@ void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaSta
 
     // The result back into the HDR image (the passes after read that), sharpened (contrast-adaptive: sharpen.frag,
     // reading it through the other set's history), and kept as next frame's history as it is
-    const float sharpness = sharpenOverride_ >= 0.f ? sharpenOverride_ : scale < 0.999f ? 0.5f : 0.3f;
+    const float sharpness = sharpenOverride_ >= 0.f ? sharpenOverride_ : scale < 0.999f ? std::min(sharpness_ + 0.2f, 1.f) : sharpness_;
     if (sharpenPipeline_ && sharpness > 0.f) {
         imageBarrier(cb, out.image, VK_IMAGE_ASPECT_COLOR_BIT, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
                      fragStage, VK_ACCESS_SHADER_READ_BIT);

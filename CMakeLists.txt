@@ -261,6 +261,7 @@ set(ENGINE_SOURCES
   src/render/texture_streaming.cpp
   src/render/shadow_cascades.cpp
   src/render/light_shafts.cpp
+  src/render/taa_filter.cpp
   src/render/camera_fx.cpp
   src/render/renderer_fog.cpp
   src/render/volumetric_fog.cpp
@@ -493,6 +494,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_cooking.cpp
     tests/test_shadow_cascades.cpp
     tests/test_light_shafts.cpp
+    tests/test_taa_filter.cpp
     tests/test_camera_effects.cpp
     tests/test_hdr_image.cpp
     tests/test_color_glyphs.cpp

@@ -1,7 +1,9 @@
 #version 450
 // Temporal anti-aliasing: this frame (drawn with a sub-pixel jitter) blended with the frames before it. The history
-// is looked up where this pixel's point was last frame (reprojected through the depth) and clamped to the colours
-// around this pixel now, so it can't drag old colours along (ghosting) when things move.
+// is looked up where this pixel's point was last frame (reprojected through the depth; read Catmull-Rom, so moving
+// doesn't soften it a little more every frame) and clamped to the colours around this pixel now, so it can't drag
+// old colours along (ghosting) when things move; how much of it is kept falls with how far the pixel moved and how
+// far outside those colours the history lay (render/taa_filter.cpp's historyWeight, tested).
 //
 // With a render scale under 1 the scene was drawn smaller, into the corner of the viewport (params.w of its width and
 // height): this frame's picture is read there (where this full-size pixel falls in it, un-jittered) and the history
@@ -35,6 +37,28 @@ vec3 clipToBox(vec3 lo, vec3 hi, vec3 c) {
     float m = max(a.x, max(a.y, a.z));
     return m > 1.0 ? centre + v / m : c;
 }
+
+// The history at uv, Catmull-Rom over 4 x 4 texels in five bilinear taps (the corners' small weights left out),
+// in the compressed range (render/taa_filter.cpp's catmullRom)
+vec3 historyAt(vec2 uv) {
+    vec2 size = 1.0 / pc.params.yz, at = uv * size;
+    vec2 t1 = floor(at - 0.5) + 0.5, f = at - t1;
+    vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f)), w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+    vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f)), w3 = f * f * (-0.5 + 0.5 * f);
+    vec2 w12 = w1 + w2, t12 = (t1 + w2 / w12) * pc.params.yz;
+    vec2 t0 = (t1 - 1.0) * pc.params.yz, t3 = (t1 + 2.0) * pc.params.yz;
+    vec3 sum = texture(history, vec2(t12.x, t0.y)).rgb * (w12.x * w0.y) + texture(history, vec2(t0.x, t12.y)).rgb * (w0.x * w12.y) +
+               texture(history, t12).rgb * (w12.x * w12.y) + texture(history, vec2(t3.x, t12.y)).rgb * (w3.x * w12.y) +
+               texture(history, vec2(t12.x, t3.y)).rgb * (w12.x * w3.y);
+    float total = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+    return compress(max(sum / total, vec3(0.0)));   // (its negative lobes can't make a colour below black)
+}
+// How much history is kept (render/taa_filter.cpp's historyWeight)
+float historyWeight(float base, float movedPixels, float mismatch) {
+    return base * (1.0 - 0.2 * smoothstep(0.0, 16.0, movedPixels)) * (1.0 - 0.35 * clamp(mismatch, 0.0, 1.0));
+}
+// How far outside the box the history lay, relative to the box's size
+float mismatchOf(vec3 raw, vec3 clipped, vec3 lo, vec3 hi) { return length(raw - clipped) / (length(hi - lo) + 0.02); }
 
 void main() {
     vec2 px = gl_FragCoord.xy;
@@ -108,11 +132,13 @@ void main() {
         float w = exp(-2.29 * dot(d, d));
         vec3 sampled = compress(texelFetch(current, ivec2(t), 0).rgb);
         float alpha = min(1.0, (1.0 - pc.params.x) / (scale * scale)) * w;
-        vec3 before = clipToBox(boxLo, boxHi, compress(texture(history, prevPx * pc.params.yz).rgb));
-        outColor = vec4(expand(mix(before, sampled, alpha)), cur.a);
+        vec3 raw = historyAt(prevPx * pc.params.yz), before = clipToBox(boxLo, boxHi, raw);
+        float keep = historyWeight(1.0, length(px - prevPx), mismatchOf(raw, before, boxLo, boxHi));
+        outColor = vec4(expand(mix(before, sampled, 1.0 - keep * (1.0 - alpha))), cur.a);
         return;
     }
-    vec3 before = clipToBox(boxLo, boxHi, compress(texture(history, prevPx * pc.params.yz).rgb));
-    outColor = vec4(expand(mix(now, before, seen ? pc.params.x : 0.0)), cur.a);   // (alpha: the outline's marker)
+    vec3 raw = historyAt(prevPx * pc.params.yz), before = clipToBox(boxLo, boxHi, raw);
+    float keep = seen ? historyWeight(pc.params.x, length(px - prevPx), mismatchOf(raw, before, boxLo, boxHi)) : 0.0;
+    outColor = vec4(expand(mix(now, before, keep)), cur.a);   // (alpha: the outline's marker)
 #endif
 }

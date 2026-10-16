@@ -888,6 +888,7 @@ int main(int argc, char** argv) {
                                                                                           : Renderer::Quality::High);
             // Render scale (0.5..1) and dynamic resolution (holding 60 frames a second, or VKWORLD_TARGET_FPS)
             app.renderer().setRenderScale((float)game.state().number("settings.renderScale", 1.f));
+            app.renderer().setSharpness((float)game.state().number("settings.sharpness", 0.3f));   // (after temporal AA)
             const char* fps = std::getenv("VKWORLD_TARGET_FPS");
             app.renderer().setDynamicResolution(game.state().flag("settings.dynamicResolution"), fps ? (float)std::atof(fps) : 60.f);
             std::string a = game.state().text("settings.antialiasing");

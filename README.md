@@ -590,9 +590,12 @@ dropping on the right.
   give way sooner). Where they were comes from **motion vectors**: the depth prepass also writes each pixel's
   motion since last frame, from each object's last transform, skinned joints and waves as well as the camera's,
   so a moving car or a running character keeps its detail (each pixel takes the motion of the nearest thing round
-  it, so edges move with what's in front); the sky's comes from the depth. The result is sharpened (contrast-
-  adaptive: more where the picture is soft, none where it's already sharp; 0.3, 0.5 when upscaling;
-  `VKWORLD_SHARPEN=0..1`), the history left as it was so sharpening doesn't build up. It also smooths shading
+  it, so edges move with what's in front); the sky's comes from the depth. The history is read with a Catmull-Rom
+  filter (a bilinear read would soften it a little more every frame it moves), and less of it is kept the faster a
+  pixel moves (down to 80 %) and the further outside the colours round it the history lay, so fast motion shows
+  this frame's detail. The result is sharpened (contrast-adaptive: more where the picture is soft, none where it's
+  already sharp): players set how much with `settings.sharpness` (0..1, 0.3 by default; a fifth more when upscaling),
+  `VKWORLD_SHARPEN=0..1` overrides it; the history left as it was so sharpening doesn't build up. It also smooths shading
   and thin lines, and costs much less than MSAA on
   slower GPUs. A project chooses what its game starts with (`"antialiasing"` in project.json, Project Settings; the
   editor uses it too until View > Anti-aliasing is set, which is remembered); players change it with the game state's

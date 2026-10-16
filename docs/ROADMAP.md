@@ -2016,7 +2016,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | 121 (done) | Coloured shadows from spot and point lights too (tint tiles in the atlas), and in the volumetric fog | Only the sun's shadows are tinted; a lamp behind stained glass casts grey |
 | 122 (done) | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
 | 123 (done) | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
-| 124 | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
+| 124 (done) | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
 | 125 | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
 | 126 | Soft shadows from lamps: a blocker search for spot and point lights (PCSS, by the light's size), so a lamp's shadows sharpen at contact and soften away from it | Lamp shadows have one fixed softness |
 | 127 | Night Drive's sidewalks: pedestrians walking them (navigation mesh), crossing at the zebra crossings on walk signals, the traffic waiting for them | The streets have cars but no one walking |
@@ -2096,4 +2096,17 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   are small at its lamps' intensities, 1.4 to 2.4), the editor, under validation with sync checks (CI's 1.3.275
   layer too, which found task 122's barrier and the sun tint's compute stage: fixed in their own commit). Not
   done: the halo's own shadow streaks (it takes the average), more than four lamps, clustered lamps per pixel.
+- **124, temporal AA's history**: taa.frag reads the history Catmull-Rom (historyAt: five bilinear taps, the corners
+  left out, clamped at black, in the compressed range) and keeps historyWeight(base, moved, mismatch) of it: base
+  (0.9) less up to a fifth by the pixels moved since last frame (smoothstep to 16) and up to 35 % by how far
+  outside the variance box the raw history lay (its distance to the clipped colour over the box's diagonal); the
+  upscaling path keeps the same share of its own weight. render/taa_filter.{h,cpp} hold both as plain functions,
+  tested (the weights sum to one and follow a ramp; the weight's limits). Sharpness: Renderer::setSharpness, the
+  runtime's settings.sharpness (0.3 default, in Game's settings), + 0.2 when upscaling; VKWORLD_SHARPEN still
+  overrides. There's no built-in settings menu: a game's own (UI sliders bound to settings keys) sets it, as for
+  render scale. Checked: the sliding camera over Night Drive, the old shader compiled into the same build against
+  the new and AA off: the curb's debris and the puddles keep their detail moving; render scale 0.7, the editor,
+  the demo, under CI's validation layer. The temporal pass 132.6 ms against 114.0 (lavapipe, Night Drive): the
+  history's five taps. Not done: a settings menu in the sample game, the history weight by the pixel's sub-pixel
+  offset, YCoCg clipping.
 
