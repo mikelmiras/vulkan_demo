@@ -29,7 +29,7 @@
   },
   "macOS": {
     "diff_scenes": 2.226,
-    "draw_items": 0.299,
+    "draw_items": 0.8,
     "fixed_update_avg": 2.073,
     "game_start": 40.891,
     "navigation_bake": 2883.05,
@@ -38,7 +38,7 @@
     "physics_sync": 0.217,
     "raycasts_1000": 0.489,
     "scene_change_sync": 89.341,
-    "scene_copy": 0.748,
+    "scene_copy": 2.0,
     "world_matrices": 0.078
   }
 }
