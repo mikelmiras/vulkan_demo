@@ -23,6 +23,23 @@ void Editor::track() {
     if (ImGui::IsItemActivated()) editBegan_ = true;
 }
 
+void Editor::texturePicker(const char* label, int& id, const char* help) {
+    int item = id + 1;   // 0 = none
+    if (ImGui::Combo(
+            label, &item, [](void* lib, int i) { return i == 0 ? "(none)" : ((const TextureLibrary*)lib)->name(i - 1); },
+            &textures_, textures_.count() + 1)) {
+        pushUndo();
+        id = item - 1;
+    }
+    tooltip(help);
+    if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Texture, dropped)) {
+        std::string error;
+        int t = loadTexture(textures_, dropped.u8string(), error);
+        if (t >= 0) { pushUndo(); id = t; }
+        else setStatus("Texture failed: " + error);
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Inspector
 // ---------------------------------------------------------------------------------------------
@@ -179,6 +196,17 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::Checkbox("Screen-space reflections", &r.reflections);
         track();
         tooltip("Smooth surfaces reflect what's on screen (else only reflection probes and the sky)");
+        ImGui::SliderFloat("Wetness", &r.wetness, 0.f, 1.f, "%.2f");
+        track();
+        tooltip("The weather: surfaces facing up darker and glossier, puddles on flat ground (sheltered materials stay dry)");
+        if (r.wetness > 0.f) {
+            ImGui::SliderFloat("Puddles", &r.puddles, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("How much of flat ground holds standing water");
+            ImGui::SliderFloat("Rain", &r.rain, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("Rings spreading on the puddles where drops fall");
+        }
         ImGui::Checkbox("Screen-space GI", &r.ssgi);
         track();
         tooltip("Light bounced off what's on screen nearby (a lit wall lights the ground beside it); best with temporal "
@@ -492,23 +520,6 @@ void Editor::drawComponents(Entity& e) {
             track();
             tooltip("Highlights stretched across the surface, like brushed metal: along the texture's u (above 0) or v "
                     "(below)");
-            auto texturePicker = [&](const char* label, int& id, const char* help) {
-                int item = id + 1;   // 0 = none
-                if (ImGui::Combo(
-                        label, &item,
-                        [](void* lib, int i) { return i == 0 ? "(none)" : ((const TextureLibrary*)lib)->name(i - 1); },
-                        &textures_, textures_.count() + 1)) {
-                    pushUndo();
-                    id = item - 1;
-                }
-                tooltip(help);
-                if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Texture, dropped)) {
-                    std::string error;
-                    int t = loadTexture(textures_, dropped.u8string(), error);
-                    if (t >= 0) { pushUndo(); id = t; }
-                    else setStatus("Texture failed: " + error);
-                }
-            };
             texturePicker("Metal/rough map", mr.metalRoughTexture, "glTF layout: green = roughness, blue = metallic");
             texturePicker("Normal map", mr.normalTexture, "Tangent space; drop a texture from the Assets panel here");
             if (mr.normalTexture >= 0) {
@@ -521,6 +532,22 @@ void Editor::drawComponents(Entity& e) {
             track();
             tooltip("Light it gives off itself; above 1 it glows");
             texturePicker("Emissive map", mr.emissiveTexture, "Times the emissive colour");
+            texturePicker("Height map", mr.heightTexture, "Parallax occlusion: white is the surface, black deepest");
+            if (mr.heightTexture >= 0) {
+                ImGui::SliderFloat("Parallax depth", &mr.parallaxDepth, 0.f, 0.2f, "%.3f");
+                track();
+                tooltip("How deep the height map looks, in texture repeats (0.02 to 0.08 suits most)");
+            }
+            texturePicker("Detail map", mr.detailTexture, "A fine normal map tiled over the surface: grain, pores, scratches");
+            if (mr.detailTexture >= 0) {
+                ImGui::DragFloat("Detail tiling", &mr.detailTiling, 0.1f, 0.1f, 256.f, "%.1f");
+                track();
+                ImGui::SliderFloat("Detail strength", &mr.detailStrength, 0.f, 2.f, "%.2f");
+                track();
+            }
+            ImGui::Checkbox("Sheltered", &mr.sheltered);
+            track();
+            tooltip("The weather doesn't wet it (indoors, under a roof)");
             int alphaMode = (int)mr.alphaMode;
             if (ImGui::Combo("Transparency", &alphaMode, "Opaque\0Cut-out (mask)\0See-through (blend)\0")) {
                 pushUndo();
@@ -577,6 +604,34 @@ void Editor::drawComponents(Entity& e) {
     if (e.ui) {
         if (!componentHeader("UI Element", open)) { pushUndo(); e.ui.reset(); }
         else if (open) drawUIInspector(e);
+    }
+    if (e.decal) {
+        if (!componentHeader("Decal", open)) { pushUndo(); e.decal.reset(); }
+        else if (open) {
+            Decal& d = *e.decal;
+            texturePicker("Texture##decal", d.texture, "Its colour and alpha (where it shows); none: the colour fills the box");
+            ImGui::ColorEdit3("Colour##decal", &d.color.x);
+            track();
+            ImGui::SliderFloat("Opacity##decal", &d.opacity, 0.f, 1.f, "%.2f");
+            track();
+            bool setsRough = d.roughness >= 0.f;
+            if (ImGui::Checkbox("Sets roughness", &setsRough)) {
+                pushUndo();
+                d.roughness = setsRough ? 0.5f : -1.f;
+            }
+            if (setsRough) {
+                ImGui::SameLine();
+                ImGui::SliderFloat("##decalRough", &d.roughness, 0.f, 1.f, "%.2f");
+                track();
+            }
+            ImGui::SliderFloat("Wetness##decal", &d.wetness, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("Wet where it shows; at 1 on flat ground a puddle (with rings when it rains). Opacity 0 and "
+                    "wetness 1: a puddle alone");
+            ImGui::SliderFloat("Angle fade", &d.angleFade, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("Fades on surfaces turned away from its direction (down the box), so walls it crosses aren't smeared");
+        }
     }
     if (e.reflectionProbe) {
         if (!componentHeader("Reflection Probe", open)) { pushUndo(); e.reflectionProbe.reset(); }
@@ -1128,6 +1183,7 @@ void Editor::drawComponents(Entity& e) {
         if (ImGui::MenuItem("Animator", nullptr, false, !e.animator)) { pushUndo(); e.animator = Animator{}; }
         if (ImGui::MenuItem("Particle Emitter", nullptr, false, !e.particleEmitter)) { pushUndo(); e.particleEmitter = ParticleEmitter{}; }
         if (ImGui::MenuItem("Reflection Probe", nullptr, false, !e.reflectionProbe)) { pushUndo(); e.reflectionProbe = ReflectionProbe{}; }
+        if (ImGui::MenuItem("Decal", nullptr, false, !e.decal)) { pushUndo(); e.decal = Decal{}; }
         if (ImGui::MenuItem("Water", nullptr, false, !e.water)) { pushUndo(); e.water = Water{}; }
         if (ImGui::MenuItem("UI Element", nullptr, false, !e.ui)) { pushUndo(); e.ui = UIElement{}; }
         if (ImGui::MenuItem("Replicated", nullptr, false, !e.replicated)) { pushUndo(); e.replicated = Replicated{}; }

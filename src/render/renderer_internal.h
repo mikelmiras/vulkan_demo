@@ -74,6 +74,15 @@ struct FrameUBO {
     float atmosphere[4];      // x = 1: on (the sky table at binding 23)
     float skySun[4];          // the sun's light above the air (rgb: the sky table is for one of it)
     float air[4];             // the air's extinction per metre (rgb: aerial perspective; 0: none)
+    float weather[4];         // wetness, puddles, rain, w = how many decals (binding 24)
+};
+
+// A decal (set 0, binding 24): render/decals.h picks them
+struct GpuDecal {
+    Mat4 toBox;          // world -> its box (-0.5..0.5; projecting down its -y)
+    float color[4];      // rgb linear, a = opacity
+    float params[4];     // x = texture slot (binding 25; -1: none), y = roughness (-1: as it is), z = wetness, w = angle fade
+    float down[4];       // its direction in the world
 };
 
 // A point or spot light (set 0, binding 14)
@@ -93,6 +102,7 @@ struct InstanceData {
     float stream[4];     // texture streaming: x = the texture to report the finest level wanted of (-1: none),
                          // y = log2 of its larger side (texture_streaming.h)
     float layers[4];     // clear coat, its roughness, sheen, anisotropy
+    float surface[4];    // parallax depth (0: none), detail tiling, detail strength (0: none), w = 1: sheltered
 };
 
 // The six planes of a view-projection's frustum (Vulkan clip space: 0 <= z <= w), as (normal, distance)

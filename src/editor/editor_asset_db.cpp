@@ -87,9 +87,13 @@ std::vector<EntityId> Editor::assetUsers(const fs::path& file) {
         bool uses = false;
         if (const MeshRenderer* mr = e.meshRenderer ? &*e.meshRenderer : nullptr) {
             if (mr->mesh >= 0 && mr->mesh < meshes_.count() && names(meshes_.get(mr->mesh).source, file)) uses = true;
-            for (int t : {mr->texture, mr->normalTexture, mr->metalRoughTexture, mr->emissiveTexture})
+            for (int t : {mr->texture, mr->normalTexture, mr->metalRoughTexture, mr->emissiveTexture, mr->heightTexture,
+                          mr->detailTexture})
                 if (t >= 0 && t < textures_.count() && names(textures_.get(t).source, file)) uses = true;
         }
+        if (e.decal && e.decal->texture >= 0 && e.decal->texture < textures_.count() &&
+            names(textures_.get(e.decal->texture).source, file))
+            uses = true;
         if (e.audioSource && names(e.audioSource->clip, file)) uses = true;
         if (e.animator) {
             std::vector<std::string> clips = {e.animator->clip};

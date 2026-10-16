@@ -20,6 +20,7 @@ layout(location = 7) out vec4 vSplat;   // terrains: how much of each layer here
 layout(location = 8) out float vHole;   // terrains: > 0 on triangles using a hole point (their first joint)
 layout(location = 9) flat out vec4 vStream;   // texture streaming (Instance.stream)
 layout(location = 10) flat out vec4 vLayers;  // clear coat, its roughness, sheen, anisotropy (Instance.layers)
+layout(location = 11) flat out vec4 vSurface; // parallax, detail, sheltered (Instance.surface)
 
 invariant gl_Position;   // (the depth prepass and the lit pass after it must land on the same depths)
 
@@ -36,6 +37,7 @@ void main() {
     vEmissive = inst.emissive;
     vStream = inst.stream;
     vLayers = inst.layers;
+    vSurface = inst.surface;
     vSplat = inWeights;
     vHole = inst.params.x > 1.5 && inst.params.x < 2.5 ? float(inJoints.x) : 0.0;
     if (inst.params.x > 2.5) {   // water: its grid moved by the waves (rest positions in the world), how high a crest is

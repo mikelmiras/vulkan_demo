@@ -260,6 +260,7 @@ void Editor::buildDrawItems() {
     lights_ = collectLights(scene_, worlds_);
     plants_ = collectPlants(scene_, worlds_, meshes_);
     probes_ = collectProbes(scene_, worlds_, probeBakes_);
+    decals_ = collectDecals(scene_, worlds_);
     particles_.clear();
     if (playing()) {
         previewParticles_.clear();
@@ -279,6 +280,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.plants = &plants_;
     info.lights = &lights_;
     info.probes = &probes_;
+    info.decals = &decals_;
     info.joints = &joints_;
     info.particles = &particles_;
     const RenderSettings& r = scene_.render;
@@ -314,6 +316,9 @@ SceneRenderInfo Editor::renderInfo() const {
     info.exposureMax = r.exposureMax;
     info.adaptationSpeed = r.adaptationSpeed;
     info.localToneMapping = r.localToneMapping;
+    info.wetness = r.wetness;
+    info.puddles = r.puddles;
+    info.rain = r.rain;
     info.physicalSky = r.physicalSky;
     info.timeOfDay = r.timeOfDay;
     info.latitude = r.latitude;
@@ -685,6 +690,18 @@ void Editor::addReflectionProbe() {
     e.reflectionProbe = ReflectionProbe{};
     select(e.id);
     setStatus("Added a reflection probe: shiny things inside its box reflect what it sees from its centre");
+}
+
+void Editor::addDecal() {
+    pushUndo();
+    Entity& e = scene_.create(scene_.uniqueName("Decal"));
+    Vec3 p = spawnPoint(0.f);
+    e.transform.position[0] = p.x; e.transform.position[1] = p.y; e.transform.position[2] = p.z;
+    e.transform.scale[0] = 2.f; e.transform.scale[1] = 1.f; e.transform.scale[2] = 2.f;
+    e.decal = Decal{};
+    select(e.id);
+    setStatus("Added a decal: it paints what's inside its box (its scale), projected downwards; pick a texture or make "
+              "it a puddle in the inspector");
 }
 
 void Editor::addCamera() {

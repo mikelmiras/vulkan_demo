@@ -297,6 +297,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         int lead = leadOf(o);
         for (int id : {o.normalTexture, o.metalRoughTexture, o.emissiveTexture})
             if (valid(id) && id != lead) streamLead_[(size_t)id] = lead;
+        for (int id : {o.heightTexture, o.detailTexture})   // (read at other places and scales: kept whole)
+            if (valid(id)) gpuTextures_[(size_t)id].pinned = true;
     }
     auto instanceOf = [&](const DrawItem& o, Vec3 rgb) {
         bool textured = o.texture >= 0 && o.texture < (int)gpuTextures_.size();
@@ -309,6 +311,10 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         d.layers[1] = o.clearcoatRoughness;
         d.layers[2] = o.sheen;
         d.layers[3] = o.anisotropy;
+        d.surface[0] = o.parallaxDepth;
+        d.surface[1] = o.detailTiling;
+        d.surface[2] = o.detailStrength;
+        d.surface[3] = o.sheltered ? 1.f : 0.f;
         int lead = streaming_ ? leadOf(o) : -1;
         d.stream[0] = (float)lead;
         if (lead >= 0) {

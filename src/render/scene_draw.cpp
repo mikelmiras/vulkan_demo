@@ -92,6 +92,12 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
         d.clearcoatRoughness = mr.clearcoatRoughness;
         d.sheen = mr.sheen;
         d.anisotropy = mr.anisotropy;
+        d.heightTexture = mr.heightTexture;
+        d.parallaxDepth = mr.heightTexture >= 0 ? mr.parallaxDepth : 0.f;
+        d.detailTexture = mr.detailTexture;
+        d.detailTiling = mr.detailTiling;
+        d.detailStrength = mr.detailTexture >= 0 ? mr.detailStrength : 0.f;
+        d.sheltered = mr.sheltered;
         if (joints && e.skin && meshes && d.mesh >= 0 && d.mesh < meshes->count() && meshes->get(d.mesh).skinned) {
             // Joint matrix = (the mesh's world)^-1 * the joint's world * inverse bind: the shader applies the model
             // matrix on top, so a skinned vertex lands where its joints put it
@@ -166,6 +172,31 @@ std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>
         lights.push_back(l);
     }
     return lights;
+}
+
+std::vector<DecalInfo> collectDecals(const Scene& scene, const std::vector<Mat4>& worlds) {
+    std::vector<DecalInfo> decals;
+    for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i) {
+        const Entity& e = scene.entities[i];
+        if (!e.decal || !scene.visibleInHierarchy(e.id)) continue;
+        const Mat4& m = worlds[i];
+        const Decal& dc = *e.decal;
+        DecalInfo d;
+        d.toBox = inverse(m);
+        d.center = {m.m[12], m.m[13], m.m[14]};
+        d.down = normalize(transformDir(m, {0, -1, 0}));
+        Vec3 half = Vec3{length(transformDir(m, {1, 0, 0})), length(transformDir(m, {0, 1, 0})),
+                         length(transformDir(m, {0, 0, 1}))} * 0.5f;
+        d.radius = length(half);
+        d.color = srgbToLinear(dc.color);
+        d.opacity = dc.opacity;
+        d.roughness = dc.roughness;
+        d.wetness = dc.wetness;
+        d.angleFade = dc.angleFade;
+        d.texture = dc.texture;
+        if (d.radius > 0.f) decals.push_back(d);
+    }
+    return decals;
 }
 
 std::vector<ProbeInfo> collectProbes(const Scene& scene, const std::vector<Mat4>& worlds, uint32_t bakeCount) {

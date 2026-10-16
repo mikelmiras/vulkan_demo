@@ -1399,11 +1399,31 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 83 (done) | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
 | 84 (done) | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
 | 85 (done) | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
-| 86 | Materials and surfaces: parallax occlusion mapping, detail maps, decals (projected: road markings, puddles, dirt), wetness (darker, glossier, rain ripples) driven by a weather setting | Surfaces are flat textures; a wet night street, the look Night Drive wants, can't be made |
+| 86 (done) | Materials and surfaces: parallax occlusion mapping, detail maps, decals (projected: road markings, puddles, dirt), wetness (darker, glossier, rain ripples) driven by a weather setting | Surfaces are flat textures; a wet night street, the look Night Drive wants, can't be made |
 | 87 | Water, finished: refraction and absorption by depth, caustics on the bottom, shoreline foam where it meets geometry, screen-space reflections on it | Task 71's water is a coloured surface: no depth, no sense of what's beneath |
 | 88 | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
 
 ### Round 8 notes
+- **86, surfaces**: MeshRenderer gains heightTexture / parallaxDepth, detailTexture / detailTiling /
+  detailStrength and sheltered; a Decal component; RenderSettings gains wetness, puddles and rain (scene format 49,
+  module API 56). Material sets have six maps (height, detail: set 1 bindings 4 and 5) keyed by all six ids (a
+  struct key, no longer four packed in 64 bits); height and detail maps are pinned whole by streaming. The instance
+  data gains surface (parallax depth, detail tiling and strength, sheltered; the vertex shaders' vSurface at
+  location 11). scene.frag: tangentFrame / bend split out of perturbNormal; parallaxUv marches the height map with
+  textureGrad (8 to 32 steps by angle and quality) and interpolates the crossing, and the material is read at the
+  result (gUV); the detail map bends the normal again in the same frame. Decals: render/decals.h picks the nearest
+  64 (from their box's edge) and gives their textures 16 slots; renderer_decals.cpp writes a buffer per frame
+  (binding 24) and the slots (binding 25, an array) in that frame's set. scene.frag loops over them before
+  lighting with explicit gradients, and a switch over the slots: the slot is the same for every pixel in an
+  iteration, so no dynamic indexing feature is needed. Weather: wet = wetness times how much the surface faces up,
+  porous darkening and lower roughness; puddles where two octaves of value noise pass a threshold on flat ground,
+  roughness 0.03 and a flat normal, rain rings from a 3 x 3 cell search of drops (each its own place, moment and
+  rate). Checked: pickDecals and the decals' boxes (tests), saved and loaded, a scene with a parallax wall (angled:
+  on / off differ as expected), road-line decals, a textured grate, a puddle decal, wet with rain, under validation
+  with sync checks (TAA, MSAA, the editor, Night Drive). Lavapipe's lit pass 285 ms dry, 402 wet (the reflections
+  wet ground now has), 415 with rain. Not done: decals clustered like the lights (each pixel checks all 64), decal
+  normal maps, parallax self-shadowing and depth written for silhouettes, wetness that knows what's under a roof
+  (only sheltered materials stay dry), streaks running down walls, splashes.
 - **85, indirect light**: RenderSettings gains ssgi and ssgiIntensity (scene format 48, module API 55). The
   reflections' capture of the last frame (prevColor_: colour and distance) is now taken when either effect is on, and
   mipped by linear blits (6 levels, where the HDR format can be blitted; binding 18 now samples every level).

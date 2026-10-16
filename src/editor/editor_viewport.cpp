@@ -409,6 +409,25 @@ void Editor::drawColliders() {
                 }
         dl->PopClipRect();
     }
+    if (const Entity* e = scene_.find(selected_); e && e->decal) {   // the selected decal's box (turned with it)
+        ImDrawList* dl = ImGui::GetBackgroundDrawList();
+        dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
+        const Mat4& w = worldOf(e->id);
+        auto corner = [&](int i) {
+            return transformPoint(w, {i & 1 ? 0.5f : -0.5f, i & 2 ? 0.5f : -0.5f, i & 4 ? 0.5f : -0.5f});
+        };
+        for (int i = 0; i < 8; ++i)
+            for (int bit : {1, 2, 4})
+                if (!(i & bit)) {
+                    ImVec2 a, b;
+                    if (worldToScreen(corner(i), a) && worldToScreen(corner(i | bit), b))
+                        dl->AddLine(a, b, IM_COL32(255, 190, 90, 200), px(1.2f));
+                }
+        ImVec2 from, to;   // (its direction: down the box)
+        if (worldToScreen(transformPoint(w, {0, 0.5f, 0}), from) && worldToScreen(transformPoint(w, {0, -0.5f, 0}), to))
+            dl->AddLine(from, to, IM_COL32(255, 190, 90, 255), px(2.f));
+        dl->PopClipRect();
+    }
     if (showContacts_ && playing()) {   // the last physics step's contacts: a dot and its normal
         ImDrawList* dl = ImGui::GetBackgroundDrawList();
         dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);

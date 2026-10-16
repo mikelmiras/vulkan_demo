@@ -19,7 +19,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 48;  // 48: screen-space global illumination; 47: physical sky, time of day; 46: auto-exposure, local tone mapping; 45: clear coat, sheen and anisotropy in materials; 44: scene music and reverb from the world; 43: animation events' particles and camera shakes, retargeting that plants feet, mirrored clips; 42: water (waves, currents); 41: shadow softness, volumetric fog, tone mapper and grading; 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 49;  // 49: parallax, detail maps, decals, weather; 48: screen-space global illumination; 47: physical sky, time of day; 46: auto-exposure, local tone mapping; 45: clear coat, sheen and anisotropy in materials; 44: scene music and reverb from the world; 43: animation events' particles and camera shakes, retargeting that plants feet, mirrored clips; 42: water (waves, currents); 41: shadow softness, volumetric fog, tone mapper and grading; 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -308,6 +308,16 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             if (mr.emissiveStrength != 1.f) c.set("emissiveStrength", mr.emissiveStrength);
         }
         tex("emissiveTexture", mr.emissiveTexture);
+        if (mr.heightTexture >= 0 && mr.heightTexture < textures.count()) {
+            tex("heightTexture", mr.heightTexture);
+            c.set("parallaxDepth", mr.parallaxDepth);
+        }
+        if (mr.detailTexture >= 0 && mr.detailTexture < textures.count()) {
+            tex("detailTexture", mr.detailTexture);
+            c.set("detailTiling", mr.detailTiling);
+            c.set("detailStrength", mr.detailStrength);
+        }
+        if (mr.sheltered) c.set("sheltered", true);
         if (mr.alphaMode != MeshRenderer::AlphaMode::Opaque) {
             c.set("alphaMode", alphaModeName(mr.alphaMode));
             c.set("opacity", mr.opacity);
@@ -625,6 +635,16 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
         }
         if (u.kind == UIElement::Kind::List) c.set("spacing", u.spacing);
     }
+    if (e.decal) {
+        const Decal& d = *e.decal;
+        json::Value& c = v.set("decal", json::Value::object());
+        if (d.texture >= 0 && d.texture < textures.count()) c.set("texture", textures.name(d.texture));
+        c.set("color", vec3(d.color));
+        c.set("opacity", d.opacity);
+        c.set("roughness", d.roughness);
+        c.set("wetness", d.wetness);
+        c.set("angleFade", d.angleFade);
+    }
     if (e.reflectionProbe) {
         json::Value& c = v.set("reflectionProbe", json::Value::object());
         c.set("size", vec3(e.reflectionProbe->size));
@@ -781,8 +801,13 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             return true;
         };
         if (!texture("texture", mr.texture) || !texture("metalRoughTexture", mr.metalRoughTexture) ||
-            !texture("normalTexture", mr.normalTexture) || !texture("emissiveTexture", mr.emissiveTexture))
+            !texture("normalTexture", mr.normalTexture) || !texture("emissiveTexture", mr.emissiveTexture) ||
+            !texture("heightTexture", mr.heightTexture) || !texture("detailTexture", mr.detailTexture))   // (49 on)
             return false;
+        mr.parallaxDepth = std::clamp(c["parallaxDepth"].asFloat(0.f), 0.f, 0.5f);
+        mr.detailTiling = c["detailTiling"].asFloat(mr.detailTiling);
+        mr.detailStrength = c["detailStrength"].asFloat(mr.detailStrength);
+        mr.sheltered = c["sheltered"].asBool(false);
         mr.metallic = c["metallic"].asFloat(mr.metallic);
         mr.roughness = c["roughness"].asFloat(mr.roughness);
         mr.clearcoat = c["clearcoat"].asFloat(0.f);   // (45 on; before: none)
@@ -1074,6 +1099,20 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
         u.spacing = c["spacing"].asFloat(u.spacing);
         e.ui = u;
     }
+    if (const json::Value& c = v["decal"]; c.isObject()) {   // (49)
+        Decal d;
+        if (const std::string& tex = c["texture"].asString(); !tex.empty()) {
+            auto it = ids.textures.find(tex);
+            if (it == ids.textures.end()) { error = "entity '" + e.name + "': unknown texture '" + tex + "'"; return false; }
+            d.texture = it->second;
+        }
+        d.color = readVec3(c["color"], d.color);
+        d.opacity = std::clamp(c["opacity"].asFloat(d.opacity), 0.f, 1.f);
+        d.roughness = std::clamp(c["roughness"].asFloat(d.roughness), -1.f, 1.f);
+        d.wetness = std::clamp(c["wetness"].asFloat(d.wetness), 0.f, 1.f);
+        d.angleFade = std::clamp(c["angleFade"].asFloat(d.angleFade), 0.f, 1.f);
+        e.decal = d;
+    }
     if (const json::Value& c = v["reflectionProbe"]; c.isObject()) {
         ReflectionProbe p;
         p.size = readVec3(c["size"], p.size);
@@ -1220,10 +1259,11 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
             if (e.terrain)
                 for (const Terrain::Layer& l : e.terrain->layers)
                     if (l.texture >= kBuiltinTextureCount) usedTextures.insert(l.texture);
+            if (e.decal && e.decal->texture >= kBuiltinTextureCount) usedTextures.insert(e.decal->texture);
             if (!e.meshRenderer) continue;
             if (e.meshRenderer->mesh >= (int)MeshKind::Count) usedMeshes.insert(e.meshRenderer->mesh);
             for (int t : {e.meshRenderer->texture, e.meshRenderer->metalRoughTexture, e.meshRenderer->normalTexture,
-                          e.meshRenderer->emissiveTexture})
+                          e.meshRenderer->emissiveTexture, e.meshRenderer->heightTexture, e.meshRenderer->detailTexture})
                 if (t >= kBuiltinTextureCount) usedTextures.insert(t);
         }
     json::Value& m = doc.set("meshes", json::Value::array());
@@ -1429,6 +1469,11 @@ json::Value sceneToJson(const Scene& scene, const MeshLibrary& meshes, const Tex
             rv.set("giIntensity", r.giIntensity);
         }
         if (r.reflections) rv.set("reflections", true);
+        if (r.wetness > 0.f || r.rain > 0.f) {
+            rv.set("wetness", r.wetness);
+            rv.set("puddles", r.puddles);
+            rv.set("rain", r.rain);
+        }
         if (r.ssgi) {
             rv.set("ssgi", true);
             rv.set("ssgiIntensity", r.ssgiIntensity);
@@ -1578,6 +1623,9 @@ bool sceneFromJson(const json::Value& doc, Scene& scene, MeshLibrary& meshes, Te
         r.giSpacing = std::clamp(rv["giSpacing"].asFloat(r.giSpacing), 0.25f, 100.f);
         r.giIntensity = rv["giIntensity"].asFloat(r.giIntensity);
         r.reflections = rv["reflections"].asBool(false);
+        r.wetness = std::clamp(rv["wetness"].asFloat(0.f), 0.f, 1.f);   // (49 on; before: dry)
+        r.puddles = std::clamp(rv["puddles"].asFloat(r.puddles), 0.f, 1.f);
+        r.rain = std::clamp(rv["rain"].asFloat(0.f), 0.f, 1.f);
         r.ssgi = rv["ssgi"].asBool(false);   // (48 on; before: none)
         r.ssgiIntensity = std::clamp(rv["ssgiIntensity"].asFloat(r.ssgiIntensity), 0.f, 1.f);
         // (41) shadow softness, volumetric fog, the tone mapper and grading: older scenes get what they had

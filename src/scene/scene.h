@@ -54,6 +54,13 @@ struct MeshRenderer {
     float clearcoatRoughness = 0.05f;
     float sheen = 0.f;                // cloth's soft rim of light at grazing angles (velvet, felt), tinted by the colour
     float anisotropy = 0.f;           // -1..1: highlights stretched across (brushed metal), along the texture's u (> 0) or v
+    // Surface detail
+    int heightTexture = -1;           // a height map (white high) for parallax occlusion: the surface looks deep
+    float parallaxDepth = 0.f;        // how deep, in texture units (0.02..0.08 suits most; 0: flat)
+    int detailTexture = -1;           // a fine normal map tiled over the surface (grain, pores, scratches)
+    float detailTiling = 8.f;         // its repeats per repeat of the other textures
+    float detailStrength = 1.f;
+    bool sheltered = false;           // the weather doesn't wet it (RenderSettings::wetness): indoors, under cover
 };
 const char* alphaModeName(MeshRenderer::AlphaMode mode);
 
@@ -516,6 +523,18 @@ struct ReflectionProbe {
     bool boxProjection = true;    // reflections lined up with a box-shaped room's walls (parallax correction)
 };
 
+// A decal: an image or a colour projected down the entity's box (a unit cube under its transform: its scale is the
+// box's size in metres; down its local -y) onto whatever is inside: road markings, dirt, cracks, puddles. It changes
+// the surface's colour, roughness and wetness before it's lit.
+struct Decal {
+    int texture = -1;             // colour (sRGB) and alpha: where it shows; -1: the colour alone, the whole box
+    Vec3 color{1, 1, 1};          // sRGB, times the texture
+    float opacity = 1.f;
+    float roughness = -1.f;       // the surface's roughness under it (-1: as it is)
+    float wetness = 0.f;          // 0..1: wet there (1: a puddle: dark, glossy, with rings in the rain)
+    float angleFade = 0.5f;       // fading on surfaces turned away from its direction (0: none, 1: most)
+};
+
 // A heightmap ground (scene/terrain.h): a square grid of heights over size x size metres, centred on the entity (its
 // transform applies on top), with up to four painted layers (a texture and a tint each; weights per grid point). It
 // collides (a static height field: its Collider, if any, is ignored), navigation walks on it, and it's drawn like a
@@ -627,6 +646,7 @@ struct Entity {
     std::optional<ParticleEmitter> particleEmitter;
     std::optional<Terrain> terrain;
     std::optional<ReflectionProbe> reflectionProbe;
+    std::optional<Decal> decal;
     std::optional<Water> water;
     std::optional<UIElement> ui;
     std::optional<Replicated> replicated;
@@ -756,6 +776,11 @@ struct RenderSettings {
     float latitude = 40.f;            // degrees: how high the sun climbs (with a time of day)
     float haze = 1.f;                 // haze in the air (Mie scattering: a whiter sky, a wider glow round the sun)
     float aerialPerspective = 10.f;   // how thick the air looks over distance (1: as real; small scenes want more)
+    // Weather: how wet the world is (surfaces facing up darker and glossier, puddles on flat ground) and the rain on
+    // it (rings in the puddles); MeshRenderer::sheltered surfaces stay dry
+    float wetness = 0.f;              // 0..1
+    float puddles = 0.5f;             // 0..1: how much of flat ground holds standing water (when wet)
+    float rain = 0.f;                 // 0..1: how hard it rains (the rings)
 };
 
 // A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.

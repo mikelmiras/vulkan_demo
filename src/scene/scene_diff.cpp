@@ -20,7 +20,9 @@ bool eq(const MeshRenderer& a, const MeshRenderer& b) {
            a.normalScale == b.normalScale && eq(a.emissive, b.emissive) && a.emissiveStrength == b.emissiveStrength &&
            a.emissiveTexture == b.emissiveTexture && a.alphaMode == b.alphaMode && a.opacity == b.opacity &&
            a.alphaCutoff == b.alphaCutoff && a.clearcoat == b.clearcoat && a.clearcoatRoughness == b.clearcoatRoughness &&
-           a.sheen == b.sheen && a.anisotropy == b.anisotropy;
+           a.sheen == b.sheen && a.anisotropy == b.anisotropy && a.heightTexture == b.heightTexture &&
+           a.parallaxDepth == b.parallaxDepth && a.detailTexture == b.detailTexture && a.detailTiling == b.detailTiling &&
+           a.detailStrength == b.detailStrength && a.sheltered == b.sheltered;
 }
 bool eq(const Camera& a, const Camera& b) {
     return a.fovY == b.fovY && a.zNear == b.zNear && a.zFar == b.zFar && a.player == b.player;
@@ -102,6 +104,10 @@ bool eq(const Water& a, const Water& b) {   // (its mesh: runtime)
     return a.width == b.width && a.length == b.length && a.depth == b.depth && a.waveHeight == b.waveHeight &&
            a.waveLength == b.waveLength && a.waveDirection == b.waveDirection && a.choppiness == b.choppiness &&
            eq(a.current, b.current) && eq(a.color, b.color) && a.clarity == b.clarity;
+}
+bool eq(const Decal& a, const Decal& b) {
+    return a.texture == b.texture && eq(a.color, b.color) && a.opacity == b.opacity && a.roughness == b.roughness &&
+           a.wetness == b.wetness && a.angleFade == b.angleFade;
 }
 bool eq(const ReflectionProbe& a, const ReflectionProbe& b) {
     return eq(a.size, b.size) && a.resolution == b.resolution && a.boxProjection == b.boxProjection;
@@ -210,7 +216,7 @@ bool sameEntity(const Entity& a, const Entity& b) {
         !eq(a.light, b.light) || !eq(a.rigidBody, b.rigidBody) || !eq(a.joint, b.joint) || !eq(a.navLink, b.navLink) || !eq(a.audioSource, b.audioSource) || !eq(a.reverbZone, b.reverbZone) ||
         !eq(a.prefab, b.prefab) || !eq(a.nestedPrefab, b.nestedPrefab) || !eq(a.skin, b.skin) || !eq(a.animator, b.animator) ||
         !eq(a.particleEmitter, b.particleEmitter) || !eq(a.terrain, b.terrain) ||
-        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.water, b.water) || !eq(a.ui, b.ui) || !eq(a.vehicle, b.vehicle) || !eq(a.brain, b.brain) || !eq(a.softBody, b.softBody) || !eq(a.fracture, b.fracture) ||
+        !eq(a.reflectionProbe, b.reflectionProbe) || !eq(a.decal, b.decal) || !eq(a.water, b.water) || !eq(a.ui, b.ui) || !eq(a.vehicle, b.vehicle) || !eq(a.brain, b.brain) || !eq(a.softBody, b.softBody) || !eq(a.fracture, b.fracture) ||
         a.replicated.has_value() != b.replicated.has_value() || (a.replicated && a.replicated->fields != b.replicated->fields))
         return false;
     if (a.behaviours.size() != b.behaviours.size()) return false;
@@ -244,7 +250,8 @@ bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
            a.autoExposure == b.autoExposure && a.exposureMin == b.exposureMin && a.exposureMax == b.exposureMax &&
            a.adaptationSpeed == b.adaptationSpeed && a.localToneMapping == b.localToneMapping &&
            a.physicalSky == b.physicalSky && a.timeOfDay == b.timeOfDay && a.latitude == b.latitude && a.haze == b.haze &&
-           a.aerialPerspective == b.aerialPerspective && a.ssgi == b.ssgi && a.ssgiIntensity == b.ssgiIntensity;
+           a.aerialPerspective == b.aerialPerspective && a.ssgi == b.ssgi && a.ssgiIntensity == b.ssgiIntensity &&
+           a.wetness == b.wetness && a.puddles == b.puddles && a.rain == b.rain;
 }
 
 bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b) {

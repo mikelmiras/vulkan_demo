@@ -364,8 +364,11 @@ private:
     std::vector<LightInfo> lights_;
     std::vector<PlantSet> plants_;
     std::vector<ProbeInfo> probes_;
+    std::vector<DecalInfo> decals_;
     uint32_t probeBakes_ = 0;   // bumped by Bake: every reflection probe is baked again
     void addReflectionProbe();
+    void addDecal();
+    void texturePicker(const char* label, int& id, const char* help);   // (a texture slot: a list, or drop one)
     void addWater();
     std::vector<Mat4> worlds_;
     std::vector<DrawItem> drawItems_;

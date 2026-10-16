@@ -20,6 +20,7 @@ layout(location = 7) out vec4 vSplat;
 layout(location = 8) out float vHole;
 layout(location = 9) flat out vec4 vStream;
 layout(location = 10) flat out vec4 vLayers;
+layout(location = 11) flat out vec4 vSurface;
 
 // Terrain::Plant: position (terrain space), yaw, scale, shade
 layout(std430, set = 0, binding = 16) readonly buffer Plants { float plants[]; };
@@ -57,6 +58,7 @@ void main() {
     vEmissive = vec4(0.0);
     vStream = vec4(-1.0, 0.0, 0.0, 0.0);   // (grass isn't streamed)
     vLayers = vec4(0.0, 0.05, 0.0, 0.0);   // (no coat, sheen or anisotropy)
+    vSurface = vec4(0.0, 8.0, 0.0, 0.0);   // (no parallax or detail; the weather wets it)
     vSplat = vec4(0.0);
     vHole = 0.0;
     gl_Position = frame.viewProj * world;

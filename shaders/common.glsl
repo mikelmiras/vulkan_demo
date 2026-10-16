@@ -46,6 +46,7 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 atmosphere;      // the physically based sky (renderer_sky.cpp): x = 1 if on
     vec4 skySun;          // the sun's light above the air (the sky table is for one of it)
     vec4 air;             // the air's extinction per metre (aerial perspective; 0: none)
+    vec4 weather;         // wetness, puddles, rain (RenderSettings), w = how many decals (binding 24)
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness
@@ -123,6 +124,7 @@ struct Instance {
     vec4 emissive; // rgb = emitted light (linear, times its strength), w = alpha cutoff (cut-outs)
     vec4 stream;   // texture streaming: x = the texture whose detail to report (-1: none), y = log2 of its size
     vec4 layers;   // clear coat, its roughness, sheen, anisotropy
+    vec4 surface;  // parallax depth (0: none), detail tiling, detail strength (0: none), w = 1: sheltered from weather
 };
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
     Instance instances[];

@@ -712,7 +712,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[24] = {
+    VkDescriptorSetLayoutBinding frameBindings[26] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -737,16 +737,18 @@ void Renderer::createPipelines() {
         {21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // volumetric fog
         {22, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... its columns' surfaces
         {23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the physical sky's table
+        {24, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // decals
+        {25, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDecalTextures, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... their textures
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 24;
+    dslci.bindingCount = 26;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
-    // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
-    VkDescriptorSetLayoutBinding matBindings[4];
-    for (uint32_t i = 0; i < 4; ++i)
+    // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
+    VkDescriptorSetLayoutBinding matBindings[6];
+    for (uint32_t i = 0; i < 6; ++i)
         matBindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
-    dslci.bindingCount = 4;
+    dslci.bindingCount = 6;
     dslci.pBindings = matBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &materialSetLayout_));
 
@@ -1085,15 +1087,15 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 15 * MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (15 + kDecalTextures) * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
     dpci.pPoolSizes = poolSizes;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &descPool_));
     // Material sets (four maps each), made as materials are first drawn
-    VkDescriptorPoolSize matSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * 4096};
+    VkDescriptorPoolSize matSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6 * 4096};
     dpci.maxSets = 4096;
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &matSize;
@@ -1219,6 +1221,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     createCulling();
     createLightBuffers();
+    createDecalBuffers();
     createGi();
     writeSsrBinding();
     // Texture streaming: on unless VKWORLD_TEXTURE_STREAMING=0; the budget from VKWORLD_TEXTURE_BUDGET (MB)
@@ -1719,6 +1722,8 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
 
     u.viewProj = info.viewProj;
     std::vector<int> lightShadow(points.size(), -1);
+    if (shadows) writeDecals(info, u);   // (and the weather)
+    else u.weather[0] = info.wetness, u.weather[1] = info.puddles, u.weather[2] = info.rain;
     if (shadows) {
         shadowLayers_ = computeShadows(info, normalize(sun.direction), frameShadows_, points, u, lightShadow);
         for (uint32_t i = 0; i < kShadowLayers; ++i) shadowViewProj_[i] = u.shadowViewProj[i];
@@ -1908,6 +1913,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
             uv.viewport[3] = 1.f;
         }
         uv.sunDir[3] = u.sunDir[3];
+        uv.weather[3] = u.weather[3];   // (the decals: the main view's)
         std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &uv, sizeof(uv));
     }
     if (aa_ == Antialiasing::Temporal) {   // jittered, a different sub-pixel offset every frame
@@ -2004,6 +2010,7 @@ void Renderer::shutdown() {
     destroyImage(cookies_);
     for (int i = 0; i < MAX_FRAMES; ++i) {
         destroyBuffer(lights_[i]);
+        destroyBuffer(decalBuffers_[i]);
         destroyBuffer(clusters_[i]);
         destroyBuffer(plantBuffers_[i]);
         if (feedback_[i].buffer) destroyBuffer(feedback_[i]);

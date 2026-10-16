@@ -39,6 +39,17 @@ layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (whi
 layout(set = 1, binding = 1) uniform sampler2D normalMap;      // tangent space (flat if none)
 layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness, b = metallic (white if none)
 layout(set = 1, binding = 3) uniform sampler2D emissiveMap;    // sRGB view (white if none)
+layout(set = 1, binding = 4) uniform sampler2D heightMap;      // parallax occlusion: r = height (white if none)
+layout(set = 1, binding = 5) uniform sampler2D detailMap;      // a fine normal map, tiled (flat if none)
+// Decals (renderer_decals.cpp): the nearest, each a box projected down onto the surfaces in it, and their textures
+struct GpuDecal {
+    mat4 toBox;     // world -> the box (-0.5..0.5; it projects down its -y: u along x, v along z)
+    vec4 color;     // rgb linear, a = opacity
+    vec4 params;    // x = texture slot (-1: none), y = roughness (-1: as it is), z = wetness, w = angle fade
+    vec4 down;      // xyz: its direction in the world
+};
+layout(std430, set = 0, binding = 24) readonly buffer Decals { GpuDecal decals[]; };
+layout(set = 0, binding = 25) uniform sampler2D decalTextures[16];
 
 layout(location = 0) in vec3 vWorldPos;
 layout(location = 1) in vec3 vNormal;
@@ -51,6 +62,9 @@ layout(location = 7) in vec4 vSplat;
 layout(location = 8) in float vHole;
 layout(location = 9) flat in vec4 vStream;
 layout(location = 10) flat in vec4 vLayers;   // clear coat, its roughness, sheen, anisotropy
+layout(location = 11) flat in vec4 vSurface;  // parallax depth, detail tiling, detail strength, w = 1: sheltered
+
+vec2 gUV;   // the texture coordinates the material is read at (vUV, moved by parallax occlusion)
 
 layout(location = 0) out vec4 outColor;
 
@@ -162,17 +176,51 @@ float sunVisibility(vec3 N, vec3 L) {
 }
 
 // Normal mapping without stored tangents: the frame comes from screen-space derivatives (Schueler 2013)
-vec3 perturbNormal(vec3 N, float strength) {
+void tangentFrame(vec3 N, out vec3 T, out vec3 B) {
     vec3 dp1 = dFdx(vWorldPos), dp2 = dFdy(vWorldPos);
     vec2 duv1 = dFdx(vUV), duv2 = dFdy(vUV);
     vec3 dp2perp = cross(dp2, N), dp1perp = cross(N, dp1);
-    vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-    vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+    T = dp2perp * duv1.x + dp1perp * duv2.x;
+    B = dp2perp * duv1.y + dp1perp * duv2.y;
     float scale = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-20));
-    vec3 n = texture(normalMap, vUV).xyz * 2.0 - 1.0;
+    T *= scale;
+    B *= scale;
+}
+vec3 bend(vec3 N, vec3 T, vec3 B, vec3 n, float strength) {   // (n: a tangent-space normal, from its map)
     n.xy *= strength;
     n.y = -n.y;   // texture v runs down the image; the map's +Y points up it
-    return normalize(T * scale * n.x + B * scale * n.y + N * n.z);
+    return normalize(T * n.x + B * n.y + N * n.z);
+}
+vec3 perturbNormal(vec3 N, float strength) {
+    vec3 T, B;
+    tangentFrame(N, T, B);
+    return bend(N, T, B, texture(normalMap, gUV).xyz * 2.0 - 1.0, strength);
+}
+
+// Parallax occlusion mapping: the view ray stepped down into the height map (white: the surface; black: `depth`
+// texture units below it) until it's under the height there, the two last steps' crossing found; the material is
+// read where the ray met it. More steps at grazing angles (and at high quality).
+vec2 parallaxUv(vec3 N, vec3 V, float depth) {
+    vec3 T, B;
+    tangentFrame(N, T, B);
+    vec3 v = vec3(dot(V, T), dot(V, B), max(dot(V, N), 0.05));   // (along u and v: B is dP/dv itself)
+    float most = frame.shadowParams.z > 1.5 ? 32.0 : frame.shadowParams.z > 0.5 ? 16.0 : 8.0;
+    float steps = mix(most, 6.0, clamp(v.z, 0.0, 1.0));
+    vec2 delta = v.xy / v.z * depth / steps;
+    vec2 gx = dFdx(vUV), gy = dFdy(vUV);   // (loops of different lengths: the gradients given, not guessed)
+    vec2 uv = vUV;
+    float layer = 0.0, below = 1.0 - textureGrad(heightMap, uv, gx, gy).r, lastLayer = 0.0, lastBelow = below;
+    for (int i = 0; i < 40 && layer < below && float(i) < steps; ++i) {
+        lastLayer = layer;
+        lastBelow = below;
+        uv -= delta;
+        layer += 1.0 / steps;
+        below = 1.0 - textureGrad(heightMap, uv, gx, gy).r;
+    }
+    // (between the last step above and the first below: where the ray crossed the height, linearly)
+    float a = below - layer, b = lastBelow - lastLayer;
+    float t = clamp(a / min(a - b, -1e-5), 0.0, 1.0);
+    return mix(uv, uv + delta, t);
 }
 
 // GGX / Trowbridge-Reitz distribution and height-correlated Smith visibility
@@ -492,6 +540,35 @@ vec4 fogAt(vec2 uv, float depth) {
     return sum / max(total, 1e-6);
 }
 
+// Weather: value noise (where puddles form) and raindrops' rings on standing water
+float hash12(vec2 p) {
+    vec3 q = fract(vec3(p.xyx) * 0.1031);
+    q += dot(q, q.yzx + 33.33);
+    return fract((q.x + q.y) * q.z);
+}
+float valueNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash12(i), hash12(i + vec2(1.0, 0.0)), u.x), mix(hash12(i + vec2(0.0, 1.0)), hash12(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+// The slope of the water's surface at p (metres, on the ground) from rings spreading where drops fell: one drop per
+// 0.4 m cell at a time, each at its own place and moment, its ring growing and fading over its life
+vec2 rainRings(vec2 p, float t, float rain) {
+    vec2 q = p * 2.5, cell = floor(q), slope = vec2(0.0);
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) {
+            vec2 c = cell + vec2(x, y);
+            float seed = hash12(c), life = fract(t * (0.8 + 0.6 * seed) + seed * 7.0);
+            if (hash12(c + 17.0) > rain) continue;   // (lighter rain: fewer drops)
+            vec2 at = c + 0.5 + (vec2(hash12(c + 3.1), hash12(c + 5.7)) - 0.5) * 0.7;
+            vec2 d = q - at;
+            float r = length(d), x0 = r - life * 0.9;
+            float ring = exp(-x0 * x0 * 90.0) * (1.0 - life) * (1.0 - life);
+            slope += d / max(r, 1e-4) * ring * cos(x0 * 30.0);
+        }
+    return slope * 0.6;
+}
+
 // A terrain's colour: its four layers (the material set's four textures, sRGB) mixed by the vertex weights, each
 // tinted and tiled by a column of its layers' matrix (joints[-params.w - 2]; none: white, 4 m tiles)
 vec3 terrainColor() {
@@ -518,17 +595,23 @@ void main() {
     bool water = vParams.x > 2.5;   // (water: shaders/water.glsl moved its grid; its waves in vEmissive)
     bool terrain = vParams.x > 1.5 && !water;
     if (terrain && vHole > 0.001) discard;   // a hole in the ground
+    gUV = vUV;
+    if (vSurface.x > 0.0 && !terrain && !water) {   // parallax occlusion: the material read deeper in
+        vec3 n0 = normalize(vNormal);
+        if (!gl_FrontFacing && vParams.x > -0.5) n0 = -n0;
+        gUV = parallaxUv(n0, normalize(frame.camPos.xyz - vWorldPos), vSurface.x);
+    }
     if (terrain) {
         base = terrainColor();
     } else if (vParams.z > 0.5) {
-        vec4 t = texture(albedoMap, vUV);
+        vec4 t = texture(albedoMap, gUV);
         base *= t.rgb;
         alpha *= t.a;
     }
     int alphaMode = int(vMaterial.w + 0.5);
     if (alphaMode == 1 && alpha < vEmissive.w) discard;   // a hole in a cut-out
     bool ground = vParams.x > 0.5 && !terrain && !water;
-    vec4 mr = terrain ? vec4(1.0) : texture(metalRoughMap, vUV);
+    vec4 mr = terrain ? vec4(1.0) : texture(metalRoughMap, gUV);
     float metallic = clamp(vMaterial.x * mr.b, 0.0, 1.0);
     float rough = clamp(vMaterial.y * mr.g, 0.02, 1.0);
 
@@ -548,6 +631,11 @@ void main() {
     if (!gl_FrontFacing && vParams.x > -0.5) N = -N;   // (two-sided surfaces; foliage keeps its normals)
     vec3 surfaceN = N;   // (a clear coat's: smooth over the normal map)
     if (vMaterial.z > 0.0) N = perturbNormal(N, vMaterial.z);
+    if (vSurface.z > 0.0 && !terrain && !water) {   // the detail map: finer bumps over the normal map's
+        vec3 T, B;
+        tangentFrame(surfaceN, T, B);
+        N = bend(N, T, B, texture(detailMap, gUV * vSurface.y).xyz * 2.0 - 1.0, vSurface.z);
+    }
     if (water) {
         // Ripples on the waves (small ones, drifting with the current), foam where a crest peaks, and the surface
         // more mirror than window at a glancing angle (Fresnel)
@@ -568,6 +656,75 @@ void main() {
         float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(N, normalize(frame.camPos.xyz - vWorldPos)), 0.0), 5.0);
         alpha = clamp(mix(alpha, 1.0, fresnel) + foam * 0.5, 0.0, 1.0);
         metallic = 0.0;
+    }
+    // Decals: each box the point is in (nearest first, later ones over earlier) paints its colour (its texture's,
+    // where its alpha is), sets the roughness and wets the surface; fading at the box's top and bottom and on
+    // surfaces turned away from it
+    float decalWet = 0.0;
+    if (!water && frame.weather.w > 0.5) {
+        vec3 dpdx = dFdx(vWorldPos), dpdy = dFdy(vWorldPos);   // (before any branch: for the textures' levels)
+        int count = int(frame.weather.w + 0.5);
+        for (int i = 0; i < count; ++i) {
+            vec3 q = (decals[i].toBox * vec4(vWorldPos, 1.0)).xyz;
+            if (any(greaterThan(abs(q), vec3(0.5)))) continue;
+            vec4 p = decals[i].params;
+            float facing = dot(surfaceN, -decals[i].down.xyz);
+            float a = decals[i].color.a * mix(1.0, smoothstep(0.05, 0.5, facing), p.w) * (1.0 - smoothstep(0.35, 0.5, abs(q.y)));
+            vec4 tex = vec4(1.0);
+            int slot = int(p.x);
+            if (slot >= 0) {   // (the slot's the same for every pixel this pass: a switch, no dynamic indexing)
+                vec2 uv = vec2(q.x, q.z) + 0.5;
+                vec2 gx = (decals[i].toBox * vec4(dpdx, 0.0)).xz, gy = (decals[i].toBox * vec4(dpdy, 0.0)).xz;
+                switch (slot) {
+                case 0: tex = textureGrad(decalTextures[0], uv, gx, gy); break;
+                case 1: tex = textureGrad(decalTextures[1], uv, gx, gy); break;
+                case 2: tex = textureGrad(decalTextures[2], uv, gx, gy); break;
+                case 3: tex = textureGrad(decalTextures[3], uv, gx, gy); break;
+                case 4: tex = textureGrad(decalTextures[4], uv, gx, gy); break;
+                case 5: tex = textureGrad(decalTextures[5], uv, gx, gy); break;
+                case 6: tex = textureGrad(decalTextures[6], uv, gx, gy); break;
+                case 7: tex = textureGrad(decalTextures[7], uv, gx, gy); break;
+                case 8: tex = textureGrad(decalTextures[8], uv, gx, gy); break;
+                case 9: tex = textureGrad(decalTextures[9], uv, gx, gy); break;
+                case 10: tex = textureGrad(decalTextures[10], uv, gx, gy); break;
+                case 11: tex = textureGrad(decalTextures[11], uv, gx, gy); break;
+                case 12: tex = textureGrad(decalTextures[12], uv, gx, gy); break;
+                case 13: tex = textureGrad(decalTextures[13], uv, gx, gy); break;
+                case 14: tex = textureGrad(decalTextures[14], uv, gx, gy); break;
+                default: tex = textureGrad(decalTextures[15], uv, gx, gy); break;
+                }
+            }
+            float coverage = a * tex.a;
+            base = mix(base, tex.rgb * decals[i].color.rgb, coverage);
+            if (p.y >= 0.0) rough = mix(rough, p.y, coverage);
+            decalWet = max(decalWet, p.z * coverage);
+        }
+    }
+    // Weather: wet surfaces (those facing up most; not sheltered ones) darker where porous and glossier; standing
+    // water in hollows of flat ground (where noise says, and where decals put puddles) a smooth dark mirror, ringed
+    // by the rain
+    if (!water && (frame.weather.x > 0.0 || decalWet > 0.0)) {
+        float exposed = vSurface.w > 0.5 ? 0.0 : 1.0;
+        float wet = max(frame.weather.x * exposed * smoothstep(-0.3, 0.7, surfaceN.y), decalWet);
+        float flatness = smoothstep(0.9, 0.98, surfaceN.y);
+        float lying = valueNoise(vWorldPos.xz * 0.3) * 0.65 + valueNoise(vWorldPos.xz * 1.1) * 0.35;
+        float threshold = 1.0 - frame.weather.y * 0.7;
+        float puddle = frame.weather.x * exposed * flatness * smoothstep(threshold, threshold + 0.06, lying);
+        puddle = max(puddle, smoothstep(0.7, 1.0, decalWet) * flatness);
+        float porous = wet * (1.0 - metallic);
+        base *= mix(1.0, 0.5, porous * 0.8);
+        rough = mix(rough, min(rough, 0.25), wet * 0.85);
+        if (puddle > 0.0) {
+            base *= mix(1.0, 0.6, puddle);
+            rough = mix(rough, 0.03, puddle);
+            metallic = mix(metallic, 0.0, puddle);
+            vec3 flatN = surfaceN;
+            if (frame.weather.z > 0.0) {   // (rain: rings on it)
+                vec2 slope = rainRings(vWorldPos.xz, frame.time.x, frame.weather.z);
+                flatN = normalize(vec3(-slope.x, 1.0, -slope.y));
+            }
+            N = normalize(mix(N, flatN, puddle));
+        }
     }
     // Specular anti-aliasing (Tokuyoshi & Kaplanyan): where the normal changes within a pixel, the highlight is
     // widened to match, so small shiny bumps and distant wet ground don't sparkle and crawl
@@ -680,7 +837,7 @@ void main() {
         color += shade(s, Lp, li.color.rgb * light);
     }
 
-    if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;   // (water: its waves there)
+    if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, gUV).rgb;   // (water: its waves there)
 
     if (frame.atmosphere.x > 0.5 && frame.air.g > 0.0) {   // aerial perspective: the air between, lit like the sky
         vec3 v = vWorldPos - frame.camPos.xyz;

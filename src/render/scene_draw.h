@@ -19,3 +19,5 @@ std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>
 std::vector<PlantSet> collectPlants(const Scene& scene, const std::vector<Mat4>& worlds, const MeshLibrary& meshes);
 // Every visible reflection probe. `bakeCount` goes into their keys: a new value bakes them all again (the editor's Bake)
 std::vector<ProbeInfo> collectProbes(const Scene& scene, const std::vector<Mat4>& worlds, uint32_t bakeCount = 0);
+// Every visible decal (its box: the entity's transform on a unit cube)
+std::vector<DecalInfo> collectDecals(const Scene& scene, const std::vector<Mat4>& worlds);

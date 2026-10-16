@@ -429,6 +429,22 @@ dropping on the right.
   light that bounces between microfacets (multiple-scattering compensation), so rough metals don't turn dull and
   dark. The inspector's *Preset* sets a kind of material at once (plastic, rubber, polished, rough or brushed metal,
   car paint, lacquered wood, cloth, velvet, stone).
+  Surface detail: a **height map** with a **parallax depth** gives **parallax occlusion mapping**. The view ray is
+  stepped down into the heights (more steps at grazing angles and at higher quality) and the material read where it
+  meets them, so bricks stand out and mortar sinks in, without more geometry. A **detail map** is a fine normal map
+  tiled over the others (its own tiling and strength): grain, pores, scratches that hold up close. **Sheltered**
+  keeps a surface dry whatever the weather.
+- **Decals** (Add > Decal, or the Decal component): an image or colour projected down the entity's box (a unit
+  cube under its transform: scale it to size; the direction is its -Y) onto whatever's inside: road markings,
+  dirt, cracks, signs on walls. A decal sets the surface's colour (the texture's, where its alpha is), optionally
+  its roughness, and its wetness (1 on flat ground: a puddle). It fades at the box's ends and, by **Angle fade**,
+  on surfaces turned away. Decals change the surface before it's lit, so they're shaded, shadowed and reflected
+  like it. The nearest 64 to the camera are drawn, with up to 16 different textures (further decals beyond that
+  keep their colour alone). Each pixel checks every decal drawn: many overlapping a large area cost more.
+- **Weather** (Scene look > Wetness, Puddles, Rain): surfaces facing up (and the walls, a little) get darker where
+  porous and glossier, standing water collects in hollows of flat ground (as much as Puddles says, placed by noise)
+  as dark, smooth mirrors, and rain rings spread on them. With screen-space reflections on, wet ground reflects
+  the street, most of the cost of a wet scene.
 - **Lights**: Light components, directional (shines along the entity's -Z), point (colour, intensity, range) or
   spot (a cone along -Z, with a soft edge). The first directional light is the sun; up to 1024 point and spot lights
   (nearest the camera) light each frame, through **clustered** lighting: the view is cut into 16 x 9 tiles and 24

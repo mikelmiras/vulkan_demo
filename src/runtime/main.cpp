@@ -759,6 +759,7 @@ int main(int argc, char** argv) {
         std::vector<LightInfo> lights = collectLights(scene, worlds);
         std::vector<PlantSet> plants = collectPlants(scene, worlds, meshes);
         std::vector<ProbeInfo> probes = collectProbes(scene, worlds);
+        std::vector<DecalInfo> decals = collectDecals(scene, worlds);
         std::vector<ParticleDraw> particles;
         game.particles().collect(particles);
         SceneRenderInfo info;
@@ -766,6 +767,7 @@ int main(int argc, char** argv) {
         info.plants = &plants;
         info.lights = &lights;
         info.probes = &probes;
+        info.decals = &decals;
         info.joints = &joints;
         info.particles = &particles;
         info.sky = scene.render.sky;
@@ -800,6 +802,9 @@ int main(int argc, char** argv) {
         info.exposureMax = scene.render.exposureMax;
         info.adaptationSpeed = scene.render.adaptationSpeed;
         info.localToneMapping = scene.render.localToneMapping;
+        info.wetness = scene.render.wetness;
+        info.puddles = scene.render.puddles;
+        info.rain = scene.render.rain;
         info.physicalSky = scene.render.physicalSky;
         info.timeOfDay = scene.render.timeOfDay;
         info.latitude = scene.render.latitude;

@@ -322,14 +322,9 @@ void Renderer::streamTextures(VkCommandBuffer cb) {
         retiredTextures_[frame_].push_back(old);   // (this frame's draws may still use it: gone when it comes round)
         sent += streaming::chainBytes(tex.width, tex.height, target[i], fresh.mips, fresh.blockBytes);
         // Material sets naming it are made again (pointing at the new image)
-        const uint64_t id = (uint64_t)(uint16_t)(i + 1);
+        const uint16_t id = (uint16_t)(i + 1);
         for (auto* cache : {&materialSets_, &terrainSets_})
-            for (auto it = cache->begin(); it != cache->end();) {
-                uint64_t k = it->first;
-                bool uses = ((k >> 48) & 0xFFFF) == id || ((k >> 32) & 0xFFFF) == id || ((k >> 16) & 0xFFFF) == id ||
-                            (k & 0xFFFF) == id;
-                it = uses ? cache->erase(it) : std::next(it);
-            }
+            for (auto it = cache->begin(); it != cache->end();) it = it->first.uses(id) ? cache->erase(it) : std::next(it);
     }
     residentTextureBytes_ = 0;
     for (size_t i = 0; i < n; ++i) {
@@ -343,11 +338,14 @@ void Renderer::streamTextures(VkCommandBuffer cb) {
 
 VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
     auto valid = [&](int id) { return id >= 0 && id < (int)gpuTextures_.size() ? id : -1; };
-    int ids[4] = {valid(o.texture), valid(o.normalTexture), valid(o.metalRoughTexture), valid(o.emissiveTexture)};
-    if (o.terrain)   // (four colour layers: sRGB views, white where there's none)
+    int ids[6] = {valid(o.texture), valid(o.normalTexture), valid(o.metalRoughTexture), valid(o.emissiveTexture),
+                  valid(o.heightTexture), valid(o.detailTexture)};
+    if (o.terrain) {   // (four colour layers: sRGB views, white where there's none)
         for (int k = 0; k < 4; ++k) ids[k] = valid(o.layerTextures[k]);
-    uint64_t key = 0;
-    for (int id : ids) key = (key << 16) | (uint64_t)(uint16_t)(id + 1);
+        ids[4] = ids[5] = -1;
+    }
+    MaterialKey key;
+    for (int k = 0; k < 6; ++k) key.ids[k] = (uint16_t)(ids[k] + 1);
     auto& cache = o.terrain ? terrainSets_ : materialSets_;
     auto it = cache.find(key);
     if (it != cache.end()) return it->second;
@@ -366,12 +364,13 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
         return VkDescriptorImageInfo{t.nearest ? nearestSampler_ : sampler_, colour ? t.image.view : t.linear,
                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     };
-    VkDescriptorImageInfo infos[4] = {pick(ids[0], true, whiteTexture_), pick(ids[1], false, flatNormal_),
-                                      pick(ids[2], false, whiteTexture_), pick(ids[3], true, whiteTexture_)};
+    VkDescriptorImageInfo infos[6] = {pick(ids[0], true, whiteTexture_), pick(ids[1], false, flatNormal_),
+                                      pick(ids[2], false, whiteTexture_), pick(ids[3], true, whiteTexture_),
+                                      pick(ids[4], false, whiteTexture_), pick(ids[5], false, flatNormal_)};
     if (o.terrain)
         for (int k = 0; k < 4; ++k) infos[k] = pick(ids[k], true, whiteTexture_);
-    VkWriteDescriptorSet w[4];
-    for (uint32_t i = 0; i < 4; ++i) {
+    VkWriteDescriptorSet w[6];
+    for (uint32_t i = 0; i < 6; ++i) {
         w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         w[i].dstSet = set;
         w[i].dstBinding = i;
@@ -379,7 +378,7 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
         w[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         w[i].pImageInfo = &infos[i];
     }
-    vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
+    vkUpdateDescriptorSets(device_, 6, w, 0, nullptr);
     cache.emplace(key, set);
     return set;
 }

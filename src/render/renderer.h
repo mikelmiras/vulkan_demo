@@ -5,6 +5,7 @@
 
 #include "imgui.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -39,6 +40,9 @@ struct DrawItem {
     int alphaMode = 0;          // 0 opaque, 1 mask (cut out below alphaCutoff), 2 blend (see-through)
     float opacity = 1.f, alphaCutoff = 0.5f;
     float clearcoat = 0.f, clearcoatRoughness = 0.05f, sheen = 0.f, anisotropy = 0.f;
+    int heightTexture = -1, detailTexture = -1;
+    float parallaxDepth = 0.f, detailTiling = 8.f, detailStrength = 1.f;
+    bool sheltered = false;
     // A terrain (scene/terrain.h): its mesh's skin weights mix four layers, each a texture (sRGB) times a tint
     bool terrain = false;
     int layerTextures[4] = {-1, -1, -1, -1};
@@ -71,6 +75,16 @@ struct LightInfo {
 };
 
 // A reflection probe to draw with (ReflectionProbe, scene/scene.h): baked when its key is new
+// A decal (Decal, collectDecals): its box and what it does to the surfaces in it (render/decals.h picks which are drawn)
+struct DecalInfo {
+    Mat4 toBox;                 // world -> its box's space (-0.5..0.5 each way; it projects down its -y)
+    Vec3 center, down;          // the box's middle; its direction, in the world
+    float radius = 1.f;         // round the box
+    Vec3 color{1, 1, 1};        // linear
+    float opacity = 1.f, roughness = -1.f, wetness = 0.f, angleFade = 0.5f;
+    int texture = -1;
+};
+
 struct ProbeInfo {
     Vec3 position, boxMin, boxMax;
     int resolution = 128;
@@ -146,6 +160,9 @@ struct SceneRenderInfo {
     const Environment* environment = nullptr;
     float skyIntensity = 1.f, skyRotation = 0.f;   // brightness, turn around the vertical (radians)
     const std::vector<ProbeInfo>* probes = nullptr;   // the four nearest the camera are used
+    const std::vector<DecalInfo>* decals = nullptr;   // the nearest Renderer::kMaxDecals are drawn (main view's camera)
+    // Weather (RenderSettings'): wetness, puddles and rain
+    float wetness = 0.f, puddles = 0.5f, rain = 0.f;
     int antialiasing = -1;   // a Renderer::Antialiasing to switch to (-1: keep the current one)
     float viewportX = 0, viewportY = 0, viewportW = 0, viewportH = 0;   // in window pixels
 };
@@ -471,8 +488,21 @@ private:
     GpuTexture flatNormal_;                 // the normal map of a flat surface
     VkDescriptorSetLayout materialSetLayout_ = VK_NULL_HANDLE;
     VkDescriptorPool materialPool_ = VK_NULL_HANDLE;
-    std::unordered_map<uint64_t, VkDescriptorSet> materialSets_;   // by the four texture ids
-    std::unordered_map<uint64_t, VkDescriptorSet> terrainSets_;    // terrains': four colour layers
+    // Material sets by their six texture ids (colour, normal, metal / rough, emissive, height, detail; +1, 0: none)
+    struct MaterialKey {
+        uint16_t ids[6] = {};
+        bool operator==(const MaterialKey& o) const { return std::equal(ids, ids + 6, o.ids); }
+        bool uses(uint16_t id) const { return std::find(ids, ids + 6, id) != ids + 6; }
+    };
+    struct MaterialKeyHash {
+        size_t operator()(const MaterialKey& k) const {
+            uint64_t h = 1469598103934665603ull;
+            for (uint16_t id : k.ids) h = (h ^ id) * 1099511628211ull;
+            return (size_t)h;
+        }
+    };
+    std::unordered_map<MaterialKey, VkDescriptorSet, MaterialKeyHash> materialSets_;
+    std::unordered_map<MaterialKey, VkDescriptorSet, MaterialKeyHash> terrainSets_;   // terrains': four colour layers
     mutable std::unordered_map<int, VkDescriptorSet> uiSets_;      // texture id -> ImGui's set for it
     VkSampler sampler_ = VK_NULL_HANDLE;
     VkSampler nearestSampler_ = VK_NULL_HANDLE;
@@ -516,6 +546,13 @@ private:
     // Lights (binding 14) and their clusters (binding 15), per frame
     Buffer lights_[MAX_FRAMES], clusters_[MAX_FRAMES];
     void createLightBuffers();
+    // Decals (renderer_decals.cpp): the nearest, a buffer per frame (binding 24), their textures (binding 25)
+public:
+    static constexpr uint32_t kMaxDecals = 64, kDecalTextures = 16;
+private:
+    Buffer decalBuffers_[MAX_FRAMES];
+    void createDecalBuffers();
+    void writeDecals(const SceneRenderInfo& info, render_detail::FrameUBO& u);
     // Foliage (renderer_lights.cpp): every terrain's plants in one buffer per frame (binding 16), rewritten when
     // they change; drawn instanced after the solid objects
     Buffer plantBuffers_[MAX_FRAMES];
