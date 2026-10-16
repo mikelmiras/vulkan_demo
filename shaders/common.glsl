@@ -43,9 +43,11 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 prevCamPos;      // w = 1: reflections on
     vec4 prevCamForward;
     vec4 prevViewport;    // the last frame's scene rectangle in its picture (pixels)
-    vec4 atmosphere;      // the physically based sky (renderer_sky.cpp): x = 1 if on
+    vec4 atmosphere;      // the physically based sky (renderer_sky.cpp): x = 1 if on, y = 1: the ambient from sh
+                          // (irradiance), z = 1: the light is the moon, w = cloud cover (0..1)
     vec4 skySun;          // the sun's light above the air (the sky table is for one of it)
     vec4 air;             // the air's extinction per metre (aerial perspective; 0: none)
+    vec4 skyToSun;        // towards the real sun (the sky table's: the light, sunDir, may be the moon)
     vec4 weather;         // wetness, puddles, rain (RenderSettings), w = how many decals (binding 24)
     vec4 waterInfo;       // x = 1: refraction (binding 26) this frame, y = how many water boxes
     vec4 waterBox[4];     // each water's rectangle: min x, min z, max x, max z
@@ -82,8 +84,47 @@ vec2 skyTableUv(vec3 d, vec3 toSun) {
 }
 // The air's own colour looking along d (no sun disc): the table times the sun's light, starlight at night
 vec3 physicalSky(vec3 d) {
-    vec3 c = textureLod(skyTable, skyTableUv(d, -frame.sunDir.xyz), 0.0).rgb * frame.skySun.rgb;
+    vec3 c = textureLod(skyTable, skyTableUv(d, frame.skyToSun.xyz), 0.0).rgb * frame.skySun.rgb;
     return c + vec3(0.0004, 0.0006, 0.0012) * frame.envParams.y;
+}
+
+// The physical sky's extras: stars (where the sky is dark enough to show them), and clouds: a layer 2 km up of two
+// octaves of value noise drifting with the wind, as much of it cloud as the cover says
+float skyHash(vec3 p) {
+    p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+    p += dot(p, p.yxz + 33.33);
+    return fract((p.x + p.y) * p.z);
+}
+vec3 stars(vec3 d) {
+    vec3 q = d * 260.0, cell = floor(q);
+    float h = skyHash(cell);
+    if (h < 0.992) return vec3(0.0);
+    vec3 at = cell + 0.5 + (vec3(skyHash(cell + 11.3), skyHash(cell + 23.7), skyHash(cell + 37.1)) - 0.5) * 0.6;
+    float r = length(q - at);
+    float bright = (h - 0.992) / 0.008;
+    return mix(vec3(0.7, 0.8, 1.0), vec3(1.0, 0.9, 0.75), skyHash(cell + 5.0)) * (bright * bright * 0.15) *
+           exp(-r * r * 18.0);
+}
+float cloudNoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+    float a = skyHash(vec3(i, 1.0)), b = skyHash(vec3(i + vec2(1.0, 0.0), 1.0));
+    float c = skyHash(vec3(i + vec2(0.0, 1.0), 1.0)), e = skyHash(vec3(i + vec2(1.0, 1.0), 1.0));
+    return mix(mix(a, b, u.x), mix(c, e, u.x), u.y);
+}
+const float kCloudHeight = 2000.0;   // (metres)
+float cloudDensity(vec2 xz) {   // (0..1 at a place on the layer)
+    vec2 p = (xz + vec2(9.0, 3.0) * frame.time.x) / 900.0;   // (the wind: 9.5 m/s)
+    float n = cloudNoise(p) * 0.6 + cloudNoise(p * 2.7 + 7.1) * 0.3 + cloudNoise(p * 7.3 + 3.3) * 0.1;
+    float cover = frame.atmosphere.w;
+    return smoothstep(1.0 - cover, 1.0 - cover + 0.25, n) * min(cover * 3.0, 1.0);
+}
+// How much sunlight the clouds let through at a point (their shadow: where the sun's ray crosses the layer)
+float cloudShadow(vec3 pos) {
+    if (frame.atmosphere.w <= 0.0 || frame.atmosphere.z > 0.5) return 1.0;
+    vec3 L = normalize(frame.skyToSun.xyz);
+    if (L.y <= 0.02) return 1.0;
+    vec2 at = pos.xz + L.xz / L.y * (kCloudHeight - pos.y);
+    return 1.0 - cloudDensity(at) * 0.75;
 }
 
 vec2 equirect(vec3 d) { return vec2(atan(d.x, -d.z) / (2.0 * kPi) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / kPi); }
@@ -109,8 +150,22 @@ vec3 skyColor(vec3 dir, bool withSun) {
     if (frame.atmosphere.x > 0.5) {   // the air's (below the horizon: towards the ground's colour)
         vec3 d = normalize(dir);
         vec3 c = physicalSky(vec3(d.x, max(d.y, 0.0), d.z));
-        if (d.y < 0.0) c = mix(c, frame.ground.rgb, smoothstep(0.0, 0.15, -d.y));
-        if (withSun) c += frame.sunColor.rgb * (smoothstep(0.9995, 0.9998, max(dot(d, -frame.sunDir.xyz), 0.0)) * 8.0);
+        float dark = clamp(1.0 - dot(c, vec3(0.3, 0.5, 0.2)) * 60.0, 0.0, 1.0);   // (the stars show in a dark sky)
+        if (d.y > 0.0) c += stars(d) * dark * frame.envParams.y;
+        if (withSun) {
+            float disc = smoothstep(0.9995, 0.9998, max(dot(d, -frame.sunDir.xyz), 0.0));
+            // (the light's disc: the sun's, or the moon's: pale, its own brightness)
+            c += frame.atmosphere.z > 0.5 ? vec3(0.5, 0.52, 0.55) * disc * frame.envParams.y : frame.sunColor.rgb * disc * 8.0;
+        }
+        if (frame.atmosphere.w > 0.0 && d.y > 0.0) {   // clouds: lit by the sun through the air, and by the sky
+            float t = kCloudHeight / max(d.y, 0.03);
+            float density = cloudDensity(frame.camPos.xz + d.xz * t);
+            vec3 L = normalize(frame.skyToSun.xyz);
+            float forward = pow(max(dot(d, L), 0.0), 8.0);   // (bright edges looking towards the sun)
+            vec3 lit = frame.atmosphere.z > 0.5 ? frame.sunColor.rgb * 0.5 : frame.sunColor.rgb * (0.12 + forward * 0.5);
+            vec3 cloud = lit * (1.0 - density * 0.5) + (frame.zenith.rgb + frame.fogColor.rgb) * 0.6;
+            c = mix(c, cloud, density * smoothstep(0.0, 0.12, d.y));   // (thinning to the horizon)
+        }
         return c;
     }
     vec3 horizon = frame.fogColor.rgb;

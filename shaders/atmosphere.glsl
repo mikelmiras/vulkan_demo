@@ -8,7 +8,6 @@ const float kMieScattering = 3.996e-3, kMieExtinction = 4.44e-3;
 const vec3 kOzone = vec3(0.65e-3, 1.881e-3, 0.085e-3);
 const float kRayleighHeight = 8.0, kMieHeight = 1.2, kMieG = 0.8;
 const float kAtmPi = 3.14159265;
-const float kMultiple = 0.5 / (4.0 * kAtmPi);   // (multiple scattering, roughly: an extra isotropic phase)
 
 struct Medium {
     vec3 scatteringR;
@@ -57,6 +56,12 @@ void transmittanceParams(vec2 uv, out float r, out float mu) {
     float dMin = kTopRadius - r, dMax = rho + kAtmH;
     float d = dMin + uv.x * (dMax - dMin);
     mu = d <= 0.0 ? 1.0 : clamp((kAtmH * kAtmH - rho * rho - d * d) / (2.0 * r * d), -1.0, 1.0);
+}
+// The multiple-scattering table's light at radius r for the sun along mu (sky_multiple.frag; its texels' centres)
+vec3 multipleScattering(sampler2D table, float r, float mu) {
+    vec2 size = vec2(textureSize(table, 0));
+    vec2 uv = vec2(mu * 0.5 + 0.5, (r - kGroundRadius) / (kTopRadius - kGroundRadius));
+    return textureLod(table, (clamp(uv, 0.0, 1.0) * (size - 1.0) + 0.5) / size, 0.0).rgb;
 }
 // The light left reaching radius r from the sun along mu (none where the planet is in the way)
 vec3 sunTransmittance(sampler2D table, float r, float mu) {

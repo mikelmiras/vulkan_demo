@@ -286,6 +286,9 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
             ImGui::SliderFloat("Aerial perspective", &r.aerialPerspective, 0.f, 100.f, "%.1f", ImGuiSliderFlags_Logarithmic);
             track();
             tooltip("How thick the air looks over distance (1: as real; small scenes want more)");
+            ImGui::SliderFloat("Clouds", &r.cloudCover, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("How much of the sky is cloud: lit by the sun and the sky, drifting, their shadows on the ground");
             if (r.skyImage.empty()) {
                 ImGui::SliderFloat("Sky brightness##phys", &r.skyIntensity, 0.f, 4.f, "%.2f");
                 track();

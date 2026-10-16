@@ -7,6 +7,7 @@
 #include "atmosphere.glsl"
 
 layout(set = 0, binding = 0) uniform sampler2D transmittanceTable;
+layout(set = 0, binding = 1) uniform sampler2D multipleTable;   // (sky_multiple.frag)
 layout(push_constant) uniform Push {
     vec4 a;   // xyz = towards the sun, w = haze
     vec4 b;   // xy = 1 / the table's size
@@ -27,7 +28,7 @@ void main() {
     float ground = toSphere(r, dir.y, kGroundRadius);
     float dist = ground > 0.0 ? ground : toSphere(r, dir.y, kTopRadius);
     float c = dot(dir, toSun);
-    float pr = rayleighPhase(c) + kMultiple, pm = miePhase(c) + kMultiple;
+    float pr = rayleighPhase(c), pm = miePhase(c);
     const int kSteps = 30;
     vec3 light = vec3(0.0), through = vec3(1.0);
     float dt = max(dist, 0.0) / float(kSteps);
@@ -37,7 +38,8 @@ void main() {
         float pr0 = sqrt(dot(p, p));
         Medium m = mediumAt(pr0 - kGroundRadius, pc.a.w);
         vec3 sun = sunTransmittance(transmittanceTable, pr0, dot(p, toSun) / pr0);
-        vec3 scattered = (m.scatteringR * pr + vec3(m.scatteringM * pm)) * sun;
+        vec3 scattered = (m.scatteringR * pr + vec3(m.scatteringM * pm)) * sun +
+                         (m.scatteringR + vec3(m.scatteringM)) * multipleScattering(multipleTable, pr0, dot(p, toSun) / pr0);
         vec3 stepThrough = exp(-m.extinction * dt);   // (integrated through the step: Hillaire's energy-conserving form)
         light += through * (scattered - scattered * stepThrough) / max(m.extinction, vec3(1e-9));
         through *= stepThrough;

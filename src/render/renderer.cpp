@@ -1915,7 +1915,9 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     set4(u.zenith, zenith, 0.f);
     set4(u.ground, ground, 0.f);
     set4(u.envParams, {envId_ != 0 ? 1.f : 0.f, info.skyIntensity, info.skyRotation}, 0.f);
-    for (int k = 0; k < 9; ++k) set4(u.sh[k], {envSh_[k][0], envSh_[k][1], envSh_[k][2]}, 0.f);
+    if (!info.physicalSky || envId_ != 0)   // (the physical sky's own harmonics, else)
+        for (int k = 0; k < 9; ++k) set4(u.sh[k], {envSh_[k][0], envSh_[k][1], envSh_[k][2]}, 0.f);
+    if (envId_ != 0) u.atmosphere[1] = 0.f;   // (a sky image lights the scene by its own)
     {   // the camera's axes, for billboards and the sky (no roll: up is as close to the world's up as possible)
         Vec3 f = normalize(info.camForward);
         Vec3 right = std::fabs(f.y) > 0.999f ? Vec3{1, 0, 0} : normalize(cross(f, {0, 1, 0}));

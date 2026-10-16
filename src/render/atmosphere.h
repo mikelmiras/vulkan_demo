@@ -32,6 +32,16 @@ struct SkyLight {
 };
 SkyLight skyLight(Vec3 toSun, float haze = 1.f);
 
+// The light scattered more than once reaching a point (`height` km up, the sun `cosSunZenith` from straight up), for
+// a sun of irradiance 1, already divided by 4 pi: times the medium's scattering, what it sends towards the viewer
+// (Hillaire's multiple-scattering table, made once per haze)
+Vec3 multipleScattering(float height, float cosSunZenith, float haze = 1.f);
+
+// The sky's radiance (its upper half; for a sun of irradiance 1) as nine spherical harmonics, and the nine basis
+// functions in a direction (the order and constants of shaders/common.glsl's skyIrradiance)
+void skyHarmonics(Vec3 toSun, float haze, Vec3 out[9]);
+void harmonics(Vec3 d, float out[9]);
+
 // How much the air dims light per km at the ground (rgb): aerial perspective's
 Vec3 seaLevelExtinction(float haze = 1.f);
 

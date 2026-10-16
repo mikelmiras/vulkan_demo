@@ -783,6 +783,7 @@ struct RenderSettings {
     float latitude = 40.f;            // degrees: how high the sun climbs (with a time of day)
     float haze = 1.f;                 // haze in the air (Mie scattering: a whiter sky, a wider glow round the sun)
     float aerialPerspective = 10.f;   // how thick the air looks over distance (1: as real; small scenes want more)
+    float cloudCover = 0.f;           // 0..1: clouds over the physical sky (lit by it, drifting, shading the ground)
     // Weather: how wet the world is (surfaces facing up darker and glossier, puddles on flat ground) and the rain on
     // it (rings in the puddles); MeshRenderer::sheltered surfaces stay dry
     float wetness = 0.f;              // 0..1

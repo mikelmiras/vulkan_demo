@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <mutex>
+#include <vector>
 
 namespace atmosphere {
 
@@ -14,8 +16,7 @@ const Vec3 kRayleigh{5.802e-3f, 13.558e-3f, 33.1e-3f};
 constexpr float kMieScattering = 3.996e-3f, kMieExtinction = 4.44e-3f;
 const Vec3 kOzone{0.65e-3f, 1.881e-3f, 0.085e-3f};
 constexpr float kRayleighHeight = 8.f, kMieHeight = 1.2f, kMieG = 0.8f;
-// Multiple scattering, roughly: an extra isotropic phase (1 / 4 pi) times this
-constexpr float kMultiple = 0.5f / (4.f * PI);
+
 
 Vec3 mul(Vec3 a, Vec3 b) { return {a.x * b.x, a.y * b.y, a.z * b.z}; }
 Vec3 expv(Vec3 a) { return {std::exp(a.x), std::exp(a.y), std::exp(a.z)}; }
@@ -69,7 +70,105 @@ Vec3 transmittance(float height, float cosZenith, float haze) {
     return expv(depth * -1.f);
 }
 
+namespace {
+// The transmittance and multiple-scattering tables on the CPU (the same as the GPU's, smaller), made once per haze
+struct Tables {
+    float haze = -1.f;
+    static constexpr int kTmu = 64, kTh = 32, kMmu = 16, kMh = 16;
+    std::vector<Vec3> trans, multiple;
+};
+Tables& tablesFor(float haze);
+
+Vec3 lerp3(Vec3 a, Vec3 b, float t) { return a + (b - a) * t; }
+Vec3 sampleTable(const std::vector<Vec3>& t, int nx, int ny, float x, float y) {   // (x, y: 0..1, bilinear)
+    float fx = std::clamp(x, 0.f, 1.f) * (nx - 1), fy = std::clamp(y, 0.f, 1.f) * (ny - 1);
+    int x0 = std::min((int)fx, nx - 2), y0 = std::min((int)fy, ny - 2);
+    float ax = fx - x0, ay = fy - y0;
+    Vec3 a = lerp3(t[(size_t)(y0 * nx + x0)], t[(size_t)(y0 * nx + x0 + 1)], ax);
+    Vec3 b = lerp3(t[(size_t)((y0 + 1) * nx + x0)], t[(size_t)((y0 + 1) * nx + x0 + 1)], ax);
+    return lerp3(a, b, ay);
+}
+// (the tables' axes: cos from straight up, -1..1, and height, 0..the top)
+Vec3 transmittanceFast(const Tables& t, float height, float mu) {
+    const float r = kGroundRadius + std::max(height, 0.f);
+    if (toSphere(r, mu, kGroundRadius) > 0.f) return {0, 0, 0};
+    return sampleTable(t.trans, Tables::kTmu, Tables::kTh, mu * 0.5f + 0.5f, height / (kTopRadius - kGroundRadius));
+}
+
+// Hillaire's multiple scattering: at each height and sun angle, the light scattered twice reaching the point from
+// all round (isotropically, 64 directions) over 1 - the fraction of it scattered again (an infinite series of
+// orders: f + f^2 + ...); scattered towards the viewer by the medium's scattering, isotropically
+Vec3 computeMultiple(const Tables& t, float height, float muSun, float haze) {
+    const float r = kGroundRadius + std::max(height, 0.005f);   // (just off the ground: rays down meet it at once)
+    const Vec3 toSun{std::sqrt(std::max(0.f, 1.f - muSun * muSun)), muSun, 0.f};
+    constexpr int kDirs = 64, kSteps = 16;
+    Vec3 second{0, 0, 0}, transfer{0, 0, 0};
+    for (int i = 0; i < kDirs; ++i) {   // (a Fibonacci sphere)
+        float y = 1.f - 2.f * (i + 0.5f) / kDirs, rr = std::sqrt(std::max(0.f, 1.f - y * y)), phi = i * 2.39996323f;
+        Vec3 dir{rr * std::cos(phi), y, rr * std::sin(phi)};
+        float ground = toSphere(r, dir.y, kGroundRadius);
+        float length = ground > 0.f ? ground : toSphere(r, dir.y, kTopRadius);
+        if (length <= 0.f) continue;
+        Vec3 through{1, 1, 1};
+        float dt = length / kSteps;
+        for (int k = 0; k < kSteps; ++k) {
+            Vec3 p{dir.x * (k + 0.5f) * dt, r + dir.y * (k + 0.5f) * dt, dir.z * (k + 0.5f) * dt};
+            float pr = std::sqrt(dot(p, p));
+            Medium m = mediumAt(pr - kGroundRadius, haze);
+            Vec3 scatter = m.scatteringR + Vec3{1, 1, 1} * m.scatteringM;
+            Vec3 stepThrough = expv(m.extinction * -dt);
+            Vec3 integral{(1.f - stepThrough.x) / std::max(m.extinction.x, 1e-9f), (1.f - stepThrough.y) / std::max(m.extinction.y, 1e-9f),
+                          (1.f - stepThrough.z) / std::max(m.extinction.z, 1e-9f)};
+            Vec3 sun = transmittanceFast(t, pr - kGroundRadius, dot(p, toSun) / pr);
+            second += mul(mul(mul(through, integral), scatter), sun) * (1.f / (4.f * PI));
+            transfer += mul(mul(through, integral), scatter);
+            through = mul(through, stepThrough);
+        }
+    }
+    second = second * (4.f * PI / kDirs);
+    transfer = transfer * (1.f / kDirs);   // (4 pi / N, times the isotropic phase 1 / 4 pi)
+    Vec3 series{1.f / std::max(1.f - transfer.x, 1e-3f), 1.f / std::max(1.f - transfer.y, 1e-3f),
+                1.f / std::max(1.f - transfer.z, 1e-3f)};
+    return mul(second, series) * (1.f / (4.f * PI));   // (the isotropic phase towards the viewer, in advance)
+}
+
+std::mutex tablesMutex;
+Tables& tablesFor(float haze) {
+    static Tables tables;
+    if (tables.haze == haze) return tables;
+    tables.haze = haze;
+    tables.trans.assign((size_t)Tables::kTmu * Tables::kTh, Vec3{});
+    for (int y = 0; y < Tables::kTh; ++y)
+        for (int x = 0; x < Tables::kTmu; ++x)
+            tables.trans[(size_t)(y * Tables::kTmu + x)] =
+                transmittance((float)y / (Tables::kTh - 1) * (kTopRadius - kGroundRadius), (float)x / (Tables::kTmu - 1) * 2.f - 1.f, haze);
+    tables.multiple.assign((size_t)Tables::kMmu * Tables::kMh, Vec3{});
+    for (int y = 0; y < Tables::kMh; ++y)
+        for (int x = 0; x < Tables::kMmu; ++x)
+            tables.multiple[(size_t)(y * Tables::kMmu + x)] = computeMultiple(
+                tables, (float)y / (Tables::kMh - 1) * (kTopRadius - kGroundRadius), (float)x / (Tables::kMmu - 1) * 2.f - 1.f, haze);
+    return tables;
+}
+}  // namespace
+
+Vec3 multipleScattering(float height, float cosSunZenith, float haze) {
+    std::lock_guard<std::mutex> lock(tablesMutex);
+    const Tables& t = tablesFor(haze);
+    return sampleTable(t.multiple, Tables::kMmu, Tables::kMh, cosSunZenith * 0.5f + 0.5f, height / (kTopRadius - kGroundRadius));
+}
+
+namespace {
+Vec3 skyRadianceWith(const Tables& tables, Vec3 dir, Vec3 toSun, float haze);
+}
+
 Vec3 skyRadiance(Vec3 dir, Vec3 toSun, float haze) {
+    std::lock_guard<std::mutex> lock(tablesMutex);
+    return skyRadianceWith(tablesFor(haze), dir, toSun, haze);
+}
+
+namespace {
+// (the sum along the view, with the tables' transmittance and multiple scattering: the GPU's sky_view.frag's)
+Vec3 skyRadianceWith(const Tables& tables, Vec3 dir, Vec3 toSun, float haze) {
     const float r = kGroundRadius + kViewHeight;
     float ground = toSphere(r, dir.y, kGroundRadius);
     float length = ground > 0.f ? ground : toSphere(r, dir.y, kTopRadius);
@@ -84,9 +183,12 @@ Vec3 skyRadiance(Vec3 dir, Vec3 toSun, float haze) {
         Vec3 p{dir.x * t, r + dir.y * t, dir.z * t};
         float pr0 = std::sqrt(dot(p, p));
         Medium m = mediumAt(pr0 - kGroundRadius, haze);
-        Vec3 sun = transmittance(pr0 - kGroundRadius, dot(p, toSun) / pr0, haze);
-        // (light scattered more than once: approximated as the same sunlight scattered again alike every way)
-        Vec3 scattered = mul(m.scatteringR * (pr + kMultiple) + Vec3{1, 1, 1} * (m.scatteringM * (pm + kMultiple)), sun);
+        Vec3 sun = transmittanceFast(tables, pr0 - kGroundRadius, dot(p, toSun) / pr0);
+        // (and the light scattered more than once: the multiple-scattering table's, isotropic)
+        Vec3 ms = sampleTable(tables.multiple, Tables::kMmu, Tables::kMh, dot(p, toSun) / pr0 * 0.5f + 0.5f,
+                              (pr0 - kGroundRadius) / (kTopRadius - kGroundRadius));
+        Vec3 scattered = mul(m.scatteringR * pr + Vec3{1, 1, 1} * (m.scatteringM * pm), sun) +
+                         mul(m.scatteringR + Vec3{1, 1, 1} * m.scatteringM, ms);
         // (each step's light, integrated through the step's own extinction: Hillaire's energy-conserving form)
         Vec3 stepThrough = expv(m.extinction * -dt);
         Vec3 integral{(scattered.x - scattered.x * stepThrough.x) / std::max(m.extinction.x, 1e-9f),
@@ -96,6 +198,39 @@ Vec3 skyRadiance(Vec3 dir, Vec3 toSun, float haze) {
         through = mul(through, stepThrough);
     }
     return light;
+}
+
+}  // namespace
+
+// The sky's radiance as spherical harmonics (the upper half: the ground is the caller's), for a sun of irradiance 1:
+// 128 directions over the sphere (a Fibonacci spiral), each its radiance times the nine basis functions
+void skyHarmonics(Vec3 toSun, float haze, Vec3 out[9]) {
+    std::lock_guard<std::mutex> lock(tablesMutex);
+    const Tables& tables = tablesFor(haze);
+    for (int k = 0; k < 9; ++k) out[k] = {0, 0, 0};
+    constexpr int kDirs = 128;
+    for (int i = 0; i < kDirs; ++i) {
+        float y = 1.f - 2.f * (i + 0.5f) / kDirs;
+        if (y <= 0.f) continue;
+        float rr = std::sqrt(std::max(0.f, 1.f - y * y)), phi = i * 2.39996323f;
+        Vec3 d{rr * std::cos(phi), y, rr * std::sin(phi)};
+        Vec3 L = skyRadianceWith(tables, d, toSun, haze);
+        float basis[9];
+        harmonics(d, basis);
+        for (int k = 0; k < 9; ++k) out[k] += L * (basis[k] * 4.f * PI / kDirs);
+    }
+}
+
+void harmonics(Vec3 d, float out[9]) {
+    out[0] = 0.282095f;
+    out[1] = 0.488603f * d.y;
+    out[2] = 0.488603f * d.z;
+    out[3] = 0.488603f * d.x;
+    out[4] = 1.092548f * d.x * d.y;
+    out[5] = 1.092548f * d.y * d.z;
+    out[6] = 0.315392f * (3.f * d.z * d.z - 1.f);
+    out[7] = 1.092548f * d.x * d.z;
+    out[8] = 0.546274f * (d.x * d.x - d.y * d.y);
 }
 
 Vec3 sunDirection(float hours, float latitude, float turn) {

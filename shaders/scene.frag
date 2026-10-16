@@ -431,6 +431,14 @@ vec3 giIrradiance(vec3 n, out float weight) {
 
 vec3 skyIrradianceAt(vec3 n) {
     if (frame.envParams.x > 0.5) return skyIrradiance(n) * frame.ambient.rgb;
+    if (frame.atmosphere.y > 0.5) {   // the physical sky's, as harmonics (renderer_sky.cpp: unturned, its own brightness)
+        vec3 d = normalize(n);
+        vec3 e = frame.sh[0].rgb * 0.282095 + frame.sh[1].rgb * (0.488603 * d.y) + frame.sh[2].rgb * (0.488603 * d.z) +
+                 frame.sh[3].rgb * (0.488603 * d.x) + frame.sh[4].rgb * (1.092548 * d.x * d.y) +
+                 frame.sh[5].rgb * (1.092548 * d.y * d.z) + frame.sh[6].rgb * (0.315392 * (3.0 * d.z * d.z - 1.0)) +
+                 frame.sh[7].rgb * (1.092548 * d.x * d.z) + frame.sh[8].rgb * (0.546274 * (d.x * d.x - d.y * d.y));
+        return max(e, vec3(0.0)) / kPi * frame.ambient.rgb;
+    }
     vec3 above = mix(frame.fogColor.rgb, frame.zenith.rgb, 0.6), below = frame.ground.rgb;
     return mix(below, above, n.y * 0.5 + 0.5) * frame.ambient.rgb;
 }
@@ -854,6 +862,7 @@ void main() {
     float vis = dot(N, L) > 0.0 || (s.coat > 0.0 && dot(s.coatN, L) > 0.0) ? sunVisibility(N, L) : 0.0;
     if (!water && frame.waterInfo.y > 0.5) vis *= caustics(vWorldPos);   // (under water: the waves focus it)
     if (halfTraced && frame.trace.w > 0.5) vis *= tracedContact;   // (the contact the shadow maps miss)
+    if (frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0) vis *= cloudShadow(vWorldPos);   // (clouds drifting over)
     color += shade(s, L, frame.sunColor.rgb) * vis;
 
     // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone. The main view

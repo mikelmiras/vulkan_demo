@@ -811,6 +811,7 @@ int main(int argc, char** argv) {
         info.latitude = scene.render.latitude;
         info.haze = scene.render.haze;
         info.aerialPerspective = scene.render.aerialPerspective;
+        info.cloudCover = scene.render.cloudCover;
         info.frameSeconds = std::clamp(dt, 0.f, 0.25f);
         info.waterTime = game.physics().time();   // (the waves as the physics has them: what floats rides them)
         info.colorFilter = game.colorFilter();

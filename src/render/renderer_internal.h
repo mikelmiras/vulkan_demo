@@ -71,9 +71,11 @@ struct FrameUBO {
     float prevCamForward[4];
     float prevViewport[4];    // the last frame's scene rectangle in its picture (pixels)
     // The physically based sky (renderer_sky.cpp)
-    float atmosphere[4];      // x = 1: on (the sky table at binding 23)
+    float atmosphere[4];      // x = 1: on (the sky table at binding 23), y = 1: the ambient from sh, z = 1: the light is
+                              // the moon, w = cloud cover
     float skySun[4];          // the sun's light above the air (rgb: the sky table is for one of it)
     float air[4];             // the air's extinction per metre (rgb: aerial perspective; 0: none)
+    float skyToSun[4];        // towards the real sun (the sky tables'; the light may be the moon)
     float weather[4];         // wetness, puddles, rain, w = how many decals (binding 24)
     // Water: x = 1: refraction (binding 26) this frame, y = how many water boxes; each box (its rectangle, x and z)
     // and its level and depth (caustics on what's under it)

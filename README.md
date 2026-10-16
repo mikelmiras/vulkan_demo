@@ -601,6 +601,12 @@ dropping on the right.
   barely visible over a small scene; 10 to 30 suit most). The sky is calibrated so a sun of intensity 1 lights the
   scene about as the default colours do. Real light makes for strong contrast: raise Ambient towards 1, or use
   auto-exposure. A sky image, if set, is drawn in place of the physical sky (the sun is still coloured by the air).
+  Light scattered more than once comes from Hillaire's multiple-scattering table (the twilight's blue, the haze's
+  glow), and the sky lights the scene through spherical harmonics of itself: brighter on the sun's side, blue from
+  above, the ground's light from below. At night stars come out in the dark sky and the **moon** (opposite the
+  sun) takes over as the light, dim and blue, its shadows too. **Clouds** (0..1 of the sky) are a layer 2 km up,
+  drifting with the wind, lit by the sun through the air (red at sunset) and the sky, their shadows moving over the
+  ground.
 - **Specular anti-aliasing**: where the normal changes within a pixel (small curved things, distant bumpy ground),
   highlights are widened to match, so they don't sparkle and crawl.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU

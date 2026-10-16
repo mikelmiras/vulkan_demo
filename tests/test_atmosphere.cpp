@@ -54,6 +54,25 @@ TEST(atmosphere_sky_is_blue_by_day_and_dark_at_night) {
     CHECK(towards.x > 2.f * away.x);
 }
 
+TEST(atmosphere_multiple_scattering_and_harmonics) {
+    // Light scattered more than once: there by day (bluish), more near the ground than high up, none at night
+    Vec3 day = multipleScattering(kViewHeight, 0.7f), high = multipleScattering(60.f, 0.7f), night = multipleScattering(kViewHeight, -0.5f);
+    CHECK(day.z > day.x && day.x > 0.f);
+    CHECK(high.z < day.z);
+    CHECK(night.z < 0.01f * day.z);
+    // The sky as harmonics: positive on average, brighter overhead than at the horizon's average (y's term up),
+    // brighter on the sun's side (here +z)
+    Vec3 sh[9];
+    skyHarmonics(normalize(Vec3{0.f, 0.5f, 1.f}), 1.f, sh);
+    CHECK(sh[0].z > 0.f && sh[0].x > 0.f);
+    CHECK(sh[1].z > 0.f);
+    CHECK(sh[2].x > 0.f);
+    float basis[9];
+    harmonics({0.f, 1.f, 0.f}, basis);
+    CHECK_NEAR(basis[0], 0.282095, 1e-5);
+    CHECK_NEAR(basis[1], 0.488603, 1e-5);
+}
+
 TEST(atmosphere_sun_path) {
     // Equinox noon: due south (+z, north being -z) at 90 - latitude degrees up; on the equator, straight up
     Vec3 noon = sunDirection(12.f, 40.f);
@@ -81,6 +100,7 @@ TEST(atmosphere_settings_saved) {
     s.render.aerialPerspective = 25.f;
     s.render.skyIntensity = 1.5f;
     s.render.skyRotation = 30.f;
+    s.render.cloudCover = 0.4f;
     MeshLibrary meshes = buildMeshLibrary();
     std::string error;
     auto path = test::tempPath("sky.vkw").string();
@@ -94,6 +114,7 @@ TEST(atmosphere_settings_saved) {
     CHECK_NEAR(loaded.render.aerialPerspective, 25.0, 1e-6);
     CHECK_NEAR(loaded.render.skyIntensity, 1.5, 1e-6);   // (kept without a sky image: the physical sky's)
     CHECK_NEAR(loaded.render.skyRotation, 30.0, 1e-6);
+    CHECK_NEAR(loaded.render.cloudCover, 0.4, 1e-6);
     Scene plain;
     CHECK(!plain.render.physicalSky && plain.render.timeOfDay < 0.f);   // (off unless asked for: the colours)
 }

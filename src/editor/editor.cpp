@@ -325,6 +325,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.latitude = r.latitude;
     info.haze = r.haze;
     info.aerialPerspective = r.aerialPerspective;
+    info.cloudCover = r.cloudCover;
     info.frameSeconds = std::clamp(frameDt_, 0.f, 0.25f);
     // The waves: as the game's physics has them while playing; moving on the clock in the editor
     info.waterTime = playing() ? game_.physics().time() : (float)ImGui::GetTime();

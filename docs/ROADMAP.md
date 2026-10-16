@@ -1576,7 +1576,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | 90 (done) | Clustered decals: decals binned into the light clusters (each pixel tests only the decals of its cluster), decal normal maps (cracks, tyre tracks, manhole covers), more than 64 | Every pixel tests every decal drawn; flat decals look painted on |
 | 91 (done) | Half-resolution effects: screen-space reflections, SSGI and ambient occlusion traced at half size and brought up with a depth-aware (bilateral) upsample, temporally accumulated | Round 8's screen-space effects run per pixel in the lit shader; on a 1050 Ti at 1080p they're most of the frame |
 | 92 (done) | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
-| 93 | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
+| 93 (done) | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
 | 94 | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
 | 95 | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
 | 96 | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
@@ -1637,4 +1637,20 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   with sync checks (the demo with GI, Night Drive). Lavapipe, Night Drive: the traces 73 -> 106 ms of about 1250.
   Not done: contact shadows from point and spot lights, with MSAA or under a render scale, specular occlusion by a
   bent normal or without screen-space GI.
+- **93, sky**: sky_multiple.frag makes a 32 x 32 multiple-scattering table after the transmittance (Hillaire: 64
+  directions of 20 steps, the second order over 1 - the transfer factor, isotropic), read by sky_view.frag in place
+  of round 8's isotropic stand-in; atmosphere.cpp does the same at 16 x 16 from a cached 64 x 32 transmittance
+  table (made once per haze, under a mutex), which skyRadiance now uses too. Rays starting on the ground and
+  looking down had found the planet's far side (NaN): they start 5 m up. skyHarmonics: 128 Fibonacci directions of
+  the upper sky, nine harmonics, cached with the sky's colours; renderer_sky.cpp adds the ground's radiance times
+  the lower half-sphere's harmonics and starlight, convolves to irradiance (pi, 2pi/3, pi/4), and the lit shader
+  reads them (atmosphere.y) in place of the two-colour hemisphere. Night: once the sun is 2 to 6 degrees down the
+  light turns into the moon (opposite it: 0.02 of the sun, bluish, dimmed by the air; atmosphere.z), whose disc
+  the sky draws pale; stars (hashed cells, 0.8% lit, soft) where the sky is dark. skyToSun carries the real sun to
+  the shaders (the tables'). Clouds: RenderSettings::cloudCover (scene format 53, module API 62), three octaves of
+  value noise on a plane 2 km up drifting at 9.5 m/s, thresholded by the cover, lit by the light (a forward glow)
+  and the sky, thinning towards the horizon; their shadow multiplies the sun where its ray crosses the plane.
+  Checked: the tables' values and the harmonics (tests), noon with clouds, evening, a starry night under validation
+  with sync checks (also MSAA, the editor). Not done: clouds in the ambient's harmonics and the reflection probes,
+  volumetric clouds, the moon's phases and its own path, seasons.
 
