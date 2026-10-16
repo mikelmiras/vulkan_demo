@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <thread>
 
 #include "game/game.h"
@@ -135,9 +136,18 @@ TEST(net_server_and_client) {
     // Holding W on the client walks its player, there at once and on the server (the host's player stays put)
     float startServer = server.context().find(mine)->transform.position[2];
     ImGui::GetIO().AddKeyEvent(ImGuiKey_W, true);
-    for (int i = 0; i < 60; ++i) pump(server, sn, client, cn);
+    for (int i = 0; i < 60; ++i) {   // (real time, so the loopback keeps up: macOS's lags behind otherwise)
+        pump(server, sn, client, cn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     ImGui::GetIO().AddKeyEvent(ImGuiKey_W, false);
-    for (int i = 0; i < 20; ++i) pump(server, sn, client, cn);
+    for (int i = 0; i < 200; ++i) {   // (until the server has the client's last inputs)
+        pump(server, sn, client, cn);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (i >= 20 && std::fabs(client.context().find(mine)->transform.position[2] -
+                                 server.context().find(mine)->transform.position[2]) < 0.05f)
+            break;
+    }
     float walked = startServer - server.context().find(mine)->transform.position[2];
     CHECK(walked > 3.f && walked < 7.f);   // about a second at 5 m/s
     CHECK_NEAR(client.context().find(mine)->transform.position[2], server.context().find(mine)->transform.position[2], 1.f);
