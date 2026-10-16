@@ -56,6 +56,7 @@ TEST(decals_collected_with_their_box) {
     Decal d;
     d.color = {1.f, 1.f, 1.f};
     d.wetness = 1.f;
+    d.emissive = 4.f;
     e.decal = d;
     scene.create("Plain");
     std::vector<DecalInfo> decals = collectDecals(scene, scene.worldMatrices());
@@ -71,6 +72,7 @@ TEST(decals_collected_with_their_box) {
     CHECK_NEAR(info.down.y, -1.0, 1e-5);
     CHECK_NEAR(info.radius, length(Vec3{1.f, 0.5f, 3.f}), 1e-4);
     CHECK_NEAR(info.wetness, 1.0, 0.0);
+    CHECK_NEAR(info.emissive, 4.0, 0.0);   // (glowing)
 }
 
 TEST(surfaces_saved) {
@@ -97,7 +99,9 @@ TEST(surfaces_saved) {
     d.angleFade = 0.2f;
     d.normalTexture = textures().find("Bricks Normal");
     d.normalStrength = 0.8f;
+    d.emissive = 2.5f;
     mark.decal = d;
+    s.create("Plain mark").decal = Decal{};
     s.render.wetness = 0.8f;
     s.render.puddles = 0.3f;
     s.render.rain = 0.6f;
@@ -123,6 +127,8 @@ TEST(surfaces_saved) {
     CHECK_NEAR(ld.angleFade, 0.2, 1e-6);
     CHECK(ld.normalTexture == d.normalTexture && ld.normalTexture >= 0);
     CHECK_NEAR(ld.normalStrength, 0.8, 1e-6);
+    CHECK_NEAR(ld.emissive, 2.5, 1e-6);
+    CHECK(loaded.findByName("Plain mark")->decal->emissive == 0.f);   // (none: as before)
     CHECK_NEAR(loaded.render.wetness, 0.8, 1e-6);
     CHECK_NEAR(loaded.render.puddles, 0.3, 1e-6);
     CHECK_NEAR(loaded.render.rain, 0.6, 1e-6);

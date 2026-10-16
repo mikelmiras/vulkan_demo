@@ -82,6 +82,7 @@ void Renderer::writeDecals(const SceneRenderInfo& info, FrameUBO& u) {
         const bool normalUp = normalSlot >= 0 && pick.normalTextures[(size_t)normalSlot] < textureCount;
         g.normal[0] = normalUp ? (float)normalSlot : -1.f;
         g.normal[1] = d.normalStrength;
+        g.normal[2] = d.emissive;
         out[k] = g;
     }
     u.weather[3] = (float)pick.decals.size();

@@ -1724,7 +1724,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | 101 (done) | The half-size traces with MSAA and under a render scale: the prepass's surface from sample 0 of a multisampled G-buffer, the traces mapped to the drawn area | With MSAA or a render scale under 1, reflections and GI fall back to per-pixel tracing, contact shadows to none |
 | 102 (done) | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
 | 103 (done) | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
-| 104 | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
+| 104 (done) | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
 | 105 | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
 | 106 | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
 | 107 | Camera effects: depth of field (bokeh, from the depth, focus by distance or on a target) and motion blur along the motion vectors; both settings, off by default | No way to soften the background or show speed |
@@ -1788,4 +1788,12 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   meadow against a low sun (green 106 to 115 over the grass), Night Drive (TAA, MSAA), the sample game, the editor,
   under validation. Not done: thickness (a map, or the depth through the object), screen-space diffusion of the
   lit picture (skin's blur), translucency in the shadow maps (coloured shadows under leaves).
+- **104, glowing decals**: Decal::emissive (format 57, module API 66), DecalInfo's, GpuDecal::normal.z. scene.frag
+  keeps the decals' glow as it paints them (each over the ones before by its coverage: the texture's alpha, the box's
+  fades) and adds it after the lighting, with the surface's own emissive, so it blooms and is in the picture
+  screen-space GI and reflections trace next frame (nearby surfaces lit by it, it reflected in wet ground). The
+  layout test checks GpuDecal against scene.frag's too. Checked: a night scene with a pink sign on a wall and a
+  cyan stripe on the ground (glow 6 and 4), with and without SSGI (the ground under the sign red 2.5 to 13.6),
+  Night Drive, under validation with sync checks. Not done: a decal covering an emissive surface hiding its glow,
+  glowing decals as real lights (shadows, off-screen light).
 

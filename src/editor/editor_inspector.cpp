@@ -666,6 +666,10 @@ void Editor::drawComponents(Entity& e) {
                 ImGui::SliderFloat("Normal strength##decal", &d.normalStrength, 0.f, 2.f, "%.2f");
                 track();
             }
+            ImGui::SliderFloat("Glow##decal", &d.emissive, 0.f, 20.f, "%.2f");
+            track();
+            tooltip("It gives off light: its colour (times the texture), this bright. Painted neon, a lit sign, glowing "
+                    "runes; above 1 it blooms, and with screen-space GI it lights the surfaces near it");
         }
     }
     if (e.reflectionProbe) {

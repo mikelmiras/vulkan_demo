@@ -1,5 +1,6 @@
-// The frame's uniforms and the objects' data: FrameUBO and InstanceData (render/renderer_internal.h) must match
-// shaders/common.glsl's Frame block and Instance struct field for field (names, order, sizes); both files are read
+// The frame's uniforms, the objects' and the decals' data: FrameUBO, InstanceData and GpuDecal
+// (render/renderer_internal.h) must match shaders/common.glsl's Frame block and Instance struct, and scene.frag's
+// GpuDecal, field for field (names, order, sizes); both files are read
 // and their declarations compared, so a field added to one alone fails. And packColor's colours.
 #include "test.h"
 
@@ -84,9 +85,9 @@ int cppFloats(const std::string& type) { return type == "Mat4" ? 16 : type == "f
 
 // Each field of the shaders' block against the C++ struct's; the struct's size the fields' sum (no padding: vec4s and
 // mat4s alone, std140's and std430's layouts alike then)
-void compareLayouts(const char* glslOpen, const char* cppOpen, size_t cppSize) {
+void compareLayouts(const char* glslOpen, const char* cppOpen, size_t cppSize, const char* shader = "common.glsl") {
     std::string root = std::string(VKWORLD_TEST_ASSETS) + "/../../";
-    std::vector<Field> glsl = fields(readFile(root + "shaders/common.glsl"), glslOpen, glslFloats);
+    std::vector<Field> glsl = fields(readFile(root + "shaders/" + shader), glslOpen, glslFloats);
     std::vector<Field> cpp = fields(readFile(root + "src/render/renderer_internal.h"), cppOpen, cppFloats);
     REQUIRE(glsl.size() > 5);
     CHECK(glsl.size() == cpp.size());
@@ -108,6 +109,7 @@ void compareLayouts(const char* glslOpen, const char* cppOpen, size_t cppSize) {
 TEST(frame_uniforms_match_the_shaders) {
     compareLayouts("uniform Frame {", "struct FrameUBO {", sizeof(FrameUBO));
     compareLayouts("struct Instance {", "struct InstanceData {", sizeof(InstanceData));
+    compareLayouts("struct GpuDecal {", "struct GpuDecal {", sizeof(GpuDecal), "scene.frag");
 }
 
 TEST(packed_colours) {

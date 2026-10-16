@@ -446,7 +446,10 @@ dropping on the right.
   its roughness, and its wetness (1 on flat ground: a puddle). It fades at the box's ends and, by **Angle fade**,
   on surfaces turned away. Decals change the surface before it's lit, so they're shaded, shadowed and reflected
   like it. A decal's **normal map** bends the surface where it shows (cracks, tyre tracks, a manhole's rim; with
-  opacity 0, bumps alone). The nearest 256 in view are drawn, with up to 16 different textures and 8 normal maps
+  opacity 0, bumps alone). A decal with **Glow** gives off light: its colour (times the texture) this bright on top
+  of the lit surface, bloomed above 1 (painted neon, lit signs, glowing runes); with screen-space GI on it lights
+  the surfaces near it too, through the picture the GI traces (it's no light of its own: no shadows, nothing lit
+  off screen). The nearest 256 in view are drawn, with up to 16 different textures and 8 normal maps
   (further decals beyond that keep their colour alone, or go flat). They're binned into the lights' clusters, so
   each pixel only checks the decals near it.
 - **Weather** (Scene look > Wetness, Puddles, Rain): surfaces facing up (and the walls, a little) get darker where

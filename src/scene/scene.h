@@ -544,6 +544,7 @@ struct Decal {
     float angleFade = 0.5f;       // fading on surfaces turned away from its direction (0: none, 1: most)
     int normalTexture = -1;       // a normal map over the surface where it shows (cracks, tyre tracks, a manhole's rim)
     float normalStrength = 1.f;
+    float emissive = 0.f;         // it glows: its colour (times the texture) as light, this bright (0: none; above 1 blooms)
 };
 
 // A heightmap ground (scene/terrain.h): a square grid of heights over size x size metres, centred on the entity (its

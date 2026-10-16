@@ -106,7 +106,7 @@ struct GpuDecal {
     float params[4];     // x = texture slot (binding 25; -1: none), y = roughness (-1: as it is), z = wetness, w = angle fade
     float down[4];       // its direction in the world
     float sphere[4];     // round its box: centre, radius squared (a quick test before the box's)
-    float normal[4];     // x = normal map slot (binding 28; -1: none), y = its strength
+    float normal[4];     // x = normal map slot (binding 28; -1: none), y = its strength, z = its glow (0: none)
 };
 
 // A point or spot light (set 0, binding 14)

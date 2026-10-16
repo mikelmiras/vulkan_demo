@@ -47,7 +47,7 @@ struct GpuDecal {
     vec4 params;    // x = texture slot (-1: none), y = roughness (-1: as it is), z = wetness, w = angle fade
     vec4 down;      // xyz: its direction in the world
     vec4 sphere;    // round its box: centre, radius squared
-    vec4 normal;    // x = normal map slot (-1: none), y = its strength
+    vec4 normal;    // x = normal map slot (-1: none), y = its strength, z = its glow (0: none)
 };
 layout(std430, set = 0, binding = 24) readonly buffer Decals { GpuDecal decals[]; };
 layout(set = 0, binding = 25) uniform sampler2D decalTextures[16];
@@ -747,6 +747,7 @@ void main() {
     // cluster) paints its colour (its texture's, where its alpha is), sets the roughness, bends the normal by its
     // normal map and wets the surface; fading at the box's top and bottom and on surfaces turned away from it
     float decalWet = 0.0;
+    vec3 decalGlow = vec3(0.0);   // (the light glowing decals give off: over the lit surface, later ones over earlier)
     if (!water && frame.weather.w > 0.5) {
         vec3 dpdx = dFdx(vWorldPos), dpdy = dFdy(vWorldPos);   // (before any branch: for the textures' levels)
         uint first = 0u, count = uint(frame.weather.w + 0.5);
@@ -770,6 +771,7 @@ void main() {
             vec4 tex = p.x >= 0.0 ? decalColour(int(p.x), uv, gx, gy) : vec4(1.0);
             float coverage = a * tex.a;
             base = mix(base, tex.rgb * decals[i].color.rgb, coverage);
+            decalGlow = mix(decalGlow, tex.rgb * decals[i].color.rgb * decals[i].normal.z, coverage);
             if (p.y >= 0.0) rough = mix(rough, p.y, coverage);
             decalWet = max(decalWet, p.z * coverage);
             if (decals[i].normal.x >= 0.0) {   // (along its box's x and z: the texture's u and v)
@@ -956,6 +958,7 @@ void main() {
     }
 
     if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, gUV).rgb;   // (water: its waves there)
+    color += decalGlow;   // (in the picture the screen-space GI traces next frame: it lights what's near it too)
 
     color += waterRefracted * (1.0 - waterFresnel);   // (what the water lets through: less at a glancing angle)
     if (frame.waterInfo.z > 0.5) color = throughWater(color, vWorldPos);   // (the camera under the water)

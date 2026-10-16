@@ -105,6 +105,7 @@ struct DecalInfo {
     int texture = -1;
     int normalTexture = -1;
     float normalStrength = 1.f;
+    float emissive = 0.f;       // (its colour as light, times this)
 };
 
 struct ProbeInfo {
