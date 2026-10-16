@@ -2015,7 +2015,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | 120 (done) | Screen-space reflections traced over the Hi-Z pyramid (hierarchical: long rays in few steps, exact hits), widening with roughness (a cone over the blurred levels) | Reflections march fixed steps: short, and they miss thin things; Night Drive's wet streets want the whole street mirrored |
 | 121 (done) | Coloured shadows from spot and point lights too (tint tiles in the atlas), and in the volumetric fog | Only the sun's shadows are tinted; a lamp behind stained glass casts grey |
 | 122 (done) | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
-| 123 | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
+| 123 (done) | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
 | 124 | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
 | 125 | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
 | 126 | Soft shadows from lamps: a blocker search for spot and point lights (PCSS, by the light's size), so a lamp's shadows sharpen at contact and soften away from it | Lamp shadows have one fixed softness |
@@ -2080,4 +2080,20 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   VKWORLD_SSS=0, no fringe; a blue profile spreads no red); MSAA, AA off, render scale 0.7, CPU culling,
   Night Drive, the editor, under validation with sync checks. Not done: lamps' light through (the atlas tiles),
   a transmission without the diffusion's cost, low-poly meshes' facets showing at the sun's edge without it.
+- **123, every lamp in the air**: shafts::choose now takes each light's prominence (shafts::prominence: brightness
+  x range^2 / (range^2 + distance^2)) and keeps the four that show most, in the lights' order (the nearest four in
+  Night Drive were the car's own lights); frame.shafts.y is their count, frame.shaftLamps (new, FrameUBO and
+  common.glsl) their indices. shafts.glsl marches spots as before (one shadow tap per step, any spot now, shadowed
+  or not); a point light's halo is shafts::halo's closed form (the integral of 1 / (h^2 + s^2 + 0.3^2) along the
+  ray inside its range, by the window at the closest point; tested against a sum), dimmed by its cube shadows'
+  taps along the march weighed by nearness. The air's extinction is the transport one, 0.4 of the scattering (the
+  phase leans forward, g 0.6): along the march, and the composite multiplies the picture by the shafts' alpha
+  (left 1 for the sky, whose own air is in it). Split-screen views run the pass into their own rectangle with their
+  slot (the main view's lamps; their shaftsViewport, drawnViewport and invViewProj now filled), sunAt reading their
+  cascades from the atlas tiles. Checked: a night street of eight lamps, a shadowed point light behind a pillar and
+  a shadowed spot, at strength 2 (halos round each lamp, the spot's cone), split in two (the second view had none
+  before), MSAA, AA off, render scale 0.7; Night Drive with fog off and shafts on (from its high camera the halos
+  are small at its lamps' intensities, 1.4 to 2.4), the editor, under validation with sync checks (CI's 1.3.275
+  layer too, which found task 122's barrier and the sun tint's compute stage: fixed in their own commit). Not
+  done: the halo's own shadow streaks (it takes the average), more than four lamps, clustered lamps per pixel.
 

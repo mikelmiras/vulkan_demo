@@ -66,9 +66,9 @@ layout(set = 0, binding = 0) uniform Frame {
                               // contact shadows with them
     vec4 contactLight;        // the point or spot light with contact shadows too (the nearest shadowed one): xyz
                               // where, w = its index in the lights (-1: none)
-    vec4 shafts;              // light shafts (shafts.glsl): x = scattering per metre (0: none), y, z = the lamps' indices
-                              // in the lights (-1: none), w = steps
+    vec4 shafts;              // light shafts (shafts.glsl): x = scattering per metre (0: none), y = how many lamps, w = steps
     vec4 shaftsViewport;      // the picture's rectangle (pixels: not scaled down), the shafts' half-size pixels' frame
+    vec4 shaftLamps;          // the lamps' indices in the lights (shafts.y of them)
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness

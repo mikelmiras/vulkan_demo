@@ -651,8 +651,11 @@ dropping on the right.
   **Light shafts** (0..2, off by default; without volumetric fog, which has its own): the clear air lit by the sun
   and scattering it towards you, brightest looking towards the sun, with dark streaks where something blocks it:
   each half-size pixel marches its view ray through the sun's shadow cascades, so what's in the way counts on screen
-  or off. The two nearest shadowed spot lights' beams show in it too (their cones and shadows: a lamp's beam in the
-  night air, headlights). Off at low quality; the main view's alone.
+  or off. The four lamps that show most (bright, wide, near) light it too: spot lights' beams (their cones and
+  shadows: headlights, a lamp's beam in the night air) and point lights' halos (worked out whole along each ray, so
+  the bright core isn't missed between steps; a shadowed one's halo dimmed by what its shadows hide). The air dims
+  what's behind it a little with distance (the sky's own air kept). Split-screen views get theirs, through their own
+  cascades. Off at low quality.
   **Depth of field** (0..1, off by default): what's nearer or further than the focus blurs as through a lens, by
   its circle of confusion (a thin lens's: |distance - focus| / distance, at 1 up to about 1% of the view's height),
   bright spots opening into discs (bokeh); the focus is a distance (*Focus distance*) or an entity kept sharp

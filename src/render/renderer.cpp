@@ -2134,16 +2134,24 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     u.viewport[2] = 2.5f;
     set4(u.sunDir, normalize(sun.direction), shadows && frameShadows_ ? 1.f : 0.f);
     set4(u.sunColor, info.physicalSky ? skySunHere_ * sun.intensity : srgbToLinear(sun.color) * sun.intensity, 0.f);
-    // Light shafts (the main view's): the march's density, its two nearest shadowed spot lights, its steps
-    set4(u.shafts, {0.f, -1.f, -1.f}, 0.f);
+    // Light shafts (the main view's; split-screen views take its): the march's density, the four lamps that show
+    // most, its steps
+    set4(u.shafts, {0.f, 0.f, 0.f}, 0.f);
+    set4(u.shaftLamps, {-1.f, -1.f, -1.f}, -1.f);
     shaftsOn_ = false;
     if (shadows && info.lightShafts > 0.f) {
-        std::vector<bool> spots(points.size(), false);
-        for (size_t i = 0; i < points.size() && i < lightShadow.size(); ++i) spots[i] = points[i]->spot && lightShadow[i] >= 0;
+        std::vector<float> lamps(points.size(), 0.f);
+        for (size_t i = 0; i < points.size(); ++i) {
+            const LightInfo& l = *points[i];
+            const Vec3 c = srgbToLinear(l.color);
+            lamps[i] = shafts::prominence((0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z) * l.intensity, l.range,
+                                          length(l.position - info.camPos));
+        }
         const bool fog = info.volumetricFog && info.items && fogInjectPipeline_ && info.fogDensity > 0.f;   // (as fogOn_ is)
         const shafts::Params p = shafts::choose(info.lightShafts, fog,
-                                                quality_ == Quality::Low ? 0 : quality_ == Quality::Medium ? 1 : 2, spots);
-        u.shafts[0] = p.density, u.shafts[1] = (float)p.lamps[0], u.shafts[2] = (float)p.lamps[1], u.shafts[3] = (float)p.steps;
+                                                quality_ == Quality::Low ? 0 : quality_ == Quality::Medium ? 1 : 2, lamps);
+        u.shafts[0] = p.density, u.shafts[1] = (float)p.lampCount, u.shafts[3] = (float)p.steps;
+        for (int i = 0; i < shafts::kMaxLamps; ++i) u.shaftLamps[i] = (float)p.lamps[i];
         shaftsOn_ = p.density > 0.f;
     }
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
@@ -2342,6 +2350,15 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         }
         uv.sunDir[3] = u.sunDir[3];
         uv.weather[3] = u.weather[3];   // (the decals: the main view's)
+        std::memcpy(uv.shafts, u.shafts, sizeof(u.shafts));   // (the light shafts: the main view's lamps, in its own picture)
+        std::memcpy(uv.shaftLamps, u.shaftLamps, sizeof(u.shaftLamps));
+        const SceneRenderInfo& vi = (*info.views)[v];
+        const float vx = std::clamp(vi.viewportX, 0.f, (float)extent_.width), vy = std::clamp(vi.viewportY, 0.f, (float)extent_.height);
+        uv.shaftsViewport[0] = vx, uv.shaftsViewport[1] = vy;
+        uv.shaftsViewport[2] = std::max(std::min(vi.viewportW, (float)extent_.width - vx), 1.f);
+        uv.shaftsViewport[3] = std::max(std::min(vi.viewportH, (float)extent_.height - vy), 1.f);
+        std::memcpy(uv.drawnViewport, uv.shaftsViewport, sizeof(uv.drawnViewport));   // (views are drawn full size)
+        uv.invViewProj = inverse(uv.viewProj);   // (the shafts find points by the depth)
 
         std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &uv, sizeof(uv));
     }
@@ -2350,6 +2367,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         jitterView(scene, u, taa_, &info);
         for (size_t v = 0; v < viewCount; ++v) {   // (the views' too, into their slots)
             jitterView((*info.views)[v], viewUbos[v], viewImages_[v].taa);
+            viewUbos[v].invViewProj = inverse(viewUbos[v].viewProj);
             std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &viewUbos[v], sizeof(FrameUBO));
         }
     }

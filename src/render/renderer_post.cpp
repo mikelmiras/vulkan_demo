@@ -555,9 +555,10 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                    VK_ACCESS_SHADER_READ_BIT);
     }
 
-    // Light shafts (the main view's; volumetric fog makes its own): the clear air's light marched along each view
-    // ray through the sun's cascades and the shadowed spots' beams (shafts.glsl: the frame's set, its shafts)
-    const bool shafted = view < 0 && shaftsPipeline_ && shaftsOn_ && info.items && vw >= 1.f && vh >= 1.f;
+    // Light shafts (volumetric fog makes its own; split-screen views theirs, in their own rectangle): the clear air's
+    // light marched along each view ray through the sun's cascades and the lamps' light (shafts.glsl: the frame's
+    // set, the view's slot)
+    const bool shafted = shaftsPipeline_ && shaftsOn_ && info.items && vw >= 1.f && vh >= 1.f;
     mipBarrier(cb, shafts_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, shafted ? target : readable, colorStage | fragStage, 0,
                shafted ? colorStage : fragStage, shafted ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
     if (shafted) {
@@ -577,7 +578,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         vkCmdSetViewport(cb, 0, 1, &sv);
         vkCmdSetScissor(cb, 0, 1, &sc);
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shaftsPipeline_);
-        const uint32_t slot = 0;   // (the main view's frame data)
+        const uint32_t slot = view < 0 ? 0 : (uint32_t)(1 + view) * (uint32_t)uboStride_;   // (the view's frame data)
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
         vkCmdDraw(cb, 3, 1, 0, 0);
         vkCmdEndRendering(cb);

@@ -10,7 +10,8 @@ layout(set = 0, binding = 3) uniform sampler2D uiLayer;   // the UI, drawn apart
 layout(set = 0, binding = 4) uniform sampler2D exposureMap;   // auto-exposure: log2 of its factor (one texel)
 layout(set = 0, binding = 5) uniform sampler2D luminance;     // the view's log2 luminance, mipped (local tone mapping)
 layout(set = 0, binding = 6) uniform sampler2D lensDirt;      // smudges and specks the bloom catches (renderer_post.cpp)
-layout(set = 0, binding = 7) uniform sampler2D shafts;        // the sun's light shafts, half size (when a.w = 1: shafts.glsl)
+layout(set = 0, binding = 7) uniform sampler2D shafts;        // the light shafts, half size (when a.w = 1: shafts.glsl; a = what
+                                                              // the air leaves of the picture)
 layout(push_constant) uniform Post {
     vec4 a;   // x = exposure, y = bloom strength, z = 1: apply ambient occlusion, w = 1: add the light shafts
     vec4 b;   // rgb = outline colour (sRGB), w = 1: blend the UI layer in
@@ -109,6 +110,7 @@ void main() {
     vec3 c = max(scene, vec3(0.0)) + glow;
     if (pc.a.w > 0.5 && !outside) {   // (a little blur over the half-size shafts, as over the occlusion: their march's dither)
         vec2 t = 1.0 / vec2(textureSize(shafts, 0));
+        c *= texture(shafts, uv).a;   // (what the air left of the picture behind: a, unblurred)
         c += 0.25 * (texture(shafts, uv + vec2(-0.75, -0.75) * t).rgb + texture(shafts, uv + vec2(0.75, -0.75) * t).rgb +
                      texture(shafts, uv + vec2(-0.75, 0.75) * t).rgb + texture(shafts, uv + vec2(0.75, 0.75) * t).rgb);
     }
