@@ -203,6 +203,11 @@ TEST(materials_and_render_settings_saved) {
     s.render.contrast = 1.2f;
     s.render.saturation = 0.8f;
     s.render.vignette = 0.4f;
+    s.render.autoExposure = true;
+    s.render.exposureMin = -2.f;
+    s.render.exposureMax = 3.f;
+    s.render.adaptationSpeed = 2.5f;
+    s.render.localToneMapping = 0.6f;
     std::string error;
     auto path = test::tempPath("materials.vkw").string();
     REQUIRE(saveScene(path, s, meshes, textures(), error));
@@ -235,10 +240,16 @@ TEST(materials_and_render_settings_saved) {
     CHECK_NEAR(loaded.render.fogLight, 2.5, 1e-6);
     CHECK_NEAR(loaded.render.fogHeightFalloff, 0.15, 1e-6);
     CHECK_NEAR(loaded.render.vignette, 0.4, 1e-6);
+    CHECK(loaded.render.autoExposure);
+    CHECK_NEAR(loaded.render.exposureMin, -2.0, 1e-6);
+    CHECK_NEAR(loaded.render.exposureMax, 3.0, 1e-6);
+    CHECK_NEAR(loaded.render.adaptationSpeed, 2.5, 1e-6);
+    CHECK_NEAR(loaded.render.localToneMapping, 0.6, 1e-6);
     CHECK(sameRenderSettings(loaded.render, s.render));
     Scene off;
     CHECK(!off.render.volumetricFog && off.render.tonemapper == 0 && off.render.shadowSoftness == 1.f);
     CHECK(!off.render.gi && !off.render.reflections);   // (off unless asked for)
+    CHECK(!off.render.autoExposure && off.render.localToneMapping == 0.f);
     CHECK(!sameRenderSettings(off.render, s.render));
     // A plain one keeps the defaults (and doesn't write them)
     MeshRenderer plain;

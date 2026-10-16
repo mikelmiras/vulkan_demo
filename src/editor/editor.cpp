@@ -307,6 +307,12 @@ SceneRenderInfo Editor::renderInfo() const {
     info.contrast = r.contrast;
     info.saturation = r.saturation;
     info.vignette = r.vignette;
+    info.autoExposure = r.autoExposure;
+    info.exposureMin = r.exposureMin;
+    info.exposureMax = r.exposureMax;
+    info.adaptationSpeed = r.adaptationSpeed;
+    info.localToneMapping = r.localToneMapping;
+    info.frameSeconds = std::clamp(frameDt_, 0.f, 0.25f);
     // The waves: as the game's physics has them while playing; moving on the clock in the editor
     info.waterTime = playing() ? game_.physics().time() : (float)ImGui::GetTime();
     if (playing()) info.colorFilter = game_.colorFilter();   // (the player's setting, as the game will look)

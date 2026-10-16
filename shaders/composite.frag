@@ -7,6 +7,8 @@ layout(set = 0, binding = 0) uniform sampler2D hdr;
 layout(set = 0, binding = 1) uniform sampler2D bloom;
 layout(set = 0, binding = 2) uniform sampler2D ao;   // ambient occlusion, half size (when a.z = 1)
 layout(set = 0, binding = 3) uniform sampler2D uiLayer;   // the UI, drawn apart (when b.w = 1): premultiplied, sRGB
+layout(set = 0, binding = 4) uniform sampler2D exposureMap;   // auto-exposure: log2 of its factor (one texel)
+layout(set = 0, binding = 5) uniform sampler2D luminance;     // the view's log2 luminance, mipped (local tone mapping)
 layout(push_constant) uniform Post {
     vec4 a;   // x = exposure, y = bloom strength, z = 1: apply ambient occlusion
     vec4 b;   // rgb = outline colour (sRGB), w = 1: blend the UI layer in
@@ -15,6 +17,7 @@ layout(push_constant) uniform Post {
               // z = the display's peak, w = paper white (nits; HDR)
     vec4 d;   // with the UI layer (drawn over the whole picture): the scene's rectangle (x, y, w, h pixels)
     vec4 e;   // x = tone mapper (0 PBR Neutral, 1 filmic), y = contrast, z = saturation, w = vignette
+    vec4 f;   // x = 1: auto-exposure, y = local tone mapping (0..1), z = the luminance's last mip
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -98,7 +101,15 @@ void main() {
                     texture(ao, uv + vec2(-0.5, 0.5) * t).r + texture(ao, uv + vec2(0.5, 0.5) * t).r;
         scene *= occ * 0.25;
     }
-    vec3 c = (max(scene, vec3(0.0)) + texture(bloom, uv).rgb * pc.a.y) * pc.a.x;
+    vec3 c = max(scene, vec3(0.0)) + texture(bloom, uv).rgb * pc.a.y;
+    float exposure = pc.a.x;
+    if (pc.f.x > 0.5) exposure *= exp2(texelFetch(exposureMap, ivec2(0), 0).r);   // (auto: times the compensation)
+    if (pc.f.y > 0.0) {   // local tone mapping: this part of the view's brightness (coarse) pulled towards the mean
+        vec2 at = clamp((gl_FragCoord.xy - pc.d.xy) / max(pc.d.zw, vec2(1.0)), 0.0, 1.0);
+        float local = textureLod(luminance, at, 3.0).r, mean = textureLod(luminance, vec2(0.5), pc.f.z).r;
+        c *= exp2(clamp(mean - local, -6.0, 6.0) * pc.f.y * 0.5);
+    }
+    c *= exposure;
     int output_ = int(pc.c.y + 0.5);
     if (outside) {
         vec3 clear = h.rgb;   // (linear sky)

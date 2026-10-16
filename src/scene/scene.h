@@ -735,6 +735,14 @@ struct RenderSettings {
     int tonemapper = 0;
     float contrast = 1.f, saturation = 1.f;
     float vignette = 0.f;             // darker corners (0: none, 1: strong)
+    // Auto-exposure: the exposure follows how bright the view is (its average, eased like an eye adjusting: quicker
+    // to a brighter view), between limits in stops; `exposure` is then a compensation on top
+    bool autoExposure = false;
+    float exposureMin = -4.f, exposureMax = 4.f;   // stops darker / brighter than the exposure for a mid-grey world
+    float adaptationSpeed = 1.f;      // how quickly it settles (1: about a second into the dark, a third out of it)
+    // Local tone mapping: darker and brighter parts of the view pulled towards the middle (0: off, 1: strong), so
+    // a night street keeps detail both in the shadows and round the lights
+    float localToneMapping = 0.f;
 };
 
 // A reusable entity tree: a template the editor and game code (GameContext::spawn) make copies of.

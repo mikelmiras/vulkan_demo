@@ -209,6 +209,18 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::SliderFloat("Vignette", &r.vignette, 0.f, 1.f, "%.2f");
         track();
         tooltip("Darker corners, drawing the eye to the middle");
+        ImGui::Checkbox("Auto-exposure", &r.autoExposure);
+        track();
+        tooltip("The exposure follows how bright the view is, easing like an eye adjusting (Exposure then adds to it)");
+        if (r.autoExposure) {
+            ImGui::DragFloatRange2("Exposure range", &r.exposureMin, &r.exposureMax, 0.05f, -12.f, 12.f, "%.1f stops");
+            track();
+            ImGui::SliderFloat("Adaptation speed", &r.adaptationSpeed, 0.1f, 10.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+            track();
+        }
+        ImGui::SliderFloat("Local tone mapping", &r.localToneMapping, 0.f, 1.f, "%.2f");
+        track();
+        tooltip("Dark and bright parts of the view pulled towards the middle: detail in the shadows and round the lights");
         // The sky image: a panorama that's the sky, the ambient light and what shiny things reflect
         ImGui::InputText("Sky image", &r.skyImage);
         track();

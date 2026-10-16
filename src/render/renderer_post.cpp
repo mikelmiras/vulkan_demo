@@ -127,6 +127,54 @@ void Renderer::createPostImages() {
         vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
     }
     if (aa_ == Antialiasing::Temporal || upscaling()) createTaaImages(taa_);   // (temporal AA's, or the upscaler's)
+    // Auto-exposure: the luminance (its mips: blits) and the exposure, now and last frame's; the composite reads
+    // them (bindings 4, 5: something valid even without, the formats the shaders expect)
+    if (lumSupported_) {
+        lum_ = createImage(VK_FORMAT_R16_SFLOAT,
+                           VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                               VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                           VK_IMAGE_ASPECT_COLOR_BIT, kLumWidth, kLumHeight, VK_SAMPLE_COUNT_1_BIT, kLumMips);
+        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vci.image = lum_.image;
+        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format = VK_FORMAT_R16_SFLOAT;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &lumMip0_));
+        for (Image& e : exposure_)
+            e = createImage(VK_FORMAT_R32_SFLOAT,
+                            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                            VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, VK_SAMPLE_COUNT_1_BIT, 1);
+        lumFresh_ = true;
+        exposureHistory_ = false;
+        auto bind = [&](VkDescriptorSet set, uint32_t binding, VkImageView view) {
+            VkDescriptorImageInfo info{lumSampler_, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w.dstSet = set;
+            w.dstBinding = binding;
+            w.descriptorCount = 1;
+            w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w.pImageInfo = &info;
+            vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+        };
+        bind(lumSet_, 0, hdr_.view);
+        bind(adaptSet_, 0, lum_.view);
+        bind(adaptSet_, 1, exposure_[1].view);
+        bind(compositeSet_, 4, exposure_[0].view);
+        bind(compositeSet_, 5, lum_.view);
+    } else {   // (no auto-exposure here: the composite still binds something, never read)
+        VkDescriptorImageInfo info{postSampler_, hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet w[2];
+        for (uint32_t i = 0; i < 2; ++i) {
+            w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+            w[i].dstSet = compositeSet_;
+            w[i].dstBinding = 4 + i;
+            w[i].descriptorCount = 1;
+            w[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w[i].pImageInfo = &info;
+        }
+        vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+    }
     // Reflections' picture of the last frame, and the capture's inputs (the depth, this frame's picture)
     prevColor_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                              VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
@@ -182,6 +230,11 @@ void Renderer::writeSsrBinding() {
 
 void Renderer::destroyPostImages() {
     if (prevColor_.image) destroyImage(prevColor_);
+    if (lumMip0_) vkDestroyImageView(device_, lumMip0_, nullptr);
+    lumMip0_ = VK_NULL_HANDLE;
+    if (lum_.image) destroyImage(lum_);
+    for (Image& e : exposure_)
+        if (e.image) destroyImage(e);
     if (uiLayer_.image) destroyImage(uiLayer_);
     destroyTaaImages(taa_);
     for (ViewImage& v : viewImages_) destroyTaaImages(v.taa);   // (sized like the targets: remade when next drawn)
@@ -198,6 +251,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     struct Push {
         float a[4], b[4], c[4], d[4], e[4];   // (e: the composite's tone mapper and grading)
+        float f[4];                           // (the composite's auto-exposure and local tone mapping)
     };
     mipBarrier(cb, hdr_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                VK_ACCESS_SHADER_READ_BIT);
@@ -268,6 +322,57 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                    VK_ACCESS_SHADER_READ_BIT);
     }
 
+    // Auto-exposure and local tone mapping (the main view's): the view's log2 luminance, its mips down to the mean,
+    // and the exposure eased towards it (then kept for next frame)
+    const bool metering = view < 0 && lum_.image && info.items && vw >= 1.f && vh >= 1.f &&
+                          (info.autoExposure || info.localToneMapping > 0.f);
+    const VkPipelineStageFlags transfer = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    if (metering) {
+        mipBarrier(cb, lum_.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        Push lp{{vx, vy, vw, vh}, {1.f / (float)extent_.width, 1.f / (float)extent_.height, 0.f, 0.f}, {}, {}, {}, {}};
+        pass(lumMip0_, {kLumWidth, kLumHeight}, lumPipeline_, lumSet_, lp, false);
+        mipBarrier(cb, lum_.image, 0, 1, target, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, colorStage,
+                   VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
+        for (uint32_t m = 1; m < kLumMips; ++m) {   // (each level the average of the one above: blits)
+            mipBarrier(cb, lum_.image, m, 1, readable, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, fragStage, 0, transfer,
+                       VK_ACCESS_TRANSFER_WRITE_BIT);
+            VkImageBlit blit{};
+            blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
+            blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+            blit.srcOffsets[1] = {(int32_t)std::max(kLumWidth >> (m - 1), 1u), (int32_t)std::max(kLumHeight >> (m - 1), 1u), 1};
+            blit.dstOffsets[1] = {(int32_t)std::max(kLumWidth >> m, 1u), (int32_t)std::max(kLumHeight >> m, 1u), 1};
+            vkCmdBlitImage(cb, lum_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, lum_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                           &blit, VK_FILTER_LINEAR);
+            mipBarrier(cb, lum_.image, m, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, transfer,
+                       VK_ACCESS_TRANSFER_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
+        }
+        mipBarrier(cb, lum_.image, 0, kLumMips, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readable, transfer, VK_ACCESS_TRANSFER_READ_BIT,
+                   fragStage, VK_ACCESS_SHADER_READ_BIT);
+        if (info.autoExposure) {
+            mipBarrier(cb, exposure_[0].image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+            Push ap{{std::clamp(info.frameSeconds, 0.f, 0.25f), info.adaptationSpeed, info.exposureMin, info.exposureMax},
+                    {exposureHistory_ ? 0.f : 1.f, (float)(kLumMips - 1), 0.f, 0.f}, {}, {}, {}, {}};
+            pass(exposure_[0].view, {1, 1}, adaptPipeline_, adaptSet_, ap, false);
+            // (copied to the other: next frame starts from it)
+            mipBarrier(cb, exposure_[0].image, 0, 1, target, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, colorStage,
+                       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
+            mipBarrier(cb, exposure_[1].image, 0, 1, readable, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, fragStage, 0, transfer,
+                       VK_ACCESS_TRANSFER_WRITE_BIT);
+            VkImageCopy copy{};
+            copy.srcSubresource = copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.extent = {1, 1, 1};
+            vkCmdCopyImage(cb, exposure_[0].image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, exposure_[1].image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            mipBarrier(cb, exposure_[1].image, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, readable, transfer,
+                       VK_ACCESS_TRANSFER_WRITE_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
+            mipBarrier(cb, exposure_[0].image, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readable, transfer,
+                       VK_ACCESS_TRANSFER_READ_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
+        }
+    }
+    if (view < 0) exposureHistory_ = metering && info.autoExposure;
+    const bool autoExposed = lum_.image && info.autoExposure && (metering || view >= 0) && exposureHistory_;
+    const float localTone = metering ? std::clamp(info.localToneMapping, 0.f, 1.f) : 0.f;
+
     // Composite: into the scene's viewport on the swapchain image, the rest getting the sky colour (under the UI); or
     // into an extra view's own image (sampled by the last frame's UI until now)
     VkImage outImage = view >= 0 ? viewImages_[view].image.image : swapImages_[imageIndex];
@@ -303,7 +408,8 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, ao ? 1.f : 0.f, 0.f},
                {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, layered ? 1.f : 0.f},
                {(float)info.colorFilter, output, hdrPeak_, hdrPaperWhite_}, {vx, vy, vw, vh},
-               {(float)info.tonemapper, info.contrast, info.saturation, info.vignette}};
+               {(float)info.tonemapper, info.contrast, info.saturation, info.vignette},
+               {autoExposed ? 1.f : 0.f, localTone, (float)(kLumMips - 1), 0.f}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
     }

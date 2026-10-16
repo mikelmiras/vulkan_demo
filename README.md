@@ -541,6 +541,14 @@ dropping on the right.
   views and probes keep the plain fog).
 - **Tone mapping and grading**: PBR Neutral (colours as they are) or **filmic** (AgX: richer contrast, highlights
   bleaching towards white as film's do), then contrast, saturation and a vignette (Scene look).
+- **Auto-exposure and local tone mapping** (Scene look, off by default): with **Auto-exposure** the exposure follows
+  the view's mean brightness (its log-average, measured each frame on a 256x144 copy of the view), easing towards it
+  like an eye adjusting: three times quicker into a brighter view than into a darker one, at **Adaptation speed**,
+  within an **Exposure range** (stops either side). The brightness aimed for falls with the view's own (an automatic
+  key), so a night street stays a night street rather than lifted to grey; the scene's Exposure multiplies the
+  result (compensation). **Local tone mapping** (0..1) lifts dark regions and holds back bright ones relative to the
+  mean (by the coarse brightness around each pixel), keeping detail in shadows and around lights. The main view
+  meters; split-screen views use its exposure, without local tone mapping.
 - **Specular anti-aliasing**: where the normal changes within a pixel (small curved things, distant bumpy ground),
   highlights are widened to match, so they don't sparkle and crawl.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
@@ -1457,4 +1465,5 @@ Includes are relative to `src/`.
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |
 | `shaders/shadow.vert`      | Shadow map (depth only)                                         |
 | `shaders/post.vert`, `bloom_*.frag`, `composite.frag` | Bloom down / up passes; tonemapping and gamma onto the swapchain |
+| `shaders/luminance.frag`, `adapt.frag` | Auto-exposure: the view's log luminance (mipped down to its mean), the exposure eased towards its target |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

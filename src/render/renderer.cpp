@@ -767,16 +767,18 @@ void Renderer::createPipelines() {
                                             false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, false, true, 0b101});
 
     // Post-processing: one or two images to read, parameters in push constants
-    VkDescriptorSetLayoutBinding postBindings[4] = {
+    VkDescriptorSetLayoutBinding postBindings[6] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: AO)
         {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: the UI layer)
+        {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: auto-exposure)
+        {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: luminance)
     };
-    dslci.bindingCount = 4;
+    dslci.bindingCount = 6;
     dslci.pBindings = postBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &postSetLayout_));
-    VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 80};
+    VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 96};
     VkPipelineLayoutCreateInfo pl{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     pl.setLayoutCount = 1;
     pl.pSetLayouts = &postSetLayout_;
@@ -790,6 +792,8 @@ void Renderer::createPipelines() {
     taaPipeline_ = createPostPipeline("taa.frag.spv", hdrFormat_, false, taaLayout_);
     taaUpscalePipeline_ = createPostPipeline("taa_upscale.frag.spv", hdrFormat_, false, taaLayout_);
     bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
+    lumPipeline_ = createPostPipeline("luminance.frag.spv", VK_FORMAT_R16_SFLOAT, false);
+    adaptPipeline_ = createPostPipeline("adapt.frag.spv", VK_FORMAT_R32_SFLOAT, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
     compositeViewPipeline_ = createPostPipeline("composite.frag.spv", sdrFormat_, false);
@@ -1028,6 +1032,8 @@ void Renderer::createShadowResources() {
     post.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
     post.addressModeU = post.addressModeV = post.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     VK_CHECK(vkCreateSampler(device_, &post, nullptr, &postSampler_));
+    post.maxLod = VK_LOD_CLAMP_NONE;   // (auto-exposure's luminance: read at any mip)
+    VK_CHECK(vkCreateSampler(device_, &post, nullptr, &lumSampler_));
 }
 
 // Meshes are only ever appended to the library, so only the new vertices and indices are copied, into room the
@@ -1093,8 +1099,9 @@ void Renderer::createResources(const MeshLibrary&) {
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &materialPool_));
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
-    const uint32_t postSetCount = 2 * kMaxBloomMips + 6 + 2 * kMaxViews;   // (+2 per view: the temporal pass's two directions)
-    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 * postSetCount};
+    // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation)
+    const uint32_t postSetCount = 2 * kMaxBloomMips + 8 + 2 * kMaxViews;
+    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &postSize;
@@ -1114,6 +1121,15 @@ void Renderer::createResources(const MeshLibrary&) {
     for (int v = 0; v < kMaxViews; ++v)   // (the extra views' temporal passes)
         for (int k = 0; k < 2; ++k) viewImages_[v].taa.sets[k] = postSets[5 + 2 * kMaxBloomMips + 2 * v + k];
     ssrSet_ = postSets[5 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    lumSet_ = postSets[6 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    adaptSet_ = postSets[7 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    {   // (the luminance image is mipped by blits: its format must allow filtered ones)
+        VkFormatProperties fp;
+        vkGetPhysicalDeviceFormatProperties(gpu_, VK_FORMAT_R16_SFLOAT, &fp);
+        VkFormatFeatureFlags need = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                    VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
+        lumSupported_ = (fp.optimalTilingFeatures & need) == need;
+    }
     for (uint32_t m = 0; m < kMaxBloomMips; ++m) {
         downSets_[m] = postSets[2 + m];
         upSets_[m] = postSets[2 + kMaxBloomMips + m];
@@ -1285,6 +1301,13 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
     uiLayerFresh_ = false;
+    if (lumFresh_) {   // (auto-exposure's images, just made: readable before anything samples them)
+        for (VkImage image : {lum_.image, exposure_[0].image, exposure_[1].image})
+            mipBarrier(cb, image, 0, image == lum_.image ? kLumMips : 1, VK_IMAGE_LAYOUT_UNDEFINED,
+                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        lumFresh_ = false;
+    }
     if (prevColorFresh_) {   // (reflections' picture, just made: readable, even before there's one)
         imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
@@ -1937,7 +1960,7 @@ void Renderer::shutdown() {
     destroySampledPipelines();
     for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
                          compositeViewPipeline_,
-                         taaPipeline_, taaUpscalePipeline_})
+                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, taaLayout_, nullptr);
     destroyPostImages();
@@ -1945,6 +1968,7 @@ void Renderer::shutdown() {
     vkDestroyDescriptorSetLayout(device_, postSetLayout_, nullptr);
     vkDestroyDescriptorPool(device_, postPool_, nullptr);
     vkDestroySampler(device_, postSampler_, nullptr);
+    vkDestroySampler(device_, lumSampler_, nullptr);
     vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, setLayout_, nullptr);
     vkDestroyDescriptorPool(device_, descPool_, nullptr);

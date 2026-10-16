@@ -793,6 +793,12 @@ int main(int argc, char** argv) {
         info.contrast = scene.render.contrast;
         info.saturation = scene.render.saturation;
         info.vignette = scene.render.vignette;
+        info.autoExposure = scene.render.autoExposure;
+        info.exposureMin = scene.render.exposureMin;
+        info.exposureMax = scene.render.exposureMax;
+        info.adaptationSpeed = scene.render.adaptationSpeed;
+        info.localToneMapping = scene.render.localToneMapping;
+        info.frameSeconds = std::clamp(dt, 0.f, 0.25f);
         info.waterTime = game.physics().time();   // (the waves as the physics has them: what floats rides them)
         info.colorFilter = game.colorFilter();
         if (!scene.render.skyImage.empty()) {   // (loaded and prefiltered once, then cached)

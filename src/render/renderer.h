@@ -127,6 +127,9 @@ struct SceneRenderInfo {
     float fogLight = 1.f, fogAnisotropy = 0.5f, fogHeightFalloff = 0.f;
     int tonemapper = 0;           // 0 PBR Neutral, 1 filmic
     float contrast = 1.f, saturation = 1.f, vignette = 0.f;
+    bool autoExposure = false;        // (RenderSettings': the exposure follows the view's brightness)
+    float exposureMin = -4.f, exposureMax = 4.f, adaptationSpeed = 1.f, localToneMapping = 0.f;
+    float frameSeconds = 1.f / 60.f;  // (auto-exposure's easing: the time since the last frame)
     // A colour-blindness filter over the picture (the player's settings.colorBlind, Game::colorFilter()): 0 none,
     // 1 protanopia, 2 deuteranopia, 3 tritanopia. Daltonized: what that eye can't tell apart is moved into
     // differences it can see.
@@ -733,6 +736,18 @@ private:
     void describeHdr();
     Image uiLayer_;
     bool uiLayerFresh_ = false;
+    // Auto-exposure and local tone mapping (renderer_post.cpp): the view's log2 luminance, mipped down to its mean
+    // (luminance.frag, then blits), and the exposure eased towards it (adapt.frag into exposure_[0], copied to [1]
+    // as next frame's starting point)
+    static constexpr uint32_t kLumWidth = 256, kLumHeight = 144, kLumMips = 9;
+    Image lum_, exposure_[2];
+    VkImageView lumMip0_ = VK_NULL_HANDLE;
+    VkDescriptorSet lumSet_ = VK_NULL_HANDLE, adaptSet_ = VK_NULL_HANDLE;
+    VkPipeline lumPipeline_ = VK_NULL_HANDLE, adaptPipeline_ = VK_NULL_HANDLE;
+    bool lumSupported_ = false;     // (the luminance format can be blitted with filtering)
+    VkSampler lumSampler_ = VK_NULL_HANDLE;   // (bilinear, every mip)
+    bool lumFresh_ = false;         // (made: readable before anything samples it)
+    bool exposureHistory_ = false;  // last frame adapted (else: start at the target)
     VkPipeline compositeViewPipeline_ = VK_NULL_HANDLE;   // (into the extra views' images: sdrFormat_)
     uint32_t bloomMips_ = 0;
     VkImageView bloomViews_[kMaxBloomMips] = {};

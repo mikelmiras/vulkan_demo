@@ -1396,7 +1396,7 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 80 (done) | Effects scaled by quality: the lit shader's sun shadow taps and blocker search, spot-light shadow taps and screen-space reflection steps, ambient occlusion's samples and the fog's sun samples fewer at medium and low; the GPU's total in the F3 overlay (half-resolution reflections and async compute: left, see the notes) | Every quality level shaded every pixel with high's taps: medium and low only drew less far, so a slow GPU gained little from them |
 | 81 (done) | Shadows cached: each shadow map drawn again only when its camera, its atlas tile or its casters change, the sun's far cascades on a schedule; spot and point lights' shadows in the volumetric fog (contact shadows and tighter cascades: left, see the notes) | Every shadow map is redrawn every frame; headlights' beams in the fog have no shadows |
 | 82 (done) | Lighting model: multiple-scattering energy compensation for GGX, a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), material presets (specular occlusion: left, see the notes) | Rough surfaces lose energy; car paint and fabric look like plain plastic |
-| 83 | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
+| 83 (done) | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
 | 84 | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
 | 85 | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
 | 86 | Materials and surfaces: parallax occlusion mapping, detail maps, decals (projected: road markings, puddles, dirt), wetness (darker, glossier, rain ripples) driven by a weather setting | Surfaces are flat textures; a wet night street, the look Night Drive wants, can't be made |
@@ -1404,6 +1404,19 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 88 | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
 
 ### Round 8 notes
+- **83, exposure**: RenderSettings gains autoExposure, exposureMin / exposureMax (stops), adaptationSpeed and
+  localToneMapping (scene format 46, module API 53 for SceneRenderInfo's new fields, frameSeconds among them). Before
+  the composite, the main view's HDR is drawn into a 256x144 R16F image as log2 luminance (luminance.frag), mipped
+  down by linear blits to one texel (the log-average); adapt.frag writes the exposure (log2) into a 1x1 R32F image:
+  Reinhard's automatic key (1.03 - 2 / (2 + log10(L + 1))) over the mean, clamped to the range, eased from last
+  frame's (copied to a second image) by 1 - exp(-dt * speed), three times quicker towards darker. The composite
+  multiplies the scene's exposure by it, and local tone mapping scales each pixel by 2^((mean - local) * strength /
+  2), local being the luminance's mip 3 (a 32x18 grid, bilinear). A mean grey key (0.18) was tried first: it turned
+  Night Drive into dusk. Checked: saved and loaded (and off by default), Night Drive with both on under validation
+  with sync checks (TAA, MSAA, render scale 0.7, the editor's viewport). Not done: a histogram with percentiles
+  (the log-average reacts more to a few bright lights), metering weighted to the centre, physically based bloom with
+  lens dirt (the bloom is already a mip chain, left as it is), local tone mapping by a bilateral grid (the coarse
+  mip can halo at hard edges at full strength).
 - **79, render scale and upscaling**: every image stays the window's size; the scene is drawn into the viewport's
   corner at the scale (Renderer::render makes a copy of the SceneRenderInfo with the smaller viewport: culling, the
   Hi-Z pyramid, the frame data (its viewport size: the fog's and reflections' screen maths), the jitter (in the

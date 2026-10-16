@@ -37,7 +37,8 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/particle.vert shaders/particle.frag shaders/sky.vert shaders/sky.frag shaders/taa.frag shaders/cull.comp
                    shaders/hiz_depth.comp shaders/hiz_depth_ms.comp shaders/hiz_reduce.comp shaders/foliage.vert
                    shaders/gi_project.comp shaders/ssr_capture.frag shaders/ssr_capture_ms.frag shaders/depth_prepass.frag
-                   shaders/fog_inject.comp shaders/fog_integrate.comp shaders/fog_surface.comp)
+                   shaders/fog_inject.comp shaders/fog_integrate.comp shaders/fog_surface.comp shaders/luminance.frag
+                   shaders/adapt.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
