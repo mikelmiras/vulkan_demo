@@ -77,11 +77,13 @@ struct FrameUBO {
     float air[4];             // the air's extinction per metre (rgb: aerial perspective; 0: none)
     float skyToSun[4];        // towards the real sun (the sky tables'; the light may be the moon)
     float weather[4];         // wetness, puddles, rain, w = how many decals (binding 24)
-    // Water: x = 1: refraction (binding 26) this frame, y = how many water boxes; each box (its rectangle, x and z)
+    // Water: x = 1: refraction (binding 26) this frame, y = how many water boxes, z = 1: the camera's under the
+    // surface of box w; each box (its rectangle, x and z)
     // and its level and depth (caustics on what's under it)
     float waterInfo[4];
     float waterBox[4][4];
     float waterLevel[4][4];
+    float waterTint[4][4];    // its colour (linear) and murk (the underwater view)
     // Motion vectors: this frame's camera and last frame's, both without temporal AA's jitter; x = seconds since last
     // frame (the waves' motion), y = 1: the prepass writes them
     Mat4 motionViewProj;

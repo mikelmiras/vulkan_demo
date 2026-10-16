@@ -436,11 +436,12 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     uint32_t n = 0;
     auto append = [&](std::vector<Batch>& batches, uint32_t instance, int mesh, int lod, VkDescriptorSet set) {
         index[n] = instance;
+        const bool water = items[instance].water;
         if (!batches.empty() && batches.back().mesh == mesh && batches.back().texture == set && batches.back().lod == lod &&
-            batches.back().first + batches.back().count == n)
+            batches.back().water == water && batches.back().first + batches.back().count == n)
             batches.back().count++;
         else
-            batches.push_back({mesh, set, n, 1, lod});
+            batches.push_back({mesh, set, n, 1, lod, water});
         ++n;
     };
     for (uint32_t i : visible) append(sceneBatches_, i, items[i].mesh, gpu ? 0 : lods[i], textureSet(items[i]));

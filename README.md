@@ -929,9 +929,12 @@ colliders draws them all (blue = solid, green = trigger).
   passes through towards the water's colour (the colours it lacks go first; murkier with less Clarity), so the
   shallows are clear and the deep end is coloured. **Foam** lines the shore, wherever the water meets something
   close beneath it (broken up, drifting), and sunlit surfaces under the water get moving **caustics** (fading
-  with depth). With screen-space reflections on, it reflects what's on screen. (To refract, the scene's pass stops
-  once the solid things are drawn and copies the picture: a pass more when water is in view, the main view's
-  only; split-screen views draw it see-through, as before. See-through things behind water are hidden by it.)
+  with depth; under a bridge, none: they follow the sun's shadows). With screen-space reflections on, it reflects
+  what's on screen. With the camera **under the surface**, everything is seen through the water, absorbed towards
+  its colour with the distance (darker the deeper), and the surface from below shows what's above through Snell's
+  window, the water's own colour beyond it. (To refract, the scene's pass stops once the solid things are drawn
+  and copies the picture: a pass more when water or particles are in view, in split-screen views too; reflection
+  probes see water see-through. See-through things behind water are hidden by it.)
 - **Buoyancy**: rigid bodies in a Water volume (a Water component, or a trigger box tagged **Water**) float or sink
   by their Rigid Body's *Buoyancy* (1: neither; a cork 2, a stone 0.4), with drag in the water.
 - **Fracture**: a **Fracture** component cuts the mesh into pieces ahead of time (as many as set; another *Seed*,

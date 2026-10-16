@@ -712,6 +712,12 @@ void main() {
             foam = max(foam, shore);
             waterRefracted = (behind.rgb * through + body * (1.0 - through)) * (1.0 - foam);
             waterFresnel = fresnel;
+            if (!gl_FrontFacing) {   // seen from below: what's above through Snell's window (48.6 degrees), the
+                                     // water's own colour mirrored beyond it (total internal reflection)
+                float c = abs(dot(normalize(frame.camPos.xyz - vWorldPos), N));
+                waterRefracted = mix(body * 0.5, straight.rgb, smoothstep(0.6, 0.7, c)) * (1.0 - foam);
+                waterFresnel = 0.0;
+            }
             base = vec3(0.85) * foam;   // (only its foam is lit as a surface; the rest is what shows through)
             alpha = 1.0;
         } else {
@@ -916,6 +922,7 @@ void main() {
     if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, gUV).rgb;   // (water: its waves there)
 
     color += waterRefracted * (1.0 - waterFresnel);   // (what the water lets through: less at a glancing angle)
+    if (frame.waterInfo.z > 0.5) color = throughWater(color, vWorldPos);   // (the camera under the water)
     if (frame.atmosphere.x > 0.5 && frame.air.g > 0.0) {   // aerial perspective: the air between, lit like the sky
         vec3 v = vWorldPos - frame.camPos.xyz;
         float dist = length(v);

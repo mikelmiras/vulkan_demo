@@ -676,6 +676,7 @@ private:
     // The last frame's picture is captured for either
     bool captureOn(const SceneRenderInfo& info) const { return reflectionsOn(info) || ssgiOn(info); }
     VkPipeline transparentPipeline_ = VK_NULL_HANDLE;   // lit see-through objects (no depth writes)
+    VkPipeline waterPipeline_ = VK_NULL_HANDLE;         // ... water: both sides (its underside, seen from below)
     VkPipeline stencilPipeline_ = VK_NULL_HANDLE;   // marks the selected object's silhouette in stencil
     VkPipeline outlinePipeline_ = VK_NULL_HANDLE;   // extruded hull drawn where stencil != 1
     VkDescriptorPool descPool_ = VK_NULL_HANDLE;
@@ -727,6 +728,7 @@ private:
         VkDescriptorSet texture = VK_NULL_HANDLE;
         uint32_t first = 0, count = 0;   // its entries in the instance index list
         int lod = 0;                     // which level of the mesh (assets/mesh_lod.h; 0: the mesh itself)
+        bool water = false;              // (see-through: water, drawn from both sides: waterPipeline_)
     };
     // Opaque batches (and plants) (`culled`: the GPU culling's indirect draws for the main view's batches): their
     // depth (the prepass, in a rendering of its own), or lit (after it; or depth tested and written, without it)
@@ -862,7 +864,9 @@ private:
     void recordTrace(VkCommandBuffer cb, const SceneRenderInfo& scene);
     bool refractionFresh_ = false;
     bool refractOn_ = false;        // this frame's main view does it
+    bool viewRefracts_ = false, viewRefract_[kMaxViews] = {};   // (the extra views': in recordView)
     void writeRefractionBinding();
+    void copyOpaque(VkCommandBuffer cb, float zNear, float zFar, float vx, float vy);
     VkDescriptorSet ssrSet_ = VK_NULL_HANDLE;
     VkPipeline ssrCapturePipeline_ = VK_NULL_HANDLE;
     bool ssrValid_ = false;         // last frame was captured (reflections on, the same picture size)

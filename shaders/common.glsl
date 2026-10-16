@@ -52,6 +52,7 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 waterInfo;       // x = 1: refraction (binding 26) this frame, y = how many water boxes
     vec4 waterBox[4];     // each water's rectangle: min x, min z, max x, max z
     vec4 waterLevel[4];   // its level (y) and depth
+    vec4 waterTint[4];    // its colour (linear), murk: the view from under its surface (waterInfo.z = 1, .w = which)
     mat4 motionViewProj;      // motion vectors: this frame's camera without temporal AA's jitter ...
     mat4 motionPrevViewProj;  // ... and last frame's
     vec4 motion;              // x = seconds since last frame, y = 1: the prepass writes them
@@ -176,6 +177,23 @@ vec3 skyColor(vec3 dir, bool withSun) {
         c += frame.sunColor.rgb * (smoothstep(0.9995, 0.9998, s) * 8.0 + pow(s, 12.0) * 0.12);
     }
     return c;
+}
+
+// The view from under a water's surface (frame.waterInfo.z = 1): what's at `pos` seen through the water between,
+// the colours the water's colour lacks absorbed first, the rest filled with its colour, lit from above and darker the
+// deeper the camera is (only the part of the way under the surface counts)
+vec3 throughWater(vec3 color, vec3 pos) {
+    int i = int(frame.waterInfo.w + 0.5);
+    float level = frame.waterLevel[i].x;
+    vec3 cam = frame.camPos.xyz, v = pos - cam;
+    float dist = length(v), inWater = dist;
+    if (pos.y > level && v.y > 1e-4) inWater = dist * clamp((level - cam.y) / v.y, 0.0, 1.0);
+    vec4 t = frame.waterTint[i];
+    vec3 k = (vec3(1.0) - t.rgb) * (0.15 + 1.6 * t.a) + 0.02;
+    vec3 through = exp(-k * inWater);
+    vec3 above = frame.sunColor.rgb * max(-frame.sunDir.y, 0.0) * 0.15 + mix(frame.fogColor.rgb, frame.zenith.rgb, 0.6) * frame.ambient.rgb;
+    vec3 body = t.rgb * above * exp(-k * max(level - cam.y, 0.0) * 0.5);
+    return color * through + body * (1.0 - through);
 }
 
 // One per drawn object; draws are instanced, gl_InstanceIndex picks the object

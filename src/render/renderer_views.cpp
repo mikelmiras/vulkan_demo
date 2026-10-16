@@ -76,9 +76,11 @@ void Renderer::recordView(VkCommandBuffer cb, int index, const SceneRenderInfo& 
     color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;   // (all of it: bloom reads a little past the view's edge)
     color.clearValue.color = {{sky.x, sky.y, sky.z, 1.f}};
+    // (water in it, or particles: the opaque picture copied mid-pass, as the main view's: renderer.cpp)
+    const bool split = viewRefract_[index] && (!viewTransparent_[index].empty() || particleAlpha_ + particleAdditive_ > 0);
     if (colorMsaa_.image) {
         color.imageView = colorMsaa_.view;
-        color.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color.storeOp = split ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
         color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
         color.resolveImageView = hdr_.view;
         color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -117,10 +119,26 @@ void Renderer::recordView(VkCommandBuffer cb, int index, const SceneRenderInfo& 
     drawOpaque(cb, info, viewBatches_[index], false, false);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
     vkCmdDraw(cb, 3, 1, 0, 0);
-    if (!viewTransparent_[index].empty()) {
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline_);
+    if (split) {
+        vkCmdEndRendering(cb);
+        copyOpaque(cb, info.zNear, info.zFar, 0.f, 0.f);
+        color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        if (colorMsaa_.image) color.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        vkCmdBeginRendering(cb, &ri);
+        vkCmdSetViewport(cb, 0, 1, &viewport);
+        vkCmdSetScissor(cb, 0, 1, &scissor);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
         bound = VK_NULL_HANDLE;
-        for (const Batch& b : viewTransparent_[index]) draw(b);
+    }
+    if (!viewTransparent_[index].empty()) {
+        bound = VK_NULL_HANDLE;
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        for (const Batch& b : viewTransparent_[index]) {
+            VkPipeline p = b.water ? waterPipeline_ : transparentPipeline_;   // (water: both sides)
+            if (p != pipeline) vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline = p);
+            draw(b);
+        }
     }
     if (particleAlpha_) {
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAlphaPipeline_);

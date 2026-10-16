@@ -1579,7 +1579,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | 93 (done) | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
 | 94 (done) | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
 | 95 (done) | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
-| 96 | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
+| 96 (done) | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
 | 97 | Shadows: tighter cascades (fitted to the visible depth range), cached shadows for static point lights' cubes, shadow-map space culled by the Hi-Z pyramid | Shadows still take a large share at medium and high; many cascades cover empty space |
 | 98 | A GPU benchmark: engine_bench --gpu timing the frame's passes on the stress scene and Night Drive (fixed camera paths), baselines per GPU, and quality presets picked from them on first run | Round 8 couldn't be measured on the 1050 Ti or the M4 here; a game should start at settings its GPU can hold |
 
@@ -1677,4 +1677,16 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   collected and saved (tests); Night Drive (rain, splashes, CPU steam), MSAA, the demo, the editor under validation
   with sync checks. Not done: sorting (see-through GPU particles), collisions without a captured picture, GPU
   particles in split-screen views and probes, game-paused GPU particles (they move on the frame time).
+- **96, water**: every view's frame data now has the water boxes (round 8 copied the main view's), their colour and
+  murk (waterTint), and whether its camera is under one (inside the rectangle, below the level, above its bottom:
+  waterInfo.z, .w). throughWater (common.glsl) absorbs what's seen along the part of the way under the surface,
+  filling with the water's colour lit from above and darkened by the camera's depth; scene.frag applies it after
+  lighting, sky.frag for the sky. Water draws with a pipeline of its own without culling (Batch::water); its
+  underside (!gl_FrontFacing) shows the opaque copy inside Snell's window (cos 0.6 to 0.7) and the water's colour
+  beyond. The mid-pass copy is a function (copyOpaque) the extra views call too, into the same image (each view's
+  pass is done before the next one's), so split-screen views refract and their particles are soft. Caustics were
+  already shadowed: they multiply the sun's visibility after its shadow maps. Checked: a camera under a pool, the
+  pool in two split-screen views (TAA, MSAA), the editor, Night Drive under validation with sync checks. Not done:
+  refraction in reflection probes, god rays under the water, the surface's waves seen from below bending the view,
+  water boxes' sides (they have none: rays leaving sideways see out).
 

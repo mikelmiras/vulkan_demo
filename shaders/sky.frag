@@ -17,5 +17,6 @@ void main() {
         vec4 f = texture(fogVolume, vec3(vNdc * 0.5 + 0.5, 1.0));
         color = color * f.a + f.rgb;
     }
+    if (frame.waterInfo.z > 0.5) color = throughWater(color, frame.camPos.xyz + dir * 1e4);   // (from under the water)
     outColor = vec4(color, 1.0);
 }
