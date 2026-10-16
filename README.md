@@ -471,10 +471,19 @@ dropping on the right.
   ambient light from the eight probes around them. The probes are lit by the grid too, so light bounces again each
   time they're redrawn; moving lights and objects show with a lag of a few seconds. *GI intensity* scales it.
   Limits: light can leak through thin walls (no visibility test per probe); probes inside walls see darkness.
-- **Screen-space reflections** (Scene look > Screen-space reflections; off by default): smooth surfaces (roughness
-  under 0.55) reflect what's on screen: each pixel's reflected ray is marched through the last frame's picture and
-  distances, and what it meets is blended over the probe or sky reflection, fading at the picture's edges and with
-  roughness. What's off screen or hidden falls back to the probes and the sky.
+- **Screen-space reflections** (Scene look > Screen-space reflections; off by default): surfaces up to roughness
+  0.8 reflect what's on screen: each pixel's reflected ray is marched through the last frame's picture and
+  distances, and what it meets is blended over the probe or sky reflection, fading at the picture's edges and
+  handing over to the probes as the surface gets rougher. The picture is mipped: a rough surface reads it as
+  blurred as its reflection spreads over the distance to what it meets. What's off screen or hidden falls back to
+  the probes and the sky.
+- **Screen-space global illumination** (Scene look > Screen-space GI, with a strength; off by default): light
+  bounced off what's on screen nearby, so a lit wall brightens the ground beside it, a red sphere tints the floor
+  and an emissive sign lights its surroundings. Each pixel marches one or two short rays (up to 4 m) over its
+  hemisphere through the last frame's picture; what they meet (blurred) lights it, and where they meet nothing the
+  probes' and the sky's light does. The picture holds last frame's bounces, so light keeps bouncing frame after
+  frame. The rays turn every frame with temporal AA, which averages them; with MSAA or no AA they stay put (a fine,
+  steady dither). About 40% on top of the lit pass at high quality, less at medium (one ray), off at low.
 - **HDR output** (View > HDR output, `VKWORLD_HDR=1`, or a game's `settings.hdr`): on a display (and driver) that
   takes it, the picture goes out as HDR10 (PQ, Rec.2020 primaries; else scRGB): highlights keep their brightness up
   to the display's peak instead of rolling off at white, and the UI sits at paper white (`VKWORLD_HDR_PAPER_WHITE`,

@@ -179,6 +179,14 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::Checkbox("Screen-space reflections", &r.reflections);
         track();
         tooltip("Smooth surfaces reflect what's on screen (else only reflection probes and the sky)");
+        ImGui::Checkbox("Screen-space GI", &r.ssgi);
+        track();
+        tooltip("Light bounced off what's on screen nearby (a lit wall lights the ground beside it); best with temporal "
+                "anti-aliasing, which smooths its noise");
+        if (r.ssgi) {
+            ImGui::SliderFloat("Screen-space GI strength", &r.ssgiIntensity, 0.f, 1.f, "%.2f");
+            track();
+        }
         ImGui::SliderFloat("Shadow softness", &r.shadowSoftness, 0.f, 2.f, "%.2f");
         track();
         tooltip("How soft the sun's shadows are: 1 is about the real sun's (sharp where they touch, softer further from "

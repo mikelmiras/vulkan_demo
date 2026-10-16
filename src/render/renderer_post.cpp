@@ -176,8 +176,24 @@ void Renderer::createPostImages() {
         vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
     }
     // Reflections' picture of the last frame, and the capture's inputs (the depth, this frame's picture)
-    prevColor_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                             VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    {
+        VkFormatProperties fp;
+        vkGetPhysicalDeviceFormatProperties(gpu_, hdrFormat_, &fp);
+        const VkFormatFeatureFlags need = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                          VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+        prevMips_ = (fp.optimalTilingFeatures & need) == need ? kPrevMips : 1;
+    }
+    prevColor_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                                             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                             VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, prevMips_);
+    {
+        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vci.image = prevColor_.image;
+        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format = hdrFormat_;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &prevMip0_));
+    }
     prevColorFresh_ = true;
     if (aoSupported_) {
         VkDescriptorImageInfo infos[2] = {{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
@@ -217,7 +233,7 @@ void Renderer::writeSsrBinding() {
     if (!prevColor_.image) return;
     for (VkDescriptorSet set : descSets_) {
         if (!set) continue;   // (not made yet: createResources writes it once they are)
-        VkDescriptorImageInfo info{postSampler_, prevColor_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkDescriptorImageInfo info{lumSampler_, prevColor_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};   // (every level)
         VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         w.dstSet = set;
         w.dstBinding = 18;
@@ -229,6 +245,8 @@ void Renderer::writeSsrBinding() {
 }
 
 void Renderer::destroyPostImages() {
+    if (prevMip0_) vkDestroyImageView(device_, prevMip0_, nullptr);
+    prevMip0_ = VK_NULL_HANDLE;
     if (prevColor_.image) destroyImage(prevColor_);
     if (lumMip0_) vkDestroyImageView(device_, lumMip0_, nullptr);
     lumMip0_ = VK_NULL_HANDLE;
@@ -415,13 +433,33 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     }
     vkCmdEndRendering(cb);
 
-    // Reflections next frame: this picture and its distances (the main view's only)
-    if (view < 0 && reflectionsOn(info) && info.items && ssrCapturePipeline_ && vw >= 1.f && vh >= 1.f) {
-        imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target, fragStage,
-                     VK_ACCESS_SHADER_READ_BIT, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    // Reflections and GI next frame: this picture and its distances (the main view's only), then its levels
+    if (view < 0 && captureOn(info) && info.items && ssrCapturePipeline_ && vw >= 1.f && vh >= 1.f) {
+        mipBarrier(cb, prevColor_.image, 0, 1, readable, target, fragStage, VK_ACCESS_SHADER_READ_BIT, colorStage,
+                   VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
         Push p{{info.zNear, info.zFar, 0.f, 0.f}, {vx, vy, scaleNow_, 0.f}, {}, {}, {}};
-        pass(prevColor_.view, extent_, ssrCapturePipeline_, ssrSet_, p, false);
-        imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, target, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                     colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
+        pass(prevMip0_, extent_, ssrCapturePipeline_, ssrSet_, p, false);
+        if (prevMips_ > 1) {
+            mipBarrier(cb, prevColor_.image, 0, 1, target, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, colorStage,
+                       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
+            for (uint32_t m = 1; m < prevMips_; ++m) {
+                mipBarrier(cb, prevColor_.image, m, 1, readable, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, fragStage, 0, transfer,
+                           VK_ACCESS_TRANSFER_WRITE_BIT);
+                VkImageBlit blit{};
+                blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
+                blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+                blit.srcOffsets[1] = {(int32_t)std::max(extent_.width >> (m - 1), 1u), (int32_t)std::max(extent_.height >> (m - 1), 1u), 1};
+                blit.dstOffsets[1] = {(int32_t)std::max(extent_.width >> m, 1u), (int32_t)std::max(extent_.height >> m, 1u), 1};
+                vkCmdBlitImage(cb, prevColor_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, prevColor_.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+                mipBarrier(cb, prevColor_.image, m, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           transfer, VK_ACCESS_TRANSFER_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
+            }
+            mipBarrier(cb, prevColor_.image, 0, prevMips_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readable, transfer,
+                       VK_ACCESS_TRANSFER_READ_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
+        } else {
+            mipBarrier(cb, prevColor_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+                       VK_ACCESS_SHADER_READ_BIT);
+        }
     }
 }

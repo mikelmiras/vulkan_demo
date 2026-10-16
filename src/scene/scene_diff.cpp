@@ -244,7 +244,7 @@ bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
            a.autoExposure == b.autoExposure && a.exposureMin == b.exposureMin && a.exposureMax == b.exposureMax &&
            a.adaptationSpeed == b.adaptationSpeed && a.localToneMapping == b.localToneMapping &&
            a.physicalSky == b.physicalSky && a.timeOfDay == b.timeOfDay && a.latitude == b.latitude && a.haze == b.haze &&
-           a.aerialPerspective == b.aerialPerspective;
+           a.aerialPerspective == b.aerialPerspective && a.ssgi == b.ssgi && a.ssgiIntensity == b.ssgiIntensity;
 }
 
 bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b) {

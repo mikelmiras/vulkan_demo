@@ -721,6 +721,10 @@ struct RenderSettings {
     float giSpacing = 3.f;            // between the probes, m (the grid covers 8 x 4 x 8 of them)
     float giIntensity = 1.f;          // how strong the bounced light is
     bool reflections = false;         // screen-space reflections on smooth surfaces (else probes and the sky only)
+    // Screen-space global illumination: light bounced off what's on screen nearby (a lit wall beside a car), from the
+    // last frame's picture, on top of the probes' and the sky's (which stand in where the rays find nothing)
+    bool ssgi = false;
+    float ssgiIntensity = 1.f;        // how strong (0..1: 1 as it is)
     // Shadows: how soft the sun's are (its size in the sky: 1 a slightly hazy sun's, sharp where they touch and
     // softer further from what casts them; 0: as sharp as the shadow maps allow)
     float shadowSoftness = 1.f;

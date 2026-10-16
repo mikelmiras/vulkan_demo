@@ -122,6 +122,8 @@ struct SceneRenderInfo {
     bool gi = false;
     float giSpacing = 3.f, giIntensity = 1.f;
     bool reflections = false;   // screen-space reflections (from the last frame's picture)
+    bool ssgi = false;          // screen-space global illumination (the same picture), and its strength
+    float ssgiIntensity = 1.f;
     float shadowSoftness = 1.f;   // the sun's shadows (RenderSettings::shadowSoftness)
     float waterTime = 0.f;        // the waves' clock (Physics::time() while playing: what's drawn matches what floats)
     bool volumetricFog = false;   // RenderSettings::volumetricFog and its settings
@@ -598,6 +600,11 @@ private:
     Quality quality_ = Quality::High;
     float shadowDistance() const { return quality_ == Quality::High ? kShadowDistance : quality_ == Quality::Medium ? 100.f : 60.f; }
     bool reflectionsOn(const SceneRenderInfo& info) const { return info.reflections && quality_ != Quality::Low; }
+    bool ssgiOn(const SceneRenderInfo& info) const {
+        return info.ssgi && info.ssgiIntensity > 0.f && quality_ != Quality::Low;
+    }
+    // The last frame's picture is captured for either
+    bool captureOn(const SceneRenderInfo& info) const { return reflectionsOn(info) || ssgiOn(info); }
     VkPipeline transparentPipeline_ = VK_NULL_HANDLE;   // lit see-through objects (no depth writes)
     VkPipeline stencilPipeline_ = VK_NULL_HANDLE;   // marks the selected object's silhouette in stencil
     VkPipeline outlinePipeline_ = VK_NULL_HANDLE;   // extruded hull drawn where stencil != 1
@@ -717,7 +724,11 @@ private:
     VkPipeline aoPipeline_ = VK_NULL_HANDLE;
     // Screen-space reflections: this frame's picture and distances captured after the post passes (prevColor_, set
     // 0 binding 18), for scene.frag's rays next frame; the camera it was taken with
+    // (mipped by blits, where the format allows: rough reflections and the GI's bounces read blurrier levels)
     Image prevColor_;
+    static constexpr uint32_t kPrevMips = 6;
+    uint32_t prevMips_ = 1;
+    VkImageView prevMip0_ = VK_NULL_HANDLE;   // (its first level: what the capture draws into)
     bool prevColorFresh_ = false;   // (made: readable before anything samples it)
     VkDescriptorSet ssrSet_ = VK_NULL_HANDLE;
     VkPipeline ssrCapturePipeline_ = VK_NULL_HANDLE;

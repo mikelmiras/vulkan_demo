@@ -1398,12 +1398,27 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 82 (done) | Lighting model: multiple-scattering energy compensation for GGX, a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), material presets (specular occlusion: left, see the notes) | Rough surfaces lose energy; car paint and fabric look like plain plastic |
 | 83 (done) | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
 | 84 (done) | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
-| 85 | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
+| 85 (done) | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
 | 86 | Materials and surfaces: parallax occlusion mapping, detail maps, decals (projected: road markings, puddles, dirt), wetness (darker, glossier, rain ripples) driven by a weather setting | Surfaces are flat textures; a wet night street, the look Night Drive wants, can't be made |
 | 87 | Water, finished: refraction and absorption by depth, caustics on the bottom, shoreline foam where it meets geometry, screen-space reflections on it | Task 71's water is a coloured surface: no depth, no sense of what's beneath |
 | 88 | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
 
 ### Round 8 notes
+- **85, indirect light**: RenderSettings gains ssgi and ssgiIntensity (scene format 48, module API 55). The
+  reflections' capture of the last frame (prevColor_: colour and distance) is now taken when either effect is on, and
+  mipped by linear blits (6 levels, where the HDR format can be blitted; binding 18 now samples every level).
+  Reflections: the cutoff went from roughness 0.55 (fading linearly) to 0.8 (smoothstep from 0.3), the colour read at
+  the level of a cone rough^2 * 1.6 * distance across at the hit (pictureLevel: its width in last frame's pixels).
+  SSGI, in scene.frag (the renderer is forward: no G-buffer pass to hang a separate one on): 2 rays of 8 steps at
+  high, 1 of 6 at medium, cosine-weighted around the normal from interleaved gradient noise turned with the frame
+  counter when TAA is on; the march reads distances at level 1, a hit's colour at level 2, a miss takes irradiance(N)
+  (probes, the GI grid, the sky), mixed by the edge and distance fade times the strength. Not on see-through objects
+  or water. Checked: on and off with TAA (bounces under cubes, on the pillars' shaded sides), MSAA, render scale 0.7,
+  the editor, Night Drive, material spheres (the rough gold blurs the floor), under validation with sync checks;
+  lavapipe's lit pass 270 -> 375 ms at high (the first try, 3 rays of 10 steps at full size, doubled it). Not done:
+  a separate half-resolution pass with its own temporal and spatial denoiser (needs normals: a G-buffer or depth
+  reconstruction), GGX-sampled rough reflection rays (a blurred level stands in), occlusion of the fallback where
+  rays are blocked off screen.
 - **84, sky**: RenderSettings gains physicalSky, timeOfDay (-1: the sun as placed), latitude, haze and
   aerialPerspective (scene format 47, module API 54); skyIntensity / skyRotation brighten it and turn its compass
   (saved with it when there's no sky image). Hillaire's model (Rayleigh, Mie with Cornette-Shanks, an ozone tent;

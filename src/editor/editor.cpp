@@ -298,6 +298,8 @@ SceneRenderInfo Editor::renderInfo() const {
     info.giSpacing = r.giSpacing;
     info.giIntensity = r.giIntensity;
     info.reflections = r.reflections;
+    info.ssgi = r.ssgi;
+    info.ssgiIntensity = r.ssgiIntensity;
     info.shadowSoftness = r.shadowSoftness;
     info.volumetricFog = r.volumetricFog;
     info.fogLight = r.fogLight;

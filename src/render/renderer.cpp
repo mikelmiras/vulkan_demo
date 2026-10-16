@@ -1316,8 +1316,8 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         lumFresh_ = false;
     }
     if (prevColorFresh_) {   // (reflections' picture, just made: readable, even before there's one)
-        imageBarrier(cb, prevColor_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        mipBarrier(cb, prevColor_.image, 0, prevMips_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         prevColorFresh_ = false;
     }
     for (ViewImage& v : viewImages_) {   // extra views' images made since the last frame: readable (black) from now
@@ -1876,13 +1876,15 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         fogPrevRange_[1] = u.fogRange[1];
     }
     fogHistory_ = fogOn_;
-    if (reflectionsOn(info) && ssrValid_) {   // the last frame's camera, for rays into its picture
+    if (captureOn(info) && ssrValid_) {   // the last frame's camera, for rays into its picture
         u.prevViewProj = ssrViewProj_;
-        u.prevCamPos[0] = ssrCamPos_.x, u.prevCamPos[1] = ssrCamPos_.y, u.prevCamPos[2] = ssrCamPos_.z, u.prevCamPos[3] = 1.f;
+        u.prevCamPos[0] = ssrCamPos_.x, u.prevCamPos[1] = ssrCamPos_.y, u.prevCamPos[2] = ssrCamPos_.z;
+        u.prevCamPos[3] = reflectionsOn(info) ? 1.f : 0.f;
         u.prevCamForward[0] = ssrCamForward_.x, u.prevCamForward[1] = ssrCamForward_.y, u.prevCamForward[2] = ssrCamForward_.z;
+        u.prevCamForward[3] = ssgiOn(info) ? std::clamp(info.ssgiIntensity, 0.f, 1.f) : 0.f;
         std::memcpy(u.prevViewport, ssrViewport_, sizeof(ssrViewport_));
     }
-    ssrValid_ = reflectionsOn(info) && info.items && ssrCapturePipeline_;   // (this frame's picture is captured)
+    ssrValid_ = captureOn(info) && info.items && ssrCapturePipeline_;   // (this frame's picture is captured)
     ssrViewProj_ = info.viewProj;
     ssrCamPos_ = info.camPos;
     ssrCamForward_ = info.camForward;
