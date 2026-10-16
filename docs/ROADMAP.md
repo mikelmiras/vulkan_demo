@@ -1413,8 +1413,8 @@ Performance first: rendering fewer pixels and less often pays for everything aft
   streaks 8 cm wide and a metre long: from the camera's 115 m a pixel is about 4.5 cm). Decals cost most of the
   new look at first (every pixel testing 64): they are now culled to the view on the CPU and tested against a
   sphere before their box in the shader. Lavapipe, the moving-camera copy at high quality: the lit pass 836 ms
-  before, 873 after (the GPU's whole frame 1237 -> about 1275); the puddle decals cost nothing measurable after the
-  culling (873 with or without them). Checked under validation with sync checks: still and moving cameras, MSAA, the
+  before, 873 to 884 after (two runs), the GPU's whole frame 1237 -> 1289 (+4%); the puddle decals cost nothing
+  measurable after the culling (873 with or without them). Checked under validation with sync checks: still and moving cameras, MSAA, the
   editor. Not done: measured on the GTX 1050 Ti (no GPU here; the increase over what it ran before is about 4% on
   lavapipe), splashes where drops land, rain streaks on the windscreen, wet tyre spray.
 - **87, water**: with water in the main view (and depth readable), the scene pass ends after the opaque things
@@ -1563,3 +1563,23 @@ Performance first: rendering fewer pixels and less often pays for everything aft
   checks. Not done: specular occlusion (the AO is applied in the composite, not known to the lit shader), glTF's
   KHR_materials_clearcoat / _sheen / _anisotropy imported, the anisotropy's direction turnable or from a map, a
   sheen colour and roughness of their own, the coat's own normal map.
+
+## Round 9 (planned)
+
+Still visuals and performance (the standing request: better graphics, shadows, lighting and shaders), picking up
+what round 8 left (its notes' "Not done"), with Night Drive still the measure. Performance where round 8 added cost
+per pixel; then the image's stability in motion, which every effect relies on (temporal AA averages most of them).
+
+| # | Task | Why |
+|---|------|-----|
+| 89 | Motion vectors: a velocity per pixel from each object's last-frame transform (and skinning, and the waves), for temporal AA and the temporal effects (SSGI, fog's history, upscaling) instead of reprojecting by depth alone | Moving things (the taxi, animated characters, water) smear and ghost under temporal AA: their history is looked up where the static world was |
+| 90 | Clustered decals: decals binned into the light clusters (each pixel tests only the decals of its cluster), decal normal maps (cracks, tyre tracks, manhole covers), more than 64 | Every pixel tests every decal drawn; flat decals look painted on |
+| 91 | Half-resolution effects: screen-space reflections, SSGI and ambient occlusion traced at half size and brought up with a depth-aware (bilateral) upsample, temporally accumulated | Round 8's screen-space effects run per pixel in the lit shader; on a 1050 Ti at 1080p they're most of the frame |
+| 92 | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
+| 93 | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
+| 94 | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
+| 95 | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
+| 96 | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
+| 97 | Shadows: tighter cascades (fitted to the visible depth range), cached shadows for static point lights' cubes, shadow-map space culled by the Hi-Z pyramid | Shadows still take a large share at medium and high; many cascades cover empty space |
+| 98 | A GPU benchmark: engine_bench --gpu timing the frame's passes on the stress scene and Night Drive (fixed camera paths), baselines per GPU, and quality presets picked from them on first run | Round 8 couldn't be measured on the 1050 Ti or the M4 here; a game should start at settings its GPU can hold |
+
