@@ -554,7 +554,15 @@ dropping on the right.
   for; `medium` keeps the sun's shadows to 100 m, halves the lights' shadow maps and takes half the shadow taps,
   fewer reflection steps, ambient occlusion samples and fog shadow samples (about a quarter off the GPU's frame);
   `low` keeps shadows to 60 m with a fixed soft edge, and turns off screen-space reflections and ambient occlusion
-  (about half off). F3 shows each pass's GPU time and their total.
+  (about half off). F3 shows each pass's GPU time and their total. On a game's **first run** (no quality saved yet)
+  vkgame times a second's worth of frames at high and picks the highest quality whose frame would fit 60 a second
+  (medium at about two thirds of high's cost, low at half), and saves it (`settings.qualityChosen`; the player can
+  change it after; `VKWORLD_AUTO_QUALITY=0` or `VKWORLD_QUALITY` skip it).
+- **GPU benchmark**: `vkgame [scene] --benchmark [frames] [--benchmark-out results.json]` holds the scene's camera
+  where it starts and turns it a whole circle over the run (after 30 frames' warm-up), then prints each pass's
+  median GPU time, the GPU's frame and the frame on the clock, and exits. `tools/check_gpu_bench.py --game
+  build/vkgame` runs it on Night Drive and the stress scene and compares the GPU's frame with this GPU's baseline in
+  `tools/gpu_baselines.json` (by the driver's name for it; `--write` stores this machine's).
 - **Render scale and upscaling**: the 3D scene can be drawn at a fraction of the viewport (50 % to 100 % of its width
   and height: down to a quarter of the pixels to shade) and brought up to full size, the UI staying sharp at full
   size. With temporal AA it's temporal upscaling: each frame's jittered pixels land on the full-size pixels nearest

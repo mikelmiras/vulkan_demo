@@ -1564,7 +1564,7 @@ Performance first: rendering fewer pixels and less often pays for everything aft
   KHR_materials_clearcoat / _sheen / _anisotropy imported, the anisotropy's direction turnable or from a map, a
   sheen colour and roughness of their own, the coat's own normal map.
 
-## Round 9 (planned)
+## Round 9 (done)
 
 Still visuals and performance (the standing request: better graphics, shadows, lighting and shaders), picking up
 what round 8 left (its notes' "Not done"), with Night Drive still the measure. Performance where round 8 added cost
@@ -1581,7 +1581,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | 95 (done) | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
 | 96 (done) | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
 | 97 (done) | Shadows: tighter cascades (fitted to the visible depth range), cached shadows for static point lights' cubes, shadow-map space culled by the Hi-Z pyramid | Shadows still take a large share at medium and high; many cascades cover empty space |
-| 98 | A GPU benchmark: engine_bench --gpu timing the frame's passes on the stress scene and Night Drive (fixed camera paths), baselines per GPU, and quality presets picked from them on first run | Round 8 couldn't be measured on the 1050 Ti or the M4 here; a game should start at settings its GPU can hold |
+| 98 (done) | A GPU benchmark: engine_bench --gpu timing the frame's passes on the stress scene and Night Drive (fixed camera paths), baselines per GPU, and quality presets picked from them on first run | Round 8 couldn't be measured on the 1050 Ti or the M4 here; a game should start at settings its GPU can hold |
 
 ### Round 9 notes
 - **89, motion vectors**: DrawItem gains key (its entity's id, times four plus its kind: terrain, water, mesh);
@@ -1698,4 +1698,16 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   and Night Drive under validation with sync checks. Not done: casters culled against the Hi-Z pyramid (only those
   whose shadows land on something visible), cascades fitted per frame to the receivers' bounds (they stay spheres,
   snapped, to hold still), split-screen views' cascades fitted.
+- **98, GPU benchmark**: in vkgame rather than engine_bench (which has no window or GPU): --benchmark [frames]
+  (default 300) and --benchmark-out. After 30 frames' warm-up the camera, held where the scene's starts, turns a
+  whole circle over the run (so the far cascades and probes are exercised as when driving); render/gpu_benchmark.*
+  (tested without a GPU) keeps each pass's times (profiler::gpuTimes) and the frame on the clock, and gives the
+  medians and JSON. First run: settings.qualityChosen (false by default): 60 frames after the warm-up at high,
+  chooseQuality (high if the GPU frame fits 1/60 s, medium if two thirds of it does, else low), saved.
+  tools/check_gpu_bench.py runs the scenes and compares with tools/gpu_baselines.json by GPU name (factor 1.5);
+  lavapipe's are recorded (Night Drive 1195 ms, the stress scene 2788 ms at high, 40 frames). The mid-pass timestamp
+  is "Scene: opaque" (water or particles). Checked: medians and the choice (tests); the benchmark on Night Drive
+  under validation; a first run choosing low on lavapipe and saving it. Not done: the GTX 1050 Ti's and the M4's
+  baselines (from those machines: `--write`), a camera path of the scene's own, render scale chosen along with the
+  quality.
 

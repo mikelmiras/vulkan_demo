@@ -1533,7 +1533,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
             const uint32_t slot = 0;
             vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
             boundTexture = VK_NULL_HANDLE;
-            timestamp(cb, "Scene: opaque (water copies it)");
+            timestamp(cb, "Scene: opaque");   // (then copied: water, soft particles)
         }
 
         // See-through objects, back to front

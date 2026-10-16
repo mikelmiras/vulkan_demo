@@ -3,6 +3,7 @@
 //   vkgame [scene.vkw | project folder | --stress] [--fullscreen] [--language xx] [--aa msaa|taa|off]
 //          [--host [port] | --join address[:port] | --join-lobby CODE] [--relay host[:port]] [--lobby "name"]
 //          [--max-players N] [--screenshot out.png [--frames N]] [--trace out.json] [--lua-debug [port]]
+//          [--benchmark [frames] [--benchmark-out results.json]]   (times the GPU's passes, the camera turning: exits)
 //          [--check]   (loads everything but opens no window: for testing an exported game anywhere)
 //          [--server [port] [--seconds N]]   (a dedicated multiplayer server: no window, no GPU; N: stop after)
 //          [--lobbies]   (lists the game's lobbies on the relay, and exits)
@@ -24,6 +25,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -57,6 +59,7 @@
 #include "app/updates.h"
 #include "platform/platform.h"
 #include "render/scene_draw.h"
+#include "render/gpu_benchmark.h"
 #include "scene/serialization.h"
 #include "scene/stress_scene.h"
 
@@ -393,6 +396,8 @@ int main(int argc, char** argv) {
     bool lobbies = false;   // --lobbies: list the relay's lobbies of this game and exit
     bool installUpdate = false;   // --install-update: install a newer version (app/updates.h) and exit
     std::string trace;      // --trace out.json: every frame's profile, saved as a Chrome trace on exit
+    int benchmarkFrames = 0;    // --benchmark [frames]: the GPU's passes timed (render/gpu_benchmark.h), then out
+    std::string benchmarkOut;   // --benchmark-out results.json
     int luaDebugPort = 0;   // --lua-debug [port]: the Lua debugger listens there (script/lua_debugger.h)
     {
         int out = 1;
@@ -418,6 +423,9 @@ int main(int argc, char** argv) {
             else if (!std::strcmp(argv[i], "--lua-debug"))
                 luaDebugPort = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? std::atoi(argv[++i]) : 4711;
             else if (!std::strcmp(argv[i], "--trace") && i + 1 < argc) trace = argv[++i];
+            else if (!std::strcmp(argv[i], "--benchmark"))
+                benchmarkFrames = i + 1 < argc && std::isdigit((unsigned char)argv[i + 1][0]) ? std::max(std::atoi(argv[++i]), 10) : 300;
+            else if (!std::strcmp(argv[i], "--benchmark-out") && i + 1 < argc) benchmarkOut = argv[++i];
             else argv[out++] = argv[i];
         }
         argc = out;
@@ -629,6 +637,17 @@ int main(int argc, char** argv) {
         if (!ok) logLine("multiplayer: %s", netError.c_str());
     });
     float dt = 0.f;
+    // The benchmark's run, and the first run's choice of quality (unless asked for: VKWORLD_QUALITY, a saved choice,
+    // VKWORLD_AUTO_QUALITY=0, a screenshot)
+    constexpr int kBenchmarkWarmup = 30;
+    int frameNumber = 0;
+    auto frameStart = std::chrono::steady_clock::now();
+    std::optional<CameraView> benchmarkCamera;
+    GpuBenchmark benchmark, qualityProbe;
+    const char* autoEnv = std::getenv("VKWORLD_AUTO_QUALITY");
+    bool autoQuality = benchmarkFrames == 0 && options.screenshotPath.empty() && !std::getenv("VKWORLD_QUALITY") &&
+                       !(autoEnv && !std::strcmp(autoEnv, "0")) && !game.state().flag("settings.qualityChosen");
+    if (autoQuality) game.state().setText("settings.quality", "high");   // (measured at high)
     bool firstLoad = !path.empty();
     bool showProfiler = false;   // F3
     while (!game.quitRequested() && app.beginFrame(dt)) {
@@ -746,6 +765,12 @@ int main(int argc, char** argv) {
         CameraView cam;
         if (!cams.empty()) cam = cams[0];
         else cam.view = lookAt({0, 10, 40}, {0, 0, 0}, {0, 1, 0});   // no camera: a fixed view
+        if (benchmarkFrames > 0) {   // the benchmark: the camera held where it starts, turning a whole circle over the run
+            if (!benchmarkCamera) benchmarkCamera = cam;
+            cam = *benchmarkCamera;
+            const float turn = 2.f * PI * (float)std::max(frameNumber - kBenchmarkWarmup, 0) / (float)benchmarkFrames;
+            cam.view = cam.view * translate(cam.position) * rotateAxis({0.f, 1.f, 0.f}, turn) * translate(cam.position * -1.f);
+        }
         std::array<float, 4> rect = pixels(cam);
         float aspect = rect[3] > 0.f ? rect[2] / rect[3] : 1.f;
         PROFILE_SCOPE("Draw and render");   // (to the end of the frame)
@@ -870,6 +895,41 @@ int main(int argc, char** argv) {
         if (options.screenshotPath.empty())
             app.renderer().setHdrOutput(game.state().flag("settings.hdr") || (std::getenv("VKWORLD_HDR") && std::string(std::getenv("VKWORLD_HDR")) == "1"));
         app.endFrame(info);
+        ++frameNumber;
+        const auto now = std::chrono::steady_clock::now();   // (the whole frame, start to start: the benchmark's)
+        const float wallMs = std::chrono::duration<float, std::milli>(now - frameStart).count();
+        frameStart = now;
+        // The benchmark: the passes' times after a warm-up (pipelines made, shadows cached), then the results and out
+        if (benchmarkFrames > 0 && frameNumber > kBenchmarkWarmup) {
+            benchmark.add(profiler::gpuTimes(), wallMs);
+            if ((int)benchmark.frames() >= benchmarkFrames) {
+                const std::string quality = game.state().text("settings.quality");
+                const std::string sceneName = stress ? "--stress" : path;
+                std::printf("Benchmark: %s, %s, %zu frames (median ms)\n", app.renderer().gpuName().c_str(), sceneName.c_str(),
+                            benchmark.frames());
+                for (const auto& [name, ms] : benchmark.medians()) std::printf("  %-36s %8.2f\n", name.c_str(), ms);
+                std::printf("  %-36s %8.2f\n  %-36s %8.2f\n", "GPU frame", benchmark.medianTotal(), "Frame (wall clock)",
+                            benchmark.medianCpu());
+                if (!benchmarkOut.empty()) {
+                    std::ofstream out(fs::u8path(benchmarkOut));
+                    out << benchmark.json(app.renderer().gpuName(), sceneName, quality);
+                }
+                break;
+            }
+        }
+        // The first run: the quality picked from a few frames' GPU time at high (60 a second), then kept
+        if (autoQuality && frameNumber > kBenchmarkWarmup) {
+            qualityProbe.add(profiler::gpuTimes(), wallMs);
+            if (qualityProbe.frames() >= 60) {
+                const int q = chooseQuality(qualityProbe.medianTotal(), 1000.f / 60.f);
+                const char* names[] = {"low", "medium", "high"};
+                game.state().setText("settings.quality", names[q]);
+                game.state().setFlag("settings.qualityChosen", true);
+                game.saveSettings();
+                logLine("Graphics quality: %s (the GPU took %.1f ms a frame at high)", names[q], qualityProbe.medianTotal());
+                autoQuality = false;
+            }
+        }
     }
     game.stop();
     platform::setCursorCaptured(false);

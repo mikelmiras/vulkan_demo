@@ -230,6 +230,7 @@ set(ENGINE_SOURCES
   src/render/renderer_decals.cpp
   src/render/renderer_trace.cpp
   src/render/renderer_particles.cpp
+  src/render/gpu_benchmark.cpp
   src/assets/mesh_lod.cpp
   src/assets/retarget.cpp
   src/render/renderer_lights.cpp
@@ -452,6 +453,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_render_scale.cpp
     tests/test_atmosphere.cpp
     tests/test_surfaces.cpp
+    tests/test_gpu_benchmark.cpp
     tests/test_gamepads.cpp
     tests/test_text_shaping.cpp
     tests/test_shipping.cpp

@@ -66,6 +66,10 @@ python3 tools/check_screenshot.py shot.png
 compares it with `tools/perf_baseline.json` per platform (fails past 2x + 1 ms). After a change meant to change
 performance, update the baseline from the numbers CI prints.
 
+The GPU's side: `tools/check_gpu_bench.py --game build/vkgame` (under `xvfb-run` here: lavapipe) times each pass
+with `vkgame --benchmark` on Night Drive and the stress scene, against `tools/gpu_baselines.json` for that GPU;
+`--write` records a machine's numbers (lavapipe's are in; real GPUs' are added from the machines that have them).
+
 ## Conventions
 
 - **Code style**: match the surrounding code: 4-space indentation, `camelCase` functions and members, trailing

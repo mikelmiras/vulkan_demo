@@ -655,7 +655,8 @@ const std::vector<std::pair<std::string, json::Value>>& Game::defaultSettings() 
         {"settings.colorBlind", json::Value("none")}, {"settings.checkUpdates", json::Value(true)},
         {"settings.hdr", json::Value(false)}, {"settings.sendCrashReports", json::Value(false)},
         {"settings.quality", json::Value("high")}, {"settings.antialiasing", json::Value("default")},
-        {"settings.renderScale", json::Value(1.0)}, {"settings.dynamicResolution", json::Value(false)}};
+        {"settings.renderScale", json::Value(1.0)}, {"settings.dynamicResolution", json::Value(false)},
+        {"settings.qualityChosen", json::Value(false)}};   // (false: vkgame picks the quality on the first run)
     return defaults;
 }
 

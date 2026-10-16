@@ -1,0 +1,30 @@
+{
+ "llvmpipe (LLVM 21.1.8, 256 bits)": {
+  "--stress @high": {
+   "gpu_ms": 2787.518,
+   "passes": {
+    "AO, bloom, composite": 107.945,
+    "Depth prepass": 284.134,
+    "Scene": 43.389,
+    "Scene: opaque": 2182.196,
+    "Shadows": 130.284,
+    "UI": 0.308
+   }
+  },
+  "examples/night_drive @high": {
+   "gpu_ms": 1194.814,
+   "passes": {
+    "AO, bloom, composite": 142.509,
+    "Depth prepass": 81.132,
+    "GPU particles": 1.106,
+    "Half-size traces": 82.532,
+    "Scene": 12.662,
+    "Scene: opaque": 453.948,
+    "Shadows": 155.637,
+    "Temporal AA": 69.6,
+    "UI": 0.282,
+    "Volumetric fog": 187.852
+   }
+  }
+ }
+}
