@@ -531,7 +531,8 @@ dropping on the right.
 - **Contact shadows** (Scene look > Contact shadows): a short ray towards the sun through the view's depth for
   each pixel (with the half-size traces), catching the contact the shadow maps are too
   coarse for: a tyre on the road, a box against a wall, the gaps between stacked crates. Its reach grows with
-  distance (the same few pixels); about 3% of Night Drive's frame on lavapipe.
+  distance (the same few pixels); about 3% of Night Drive's frame on lavapipe. The nearest point or spot light
+  that casts shadows gets them too (a lamp over a table, a car's headlight on the kerb); the others don't.
 - **HDR output** (View > HDR output, `VKWORLD_HDR=1`, or a game's `settings.hdr`): on a display (and driver) that
   takes it, the picture goes out as HDR10 (PQ, Rec.2020 primaries; else scRGB): highlights keep their brightness up
   to the display's peak instead of rolling off at white, and the UI sits at paper white (`VKWORLD_HDR_PAPER_WHITE`,
@@ -619,7 +620,11 @@ dropping on the right.
   mean (by the coarse brightness around each pixel, edge-aware: neighbours of a very different brightness count
   less, so there's no halo along a dark wall against a bright sky), keeping detail in shadows and around lights.
   **Lens dirt** (0..1): smudges, specks and wipe marks on the lens that the bloom lights up round bright lights.
-  The main view
+  **Light shafts** (0..2, off by default): with the sun in view and volumetric fog off, its rays stream through the
+  gaps between things in front of it (trees, pillars, windows) and dark streaks fan out from what blocks it. Each
+  half-size pixel marches towards the sun's place on screen and gathers how much of the way is sky, brightest near
+  the sun; it fades as the sun leaves the view. Screen-space: a sun hidden by something off screen still shines.
+  Off at low quality; the main view's alone. The main view
   meters; split-screen views use its exposure, without local tone mapping.
 - **Physical sky and time of day** (Scene look > Physical sky, off by default): the sky worked out from the air,
   Rayleigh scattering (blue), Mie scattering (haze, the glow round the sun) and ozone, after Hillaire's 2020

@@ -790,7 +790,7 @@ void Renderer::createPipelines() {
                                             false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, false, true, 0b101});
 
     // Post-processing: one or two images to read, parameters in push constants
-    VkDescriptorSetLayoutBinding postBindings[7] = {
+    VkDescriptorSetLayoutBinding postBindings[8] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: AO)
@@ -798,8 +798,9 @@ void Renderer::createPipelines() {
         {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: auto-exposure)
         {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: luminance)
         {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: lens dirt)
+        {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: light shafts)
     };
-    dslci.bindingCount = 7;
+    dslci.bindingCount = 8;
     dslci.pBindings = postBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &postSetLayout_));
     VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 96};
@@ -819,10 +820,10 @@ void Renderer::createPipelines() {
     lumPipeline_ = createPostPipeline("luminance.frag.spv", VK_FORMAT_R16_SFLOAT, false);
     // (the half-size traces: the scene's frame data, set 0; renderer_trace.cpp)
     ssrTracePipeline_ = createPostPipeline("ssr_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_,
-                                           VK_FORMAT_R32G32_SFLOAT);
+                                           VK_FORMAT_R32G32B32A32_SFLOAT);
     giTracePipeline_ = createPostPipeline("gi_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
     ssrTraceMsPipeline_ = createPostPipeline("ssr_trace_ms.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_,
-                                             VK_FORMAT_R32G32_SFLOAT);   // (MSAA: over its depth's first sample)
+                                             VK_FORMAT_R32G32B32A32_SFLOAT);   // (MSAA: over its depth's first sample)
     giTraceMsPipeline_ = createPostPipeline("gi_trace_ms.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
     adaptPipeline_ = createPostPipeline("adapt.frag.spv", VK_FORMAT_R32_SFLOAT, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
@@ -878,6 +879,8 @@ void Renderer::createSampledPipelines() {
                                          VK_FORMAT_R8_UNORM, false);
         ssrCapturePipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "ssr_capture_ms.frag.spv" : "ssr_capture.frag.spv",
                                                  hdrFormat_, false);
+        shaftsPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "shafts_ms.frag.spv" : "shafts.frag.spv",
+                                             VK_FORMAT_R16G16B16A16_SFLOAT, false);
     }
     particleAlphaPipeline_ = createParticlePipeline(false);
     particleAdditivePipeline_ = createParticlePipeline(true);
@@ -886,7 +889,7 @@ void Renderer::createSampledPipelines() {
 
 void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &ssrCapturePipeline_,
-                          &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
+                          &shaftsPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
                           &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
                           &prepassVelocityPipeline_, &prepassFoliageVelocityPipeline_}) {
         if (*p) vkDestroyPipeline(device_, *p, nullptr);
@@ -1146,7 +1149,7 @@ void Renderer::createResources(const MeshLibrary&) {
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
     // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation; +1: the sky's)
     const uint32_t postSetCount = 2 * kMaxBloomMips + 9 + 2 * kMaxViews;
-    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 7 * postSetCount};
+    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &postSize;
@@ -1978,6 +1981,14 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         shadowLayers_ = computeShadows(info, normalize(sun.direction), frameShadows_, points, u, lightShadow);
         for (uint32_t i = 0; i < kShadowLayers; ++i) shadowViewProj_[i] = u.shadowViewProj[i];
     }
+    // Contact shadows from a lamp too: the nearest that casts shadows (the lights come nearest first)
+    set4(u.contactLight, {0.f, 0.f, 0.f}, -1.f);
+    if (shadows && u.trace[3] > 0.5f)
+        for (size_t i = 0; i < points.size() && i < lightShadow.size(); ++i)
+            if (lightShadow[i] >= 0) {
+                set4(u.contactLight, points[i]->position, (float)i);
+                break;
+            }
     set4(u.camPos, info.camPos, 1.f);
     set4(u.fogColor, fog, info.fogDensity);
     u.viewport[0] = info.viewportW;
@@ -1985,6 +1996,10 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     u.viewport[2] = 2.5f;
     set4(u.sunDir, normalize(sun.direction), shadows && frameShadows_ ? 1.f : 0.f);
     set4(u.sunColor, info.physicalSky ? skySunHere_ * sun.intensity : srgbToLinear(sun.color) * sun.intensity, 0.f);
+    if (shadows) {   // (the main view's: its light shafts)
+        shaftsSunDir_ = normalize(sun.direction);
+        shaftsSunColor_ = {u.sunColor[0], u.sunColor[1], u.sunColor[2]};
+    }
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
     writeLights(info, points, lightShadow, u, shadows);
     if (shadows) writeDecals(info, u);   // (and the weather; binned into the lights' clusters)

@@ -831,6 +831,7 @@ int main(int argc, char** argv) {
         info.adaptationSpeed = scene.render.adaptationSpeed;
         info.localToneMapping = scene.render.localToneMapping;
         info.lensDirt = scene.render.lensDirt;
+        info.lightShafts = scene.render.lightShafts;
         info.wetness = scene.render.wetness;
         info.puddles = scene.render.puddles;
         info.rain = scene.render.rain;

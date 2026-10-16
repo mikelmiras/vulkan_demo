@@ -47,11 +47,11 @@ TracePoint tracePoint() {
     t.z = dot(t.pos - frame.camPos.xyz, frame.camForward.xyz);
     return t;
 }
-// Contact shadow: a short march towards the sun through this frame's depth; 0 where something just in front of the
-// depth the ray passes behind covers it (a little thickness assumed), fading out with the distance marched
-float contactShadow(TracePoint t) {
-    vec3 L = normalize(-frame.sunDir.xyz);
-    float reach = clamp(t.z * 0.02, 0.15, 1.0);   // (further away, a longer reach: the same few pixels)
+// Contact shadow: a short march towards the light (along L, at most `most` metres) through this frame's depth; 0
+// where something just in front of the depth the ray passes behind covers it (a little thickness assumed), fading
+// out with the distance marched
+float contactShadow(TracePoint t, vec3 L, float most) {
+    float reach = min(clamp(t.z * 0.02, 0.15, 1.0), most);   // (further away, a longer reach: the same few pixels)
     vec4 area = drawnArea();
     float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy + frame.trace.z * 7.0, vec2(0.06711056, 0.00583715))));
     vec3 start = t.pos + t.n * 0.02;

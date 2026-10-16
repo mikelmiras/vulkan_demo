@@ -62,6 +62,8 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 trace;               // x = 1: reflections and GI traced at half size this frame, y = 1: their history is
                               // good, z = which of each 2 x 2 block's pixels they trace this frame (0..3), w = 1:
                               // contact shadows with them
+    vec4 contactLight;        // the point or spot light with contact shadows too (the nearest shadowed one): xyz
+                              // where, w = its index in the lights (-1: none)
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness

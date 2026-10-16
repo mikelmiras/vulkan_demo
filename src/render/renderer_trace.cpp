@@ -27,7 +27,7 @@ void Renderer::createTraceImages() {
         gbufferMs_ = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
                                  VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, samples_, 1);
     }
-    tracedDepth_ = createImage(VK_FORMAT_R32G32_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
+    tracedDepth_ = createImage(VK_FORMAT_R32G32B32A32_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     traceHistory_ = false;
     writeTraceBindings();
 }

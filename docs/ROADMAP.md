@@ -1726,7 +1726,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | 103 (done) | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
 | 104 (done) | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
 | 105 (done) | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
-| 106 | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
+| 106 (done) | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
 | 107 | Camera effects: depth of field (bokeh, from the depth, focus by distance or on a target) and motion blur along the motion vectors; both settings, off by default | No way to soften the background or show speed |
 | 108 | Night Drive's traffic: a few AI cars driving the grid with their headlights and tail lights, spray from wet tyres (GPU particles), all within the benchmark's budget | The showcase's streets are empty: a city at night needs traffic to show the lights, reflections and rain |
 
@@ -1810,4 +1810,18 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   0.002%); GPU benchmark at high (the camera turning a circle): the shadow pass 145 to 126 ms a frame in Night
   Drive, 41.5 to 35 in the demo, on lavapipe; under validation with sync checks. Not done: receivers' own bounds
   (boxes of what's visible rather than the whole view volume), culling for spot and point lights' maps by the view.
+- **106, light shafts, lamps' contact shadows**: RenderSettings::lightShafts (format 58, module API 67).
+  shafts::sunOnScreen (render/light_shafts.*, tested) puts the sun in the viewport's pixels, with a fade over a third
+  of the viewport beyond its edge and none behind the camera. shafts.glsl (plain and multisampled) runs at half size
+  after the AO pass over aoSet_'s depth: 24 steps towards the sun (0.6 + 0.2 * strength of the way), each sky
+  sample weighed by 0.95 per step, a turning start (temporal AA smooths it), times exp(-4 * distance from the sun in
+  viewport heights), a quarter over the sky itself (which has the sun's glow already); into shafts_ (RGBA16F), the
+  composite's new binding 7 (post sets: 8 bindings), added before the exposure. Off with volumetric fog (fogOn_:
+  the fog has real shafts), at low quality and in extra views. Lamps: FrameUBO::contactLight (the nearest light with
+  a shadow view: the lights come nearest first), tracedDepth_ RGBA32F with the lamp's contact shadow in b
+  (contactShadow(t, L, most) marches towards it, at most 90% of the way), scene.frag's loop multiplies that light
+  alone. Checked: the demo with a low sun behind a pillar (rays and a dark streak; render scale 0.7 and MSAA the
+  same); a lamp beside boxes (the contact at their bases, seen in the channel alone); Night Drive (TAA, MSAA), the
+  sample game, the editor, under validation with sync checks. Not done: shafts from lamps, occluders off screen,
+  several lamps' contact shadows.
 

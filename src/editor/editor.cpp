@@ -322,6 +322,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.adaptationSpeed = r.adaptationSpeed;
     info.localToneMapping = r.localToneMapping;
     info.lensDirt = r.lensDirt;
+    info.lightShafts = r.lightShafts;
     info.wetness = r.wetness;
     info.puddles = r.puddles;
     info.rain = r.rain;

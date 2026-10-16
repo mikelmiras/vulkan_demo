@@ -97,6 +97,7 @@ struct FrameUBO {
     float drawnViewport[4];   // the scene's rectangle as drawn (pixels: smaller with a render scale): the traces'
     float trace[4];           // x = 1: traced this frame, y = 1: their history is good, z = the 2 x 2 block's pixel,
                               // w = 1: contact shadows (in tracedDepth_'s g)
+    float contactLight[4];    // the lamp with contact shadows too (tracedDepth_'s b): xyz where, w = its index (-1: none)
 };
 
 // A decal (set 0, binding 24): render/decals.h picks them

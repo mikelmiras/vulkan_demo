@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 
+#include "render/light_shafts.h"
 #include "render/renderer_internal.h"
 
 using namespace render_detail;
@@ -127,6 +128,13 @@ void Renderer::createPostImages() {
     wa.descriptorCount = 1;
     wa.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     wa.pImageInfo = &aoInfo;
+    vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
+    // Light shafts: half size, read by the composite (binding 7), made from the depth (aoSet_'s)
+    shafts_ = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                          VK_IMAGE_ASPECT_COLOR_BIT, w, h, VK_SAMPLE_COUNT_1_BIT, 1);
+    VkDescriptorImageInfo shaftsInfo{postSampler_, shafts_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    wa.dstBinding = 7;
+    wa.pImageInfo = &shaftsInfo;
     vkUpdateDescriptorSets(device_, 1, &wa, 0, nullptr);
     if (aoSupported_) {
         VkDescriptorImageInfo depthInfo{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
@@ -331,6 +339,7 @@ void Renderer::writeSsrBinding() {
 
 void Renderer::destroyPostImages() {
     if (refraction_.image) destroyImage(refraction_);
+    if (shafts_.image) destroyImage(shafts_);
     if (velocity_.image) destroyImage(velocity_);
     for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_,
                        &velocityMs_, &gbufferMs_})
@@ -431,6 +440,25 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                    VK_ACCESS_SHADER_READ_BIT);
     }
 
+    // Light shafts (the main view's; volumetric fog makes its own): the sun's light gathered from the sky towards it
+    shafts::SunOnScreen sunAt;
+    if (view < 0 && shaftsPipeline_ && info.lightShafts > 0.f && !fogOn_ && info.items && vw >= 1.f && vh >= 1.f &&
+        quality_ != Quality::Low)
+        sunAt = shafts::sunOnScreen(info.viewProj, info.camPos, shaftsSunDir_, vx, vy, vw, vh);
+    const bool shafted = sunAt.fade > 0.f && std::max({shaftsSunColor_.x, shaftsSunColor_.y, shaftsSunColor_.z}) > 0.f;
+    mipBarrier(cb, shafts_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, shafted ? target : readable, colorStage | fragStage, 0,
+               shafted ? colorStage : fragStage, shafted ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
+    if (shafted) {
+        // (how far each pixel's march goes: the whole way at 1, the shafts longer with the strength)
+        const float reach = std::clamp(0.6f + 0.2f * info.lightShafts, 0.f, 1.f);
+        Push p{{sunAt.x, sunAt.y, info.lightShafts * sunAt.fade * 0.35f, reach},
+               {shaftsSunColor_.x, shaftsSunColor_.y, shaftsSunColor_.z, (float)(frameCounter_ % 64)},
+               {vx, vy, vw, vh}, {view >= 0 ? 1.f : scaleNow_, 0.f, 0.f, 0.f}, {}};
+        pass(shafts_.view, aoSize_, shaftsPipeline_, aoSet_, p, false);
+        mipBarrier(cb, shafts_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+                   VK_ACCESS_SHADER_READ_BIT);
+    }
+
     // Auto-exposure and local tone mapping (the main view's): the view's log2 luminance, its mips down to the mean,
     // and the exposure eased towards it (then kept for next frame)
     const bool metering = view < 0 && lum_.image && info.items && vw >= 1.f && vh >= 1.f &&
@@ -514,7 +542,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, view >= 0 ? compositeViewPipeline_ : compositePipeline_);
         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &compositeSet_, 0, nullptr);
         float output = view >= 0 ? 0.f : output_ == display::Output::Hdr10 ? 1.f : output_ == display::Output::ScRgb ? 2.f : 0.f;
-        Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, ao ? 1.f : 0.f, 0.f},
+        Push p{{info.exposure, bloom ? info.bloomStrength : 0.f, ao ? 1.f : 0.f, shafted ? 1.f : 0.f},
                {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, layered ? 1.f : 0.f},
                {(float)info.colorFilter, output, hdrPeak_, hdrPaperWhite_}, {vx, vy, vw, vh},
                {(float)info.tonemapper, info.contrast, info.saturation, info.vignette},

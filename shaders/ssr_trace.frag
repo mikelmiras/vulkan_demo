@@ -10,12 +10,18 @@
 layout(set = 0, binding = 33) uniform sampler2D history;   // last frame's
 
 layout(location = 0) out vec4 outReflection;
-layout(location = 1) out vec2 outDepth;   // (the distance, the contact shadow)
+layout(location = 1) out vec4 outDepth;   // (the distance, the sun's contact shadow, the lamp's: frame.contactLight)
 
 void main() {
     TracePoint t = tracePoint();
-    float contact = t.drawn && frame.trace.w > 0.5 ? contactShadow(t) : 1.0;
-    outDepth = vec2(t.drawn ? t.z : 1e4, contact);
+    bool contacts = t.drawn && frame.trace.w > 0.5;
+    float sun = contacts ? contactShadow(t, normalize(-frame.sunDir.xyz), 1.0) : 1.0, lamp = 1.0;
+    if (contacts && frame.contactLight.w >= 0.0) {
+        vec3 d = frame.contactLight.xyz - t.pos;
+        float dist = length(d);
+        if (dist > 0.05 && dot(d, t.n) > 0.0) lamp = contactShadow(t, d / dist, dist * 0.9);
+    }
+    outDepth = vec4(t.drawn ? t.z : 1e4, sun, lamp, 0.0);
     if (!t.drawn || t.rough >= 0.8 || frame.prevCamPos.w < 0.5) {   // (nothing, too rough, or the others' alone)
         outReflection = vec4(0.0);
         return;

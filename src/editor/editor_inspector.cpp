@@ -264,6 +264,10 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::SliderFloat("Lens dirt", &r.lensDirt, 0.f, 1.f, "%.2f");
         track();
         tooltip("Smudges on the lens that the bloom lights up round bright lights");
+        ImGui::SliderFloat("Light shafts", &r.lightShafts, 0.f, 2.f, "%.2f");
+        track();
+        tooltip("The sun's rays streaming through gaps (trees, windows, between buildings) when it's in view; with "
+                "volumetric fog on, the fog makes its own instead");
         ImGui::Checkbox("Physical sky", &r.physicalSky);
         track();
         tooltip("The sky, the sun's colour and the light from the sky worked out from the air (blue by day, red at "

@@ -783,6 +783,7 @@ struct RenderSettings {
     // a night street keeps detail both in the shadows and round the lights
     float localToneMapping = 0.f;
     float lensDirt = 0.f;             // 0..1: smudges on the lens lit up by the bloom round bright lights
+    float lightShafts = 0.f;          // 0..2: the sun's rays through gaps on screen (god rays; without volumetric fog)
     // The physically based sky (render/atmosphere.h): the sky, the sun's colour and the light from the sky worked out
     // from the air (blue by day, red at sunset, dark at night) instead of the colours above (the ground's stays: what
     // the ground reflects); distant things fade into the air's colour (aerial perspective). A sky image wins over it.

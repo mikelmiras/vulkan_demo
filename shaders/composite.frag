@@ -10,8 +10,9 @@ layout(set = 0, binding = 3) uniform sampler2D uiLayer;   // the UI, drawn apart
 layout(set = 0, binding = 4) uniform sampler2D exposureMap;   // auto-exposure: log2 of its factor (one texel)
 layout(set = 0, binding = 5) uniform sampler2D luminance;     // the view's log2 luminance, mipped (local tone mapping)
 layout(set = 0, binding = 6) uniform sampler2D lensDirt;      // smudges and specks the bloom catches (renderer_post.cpp)
+layout(set = 0, binding = 7) uniform sampler2D shafts;        // the sun's light shafts, half size (when a.w = 1: shafts.glsl)
 layout(push_constant) uniform Post {
-    vec4 a;   // x = exposure, y = bloom strength, z = 1: apply ambient occlusion
+    vec4 a;   // x = exposure, y = bloom strength, z = 1: apply ambient occlusion, w = 1: add the light shafts
     vec4 b;   // rgb = outline colour (sRGB), w = 1: blend the UI layer in
     vec4 c;   // x = colour-blindness filter: 0 none, 1 protanopia, 2 deuteranopia, 3 tritanopia;
               // y = output: 0 SDR (gamma-encoded), 1 HDR10 (PQ, Rec.2020), 2 scRGB (linear, 1 = 80 nits);
@@ -106,6 +107,7 @@ void main() {
     vec3 glow = texture(bloom, uv).rgb * pc.a.y;
     if (pc.f.w > 0.0) glow *= 1.0 + texture(lensDirt, uv).rgb * (pc.f.w * 6.0);
     vec3 c = max(scene, vec3(0.0)) + glow;
+    if (pc.a.w > 0.5 && !outside) c += texture(shafts, uv).rgb;
     float exposure = pc.a.x;
     if (pc.f.x > 0.5) exposure *= exp2(texelFetch(exposureMap, ivec2(0), 0).r);   // (auto: times the compensation)
     if (pc.f.y > 0.0) {   // local tone mapping: this part of the view's brightness (coarse) pulled towards the mean
