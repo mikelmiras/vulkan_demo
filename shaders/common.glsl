@@ -47,6 +47,9 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 skySun;          // the sun's light above the air (the sky table is for one of it)
     vec4 air;             // the air's extinction per metre (aerial perspective; 0: none)
     vec4 weather;         // wetness, puddles, rain (RenderSettings), w = how many decals (binding 24)
+    vec4 waterInfo;       // x = 1: refraction (binding 26) this frame, y = how many water boxes
+    vec4 waterBox[4];     // each water's rectangle: min x, min z, max x, max z
+    vec4 waterLevel[4];   // its level (y) and depth
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness

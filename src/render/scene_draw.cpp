@@ -60,6 +60,7 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
             d.waveLength = std::max(w.waveLength, 0.05f);
             d.waveDirection = w.waveDirection * DEG2RAD - yaw;
             d.choppiness = std::clamp(w.choppiness, 0.f, 1.f);
+            d.waterDepth = std::max(w.depth, 0.1f);
             d.current = w.current;
             d.outlined = (e.id == outlined && outlined != kNoEntity) ||
                          (alsoOutlined && std::find(alsoOutlined->begin(), alsoOutlined->end(), e.id) != alsoOutlined->end());

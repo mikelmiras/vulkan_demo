@@ -50,6 +50,7 @@ struct DrawItem {
     // A water surface (scene/water.h): its grid moved by the waves in the vertex shader (shaders/water.glsl)
     bool water = false;
     float waveHeight = 0.f, waveLength = 8.f, waveDirection = 0.f, choppiness = 0.f;   // (direction: world, radians)
+    float waterDepth = 4.f;     // to its bottom, m (the caustics' reach)
     Vec3 current;
 };
 
@@ -767,6 +768,13 @@ private:
     uint32_t prevMips_ = 1;
     VkImageView prevMip0_ = VK_NULL_HANDLE;   // (its first level: what the capture draws into)
     bool prevColorFresh_ = false;   // (made: readable before anything samples it)
+    // Water's refraction (renderer.cpp): with water in the main view, the scene pass stops after the opaque things
+    // and the sky, the capture copies the picture and its distances here (set 0, binding 26), and goes on with the
+    // see-through things; water reads what's behind it there
+    Image refraction_;
+    bool refractionFresh_ = false;
+    bool refractOn_ = false;        // this frame's main view does it
+    void writeRefractionBinding();
     VkDescriptorSet ssrSet_ = VK_NULL_HANDLE;
     VkPipeline ssrCapturePipeline_ = VK_NULL_HANDLE;
     bool ssrValid_ = false;         // last frame was captured (reflections on, the same picture size)

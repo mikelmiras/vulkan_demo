@@ -1400,10 +1400,25 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 84 (done) | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
 | 85 (done) | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
 | 86 (done) | Materials and surfaces: parallax occlusion mapping, detail maps, decals (projected: road markings, puddles, dirt), wetness (darker, glossier, rain ripples) driven by a weather setting | Surfaces are flat textures; a wet night street, the look Night Drive wants, can't be made |
-| 87 | Water, finished: refraction and absorption by depth, caustics on the bottom, shoreline foam where it meets geometry, screen-space reflections on it | Task 71's water is a coloured surface: no depth, no sense of what's beneath |
+| 87 (done) | Water, finished: refraction and absorption by depth, caustics on the bottom, shoreline foam where it meets geometry, screen-space reflections on it | Task 71's water is a coloured surface: no depth, no sense of what's beneath |
 | 88 | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
 
 ### Round 8 notes
+- **87, water**: with water in the main view (and depth readable), the scene pass ends after the opaque things
+  and the sky, the reflections' capture pass (ssr_capture, pixel for pixel) copies the picture and its view
+  distances into refraction_ (set 0, binding 26), and the pass begins again with its attachments loaded (MSAA's
+  colour stored for it). Water then reads what's behind it at its pixel moved by the surface's slope times the
+  thickness (kept unmoved where that lands on something in front), absorbs exp(-k * thickness) with k the colours
+  its colour lacks, scaled by murk, fills with its colour lit from above, and is drawn opaque: the shaded surface
+  (Fresnel reflection, SSR, specular, foam) plus what shows through times 1 - Fresnel. Shore foam where the
+  thickness is under half a metre, value noise breaking it up and drifting. Caustics: each water's rectangle, level
+  and depth (up to four, in the frame data) and, for surfaces below a level inside one, two scales of an animated
+  cellular pattern's cell edges, looked up where the sun's ray crossed the surface, multiplying the sun's light and
+  fading with depth. Checked: a pool with a submerged rock, a sloping shore and a ball under validation with sync
+  checks (TAA, MSAA, none, render scale 0.7, the editor). Not done: refraction for split-screen views and probes
+  (see-through there), see-through things behind water (hidden by it), the underwater view (fog, the surface from
+  below), caustics shadowed by things above the water, refraction of the depth for reflections under the surface,
+  foam at floating objects that move.
 - **86, surfaces**: MeshRenderer gains heightTexture / parallaxDepth, detailTexture / detailTiling /
   detailStrength and sheltered; a Decal component; RenderSettings gains wetness, puddles and rain (scene format 49,
   module API 56). Material sets have six maps (height, detail: set 1 bindings 4 and 5) keyed by all six ids (a

@@ -75,6 +75,11 @@ struct FrameUBO {
     float skySun[4];          // the sun's light above the air (rgb: the sky table is for one of it)
     float air[4];             // the air's extinction per metre (rgb: aerial perspective; 0: none)
     float weather[4];         // wetness, puddles, rain, w = how many decals (binding 24)
+    // Water: x = 1: refraction (binding 26) this frame, y = how many water boxes; each box (its rectangle, x and z)
+    // and its level and depth (caustics on what's under it)
+    float waterInfo[4];
+    float waterBox[4][4];
+    float waterLevel[4][4];
 };
 
 // A decal (set 0, binding 24): render/decals.h picks them

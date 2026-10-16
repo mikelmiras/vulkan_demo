@@ -712,7 +712,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[26] = {
+    VkDescriptorSetLayoutBinding frameBindings[27] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -739,9 +739,10 @@ void Renderer::createPipelines() {
         {23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the physical sky's table
         {24, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // decals
         {25, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDecalTextures, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... their textures
+        {26, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // water's refraction
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 26;
+    dslci.bindingCount = 27;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
@@ -1087,7 +1088,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (15 + kDecalTextures) * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (16 + kDecalTextures) * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1224,6 +1225,7 @@ void Renderer::createResources(const MeshLibrary&) {
     createDecalBuffers();
     createGi();
     writeSsrBinding();
+    writeRefractionBinding();
     // Texture streaming: on unless VKWORLD_TEXTURE_STREAMING=0; the budget from VKWORLD_TEXTURE_BUDGET (MB)
     if (const char* v = std::getenv("VKWORLD_TEXTURE_STREAMING"); v && std::strcmp(v, "0") == 0) streaming_ = false;
     if (!streamingSupported_) streaming_ = false;
@@ -1317,6 +1319,11 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         lumFresh_ = false;
+    }
+    if (refractionFresh_ && refraction_.image) {   // (water's refraction picture, just made: readable from now)
+        mipBarrier(cb, refraction_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        refractionFresh_ = false;
     }
     if (prevColorFresh_) {   // (reflections' picture, just made: readable, even before there's one)
         mipBarrier(cb, prevColor_.image, 0, prevMips_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1412,9 +1419,11 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color.clearValue.color = {{sky.x, sky.y, sky.z, 1.f}};
+    // (water: the pass stops after the opaque things to copy the picture for its refraction, then goes on)
+    const bool splitForWater = refractOn_ && info.items && !transparentBatches_.empty();
     if (colorMsaa_.image) {
         color.imageView = colorMsaa_.view;
-        color.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color.storeOp = splitForWater ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
         color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
         color.resolveImageView = hdr_.view;
         color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -1461,6 +1470,58 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         // The sky, wherever nothing was drawn
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
         vkCmdDraw(cb, 3, 1, 0, 0);
+
+        if (splitForWater) {   // water's refraction: the opaque picture and its distances, then on with the rest
+            vkCmdEndRendering(cb);
+            const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, readable, colorStage,
+                         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
+            imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                         fragStage, VK_ACCESS_SHADER_READ_BIT);
+            mipBarrier(cb, refraction_.image, 0, 1, readable, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, fragStage, 0, colorStage,
+                       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+            VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            att.imageView = refraction_.view;
+            att.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            VkRenderingInfo copy{VK_STRUCTURE_TYPE_RENDERING_INFO};
+            copy.renderArea = {{0, 0}, extent_};
+            copy.layerCount = 1;
+            copy.colorAttachmentCount = 1;
+            copy.pColorAttachments = &att;
+            vkCmdBeginRendering(cb, &copy);
+            VkViewport full{0.f, 0.f, (float)extent_.width, (float)extent_.height, 0.f, 1.f};
+            VkRect2D all{{0, 0}, extent_};
+            vkCmdSetViewport(cb, 0, 1, &full);
+            vkCmdSetScissor(cb, 0, 1, &all);
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, ssrCapturePipeline_);
+            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &ssrSet_, 0, nullptr);
+            float push[8] = {scene.zNear, scene.zFar, 0.f, 0.f, vx, vy, 0.f, 0.f};   // (scale 0: pixel for pixel)
+            vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), push);
+            vkCmdDraw(cb, 3, 1, 0, 0);
+            vkCmdEndRendering(cb);
+            mipBarrier(cb, refraction_.image, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, readable, colorStage,
+                       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
+            imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, readable, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, fragStage, 0,
+                         colorStage, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+            imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, fragStage, 0, depthStages,
+                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+            // (the scene pass again, keeping what's drawn)
+            color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            if (colorMsaa_.image) color.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            vkCmdBeginRendering(cb, &ri);
+            vkCmdSetViewport(cb, 0, 1, &viewport);
+            vkCmdSetScissor(cb, 0, 1, &scissor);
+            const uint32_t slot = 0;
+            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
+            boundTexture = VK_NULL_HANDLE;
+            timestamp(cb, "Scene: opaque (water copies it)");
+        }
 
         // See-through objects, back to front
         if (!transparentBatches_.empty()) {
@@ -1722,6 +1783,30 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
 
     u.viewProj = info.viewProj;
     std::vector<int> lightShadow(points.size(), -1);
+    if (shadows) {   // water: refraction (with something to read the depth and copy the picture) and the caustics' boxes
+        int boxes = 0;
+        bool anyWater = false;
+        if (info.items)
+            for (const DrawItem& d : *info.items) {
+                if (!d.water) continue;
+                anyWater = true;
+                if (boxes >= 4) continue;
+                const Mat4& m = d.model;   // (its grid spans -0.5..0.5 under this: the rectangle's corners)
+                float lo[2] = {1e30f, 1e30f}, hi[2] = {-1e30f, -1e30f};
+                for (int c = 0; c < 4; ++c) {
+                    Vec3 p = transformPoint(m, {c & 1 ? 0.5f : -0.5f, 0.f, c & 2 ? 0.5f : -0.5f});
+                    lo[0] = std::min(lo[0], p.x), lo[1] = std::min(lo[1], p.z);
+                    hi[0] = std::max(hi[0], p.x), hi[1] = std::max(hi[1], p.z);
+                }
+                u.waterBox[boxes][0] = lo[0], u.waterBox[boxes][1] = lo[1], u.waterBox[boxes][2] = hi[0], u.waterBox[boxes][3] = hi[1];
+                u.waterLevel[boxes][0] = m.m[13];
+                u.waterLevel[boxes][1] = d.waterDepth;
+                ++boxes;
+            }
+        refractOn_ = anyWater && aoSupported_ && ssrCapturePipeline_ && refraction_.image;
+        u.waterInfo[0] = refractOn_ ? 1.f : 0.f;
+        u.waterInfo[1] = (float)boxes;
+    }
     if (shadows) writeDecals(info, u);   // (and the weather)
     else u.weather[0] = info.wetness, u.weather[1] = info.puddles, u.weather[2] = info.rain;
     if (shadows) {
@@ -1914,6 +1999,9 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         }
         uv.sunDir[3] = u.sunDir[3];
         uv.weather[3] = u.weather[3];   // (the decals: the main view's)
+        uv.waterInfo[1] = u.waterInfo[1];   // (the water's boxes, for caustics; refraction: the main view's alone)
+        std::memcpy(uv.waterBox, u.waterBox, sizeof(u.waterBox));
+        std::memcpy(uv.waterLevel, u.waterLevel, sizeof(u.waterLevel));
         std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &uv, sizeof(uv));
     }
     if (aa_ == Antialiasing::Temporal) {   // jittered, a different sub-pixel offset every frame

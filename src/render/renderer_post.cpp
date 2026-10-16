@@ -195,6 +195,11 @@ void Renderer::createPostImages() {
         VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &prevMip0_));
     }
     prevColorFresh_ = true;
+    // Water's refraction: the opaque picture and its distances, copied mid-pass (renderer.cpp)
+    refraction_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                              VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    refractionFresh_ = true;
+    writeRefractionBinding();
     if (aoSupported_) {
         VkDescriptorImageInfo infos[2] = {{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
                                           {postSampler_, hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
@@ -228,6 +233,22 @@ void Renderer::createPostImages() {
     }
 }
 
+// Water's view of the opaque picture behind it (set 0, binding 26), in every frame's set
+void Renderer::writeRefractionBinding() {
+    if (!refraction_.image) return;
+    for (VkDescriptorSet set : descSets_) {
+        if (!set) continue;   // (not made yet: createResources writes it once they are)
+        VkDescriptorImageInfo info{postSampler_, refraction_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w.dstSet = set;
+        w.dstBinding = 26;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w.pImageInfo = &info;
+        vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+    }
+}
+
 // The scene's view of the last frame's picture (set 0, binding 18), in every frame's set
 void Renderer::writeSsrBinding() {
     if (!prevColor_.image) return;
@@ -245,6 +266,7 @@ void Renderer::writeSsrBinding() {
 }
 
 void Renderer::destroyPostImages() {
+    if (refraction_.image) destroyImage(refraction_);
     if (prevMip0_) vkDestroyImageView(device_, prevMip0_, nullptr);
     prevMip0_ = VK_NULL_HANDLE;
     if (prevColor_.image) destroyImage(prevColor_);

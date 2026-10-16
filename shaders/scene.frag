@@ -50,6 +50,9 @@ struct GpuDecal {
 };
 layout(std430, set = 0, binding = 24) readonly buffer Decals { GpuDecal decals[]; };
 layout(set = 0, binding = 25) uniform sampler2D decalTextures[16];
+// Water's refraction (renderer.cpp): the opaque picture (rgb) and its distances along the view (a), copied before
+// the see-through things are drawn
+layout(set = 0, binding = 26) uniform sampler2D refraction;
 
 layout(location = 0) in vec3 vWorldPos;
 layout(location = 1) in vec3 vNormal;
@@ -569,6 +572,42 @@ vec2 rainRings(vec2 p, float t, float rain) {
     return slope * 0.6;
 }
 
+// Caustics: light focused by the waves onto what's under the water, bright lines where cells of an animated
+// cellular pattern meet (two scales); 1 where there's no water above, else its pattern fading with the depth
+float cellEdges(vec2 p, float t) {
+    vec2 cell = floor(p), f = fract(p);
+    float d1 = 8.0, d2 = 8.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) {
+            vec2 c = cell + vec2(x, y);
+            vec2 o = 0.5 + 0.4 * sin(t * 0.9 + 6.2831 * vec2(hash12(c), hash12(c + 19.1)));
+            vec2 r = vec2(x, y) + o - f;
+            float d = dot(r, r);
+            if (d < d1) {
+                d2 = d1;
+                d1 = d;
+            } else if (d < d2) {
+                d2 = d;
+            }
+        }
+    return pow(1.0 - smoothstep(0.0, 0.3, sqrt(d2) - sqrt(d1)), 3.0);
+}
+float caustics(vec3 pos) {
+    int count = int(frame.waterInfo.y + 0.5);
+    for (int i = 0; i < count; ++i) {
+        vec4 b = frame.waterBox[i];
+        float level = frame.waterLevel[i].x, below = level - pos.y;
+        if (pos.x < b.x || pos.z < b.y || pos.x > b.z || pos.z > b.w || below < 0.02 || below > frame.waterLevel[i].y + 1.0)
+            continue;
+        vec3 L = normalize(-frame.sunDir.xyz);
+        vec2 q = pos.xz + L.xz / max(L.y, 0.2) * below;   // (where the sun's ray to here came through the surface)
+        float t = frame.time.x;
+        float c = cellEdges(q * 0.9, t) * 0.6 + cellEdges(q * 1.7 + 3.7, t * 1.3) * 0.4;
+        return mix(1.0, 0.55 + c * 2.2, exp(-below * 0.35));
+    }
+    return 1.0;
+}
+
 // A terrain's colour: its four layers (the material set's four textures, sRGB) mixed by the vertex weights, each
 // tinted and tiled by a column of its layers' matrix (joints[-params.w - 2]; none: white, 4 m tiles)
 vec3 terrainColor() {
@@ -636,6 +675,8 @@ void main() {
         tangentFrame(surfaceN, T, B);
         N = bend(N, T, B, texture(detailMap, gUV * vSurface.y).xyz * 2.0 - 1.0, vSurface.z);
     }
+    vec3 waterRefracted = vec3(0.0);   // (water with refraction: what shows through, added after lighting)
+    float waterFresnel = 1.0;
     if (water) {
         // Ripples on the waves (small ones, drifting with the current), foam where a crest peaks, and the surface
         // more mirror than window at a glancing angle (Fresnel)
@@ -651,10 +692,34 @@ void main() {
         N = normalize(N - vec3(slope.x, 0.0, slope.y));
         float crest = clamp(vSplat.x, 0.0, 1.0);
         float foam = smoothstep(0.6, 0.95, crest) * clamp(vEmissive.w, 0.0, 1.0);
-        base = mix(base, vec3(0.85), foam * 0.7);
-        rough = mix(rough, 0.6, foam);
         float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(N, normalize(frame.camPos.xyz - vWorldPos)), 0.0), 5.0);
-        alpha = clamp(mix(alpha, 1.0, fresnel) + foam * 0.5, 0.0, 1.0);
+        if (frame.waterInfo.x > 0.5) {
+            // Refraction: what's behind (the opaque picture), bent by the surface's slope, less so where it's
+            // shallow; dimmed through the water's thickness (the colours its own colour lacks first) and filled
+            // with its colour, lit from above; foam along the shore, where it's shallow, broken up and drifting
+            vec2 size = vec2(textureSize(refraction, 0));
+            vec2 here = gl_FragCoord.xy / size;
+            float myZ = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
+            vec4 straight = textureLod(refraction, here, 0.0);
+            vec2 bent = here + N.xz * min(max(straight.a - myZ, 0.0), 2.0) * 0.06;
+            vec4 behind = textureLod(refraction, bent, 0.0);
+            if (behind.a < myZ) behind = straight;   // (bent onto something in front of the water: not)
+            float thickness = max(behind.a - myZ, 0.0);
+            vec3 k = (vec3(1.0) - base) * (0.15 + 1.6 * vColor.a) + 0.02;   // (per metre; murkier: vColor.a higher)
+            vec3 through = exp(-k * thickness);
+            vec3 body = base * (irradiance(vec3(0.0, 1.0, 0.0)) + frame.sunColor.rgb * max(-frame.sunDir.y, 0.0) * 0.15);
+            float shore = (1.0 - smoothstep(0.0, 0.5, thickness)) *
+                          smoothstep(0.35, 0.75, valueNoise(p * 3.0 - flow * t + vec2(t * 0.25, 0.0)));
+            foam = max(foam, shore);
+            waterRefracted = (behind.rgb * through + body * (1.0 - through)) * (1.0 - foam);
+            waterFresnel = fresnel;
+            base = vec3(0.85) * foam;   // (only its foam is lit as a surface; the rest is what shows through)
+            alpha = 1.0;
+        } else {
+            base = mix(base, vec3(0.85), foam * 0.7);
+            alpha = clamp(mix(alpha, 1.0, fresnel) + foam * 0.5, 0.0, 1.0);
+        }
+        rough = mix(rough, 0.6, foam);
         metallic = 0.0;
     }
     // Decals: each box the point is in (nearest first, later ones over earlier) paints its colour (its texture's,
@@ -787,6 +852,7 @@ void main() {
     // Sun
     vec3 L = normalize(-frame.sunDir.xyz);
     float vis = dot(N, L) > 0.0 || (s.coat > 0.0 && dot(s.coatN, L) > 0.0) ? sunVisibility(N, L) : 0.0;
+    if (!water && frame.waterInfo.y > 0.5) vis *= caustics(vWorldPos);   // (under water: the waves focus it)
     color += shade(s, L, frame.sunColor.rgb) * vis;
 
     // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone. The main view
@@ -839,6 +905,7 @@ void main() {
 
     if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, gUV).rgb;   // (water: its waves there)
 
+    color += waterRefracted * (1.0 - waterFresnel);   // (what the water lets through: less at a glancing angle)
     if (frame.atmosphere.x > 0.5 && frame.air.g > 0.0) {   // aerial perspective: the air between, lit like the sky
         vec3 v = vWorldPos - frame.camPos.xyz;
         float dist = length(v);
