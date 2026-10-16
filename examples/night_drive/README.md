@@ -20,7 +20,11 @@ Traffic drives the grid: a few cars (`scripts/TrafficCar.lua`) in the right-hand
 to go on or turn (never out of the city), easing to a stop behind whatever's ahead (another car, the taxi: it can
 bump into them, they aren't pushed) and pulling away again, with headlights, tail lamps and their glow on the wet
 road. Wet tyres throw spray behind them, the taxi's too: GPU particles whose rate follows each car's speed
-(`scripts/SprayBySpeed.lua`). `TRAFFIC` and `LANE` in `tools/make_city.py` set how many and where.
+(`scripts/SprayBySpeed.lua`). `TRAFFIC` and `LANE` in `tools/make_city.py` set how many and where. Every crossroads
+has traffic lights (`scripts/TrafficLight.lua`): two poles, one for each way through, cycling green, amber and red
+(each lamp's glow on the wet road), the crossroads' cycles offset from their neighbours'; the traffic stops at the
+line on red, and on amber unless it's too close to stop. The cycle is worked out from the clock the same way by
+the lights and the cars, so nothing is shared between them.
 
 ## Models
 

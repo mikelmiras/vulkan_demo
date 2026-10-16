@@ -29264,6 +29264,9510 @@
   },
   {
    "id": 851,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -81.3,
+     2.15,
+     -98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 852,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -81.3,
+     4.3,
+     -98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 0,
+     "crossZ": 0,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 853,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 852,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 854,
+   "name": "Signal 0,0 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 852,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 855,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 854,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 856,
+   "name": "Signal 0,0 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 852,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 857,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 856,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 858,
+   "name": "Signal 0,0 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 852,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 859,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 858,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 860,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -98.7,
+     2.15,
+     -81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 861,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -98.7,
+     4.3,
+     -81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 0,
+     "crossZ": 0,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 862,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 863,
+   "name": "Signal 0,0 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 864,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 863,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 865,
+   "name": "Signal 0,0 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 866,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 865,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 867,
+   "name": "Signal 0,0 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 868,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 867,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 869,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -81.3,
+     2.15,
+     -38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 870,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -81.3,
+     4.3,
+     -38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 0,
+     "crossZ": 1,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 871,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 870,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 872,
+   "name": "Signal 0,1 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 870,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 873,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 872,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 874,
+   "name": "Signal 0,1 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 870,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 875,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 874,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 876,
+   "name": "Signal 0,1 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 870,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 877,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 876,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 878,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -98.7,
+     2.15,
+     -21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 879,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -98.7,
+     4.3,
+     -21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 0,
+     "crossZ": 1,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 880,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 879,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 881,
+   "name": "Signal 0,1 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 879,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 882,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 881,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 883,
+   "name": "Signal 0,1 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 879,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 884,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 883,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 885,
+   "name": "Signal 0,1 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 879,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 886,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 885,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 887,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -81.3,
+     2.15,
+     21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 888,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -81.3,
+     4.3,
+     21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 0,
+     "crossZ": 2,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 889,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 888,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 890,
+   "name": "Signal 0,2 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 888,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 891,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 890,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 892,
+   "name": "Signal 0,2 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 888,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 893,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 892,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 894,
+   "name": "Signal 0,2 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 888,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 895,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 894,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 896,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -98.7,
+     2.15,
+     38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 897,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -98.7,
+     4.3,
+     38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 0,
+     "crossZ": 2,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 898,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 897,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 899,
+   "name": "Signal 0,2 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 897,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 900,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 899,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 901,
+   "name": "Signal 0,2 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 897,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 902,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 901,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 903,
+   "name": "Signal 0,2 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 897,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 904,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 903,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 905,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -81.3,
+     2.15,
+     81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 906,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -81.3,
+     4.3,
+     81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 0,
+     "crossZ": 3,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 907,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 906,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 908,
+   "name": "Signal 0,3 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 906,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 909,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 908,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 910,
+   "name": "Signal 0,3 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 906,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 911,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 910,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 912,
+   "name": "Signal 0,3 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 906,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 913,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 912,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 914,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -98.7,
+     2.15,
+     98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 915,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -98.7,
+     4.3,
+     98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 0,
+     "crossZ": 3,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 916,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 915,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 917,
+   "name": "Signal 0,3 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 915,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 918,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 917,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 919,
+   "name": "Signal 0,3 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 915,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 920,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 919,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 921,
+   "name": "Signal 0,3 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 915,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 922,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 921,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 923,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -21.3,
+     2.15,
+     -98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 924,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -21.3,
+     4.3,
+     -98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 1,
+     "crossZ": 0,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 925,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 924,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 926,
+   "name": "Signal 1,0 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 924,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 927,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 926,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 928,
+   "name": "Signal 1,0 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 924,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 929,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 928,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 930,
+   "name": "Signal 1,0 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 924,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 931,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 930,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 932,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -38.7,
+     2.15,
+     -81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 933,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -38.7,
+     4.3,
+     -81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 1,
+     "crossZ": 0,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 934,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 933,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 935,
+   "name": "Signal 1,0 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 933,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 936,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 935,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 937,
+   "name": "Signal 1,0 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 933,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 938,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 937,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 939,
+   "name": "Signal 1,0 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 933,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 940,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 939,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 941,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -21.3,
+     2.15,
+     -38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 942,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -21.3,
+     4.3,
+     -38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 1,
+     "crossZ": 1,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 943,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 942,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 944,
+   "name": "Signal 1,1 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 942,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 945,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 944,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 946,
+   "name": "Signal 1,1 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 942,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 947,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 946,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 948,
+   "name": "Signal 1,1 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 942,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 949,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 948,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 950,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -38.7,
+     2.15,
+     -21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 951,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -38.7,
+     4.3,
+     -21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 1,
+     "crossZ": 1,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 952,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 951,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 953,
+   "name": "Signal 1,1 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 951,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 954,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 953,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 955,
+   "name": "Signal 1,1 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 951,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 956,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 955,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 957,
+   "name": "Signal 1,1 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 951,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 958,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 957,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 959,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -21.3,
+     2.15,
+     21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 960,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -21.3,
+     4.3,
+     21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 1,
+     "crossZ": 2,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 961,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 960,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 962,
+   "name": "Signal 1,2 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 960,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 963,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 962,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 964,
+   "name": "Signal 1,2 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 960,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 965,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 964,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 966,
+   "name": "Signal 1,2 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 960,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 967,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 966,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 968,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -38.7,
+     2.15,
+     38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 969,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -38.7,
+     4.3,
+     38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 1,
+     "crossZ": 2,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 970,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 969,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 971,
+   "name": "Signal 1,2 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 969,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 972,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 971,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 973,
+   "name": "Signal 1,2 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 969,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 974,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 973,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 975,
+   "name": "Signal 1,2 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 969,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 976,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 975,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 977,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -21.3,
+     2.15,
+     81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 978,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -21.3,
+     4.3,
+     81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 1,
+     "crossZ": 3,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 979,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 978,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 980,
+   "name": "Signal 1,3 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 978,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 981,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 980,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 982,
+   "name": "Signal 1,3 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 978,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 983,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 982,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 984,
+   "name": "Signal 1,3 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 978,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 985,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 984,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 986,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     -38.7,
+     2.15,
+     98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 987,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     -38.7,
+     4.3,
+     98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 1,
+     "crossZ": 3,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 988,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 987,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 989,
+   "name": "Signal 1,3 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 987,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 990,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 989,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 991,
+   "name": "Signal 1,3 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 987,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 992,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 991,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 993,
+   "name": "Signal 1,3 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 987,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 994,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 993,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 995,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     38.7,
+     2.15,
+     -98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 996,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     38.7,
+     4.3,
+     -98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 2,
+     "crossZ": 0,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 997,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 996,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 998,
+   "name": "Signal 2,0 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 996,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 999,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 998,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1000,
+   "name": "Signal 2,0 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 996,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1001,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1000,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1002,
+   "name": "Signal 2,0 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 996,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1003,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1002,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1004,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     21.3,
+     2.15,
+     -81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1005,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     21.3,
+     4.3,
+     -81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 2,
+     "crossZ": 0,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 1006,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1005,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1007,
+   "name": "Signal 2,0 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1005,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1008,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1007,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1009,
+   "name": "Signal 2,0 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1005,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1010,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1009,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1011,
+   "name": "Signal 2,0 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1005,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1012,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1011,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1013,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     38.7,
+     2.15,
+     -38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1014,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     38.7,
+     4.3,
+     -38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 2,
+     "crossZ": 1,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 1015,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1014,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1016,
+   "name": "Signal 2,1 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1014,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1017,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1016,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1018,
+   "name": "Signal 2,1 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1014,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1019,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1018,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1020,
+   "name": "Signal 2,1 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1014,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1021,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1020,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1022,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     21.3,
+     2.15,
+     -21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1023,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     21.3,
+     4.3,
+     -21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 2,
+     "crossZ": 1,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 1024,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1023,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1025,
+   "name": "Signal 2,1 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1023,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1026,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1025,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1027,
+   "name": "Signal 2,1 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1023,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1028,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1027,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1029,
+   "name": "Signal 2,1 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1023,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1030,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1029,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1031,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     38.7,
+     2.15,
+     21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1032,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     38.7,
+     4.3,
+     21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 2,
+     "crossZ": 2,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 1033,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1032,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1034,
+   "name": "Signal 2,2 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1032,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1035,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1034,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1036,
+   "name": "Signal 2,2 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1032,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1037,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1036,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1038,
+   "name": "Signal 2,2 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1032,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1039,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1038,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1040,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     21.3,
+     2.15,
+     38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1041,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     21.3,
+     4.3,
+     38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 2,
+     "crossZ": 2,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 1042,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1041,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1043,
+   "name": "Signal 2,2 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1041,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1044,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1043,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1045,
+   "name": "Signal 2,2 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1041,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1046,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1045,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1047,
+   "name": "Signal 2,2 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1041,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1048,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1047,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1049,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     38.7,
+     2.15,
+     81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1050,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     38.7,
+     4.3,
+     81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 2,
+     "crossZ": 3,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 1051,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1050,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1052,
+   "name": "Signal 2,3 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1050,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1053,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1052,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1054,
+   "name": "Signal 2,3 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1050,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1055,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1054,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1056,
+   "name": "Signal 2,3 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1050,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1057,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1056,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1058,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     21.3,
+     2.15,
+     98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1059,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     21.3,
+     4.3,
+     98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 2,
+     "crossZ": 3,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 1060,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1059,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1061,
+   "name": "Signal 2,3 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1059,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1062,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1061,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1063,
+   "name": "Signal 2,3 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1059,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1064,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1063,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1065,
+   "name": "Signal 2,3 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1059,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1066,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1065,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1067,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     98.7,
+     2.15,
+     -98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1068,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     98.7,
+     4.3,
+     -98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 3,
+     "crossZ": 0,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 1069,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1068,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1070,
+   "name": "Signal 3,0 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1068,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1071,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1070,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1072,
+   "name": "Signal 3,0 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1068,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1073,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1072,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1074,
+   "name": "Signal 3,0 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1068,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1075,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1074,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1076,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     81.3,
+     2.15,
+     -81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1077,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     81.3,
+     4.3,
+     -81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 3,
+     "crossZ": 0,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 1078,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1077,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1079,
+   "name": "Signal 3,0 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1077,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1080,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1079,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1081,
+   "name": "Signal 3,0 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1077,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1082,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1081,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1083,
+   "name": "Signal 3,0 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1077,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1084,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1083,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1085,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     98.7,
+     2.15,
+     -38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1086,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     98.7,
+     4.3,
+     -38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 3,
+     "crossZ": 1,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 1087,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1086,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1088,
+   "name": "Signal 3,1 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1086,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1089,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1088,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1090,
+   "name": "Signal 3,1 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1086,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1091,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1090,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1092,
+   "name": "Signal 3,1 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1086,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1093,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1092,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1094,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     81.3,
+     2.15,
+     -21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1095,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     81.3,
+     4.3,
+     -21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 3,
+     "crossZ": 1,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 1096,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1095,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1097,
+   "name": "Signal 3,1 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1095,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1098,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1097,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1099,
+   "name": "Signal 3,1 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1095,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1100,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1099,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1101,
+   "name": "Signal 3,1 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1095,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1102,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1101,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1103,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     98.7,
+     2.15,
+     21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1104,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     98.7,
+     4.3,
+     21.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 3,
+     "crossZ": 2,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 1105,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1104,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1106,
+   "name": "Signal 3,2 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1104,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1107,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1106,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1108,
+   "name": "Signal 3,2 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1104,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1109,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1108,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1110,
+   "name": "Signal 3,2 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1104,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1111,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1110,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1112,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     81.3,
+     2.15,
+     38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1113,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     81.3,
+     4.3,
+     38.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 3,
+     "crossZ": 2,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 1114,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1113,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1115,
+   "name": "Signal 3,2 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1113,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1116,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1115,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1117,
+   "name": "Signal 3,2 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1113,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1118,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1117,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1119,
+   "name": "Signal 3,2 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1113,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1120,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1119,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1121,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     98.7,
+     2.15,
+     81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1122,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     98.7,
+     4.3,
+     81.3
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 3,
+     "crossZ": 3,
+     "axis": "x"
+    }
+   ]
+  },
+  {
+   "id": 1123,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1122,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1124,
+   "name": "Signal 3,3 x red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1122,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1125,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1124,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1126,
+   "name": "Signal 3,3 x amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1122,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1127,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1126,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1128,
+   "name": "Signal 3,3 x green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1122,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1129,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1128,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1130,
+   "name": "Signal pole",
+   "transform": {
+    "position": [
+     81.3,
+     2.15,
+     98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.14,
+     4.0,
+     0.14
+    ]
+   },
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.06,
+     0.06,
+     0.065
+    ],
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 1131,
+   "name": "Signal",
+   "transform": {
+    "position": [
+     81.3,
+     4.3,
+     98.7
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficLight",
+     "crossX": 3,
+     "crossZ": 3,
+     "axis": "z"
+    }
+   ]
+  },
+  {
+   "id": 1132,
+   "name": "Housing",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.36,
+     1.05,
+     0.36
+    ]
+   },
+   "parent": 1131,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.022
+    ],
+    "roughness": 0.4
+   }
+  },
+  {
+   "id": 1133,
+   "name": "Signal 3,3 z red",
+   "transform": {
+    "position": [
+     0,
+     0.3200000000000003,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1131,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissive": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1134,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1133,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.06,
+     0.03
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1135,
+   "name": "Signal 3,3 z amber",
+   "transform": {
+    "position": [
+     0,
+     0.0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1131,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissive": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1136,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1135,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.55,
+     0.05
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1137,
+   "name": "Signal 3,3 z green",
+   "transform": {
+    "position": [
+     0,
+     -0.31999999999999984,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.4,
+     0.26,
+     0.4
+    ]
+   },
+   "parent": 1131,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissive": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 1138,
+   "name": "Glow",
+   "transform": {
+    "position": [
+     0,
+     -0.2,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 1137,
+   "light": {
+    "type": "point",
+    "color": [
+     0.1,
+     1.0,
+     0.45
+    ],
+    "intensity": 1.4,
+    "range": 7.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 1139,
    "name": "Traffic car",
    "transform": {
     "position": [
@@ -29308,7 +38812,7 @@
    ]
   },
   {
-   "id": 852,
+   "id": 1140,
    "name": "Body",
    "transform": {
     "position": [
@@ -29327,7 +38831,7 @@
      4.3
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29340,7 +38844,7 @@
    }
   },
   {
-   "id": 853,
+   "id": 1141,
    "name": "Roof",
    "transform": {
     "position": [
@@ -29359,7 +38863,7 @@
      2.2
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29372,7 +38876,7 @@
    }
   },
   {
-   "id": 854,
+   "id": 1142,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -29391,7 +38895,7 @@
      0.04
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29408,7 +38912,7 @@
    }
   },
   {
-   "id": 855,
+   "id": 1143,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -29427,7 +38931,7 @@
      0.04
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29444,7 +38948,7 @@
    }
   },
   {
-   "id": 856,
+   "id": 1144,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -29463,7 +38967,7 @@
      0.04
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29480,7 +38984,7 @@
    }
   },
   {
-   "id": 857,
+   "id": 1145,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -29499,7 +39003,7 @@
      0.04
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29516,7 +39020,7 @@
    }
   },
   {
-   "id": 858,
+   "id": 1146,
    "name": "Headlights",
    "transform": {
     "position": [
@@ -29535,7 +39039,7 @@
      1
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "light": {
     "type": "spot",
     "color": [
@@ -29551,7 +39055,7 @@
    }
   },
   {
-   "id": 859,
+   "id": 1147,
    "name": "Tail glow",
    "transform": {
     "position": [
@@ -29570,7 +39074,7 @@
      1
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "light": {
     "type": "point",
     "color": [
@@ -29584,7 +39088,7 @@
    }
   },
   {
-   "id": 860,
+   "id": 1148,
    "name": "Spray",
    "transform": {
     "position": [
@@ -29603,7 +39107,7 @@
      1
     ]
    },
-   "parent": 851,
+   "parent": 1139,
    "particles": {
     "rate": 0,
     "burst": 0,
@@ -29647,7 +39151,7 @@
    ]
   },
   {
-   "id": 861,
+   "id": 1149,
    "name": "Traffic car",
    "transform": {
     "position": [
@@ -29692,7 +39196,7 @@
    ]
   },
   {
-   "id": 862,
+   "id": 1150,
    "name": "Body",
    "transform": {
     "position": [
@@ -29711,7 +39215,7 @@
      4.3
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29724,7 +39228,7 @@
    }
   },
   {
-   "id": 863,
+   "id": 1151,
    "name": "Roof",
    "transform": {
     "position": [
@@ -29743,7 +39247,7 @@
      2.2
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29756,7 +39260,7 @@
    }
   },
   {
-   "id": 864,
+   "id": 1152,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -29775,7 +39279,7 @@
      0.04
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29792,7 +39296,7 @@
    }
   },
   {
-   "id": 865,
+   "id": 1153,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -29811,7 +39315,7 @@
      0.04
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29828,7 +39332,7 @@
    }
   },
   {
-   "id": 866,
+   "id": 1154,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -29847,7 +39351,7 @@
      0.04
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29864,7 +39368,7 @@
    }
   },
   {
-   "id": 867,
+   "id": 1155,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -29883,7 +39387,7 @@
      0.04
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29900,7 +39404,7 @@
    }
   },
   {
-   "id": 868,
+   "id": 1156,
    "name": "Headlights",
    "transform": {
     "position": [
@@ -29919,7 +39423,7 @@
      1
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "light": {
     "type": "spot",
     "color": [
@@ -29935,7 +39439,7 @@
    }
   },
   {
-   "id": 869,
+   "id": 1157,
    "name": "Tail glow",
    "transform": {
     "position": [
@@ -29954,7 +39458,7 @@
      1
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "light": {
     "type": "point",
     "color": [
@@ -29968,7 +39472,7 @@
    }
   },
   {
-   "id": 870,
+   "id": 1158,
    "name": "Spray",
    "transform": {
     "position": [
@@ -29987,7 +39491,7 @@
      1
     ]
    },
-   "parent": 861,
+   "parent": 1149,
    "particles": {
     "rate": 0,
     "burst": 0,
@@ -30031,7 +39535,7 @@
    ]
   },
   {
-   "id": 871,
+   "id": 1159,
    "name": "Traffic car",
    "transform": {
     "position": [
@@ -30076,7 +39580,7 @@
    ]
   },
   {
-   "id": 872,
+   "id": 1160,
    "name": "Body",
    "transform": {
     "position": [
@@ -30095,7 +39599,7 @@
      4.3
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30108,7 +39612,7 @@
    }
   },
   {
-   "id": 873,
+   "id": 1161,
    "name": "Roof",
    "transform": {
     "position": [
@@ -30127,7 +39631,7 @@
      2.2
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30140,7 +39644,7 @@
    }
   },
   {
-   "id": 874,
+   "id": 1162,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -30159,7 +39663,7 @@
      0.04
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30176,7 +39680,7 @@
    }
   },
   {
-   "id": 875,
+   "id": 1163,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -30195,7 +39699,7 @@
      0.04
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30212,7 +39716,7 @@
    }
   },
   {
-   "id": 876,
+   "id": 1164,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -30231,7 +39735,7 @@
      0.04
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30248,7 +39752,7 @@
    }
   },
   {
-   "id": 877,
+   "id": 1165,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -30267,7 +39771,7 @@
      0.04
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30284,7 +39788,7 @@
    }
   },
   {
-   "id": 878,
+   "id": 1166,
    "name": "Headlights",
    "transform": {
     "position": [
@@ -30303,7 +39807,7 @@
      1
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "light": {
     "type": "spot",
     "color": [
@@ -30319,7 +39823,7 @@
    }
   },
   {
-   "id": 879,
+   "id": 1167,
    "name": "Tail glow",
    "transform": {
     "position": [
@@ -30338,7 +39842,7 @@
      1
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "light": {
     "type": "point",
     "color": [
@@ -30352,7 +39856,7 @@
    }
   },
   {
-   "id": 880,
+   "id": 1168,
    "name": "Spray",
    "transform": {
     "position": [
@@ -30371,7 +39875,7 @@
      1
     ]
    },
-   "parent": 871,
+   "parent": 1159,
    "particles": {
     "rate": 0,
     "burst": 0,
@@ -30415,7 +39919,7 @@
    ]
   },
   {
-   "id": 881,
+   "id": 1169,
    "name": "Traffic car",
    "transform": {
     "position": [
@@ -30460,7 +39964,7 @@
    ]
   },
   {
-   "id": 882,
+   "id": 1170,
    "name": "Body",
    "transform": {
     "position": [
@@ -30479,7 +39983,7 @@
      4.3
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30492,7 +39996,7 @@
    }
   },
   {
-   "id": 883,
+   "id": 1171,
    "name": "Roof",
    "transform": {
     "position": [
@@ -30511,7 +40015,7 @@
      2.2
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30524,7 +40028,7 @@
    }
   },
   {
-   "id": 884,
+   "id": 1172,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -30543,7 +40047,7 @@
      0.04
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30560,7 +40064,7 @@
    }
   },
   {
-   "id": 885,
+   "id": 1173,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -30579,7 +40083,7 @@
      0.04
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30596,7 +40100,7 @@
    }
   },
   {
-   "id": 886,
+   "id": 1174,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -30615,7 +40119,7 @@
      0.04
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30632,7 +40136,7 @@
    }
   },
   {
-   "id": 887,
+   "id": 1175,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -30651,7 +40155,7 @@
      0.04
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30668,7 +40172,7 @@
    }
   },
   {
-   "id": 888,
+   "id": 1176,
    "name": "Headlights",
    "transform": {
     "position": [
@@ -30687,7 +40191,7 @@
      1
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "light": {
     "type": "spot",
     "color": [
@@ -30703,7 +40207,7 @@
    }
   },
   {
-   "id": 889,
+   "id": 1177,
    "name": "Tail glow",
    "transform": {
     "position": [
@@ -30722,7 +40226,7 @@
      1
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "light": {
     "type": "point",
     "color": [
@@ -30736,7 +40240,7 @@
    }
   },
   {
-   "id": 890,
+   "id": 1178,
    "name": "Spray",
    "transform": {
     "position": [
@@ -30755,7 +40259,7 @@
      1
     ]
    },
-   "parent": 881,
+   "parent": 1169,
    "particles": {
     "rate": 0,
     "burst": 0,
@@ -30799,7 +40303,7 @@
    ]
   },
   {
-   "id": 891,
+   "id": 1179,
    "name": "Traffic car",
    "transform": {
     "position": [
@@ -30844,7 +40348,7 @@
    ]
   },
   {
-   "id": 892,
+   "id": 1180,
    "name": "Body",
    "transform": {
     "position": [
@@ -30863,7 +40367,7 @@
      4.3
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30876,7 +40380,7 @@
    }
   },
   {
-   "id": 893,
+   "id": 1181,
    "name": "Roof",
    "transform": {
     "position": [
@@ -30895,7 +40399,7 @@
      2.2
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30908,7 +40412,7 @@
    }
   },
   {
-   "id": 894,
+   "id": 1182,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -30927,7 +40431,7 @@
      0.04
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30944,7 +40448,7 @@
    }
   },
   {
-   "id": 895,
+   "id": 1183,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -30963,7 +40467,7 @@
      0.04
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -30980,7 +40484,7 @@
    }
   },
   {
-   "id": 896,
+   "id": 1184,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -30999,7 +40503,7 @@
      0.04
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31016,7 +40520,7 @@
    }
   },
   {
-   "id": 897,
+   "id": 1185,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -31035,7 +40539,7 @@
      0.04
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31052,7 +40556,7 @@
    }
   },
   {
-   "id": 898,
+   "id": 1186,
    "name": "Headlights",
    "transform": {
     "position": [
@@ -31071,7 +40575,7 @@
      1
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "light": {
     "type": "spot",
     "color": [
@@ -31087,7 +40591,7 @@
    }
   },
   {
-   "id": 899,
+   "id": 1187,
    "name": "Tail glow",
    "transform": {
     "position": [
@@ -31106,7 +40610,7 @@
      1
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "light": {
     "type": "point",
     "color": [
@@ -31120,7 +40624,7 @@
    }
   },
   {
-   "id": 900,
+   "id": 1188,
    "name": "Spray",
    "transform": {
     "position": [
@@ -31139,7 +40643,7 @@
      1
     ]
    },
-   "parent": 891,
+   "parent": 1179,
    "particles": {
     "rate": 0,
     "burst": 0,
@@ -31183,7 +40687,7 @@
    ]
   },
   {
-   "id": 901,
+   "id": 1189,
    "name": "Traffic car",
    "transform": {
     "position": [
@@ -31228,7 +40732,7 @@
    ]
   },
   {
-   "id": 902,
+   "id": 1190,
    "name": "Body",
    "transform": {
     "position": [
@@ -31247,7 +40751,7 @@
      4.3
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31260,7 +40764,7 @@
    }
   },
   {
-   "id": 903,
+   "id": 1191,
    "name": "Roof",
    "transform": {
     "position": [
@@ -31279,7 +40783,7 @@
      2.2
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31292,7 +40796,7 @@
    }
   },
   {
-   "id": 904,
+   "id": 1192,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -31311,7 +40815,7 @@
      0.04
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31328,7 +40832,7 @@
    }
   },
   {
-   "id": 905,
+   "id": 1193,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -31347,7 +40851,7 @@
      0.04
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31364,7 +40868,7 @@
    }
   },
   {
-   "id": 906,
+   "id": 1194,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -31383,7 +40887,7 @@
      0.04
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31400,7 +40904,7 @@
    }
   },
   {
-   "id": 907,
+   "id": 1195,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -31419,7 +40923,7 @@
      0.04
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31436,7 +40940,7 @@
    }
   },
   {
-   "id": 908,
+   "id": 1196,
    "name": "Headlights",
    "transform": {
     "position": [
@@ -31455,7 +40959,7 @@
      1
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "light": {
     "type": "spot",
     "color": [
@@ -31471,7 +40975,7 @@
    }
   },
   {
-   "id": 909,
+   "id": 1197,
    "name": "Tail glow",
    "transform": {
     "position": [
@@ -31490,7 +40994,7 @@
      1
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "light": {
     "type": "point",
     "color": [
@@ -31504,7 +41008,7 @@
    }
   },
   {
-   "id": 910,
+   "id": 1198,
    "name": "Spray",
    "transform": {
     "position": [
@@ -31523,7 +41027,7 @@
      1
     ]
    },
-   "parent": 901,
+   "parent": 1189,
    "particles": {
     "rate": 0,
     "burst": 0,
@@ -31567,7 +41071,7 @@
    ]
   },
   {
-   "id": 911,
+   "id": 1199,
    "name": "Taxi",
    "transform": {
     "position": [
@@ -31673,7 +41177,7 @@
    ]
   },
   {
-   "id": 912,
+   "id": 1200,
    "name": "Body",
    "transform": {
     "position": [
@@ -31692,7 +41196,7 @@
      4.4
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31705,7 +41209,7 @@
    }
   },
   {
-   "id": 913,
+   "id": 1201,
    "name": "Cabin",
    "transform": {
     "position": [
@@ -31724,7 +41228,7 @@
      2.1
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31737,7 +41241,7 @@
    }
   },
   {
-   "id": 914,
+   "id": 1202,
    "name": "Roof sign",
    "transform": {
     "position": [
@@ -31756,7 +41260,7 @@
      0.3
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31773,7 +41277,7 @@
    }
   },
   {
-   "id": 915,
+   "id": 1203,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -31792,7 +41296,7 @@
      0.04
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31809,7 +41313,7 @@
    }
   },
   {
-   "id": 916,
+   "id": 1204,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -31828,7 +41332,7 @@
      0.04
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31845,7 +41349,7 @@
    }
   },
   {
-   "id": 917,
+   "id": 1205,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -31864,7 +41368,7 @@
      0.04
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31881,7 +41385,7 @@
    }
   },
   {
-   "id": 918,
+   "id": 1206,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -31900,7 +41404,7 @@
      0.04
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -31917,7 +41421,7 @@
    }
   },
   {
-   "id": 919,
+   "id": 1207,
    "name": "Headlights",
    "transform": {
     "position": [
@@ -31936,7 +41440,7 @@
      1
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "light": {
     "type": "spot",
     "color": [
@@ -31952,7 +41456,7 @@
    }
   },
   {
-   "id": 920,
+   "id": 1208,
    "name": "Tail glow",
    "transform": {
     "position": [
@@ -31971,7 +41475,7 @@
      1
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "light": {
     "type": "point",
     "color": [
@@ -31985,7 +41489,7 @@
    }
   },
   {
-   "id": 921,
+   "id": 1209,
    "name": "Spray",
    "transform": {
     "position": [
@@ -32004,7 +41508,7 @@
      1
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "particles": {
     "rate": 0,
     "burst": 0,
@@ -32048,7 +41552,7 @@
    ]
   },
   {
-   "id": 922,
+   "id": 1210,
    "name": "Rain",
    "transform": {
     "position": [
@@ -32067,7 +41571,7 @@
      1
     ]
    },
-   "parent": 911,
+   "parent": 1199,
    "particles": {
     "rate": 7000,
     "burst": 0,
@@ -32104,7 +41608,7 @@
    }
   },
   {
-   "id": 923,
+   "id": 1211,
    "name": "Wheel FL",
    "transform": {
     "position": [
@@ -32123,10 +41627,10 @@
      1
     ]
    },
-   "parent": 911
+   "parent": 1199
   },
   {
-   "id": 924,
+   "id": 1212,
    "name": "Tyre",
    "transform": {
     "position": [
@@ -32145,7 +41649,7 @@
      0.76
     ]
    },
-   "parent": 923,
+   "parent": 1211,
    "meshRenderer": {
     "mesh": "Sphere",
     "color": [
@@ -32157,7 +41661,7 @@
    }
   },
   {
-   "id": 925,
+   "id": 1213,
    "name": "Wheel FR",
    "transform": {
     "position": [
@@ -32176,10 +41680,10 @@
      1
     ]
    },
-   "parent": 911
+   "parent": 1199
   },
   {
-   "id": 926,
+   "id": 1214,
    "name": "Tyre",
    "transform": {
     "position": [
@@ -32198,7 +41702,7 @@
      0.76
     ]
    },
-   "parent": 925,
+   "parent": 1213,
    "meshRenderer": {
     "mesh": "Sphere",
     "color": [
@@ -32210,7 +41714,7 @@
    }
   },
   {
-   "id": 927,
+   "id": 1215,
    "name": "Wheel BL",
    "transform": {
     "position": [
@@ -32229,10 +41733,10 @@
      1
     ]
    },
-   "parent": 911
+   "parent": 1199
   },
   {
-   "id": 928,
+   "id": 1216,
    "name": "Tyre",
    "transform": {
     "position": [
@@ -32251,7 +41755,7 @@
      0.76
     ]
    },
-   "parent": 927,
+   "parent": 1215,
    "meshRenderer": {
     "mesh": "Sphere",
     "color": [
@@ -32263,7 +41767,7 @@
    }
   },
   {
-   "id": 929,
+   "id": 1217,
    "name": "Wheel BR",
    "transform": {
     "position": [
@@ -32282,10 +41786,10 @@
      1
     ]
    },
-   "parent": 911
+   "parent": 1199
   },
   {
-   "id": 930,
+   "id": 1218,
    "name": "Tyre",
    "transform": {
     "position": [
@@ -32304,7 +41808,7 @@
      0.76
     ]
    },
-   "parent": 929,
+   "parent": 1217,
    "meshRenderer": {
     "mesh": "Sphere",
     "color": [
@@ -32316,7 +41820,7 @@
    }
   },
   {
-   "id": 931,
+   "id": 1219,
    "name": "Moon",
    "transform": {
     "position": [
@@ -32347,7 +41851,7 @@
    }
   },
   {
-   "id": 932,
+   "id": 1220,
    "name": "Camera",
    "transform": {
     "position": [

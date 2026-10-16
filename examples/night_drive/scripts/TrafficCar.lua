@@ -1,5 +1,6 @@
 -- A car in the traffic: drives the street grid in the right-hand lane, choosing at each crossroads to go on or turn
--- (never out of the city), slowing to a stop behind whatever's ahead (another car, the taxi) and pulling away again.
+-- (never out of the city), slowing to a stop behind whatever's ahead (another car, the taxi) and pulling away again,
+-- and stopping at the line on red (and on amber, unless too close to stop: TrafficLight.lua's cycle).
 -- Its collider moves with it (the physics makes it kinematic: the taxi bumps into it, it isn't pushed).
 local TrafficCar = {
     description = "Drives the street grid, turning at crossroads, stopping behind what's ahead",
@@ -10,8 +11,20 @@ local TrafficCar = {
         {"pitch", 60, min = 1, max = 500},        -- from one street to the next
         {"streets", 4, min = 2, max = 32},        -- streets each way
         {"seed", 1, min = 0, max = 100000},       -- its turns (the same drive every time)
+        {"street", 16, min = 1, max = 100},       -- a street's width (the stop line: before the crossroads)
     },
 }
+
+-- The crossroads' signal for a way through it (TrafficLight.lua's, the same sums): 0 green, 1 amber, 2 red
+local function signalState(t, i, j, axis)
+    local c = (t + (i + j) * 2.5) % 20
+    if axis == "z" then
+        if c < 7 then return 0 elseif c < 9 then return 1 end
+    else
+        if c >= 10 and c < 17 then return 0 elseif c >= 17 and c < 19 then return 1 end
+    end
+    return 2
+end
 
 local function right(d) return {x = -d.z, z = d.x} end   -- (right-hand side, y up, looking along d)
 
@@ -52,6 +65,8 @@ function TrafficCar:plan()
     end
     local g = choices[math.floor(self:random() * #choices) + 1]
     local cross = self.first + k * self.pitch
+    -- (the crossroads' signal: its street indices along x and z, the way this car goes through)
+    self.signal = d.x ~= 0 and {i = k, j = on, axis = "x", cross = cross} or {i = on, j = k, axis = "z", cross = cross}
     -- Where its lane meets the new one (turning: the corner of the two lanes; straight on: no turn)
     local rg = right(g)
     local turnAt = cross + (d.x ~= 0 and rg.x or rg.z) * self.lane
@@ -81,6 +96,18 @@ function TrafficCar:update(dt)
         if hit and hit.entity and hit.entity.id ~= e.id then blocked = true end
     end
     local want = blocked and 0 or self.speed
+    -- The signal ahead: red (or amber, while there's room to stop), slow to a stop at the line before the crossroads
+    local sig = self.signal
+    if sig and not blocked then
+        local pos0 = e.position
+        local along0 = d.x ~= 0 and pos0.x or pos0.z
+        local sign0 = d.x ~= 0 and d.x or d.z
+        local toLine = (sig.cross - sign0 * (self.street / 2 + 2.6) - along0) * sign0   -- (the front bumper to the line)
+        local state = signalState(game.time(), sig.i, sig.j, sig.axis)
+        if toLine > -0.5 and toLine < 30 and (state == 2 or (state == 1 and toLine > 6)) then
+            want = math.min(want, math.max(toLine, 0) * 0.8)
+        end
+    end
     local rate = want < self.v and 12 or 3.5   -- (brakes harder than it pulls away)
     self.v = self.v + math.max(-rate * dt, math.min(rate * dt, want - self.v))
     -- Along its lane; at the turn point onto the new one

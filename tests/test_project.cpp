@@ -479,7 +479,7 @@ TEST(night_drive_example_loads) {
     REQUIRE(fs::is_regular_file(dir / "project.json"));
     fs::path previous = project::root();
     project::setRoot(dir);
-    CHECK(scripting::loadProject(dir) == 3);
+    CHECK(scripting::loadProject(dir) == 4);
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary texs = buildTextureLibrary();
     Scene scene;
@@ -501,15 +501,16 @@ TEST(night_drive_example_loads) {
     project::setRoot(previous);
 }
 
-// Night Drive's traffic: every car drives (tens of metres in a few seconds), always on a street (within a street's
-// width of one's middle, one way or the other), its scripts and the spray's without errors
+// Night Drive's traffic: every car drives (tens of metres in half a minute, waiting at red lights too), always on a
+// street (within a street's width of one's middle, one way or the other), never driving into a crossroads on red
+// (TrafficLight.lua's cycle, worked out the same here), its scripts, the lights' and the spray's without errors
 TEST(night_drive_traffic) {
     namespace fs = std::filesystem;
     test::ImGuiContextGuard imgui;
     fs::path dir = fs::u8path(VKWORLD_SAMPLE_GAME).parent_path() / "night_drive";
     fs::path previous = project::root();
     project::setRoot(dir);
-    REQUIRE(scripting::loadProject(dir) == 3);
+    REQUIRE(scripting::loadProject(dir) == 4);
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary texs = buildTextureLibrary();
     Scene scene;
@@ -529,15 +530,32 @@ TEST(night_drive_traffic) {
     for (EntityId id : cars) start.push_back(scene.find(id)->transform.pos());
     last = start;
     std::vector<float> driven(cars.size(), 0.f);
+    // (TrafficLight.lua's: 0 green, 1 amber, 2 red for the way along `alongX` through crossroads i, j at time t)
+    auto signal = [](float t, int i, int j, bool alongX) {
+        float c = std::fmod(t + (float)(i + j) * 2.5f, 20.f);
+        if (!alongX) return c < 7.f ? 0 : c < 9.f ? 1 : 2;
+        return c >= 10.f && c < 17.f ? 0 : c >= 17.f && c < 19.f ? 1 : 2;
+    };
+    auto crossroads = [&](Vec3 p, int& i, int& j) {   // (inside one: its indices)
+        i = (int)std::round((p.x - first) / pitch);
+        j = (int)std::round((p.z - first) / pitch);
+        return i >= 0 && i <= 3 && j >= 0 && j <= 3 && std::fabs(p.x - (first + i * pitch)) < half &&
+               std::fabs(p.z - (first + j * pitch)) < half;
+    };
     Game g;
     g.start(scene, meshes);
-    bool offStreet = false;
-    for (int i = 0; i < 600; ++i) {   // (ten seconds)
+    bool offStreet = false, ranRed = false;
+    for (int step = 0; step < 1800; ++step) {   // (half a minute)
         ImGui::NewFrame();
         g.step();
         ImGui::EndFrame();
         for (size_t c = 0; c < cars.size(); ++c) {
             Vec3 p = scene.find(cars[c])->transform.pos();
+            int i, j, pi, pj;
+            if (crossroads(p, i, j) && !crossroads(last[c], pi, pj)) {   // (driving into one now: on red?)
+                bool alongX = std::fabs(p.x - last[c].x) > std::fabs(p.z - last[c].z);
+                if (signal(g.time(), i, j, alongX) == 2) ranRed = true;
+            }
             driven[c] += length(p - last[c]);
             last[c] = p;
             if (!onStreet(p.x) && !onStreet(p.z)) offStreet = true;
@@ -545,6 +563,7 @@ TEST(night_drive_traffic) {
     }
     for (float d : driven) CHECK(d > 30.f);
     CHECK(!offStreet);
+    CHECK(!ranRed);
     for (const auto& [t, line] : g.log()) CHECK(line.find("rror") == std::string::npos);
     g.stop();
     scripting::reset();

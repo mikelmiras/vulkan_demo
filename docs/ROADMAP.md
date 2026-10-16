@@ -1851,7 +1851,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   camera following a traffic car (its tail lamps and spray), Night Drive under validation with sync checks. Not
   done: traffic lights, cars yielding at crossroads (they only stop for what's ahead), pedestrians.
 
-## Round 11 (planned)
+## Round 11 (done)
 
 Visuals and performance (the standing request), from round 10's notes: the lit pass's cost back down, the
 screen-space effects' shortcuts (AO without a history, depth of field's near field, shafts only from the sun),
@@ -1869,7 +1869,7 @@ traffic lights.
 | 115 (done) | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
 | 116 (done) | Light shafts from lamps (the brightest few in view, without volumetric fog) and from the sun through occluders off screen (its shadow map marched in the half-size pass) | Shafts come only from the sun, and only from what's on screen |
 | 117 (done) | Sharper temporal AA: motion vectors dilated to the nearest depth, variance clipping of the history, a contrast-adaptive sharpening pass after it (and after the upscaler) | TAA softens the picture and ghosts behind thin moving things |
-| 118 | Night Drive's crossroads: traffic lights (red, amber, green on the poles, their glow on the wet road) that the traffic stops for, and cars yielding at the crossroads | The traffic drives through every crossroads without stopping |
+| 118 (done) | Night Drive's crossroads: traffic lights (red, amber, green on the poles, their glow on the wet road) that the traffic stops for, and cars yielding at the crossroads | The traffic drives through every crossroads without stopping |
 
 ### Round 11 notes
 - **109, the lit pass's cost**: measured against a build of the commit before round 10 (a worktree, the GPU benchmark
@@ -1989,4 +1989,17 @@ traffic lights.
   trails), the moving-camera Night Drive copy, render scale 0.7 with and without temporal AA, Night Drive, the
   editor, under validation with sync checks. Not done: the sharpness as a player setting, a history confidence
   (blend weight by how far the history was moved).
+- **118, Night Drive's traffic lights**: make_city.py puts two signal poles at each of the 16 crossroads (one for
+  traffic along x, one along z, on opposite corners): a post, a housing and red, amber and green lamps, each an
+  emissive box with a point light under it (hidden lamps hide their light: visibleInHierarchy), and
+  scripts/TrafficLight.lua showing the right one. The cycle (20 s: along z green 0-7, amber 7-9; along x green
+  10-17, amber 17-19; a second of all red between; offset 2.5 s per crossroads step) is a function of the clock,
+  written the same in TrafficLight.lua and TrafficCar.lua (which notes the crossroads it plans for: its indices and
+  the way through) and in the test. A car eases to a stop at the line (its bumper just short of the crossroads)
+  on red, and on amber unless it's within 6 m of the line. The night_drive_traffic test now runs half a minute
+  (cars wait at reds) and checks no car drives into a crossroads on red; with the cars' check removed it fails.
+  Checked: a camera following a traffic car (the signals' red and amber glows on the road), under validation with
+  sync checks; GPU benchmark on lavapipe: Night Drive 1237 ms at high (1195 before round 10: round 11 and the
+  lights within 4%), the stress scene 2744 (2788). Not done: cars yielding to each other when turning (the lights
+  keep the ways apart), pedestrians and crossings' signals.
 

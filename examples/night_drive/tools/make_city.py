@@ -250,6 +250,25 @@ for _ in range(16):
     entity("Roof", (0, 0.75, 0), scale=(0.55, 0.6, 0.8) if along_x else (0.8, 0.6, 0.55), parent=car,
            meshRenderer=look("Cube", paint, roughness=0.25, metallic=0.6))
 
+# ---- Traffic lights: two poles at each crossroads, one for each way through it (scripts/TrafficLight.lua: red,
+# amber and green lamps shown in turn, each with its glow on the wet road; the traffic stops for them) ---------------
+SIGNAL_LAMPS = (("red", (1.0, 0.06, 0.03), 4.62), ("amber", (1.0, 0.55, 0.05), 4.3), ("green", (0.1, 1.0, 0.45), 3.98))
+for i in range(BLOCKS + 1):
+    for j in range(BLOCKS + 1):
+        cx, cz = -HALF + STREET / 2 + i * PITCH, -HALF + STREET / 2 + j * PITCH
+        corner = STREET / 2 + 0.7
+        # (the pole for traffic along x on the far right corner as it comes; for traffic along z on the other)
+        for axis, (px, pz) in (("x", (cx + corner, cz - corner)), ("z", (cx - corner, cz + corner))):
+            pole = entity("Signal pole", (px, 2.15, pz), scale=(0.14, 4.0, 0.14),
+                          meshRenderer=look("Cube", (0.06, 0.06, 0.065), roughness=0.5, metallic=0.6))
+            sig = entity("Signal", (px, 4.3, pz), behaviours=[{"type": "TrafficLight", "crossX": i, "crossZ": j, "axis": axis}])
+            entity("Housing", (0, 0, 0), scale=(0.36, 1.05, 0.36), parent=sig,
+                   meshRenderer=look("Cube", (0.02, 0.02, 0.022), roughness=0.4))
+            for name, colour, y in SIGNAL_LAMPS:
+                lamp = entity("Signal %d,%d %s %s" % (i, j, axis, name), (0, y - 4.3, 0), scale=(0.4, 0.26, 0.4), parent=sig,
+                              meshRenderer=look("Cube", colour, emissive=colour, strength=6.0))
+                entity("Glow", (0, -0.2, 0), parent=lamp, light=point_light(colour, 1.4, 7.0))
+
 # ---- Traffic: cars driving the grid (scripts/TrafficCar.lua) in the right-hand lanes, turning at the crossroads,
 # with headlights (no shadows: there are a few), tail lamps and spray from their wet tyres ---------------------------
 def spray(parent, z):
