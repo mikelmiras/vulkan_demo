@@ -82,7 +82,10 @@ TEST(net_udp_loopback) {
     char buf[16];
     net::Address from;
     size_t n = 0;
-    for (int i = 0; i < 200 && n == 0; ++i) n = b.receive(from, buf, sizeof(buf));
+    for (int i = 0; i < 2000 && n == 0; ++i) {   // (real time for the loopback: slow machines need it)
+        n = b.receive(from, buf, sizeof(buf));
+        if (n == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     REQUIRE(n == 5);
     CHECK(std::string(buf, 5) == "hello");
     CHECK(from.port == a.port());
