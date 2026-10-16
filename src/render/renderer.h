@@ -309,6 +309,8 @@ private:
         VkFormat colorFormat = VK_FORMAT_UNDEFINED;   // (the colour attachment's, if not the HDR image's)
         VkFormat colorFormat2 = VK_FORMAT_UNDEFINED;  // a second one's (the prepass's outputs)
         bool lean = false;               // scene.frag without material layers (its kLayers specialization: false)
+        bool litVariant = false;         // scene.frag specialized (lean, tinted below; otherwise its defaults: all on)
+        bool tinted = true;              // ... with the sun's coloured shadows (kTint)
         bool tint = false;               // the sun's shadow tint (RGBA16F, no depth): colour multiplied, alpha the nearest
     };
 
@@ -691,6 +693,9 @@ private:
     VkPipeline prepassPipeline_ = VK_NULL_HANDLE, prepassFoliagePipeline_ = VK_NULL_HANDLE;
     VkPipeline sceneEarlyPipeline_ = VK_NULL_HANDLE, foliageEarlyPipeline_ = VK_NULL_HANDLE;
     VkPipeline sceneLayeredPipeline_ = VK_NULL_HANDLE, sceneEarlyLayeredPipeline_ = VK_NULL_HANDLE;   // (with layers)
+    // The four with the sun's coloured shadows ([early][layered]), made the first frame that has them
+    VkPipeline tintedLit_[2][2] = {};
+    bool tintOn_ = false;            // (this frame's: the sun's tint layers hold something)
     bool prepass_ = true;
     // Volumetric fog (renderer_fog.cpp): per frame in flight, the cells' in-scattered light and the volume summed
     // from the camera out (scene.frag / sky.frag's binding 21)
@@ -887,6 +892,7 @@ private:
     VkPipeline sharpenPipeline_ = VK_NULL_HANDLE;   // contrast-adaptive sharpening after temporal AA (sharpen.frag)
     float sharpenOverride_ = -1.f;   // (VKWORLD_SHARPEN=0..1; otherwise 0.3 after temporal AA, 0.5 upscaling)
     void recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene);
+    void createTintedLit();
     VkPipeline fxTilesPipeline_ = VK_NULL_HANDLE;    // (its near field's tiles: fxTiles_)
     VkPipeline shaftsPipeline_ = VK_NULL_HANDLE;   // light shafts (shafts.glsl): half size, over the depth (aoSet_)
     // Screen-space reflections: this frame's picture and distances captured after the post passes (prevColor_, set

@@ -611,10 +611,11 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr},
     };
-    const VkBool32 layers = VK_FALSE;   // (the lean variant: scene.frag's kLayers)
-    const VkSpecializationMapEntry layersEntry{0, 0, sizeof(VkBool32)};
-    const VkSpecializationInfo leanInfo{1, &layersEntry, sizeof(VkBool32), &layers};
-    if (d.lean) stages[1].pSpecializationInfo = &leanInfo;
+    // (scene.frag's specializations: kLayers false for the lean variant, kTint for the sun's coloured shadows)
+    const VkBool32 spec[2] = {d.lean ? VK_FALSE : VK_TRUE, d.tinted ? VK_TRUE : VK_FALSE};
+    const VkSpecializationMapEntry specEntries[2] = {{0, 0, sizeof(VkBool32)}, {1, sizeof(VkBool32), sizeof(VkBool32)}};
+    const VkSpecializationInfo specInfo{2, specEntries, sizeof(spec), spec};
+    if (d.litVariant) stages[1].pSpecializationInfo = &specInfo;
 
     // Binding 0: the vertices; binding 1: their skinning data (every vertex shader skins)
     VkVertexInputBindingDescription vib[2] = {{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX},
@@ -859,11 +860,29 @@ void Renderer::createPipelines() {
 }
 
 // The pipelines drawing into the scene's (maybe multisampled) targets, and the AO pass reading its depth
+// The lit pipelines with the sun's coloured shadows (scene.frag's kTint), [early][layered]
+void Renderer::createTintedLit() {
+    PipelineDesc lit{"scene.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_BACK_BIT,
+                     false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0};
+    PipelineDesc early{"scene.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
+                       false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0};
+    for (int e = 0; e < 2; ++e)
+        for (int l = 0; l < 2; ++l) {
+            PipelineDesc d = e ? early : lit;
+            d.litVariant = true;
+            d.tinted = true;
+            d.lean = l == 0;
+            tintedLit_[e][l] = createPipeline(d);
+        }
+}
+
 void Renderer::createSampledPipelines() {
     // Lit scene objects: depth tested, no stencil
     // (lean: materials without layers, most; layered: coat, sheen, anisotropy, translucency or subsurface)
     PipelineDesc lit{"scene.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_BACK_BIT,
                      false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0};
+    lit.litVariant = true;
+    lit.tinted = false;   // (the frame's coloured shadows: the tinted ones, made when first needed: litPipelines)
     sceneLayeredPipeline_ = createPipeline(lit);
     lit.lean = true;
     scenePipeline_ = createPipeline(lit);
@@ -896,6 +915,8 @@ void Renderer::createSampledPipelines() {
     }
     PipelineDesc early{"scene.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
                        false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0};
+    early.litVariant = true;
+    early.tinted = false;
     sceneEarlyLayeredPipeline_ = createPipeline(early);
     early.lean = true;
     sceneEarlyPipeline_ = createPipeline(early);
@@ -933,7 +954,8 @@ void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &aoTemporalPipeline_, &ssrCapturePipeline_,
                           &shaftsPipeline_, &cameraFxPipeline_, &fxTilesPipeline_, &sssPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
                           &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
-                          &sceneLayeredPipeline_, &sceneEarlyLayeredPipeline_,
+                          &sceneLayeredPipeline_, &sceneEarlyLayeredPipeline_, &tintedLit_[0][0], &tintedLit_[0][1],
+                          &tintedLit_[1][0], &tintedLit_[1][1],
                           &prepassVelocityPipeline_, &prepassFoliageVelocityPipeline_}) {
         if (*p) vkDestroyPipeline(device_, *p, nullptr);
         *p = VK_NULL_HANDLE;
@@ -1832,6 +1854,10 @@ void Renderer::drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const
     VkPipeline pipeline = depthOnly ? (velocityOn_ ? prepassVelocityPipeline_ : prepassPipeline_)
                                     : prepass_ ? sceneEarlyPipeline_ : scenePipeline_;
     VkPipeline layered = depthOnly ? pipeline : prepass_ ? sceneEarlyLayeredPipeline_ : sceneLayeredPipeline_;
+    if (!depthOnly && tintOn_ && tintedLit_[prepass_ ? 1 : 0][0]) {   // (coloured shadows this frame: their variants)
+        pipeline = tintedLit_[prepass_ ? 1 : 0][0];
+        layered = tintedLit_[prepass_ ? 1 : 0][1];
+    }
     VkPipeline plants = depthOnly ? (velocityOn_ ? prepassFoliageVelocityPipeline_ : prepassFoliagePipeline_)
                                   : prepass_ ? foliageEarlyPipeline_ : foliagePipeline_;
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -2314,6 +2340,8 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
             bool tint = false;
             for (uint32_t c = 0; c < kCascades; ++c) tint = tint || tinted_[c] || !shadowTintBatches_[c].empty();
             static_cast<FrameUBO*>(ubo_[frame_].mapped)->shadowParams[3] = tint && frameShadows_ ? 1.f : 0.f;
+            tintOn_ = tint && frameShadows_;
+            if (tintOn_ && !tintedLit_[0][0]) createTintedLit();   // (once: the first scene with coloured shadows)
         }
         uploadJoints(info);
         prepareGpuParticles(info);   // (before the particles' buffer is sized: theirs go after the CPU's)

@@ -122,6 +122,8 @@ layout(location = 0) out vec4 outColor;
 // (false: the lean variant, for materials without layers: coat, sheen, anisotropy, translucency, subsurface are
 // none, and their code folds away; the renderer draws each batch with the one it needs)
 layout(constant_id = 0) const bool kLayers = true;
+// (false: without the sun's coloured shadows, for frames with none: their lookups folded away too)
+layout(constant_id = 1) const bool kTint = true;
 
 const float PI = 3.14159265;
 
@@ -941,7 +943,7 @@ void main() {
     if (halfTraced && frame.trace.w > 0.5) vis *= tracedContact;   // (the contact the shadow maps miss)
     if (frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0) vis *= cloudShadow(vWorldPos);   // (clouds drifting over)
     vec3 sunLight = frame.sunColor.rgb;
-    if (frame.shadowParams.w > 0.5 && vis > 0.0) sunLight *= sunTint(N);   // (through glass, a curtain: coloured)
+    if (kTint && frame.shadowParams.w > 0.5 && vis > 0.0) sunLight *= sunTint(N);   // (through glass, a curtain: coloured)
     color += shade(s, L, sunLight) * vis;
 
     // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone. The main view

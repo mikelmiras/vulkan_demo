@@ -2011,7 +2011,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 
 | # | Task | Why |
 |---|------|-----|
-| 119 | Frame-level features out of the lit shader when unused: coloured shadows, glowing decals, water's refraction and the shafts' extras behind specialization constants chosen per frame (a small cache of specialized pipelines) | Each feature's lookups cost every pixel on lavapipe even when the frame has none of it (coloured shadows: about 5%) |
+| 119 (done) | Frame-level features out of the lit shader when unused: coloured shadows, glowing decals, water's refraction and the shafts' extras behind specialization constants chosen per frame (a small cache of specialized pipelines) | Each feature's lookups cost every pixel on lavapipe even when the frame has none of it (coloured shadows: about 5%) |
 | 120 | Screen-space reflections traced over the Hi-Z pyramid (hierarchical: long rays in few steps, exact hits), widening with roughness (a cone over the blurred levels) | Reflections march fixed steps: short, and they miss thin things; Night Drive's wet streets want the whole street mirrored |
 | 121 | Coloured shadows from spot and point lights too (tint tiles in the atlas), and in the volumetric fog | Only the sun's shadows are tinted; a lamp behind stained glass casts grey |
 | 122 | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
@@ -2023,4 +2023,15 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | 128 | Depth of field's near field weighed by coverage (no see-through edge) with tiles at quarter size, and motion blur by each object's own motion within a shutter | The near field's edge is a little transparent; the tiles' pass costs more than it needs |
 
 ### Round 12 notes
+- **119, frame-level features specialized out**: of the features listed, only the sun's tint costs when absent: the
+  decals' and water's loops run no times without decals or water, and the shafts and camera effects are their own
+  passes. scene.frag's kTint (specialization constant 1, true by default) gates sunTint; PipelineDesc's litVariant
+  / tinted pass both constants. The four lit pipelines (lean / layered, with and without the depth prepass) are now
+  made without it; tintedLit_[early][layered] with it, the first frame whose cascades hold a tint
+  (createTintedLit: a compile once), and drawOpaque takes them while tintOn_ (set with the frame's flag after
+  prepareInstances). Foliage, see-through things and water keep the full shader. Checked: the stress scene's opaque
+  pass 2280 ms against 2436 before (back where it was before task 112); the coloured shadows' scene the same
+  picture (only the frame-time text differs), MSAA; Night Drive, the editor, under validation with sync checks.
+  Not done: other constants per frame (none measured worth it yet), the variants' compile spread off the frame
+  that first needs them.
 
