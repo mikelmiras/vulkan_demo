@@ -508,7 +508,9 @@ dropping on the right.
 - **Reflection probes** (Add > Reflection probe): a box where shiny things reflect their real surroundings instead
   of the sky. The probe renders the scene from its centre in all six directions (when it's first seen, moved or
   resized, on Bake in its Inspector, and when the sky it was baked under has changed: the sun moved by 2 degrees
-  with the time of day, the clouds or the haze; one probe a frame), and that picture is prefiltered like a sky image; surfaces inside the box
+  with the time of day, the clouds or the haze), and that picture is prefiltered. A rebake for a changed sky doesn't
+  stall: one probe at a time, a face a frame, then prefiltered on a worker thread while the old picture stays in
+  use until the new one's ready (about eight frames) like a sky image; surfaces inside the box
   reflect it (lined up with the walls of a box-shaped room with *Box projection*) and get their ambient light from
   it, blending into the sky over the last metre inside its edges. The four probes nearest the camera are used.
 - **Global illumination** (Scene look > Global illumination; off by default): light bounces off surfaces, so a red

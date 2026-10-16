@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <future>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -440,6 +441,25 @@ private:
     std::vector<ProbeInfo> activeProbeInfo_;
     uint64_t frameCounter_ = 0;
     void updateProbes(const SceneRenderInfo& info);   // bakes what's new (waits for the GPU), picks the nearest four
+    // A probe being baked over several frames (a rebake: its sky changed): its targets, the next face, the panorama
+    // being prefiltered on a worker thread
+    struct ProbeBake {
+        ProbeInfo probe;
+        uint32_t size = 0;
+        Image resolved, msaa, depth;
+        Buffer readback;                   // (six faces, RGBA16F)
+        int face = 0;                      // the next to render (6: all rendered)
+        atmosphere::SkyState sky;          // (the sky it's baked under)
+        std::future<Environment> env;
+        bool active = false;
+    };
+    ProbeBake rebake_;
+    std::vector<std::pair<Image, uint64_t>> retiredProbes_;   // replaced pictures, destroyed from this frame on
+    void startBake(const ProbeInfo& probe, ProbeBake& b);
+    void bakeFace(const SceneRenderInfo& info, ProbeBake& b, int face);
+    void endBake(ProbeBake& b);
+    void takeProbe(const Environment& env, BakedProbe& out);
+    void advanceRebake(const SceneRenderInfo& info);   // (after the frame's fence: a face, or the result swapped in)
     bool bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, BakedProbe& out);
     void writeProbeDescriptors();             // this frame's set: the active probes (black where none)
     void setProbeData(render_detail::FrameUBO& u);

@@ -72,3 +72,34 @@ TEST(environment_load_errors) {
     CHECK(environment::load(test::tempPath("nope.hdr").u8string(), error) == nullptr);
     CHECK(!error.empty());
 }
+
+TEST(environment_from_probe_faces) {
+    // Six flat faces, each its own colour (half floats: 1 = 0x3C00, 0.5 = 0x3800); the panorama looking along each
+    // face's direction shows that face's colour
+    const uint32_t size = 8;
+    const uint16_t one = 0x3C00, half = 0x3800;
+    const uint16_t colours[6][3] = {{one, 0, 0}, {0, one, 0}, {0, 0, one}, {half, 0, 0}, {0, half, 0}, {0, 0, half}};
+    std::vector<uint16_t> px((size_t)size * size * 4 * 6, 0);
+    for (int f = 0; f < 6; ++f)
+        for (uint32_t i = 0; i < size * size; ++i)
+            for (int c = 0; c < 3; ++c) px[((size_t)f * size * size + i) * 4 + (size_t)c] = colours[f][c];
+    Environment env = environment::fromProbeFaces(px, size);
+    REQUIRE(env.sky.width == 512 && env.sky.height == 256);
+    for (int f = 0; f < 6; ++f) {
+        Vec3 want = environment::kProbeFaceForward[f];
+        size_t best = 0;
+        float bestDot = -2.f;
+        for (uint32_t y = 0; y < env.sky.height; ++y)
+            for (uint32_t x = 0; x < env.sky.width; ++x) {
+                float d = dot(environment::directionAt((x + 0.5f) / env.sky.width, (y + 0.5f) / env.sky.height), want);
+                if (d > bestDot) bestDot = d, best = (size_t)y * env.sky.width + x;
+            }
+        float expect[3] = {colours[f][0] == one ? 1.f : colours[f][0] == half ? 0.5f : 0.f,
+                           colours[f][1] == one ? 1.f : colours[f][1] == half ? 0.5f : 0.f,
+                           colours[f][2] == one ? 1.f : colours[f][2] == half ? 0.5f : 0.f};
+        for (int c = 0; c < 3; ++c) CHECK_NEAR(env.sky.rgb[best * 3 + (size_t)c], expect[c], 1e-3);
+    }
+    // Nothing read back (a size of 0): black, not a crash
+    Environment none = environment::fromProbeFaces({}, 0);
+    CHECK(none.sky.rgb.size() == 512u * 256u * 3u);
+}

@@ -3,8 +3,10 @@
 #include "render/renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <future>
 
 #include "core/profiler.h"
 #include "render/renderer_internal.h"
@@ -12,17 +14,6 @@
 using namespace render_detail;
 
 namespace {
-
-float fromHalf(uint16_t h) {
-    uint32_t sign = (uint32_t)(h & 0x8000u) << 16, exp = (h >> 10) & 0x1Fu, mant = h & 0x3FFu;
-    uint32_t bits;
-    if (exp == 0) bits = sign;                                     // (zero; denormals too: tiny)
-    else if (exp == 31) bits = sign | 0x7F800000u | (mant << 13);
-    else bits = sign | ((exp - 15 + 127) << 23) | (mant << 13);
-    float f;
-    std::memcpy(&f, &bits, 4);
-    return f;
-}
 
 // The sky a probe baked now is lit by: the scene's sun (turned to the time of day for the physical sky), its clouds
 // and haze (the clouds and haze matter to the physical sky alone)
@@ -44,159 +35,196 @@ atmosphere::SkyState skyStateOf(const SceneRenderInfo& info) {
     return state;
 }
 
-// The six views: forward and up
-const Vec3 kFaceForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
-const Vec3 kFaceUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, 1, 0}};
-
 }  // namespace
 
-bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, BakedProbe& out) {
-    PROFILE_SCOPE("Bake reflection probe");
-    const uint32_t size = (uint32_t)std::clamp(probe.resolution, 16, 1024);
+// A probe's bake: its targets and the read-back buffer (six faces, RGBA16F)
+void Renderer::startBake(const ProbeInfo& probe, ProbeBake& b) {
+    b.probe = probe;
+    b.size = (uint32_t)std::clamp(probe.resolution, 16, 1024);
     const VkImageAspectFlags dsAspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-    Image resolved = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                                 VK_IMAGE_ASPECT_COLOR_BIT, size, size, VK_SAMPLE_COUNT_1_BIT, 1);
-    Image msaa;
+    b.resolved = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                             VK_IMAGE_ASPECT_COLOR_BIT, b.size, b.size, VK_SAMPLE_COUNT_1_BIT, 1);
     if (samples_ != VK_SAMPLE_COUNT_1_BIT)
-        msaa = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
-                           VK_IMAGE_ASPECT_COLOR_BIT, size, size, samples_, 1);
-    Image depth = createImage(depthFormat_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, dsAspect, size, size, samples_, 1);
-    const VkDeviceSize faceBytes = (VkDeviceSize)size * size * 8;   // RGBA16F
-    Buffer readback = createBuffer(faceBytes * 6, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        b.msaa = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+                             VK_IMAGE_ASPECT_COLOR_BIT, b.size, b.size, samples_, 1);
+    b.depth = createImage(depthFormat_, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, dsAspect, b.size, b.size, samples_, 1);
+    b.readback = createBuffer((VkDeviceSize)b.size * b.size * 8 * 6, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    b.face = 0;
+    b.active = true;
+}
 
-    for (int face = 0; face < 6; ++face) {
-        SceneRenderInfo f = info;
-        f.views = nullptr;
-        f.camPos = probe.position;
-        f.camForward = kFaceForward[face];
-        f.fovY = 90.f * DEG2RAD;
-        f.aspect = 1.f;
-        f.zNear = 0.05f;
-        f.zFar = 1000.f;
-        f.viewProj = perspective(f.fovY, 1.f, f.zNear, f.zFar, true) *
-                     lookAt(probe.position, probe.position + kFaceForward[face], kFaceUp[face]);
-        f.viewportX = f.viewportY = 0.f;
-        f.viewportW = f.viewportH = (float)size;
-        FrameUBO u{};
-        fillFrameUBO(f, u, false);   // (no shadows, no probes: their maps follow the main camera)
-        std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
-        prepareInstances(f, false);   // (culled on the CPU: these draws aren't indirect)
-        uploadJoints(f);
+void Renderer::endBake(ProbeBake& b) {
+    destroyBuffer(b.readback);
+    destroyImage(b.depth);
+    if (b.msaa.image) destroyImage(b.msaa);
+    destroyImage(b.resolved);
+    b = ProbeBake{};
+}
 
-        VkCommandBuffer cb = beginOneTimeCommands();
-        readyFreshImages(cb);   // (before the first frame: what set 0 holds isn't readable yet)
-        recordInstanceUpload(cb);
-        if (msaa.image)
-            imageBarrier(cb, msaa.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-        imageBarrier(cb, resolved.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+// One face: the scene from the probe (no shadows, no probes: their maps follow the main camera), read back (waits)
+void Renderer::bakeFace(const SceneRenderInfo& info, ProbeBake& b, int face) {
+    const VkImageAspectFlags dsAspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    SceneRenderInfo f = info;
+    f.views = nullptr;
+    f.camPos = b.probe.position;
+    f.camForward = environment::kProbeFaceForward[face];
+    f.fovY = 90.f * DEG2RAD;
+    f.aspect = 1.f;
+    f.zNear = 0.05f;
+    f.zFar = 1000.f;
+    f.viewProj = perspective(f.fovY, 1.f, f.zNear, f.zFar, true) *
+                 lookAt(b.probe.position, b.probe.position + environment::kProbeFaceForward[face], environment::kProbeFaceUp[face]);
+    f.viewportX = f.viewportY = 0.f;
+    f.viewportW = f.viewportH = (float)b.size;
+    FrameUBO u{};
+    fillFrameUBO(f, u, false);   // (no shadows, no probes: their maps follow the main camera)
+    std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
+    prepareInstances(f, false);   // (culled on the CPU: these draws aren't indirect)
+    uploadJoints(f);
+
+    VkCommandBuffer cb = beginOneTimeCommands();
+    readyFreshImages(cb);   // (before the first frame: what set 0 holds isn't readable yet)
+    recordInstanceUpload(cb);
+    if (b.msaa.image)
+        imageBarrier(cb, b.msaa.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
                      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-        imageBarrier(cb, depth.image, dsAspect, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
-                     VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
-        VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        if (msaa.image) {
-            color.imageView = msaa.view;
-            color.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-            color.resolveImageView = resolved.view;
-            color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        } else {
-            color.imageView = resolved.view;
-            color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        }
-        VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        depthAtt.imageView = depth.view;
-        depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depthAtt.clearValue.depthStencil = {1.f, 0};
-        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
-        ri.renderArea = {{0, 0}, {size, size}};
-        ri.layerCount = 1;
-        ri.colorAttachmentCount = 1;
-        ri.pColorAttachments = &color;
-        ri.pDepthAttachment = &depthAtt;
-        ri.pStencilAttachment = &depthAtt;
-        vkCmdBeginRendering(cb, &ri);
-        VkViewport viewport{0.f, 0.f, (float)size, (float)size, 0.f, 1.f};
-        VkRect2D scissor{{0, 0}, {size, size}};
-        vkCmdSetViewport(cb, 0, 1, &viewport);
-        vkCmdSetScissor(cb, 0, 1, &scissor);
-        VkBuffer vbs[2] = {vertexBuffer_.buffer, skinBuffer_.buffer};
-        VkDeviceSize offsets[2] = {0, 0};
-        vkCmdBindVertexBuffers(cb, 0, 2, vbs, offsets);
-        vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
-        const uint32_t slot = 0;
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
-        VkDescriptorSet bound = VK_NULL_HANDLE;
-        auto draw = [&](const Batch& b) {
-            if (b.texture != bound) {
-                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
-                bound = b.texture;
-            }
-            drawBatch(cb, b);
-        };
-        if (info.items) {
-            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-            for (const Batch& b : sceneBatches_) draw(b);
-        }
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
-        vkCmdDraw(cb, 3, 1, 0, 0);
-        if (info.items && !transparentBatches_.empty()) {
-            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline_);
-            for (const Batch& b : transparentBatches_) draw(b);
-        }
-        vkCmdEndRendering(cb);
-        imageBarrier(cb, resolved.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-        VkBufferImageCopy region{};
-        region.bufferOffset = faceBytes * (VkDeviceSize)face;
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageExtent = {size, size, 1};
-        vkCmdCopyImageToBuffer(cb, resolved.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.buffer, 1, &region);
-        endOneTimeCommands(cb);   // (waits)
+    imageBarrier(cb, b.resolved.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    imageBarrier(cb, b.depth.image, dsAspect, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
+                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                 VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+    VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    if (b.msaa.image) {
+        color.imageView = b.msaa.view;
+        color.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+        color.resolveImageView = b.resolved.view;
+        color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    } else {
+        color.imageView = b.resolved.view;
+        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     }
-
-    // The six views -> a 512 x 256 panorama -> prefiltered
-    const uint16_t* px = static_cast<const uint16_t*>(readback.mapped);
-    const uint32_t pw = 512, ph = 256;
-    std::vector<float> rgb((size_t)pw * ph * 3);
-    for (uint32_t y = 0; y < ph; ++y)
-        for (uint32_t x = 0; x < pw; ++x) {
-            Vec3 d = environment::directionAt(((float)x + 0.5f) / (float)pw, ((float)y + 0.5f) / (float)ph);
-            int best = 0;
-            float bestDot = -2.f;
-            for (int f = 0; f < 6; ++f)
-                if (float k = dot(d, kFaceForward[f]); k > bestDot) bestDot = k, best = f;
-            Vec3 fw = kFaceForward[best], up = kFaceUp[best], right = normalize(cross(fw, up));
-            up = cross(right, fw);
-            float sx = dot(d, right) / bestDot, sy = -dot(d, up) / bestDot;   // -1..1 across the view (y down)
-            uint32_t ix = std::min(size - 1, (uint32_t)((sx * 0.5f + 0.5f) * (float)size));
-            uint32_t iy = std::min(size - 1, (uint32_t)((sy * 0.5f + 0.5f) * (float)size));
-            const uint16_t* p = px + ((size_t)best * size * size + (size_t)iy * size + ix) * 4;
-            for (int c = 0; c < 3; ++c) rgb[((size_t)y * pw + x) * 3 + (size_t)c] = fromHalf(p[c]);
+    VkRenderingAttachmentInfo depthAtt{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    depthAtt.imageView = b.depth.view;
+    depthAtt.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    depthAtt.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAtt.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAtt.clearValue.depthStencil = {1.f, 0};
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, {b.size, b.size}};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &color;
+    ri.pDepthAttachment = &depthAtt;
+    ri.pStencilAttachment = &depthAtt;
+    vkCmdBeginRendering(cb, &ri);
+    VkViewport viewport{0.f, 0.f, (float)b.size, (float)b.size, 0.f, 1.f};
+    VkRect2D scissor{{0, 0}, {b.size, b.size}};
+    vkCmdSetViewport(cb, 0, 1, &viewport);
+    vkCmdSetScissor(cb, 0, 1, &scissor);
+    VkBuffer vbs[2] = {vertexBuffer_.buffer, skinBuffer_.buffer};
+    VkDeviceSize offsets[2] = {0, 0};
+    vkCmdBindVertexBuffers(cb, 0, 2, vbs, offsets);
+    vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
+    const uint32_t slot = 0;
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
+    VkDescriptorSet bound = VK_NULL_HANDLE;
+    auto draw = [&](const Batch& b) {
+        if (b.texture != bound) {
+            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
+            bound = b.texture;
         }
-    Environment env = environment::build("probe", pw, ph, std::move(rgb));
+        drawBatch(cb, b);
+    };
+    if (info.items) {
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
+        for (const Batch& b : sceneBatches_) draw(b);
+    }
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
+    vkCmdDraw(cb, 3, 1, 0, 0);
+    if (info.items && !transparentBatches_.empty()) {
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline_);
+        for (const Batch& b : transparentBatches_) draw(b);
+    }
+    vkCmdEndRendering(cb);
+    imageBarrier(cb, b.resolved.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                 VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+    VkBufferImageCopy region{};
+    region.bufferOffset = (VkDeviceSize)b.size * b.size * 8 * (VkDeviceSize)face;
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {b.size, b.size, 1};
+    vkCmdCopyImageToBuffer(cb, b.resolved.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, b.readback.buffer, 1, &region);
+    endOneTimeCommands(cb);   // (waits)
+}
+
+namespace {
+std::vector<uint16_t> readFaces(const void* mapped, uint32_t size) {
+    const uint16_t* p = static_cast<const uint16_t*>(mapped);
+    return std::vector<uint16_t>(p, p + (size_t)size * size * 4 * 6);
+}
+}  // namespace
+
+// The probe's picture and harmonics from a built environment
+void Renderer::takeProbe(const Environment& env, BakedProbe& out) {
     std::vector<const Environment::Level*> levels;
     for (const Environment::Level& l : env.radiance) levels.push_back(&l);
     out.radiance = createFloatImage(levels);
     for (int k = 0; k < 9; ++k)
         for (int c = 0; c < 3; ++c) out.sh[k][c] = env.sh[k][c];
+}
+
+bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, BakedProbe& out) {
+    PROFILE_SCOPE("Bake reflection probe");
+    ProbeBake b;
+    startBake(probe, b);
+    for (int face = 0; face < 6; ++face) bakeFace(info, b, face);
+    takeProbe(environment::fromProbeFaces(readFaces(b.readback.mapped, b.size), b.size), out);
     out.key = probe.key;
     out.sky = skyStateOf(info);
-
-    destroyBuffer(readback);
-    destroyImage(depth);
-    if (msaa.image) destroyImage(msaa);
-    destroyImage(resolved);
+    endBake(b);
     return true;
+}
+
+// A rebake under way (a probe whose sky changed): a face a frame (after the frame's fence: its buffers are free),
+// then the panorama and prefiltering on a worker thread, then the new picture swapped in; the old one destroyed once
+// no frame in flight can read it. Frames go on drawing with the old picture meanwhile.
+void Renderer::advanceRebake(const SceneRenderInfo& info) {
+    for (auto it = retiredProbes_.begin(); it != retiredProbes_.end();)
+        if (it->second <= frameCounter_) {
+            destroyImage(it->first);
+            it = retiredProbes_.erase(it);
+        } else {
+            ++it;
+        }
+    if (!rebake_.active) return;
+    PROFILE_SCOPE("Rebake reflection probe");
+    int found = -1;
+    for (size_t i = 0; i < probes_.size(); ++i)
+        if (probes_[i].key == rebake_.probe.key) found = (int)i;
+    if (found < 0) {   // (gone meanwhile: dropped)
+        if (rebake_.env.valid()) rebake_.env.wait();
+        endBake(rebake_);
+        return;
+    }
+    if (rebake_.face < 6) {
+        bakeFace(info, rebake_, rebake_.face++);
+        if (rebake_.face == 6)
+            rebake_.env = std::async(std::launch::async, environment::fromProbeFaces, readFaces(rebake_.readback.mapped, rebake_.size),
+                                     rebake_.size);
+        return;
+    }
+    if (rebake_.env.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    BakedProbe& p = probes_[(size_t)found];
+    retiredProbes_.push_back({p.radiance, frameCounter_ + MAX_FRAMES + 1});
+    takeProbe(rebake_.env.get(), p);
+    p.sky = rebake_.sky;
+    endBake(rebake_);
 }
 
 void Renderer::updateProbes(const SceneRenderInfo& info) {
@@ -216,19 +244,11 @@ void Renderer::updateProbes(const SceneRenderInfo& info) {
         int found = -1;
         for (size_t i = 0; i < probes_.size(); ++i)
             if (probes_[i].key == p->key) found = (int)i;
-        // Baked under another sky (the time of day, the clouds): baked again, one a frame (each a stall)
-        if (found >= 0 && !rebaked && atmosphere::skyChangedEnough(probes_[(size_t)found].sky, sky)) {
-            if (!waited) {
-                vkDeviceWaitIdle(device_);
-                waited = true;
-                writeEnvironmentDescriptors();
-            }
-            BakedProbe baked;
-            if (bakeProbe(info, *p, baked)) {
-                baked.lastUsed = probes_[(size_t)found].lastUsed;
-                destroyImage(probes_[(size_t)found].radiance);
-                probes_[(size_t)found] = std::move(baked);
-            }
+        // Baked under another sky (the time of day, the clouds): baked again over the next frames (advanceRebake: a
+        // face a frame, no stall), one at a time; it keeps its picture until the new one's ready
+        if (found >= 0 && !rebaked && !rebake_.active && atmosphere::skyChangedEnough(probes_[(size_t)found].sky, sky)) {
+            startBake(*p, rebake_);
+            rebake_.sky = sky;
             rebaked = true;
         }
         if (found < 0) {   // new (or changed): baked now, between frames
@@ -288,6 +308,12 @@ void Renderer::setProbeData(FrameUBO& u) {
 }
 
 void Renderer::destroyProbes() {
+    if (rebake_.active) {
+        if (rebake_.env.valid()) rebake_.env.wait();
+        endBake(rebake_);
+    }
+    for (auto& r : retiredProbes_) destroyImage(r.first);
+    retiredProbes_.clear();
     for (BakedProbe& p : probes_) destroyImage(p.radiance);
     probes_.clear();
 }

@@ -1864,7 +1864,7 @@ traffic lights.
 | 110 (done) | Temporal ambient occlusion: a history (reprojected with the motion vectors, dropped where the depth changed), more samples over time, bent normals for the indirect light's direction | AO before lighting is a fresh half-size estimate each frame: noisy at medium quality, and the ambient's direction ignores what's hidden |
 | 111 (done) | Depth of field's near field and the sky's motion: a pre-pass of each tile's largest near circle so a blurred foreground spreads over a sharp background; the camera's own motion for the sky in motion blur | A blurred foreground has crisp edges; the sky never smears when the camera turns |
 | 112 (done) | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
-| 113 | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
+| 113 (done) | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
 | 114 | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
 | 115 | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
 | 116 | Light shafts from lamps (the brightest few in view, without volumetric fog) and from the sun through occluders off screen (its shadow map marched in the half-size pass) | Shafts come only from the sun, and only from what's on screen |
@@ -1928,4 +1928,17 @@ traffic lights.
   scene's opaque pass about 5% more on lavapipe with no tint in it (lavapipe works through the lookups even when
   the frame's flag is off; a GPU skips a branch the same for every pixel). Not done: tints in spot and point
   lights' shadows and in the volumetric fog, coloured caustics (focus through curved glass).
+- **113, probe rebakes without stalls**: bakeProbe split into startBake (the targets and the read-back buffer),
+  bakeFace (one face: the scene from the probe, read back; its own one-time commands, waiting for that face alone),
+  endBake, and the panorama and prefiltering, now environment::fromProbeFaces (environment.h, with the faces'
+  directions; tested: six flat faces land where they look). New probes still bake at once (there's nothing to show
+  before); a rebake for a changed sky (task 102) starts a ProbeBake job instead (one at a time): advanceRebake,
+  after each frame's fence (that frame's UBO and instance buffers are free then), renders the next face; after
+  the sixth, fromProbeFaces runs on a worker thread (std::async; environment::build is pure but for an atomic
+  id); once ready the new picture is uploaded and swapped in, the old one kept in retiredProbes_ until MAX_FRAMES
+  + 1 frames later (descriptor sets of frames in flight may still hold it). No vkDeviceWaitIdle for rebakes any
+  more. Checked: with the sun moved every frame (a temporary hack, reverted), a face each frame 2-7 and the swap
+  at 8, again 9-15, ...; under validation with sync checks, MSAA too; Night Drive, the editor. Not done: the faces
+  in the frame's own command buffer (each still waits for its own one-time submission: a short wait a frame, not
+  the whole bake), first bakes spread the same way.
 

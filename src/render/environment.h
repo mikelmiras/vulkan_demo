@@ -36,6 +36,12 @@ const Environment* load(const std::string& path, std::string& error);
 Environment build(const std::string& source, uint32_t width, uint32_t height, std::vector<float> rgb);
 
 Vec3 directionAt(float u, float v);   // image coordinates (0..1) -> direction
+
+// A reflection probe's six views (renderer_probes.cpp: 90 degrees each, looking along these with these up; images
+// y down) and their pixels read back (RGBA half floats, size x size each, in this order) made into a 512 x 256
+// panorama, then built like a sky image
+extern const Vec3 kProbeFaceForward[6], kProbeFaceUp[6];
+Environment fromProbeFaces(const std::vector<uint16_t>& rgbaHalf, uint32_t size);
 void uvOf(Vec3 dir, float& u, float& v);
 // Evaluates the irradiance at a normal (what the shader does): radiance-weighted cosine sum, divided by pi
 Vec3 irradiance(const Environment& env, Vec3 n);

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -142,6 +143,44 @@ Vec3 irradiance(const Environment& env, Vec3 n) {
     Vec3 e;
     for (int i = 0; i < 9; ++i) e = e + Vec3{env.sh[i][0], env.sh[i][1], env.sh[i][2]} * y[i];
     return e * (1.f / kPi);
+}
+
+const Vec3 kProbeFaceForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+const Vec3 kProbeFaceUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, 1, 0}};
+
+namespace {
+float fromHalf(uint16_t h) {
+    uint32_t sign = (uint32_t)(h & 0x8000u) << 16, exp = (h >> 10) & 0x1Fu, mant = h & 0x3FFu;
+    uint32_t bits;
+    if (exp == 0) bits = sign;                                     // (zero; denormals too: tiny)
+    else if (exp == 31) bits = sign | 0x7F800000u | (mant << 13);
+    else bits = sign | ((exp - 15 + 127) << 23) | (mant << 13);
+    float f;
+    std::memcpy(&f, &bits, 4);
+    return f;
+}
+}  // namespace
+
+Environment fromProbeFaces(const std::vector<uint16_t>& px, uint32_t size) {
+    const uint32_t pw = 512, ph = 256;
+    std::vector<float> rgb((size_t)pw * ph * 3);
+    if (size == 0 || px.size() < (size_t)size * size * 4 * 6) return build("probe", pw, ph, std::move(rgb));
+    for (uint32_t y = 0; y < ph; ++y)
+        for (uint32_t x = 0; x < pw; ++x) {
+            Vec3 d = directionAt(((float)x + 0.5f) / (float)pw, ((float)y + 0.5f) / (float)ph);
+            int best = 0;
+            float bestDot = -2.f;
+            for (int f = 0; f < 6; ++f)
+                if (float k = dot(d, kProbeFaceForward[f]); k > bestDot) bestDot = k, best = f;
+            Vec3 fw = kProbeFaceForward[best], up = kProbeFaceUp[best], right = normalize(cross(fw, up));
+            up = cross(right, fw);
+            float sx = dot(d, right) / bestDot, sy = -dot(d, up) / bestDot;   // -1..1 across the view (y down)
+            uint32_t ix = std::min(size - 1, (uint32_t)((sx * 0.5f + 0.5f) * (float)size));
+            uint32_t iy = std::min(size - 1, (uint32_t)((sy * 0.5f + 0.5f) * (float)size));
+            const uint16_t* p = px.data() + ((size_t)best * size * size + (size_t)iy * size + ix) * 4;
+            for (int c = 0; c < 3; ++c) rgb[((size_t)y * pw + x) * 3 + (size_t)c] = fromHalf(p[c]);
+        }
+    return build("probe", pw, ph, std::move(rgb));
 }
 
 Environment build(const std::string& source, uint32_t width, uint32_t height, std::vector<float> rgb) {

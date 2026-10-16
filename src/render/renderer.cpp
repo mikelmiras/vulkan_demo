@@ -2168,6 +2168,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         PROFILE_SCOPE("Wait for the GPU");
         VK_CHECK(vkWaitForFences(device_, 1, &inFlight_[frame_], VK_TRUE, UINT64_MAX));
     }
+    advanceRebake(info);   // (a probe's rebake: a face, now that this frame's buffers are free)
     readGpuTimes();   // that frame's pass times
     readCullStats();   // ... and what its culling pass let through
     writeProbeDescriptors();   // (its set is free now)
