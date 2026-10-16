@@ -1722,7 +1722,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | 99 (done) | Ambient occlusion before lighting: computed after the depth prepass (with a history, at half size) and applied to the ambient, probe and GI light only (and to reflections as specular occlusion), not multiplied over the finished picture | The composite darkens everything AO finds, sunlit and lamp-lit surfaces too: contact areas in direct light look dirty, and specular occlusion needs screen-space GI |
 | 100 (done) | See-through GPU particles: sorted back to front on the GPU (bitonic), so smoke, steam and dust can move to the GPU; Night Drive's steam on it | Round 9's GPU particles are additive only |
 | 101 (done) | The half-size traces with MSAA and under a render scale: the prepass's surface from sample 0 of a multisampled G-buffer, the traces mapped to the drawn area | With MSAA or a render scale under 1, reflections and GI fall back to per-pixel tracing, contact shadows to none |
-| 102 | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
+| 102 (done) | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
 | 103 | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
 | 104 | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
 | 105 | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
@@ -1760,4 +1760,18 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   read from both files. Checked: MSAA, TAA, render scale 0.7, the editor, Night Drive with MSAA, under validation
   with sync checks (the multisampled images' transition waits on last frame's writes). Not done: a resolve that
   keeps an edge's nearest sample instead of the average (normals averaged across an edge).
+- **102, clouds in the sky's light, probes rebaked**: atmosphere::cloudFraction(cover) averages the cloud layer's
+  density (common.glsl's noise, the same sums on the CPU) over 48 x 48 points; cloudyHarmonics mixes that fraction
+  of the upper half's harmonics (hemisphereHarmonics: exact, the constant and vertical terms alone) to the clouds'
+  colour as skyColor lights them (the sun's or moon's colour, the sky's), and the ground's bounce is dimmed by
+  their shadows' average (1 - 0.75 f). The sun's own light was already shadowed per pixel (cloudShadow). Each baked
+  probe keeps the SkyState it was baked under (the sun, turned to the time of day, the cover and the haze);
+  skyChangedEnough (2 degrees, 0.05, 5%) rebakes one a frame. Found on the way: a probe baked before the first frame
+  drew with set 0's decal bindings (25, 28) never written (since task 90): writeDecalStandIns writes white and
+  flat ones into every frame's set at start; and set 0's images made since the last frame (the sky's tables, the
+  traces', exposure's, ...) were still UNDEFINED during such a bake: readyFreshImages, the frame's first barriers,
+  now runs in the bake's commands too. Checked: noon at 0.5 and 0.95 cover (the shade greyer: rgb 20, 34, 39
+  to 29, 40, 39), a probe scene with the sun moved every frame (a rebake a frame) under validation with sync
+  checks. Not done: rebakes spread over frames (a face a frame: each is a stall now), the clouds in the GI probes'
+  sky (they see the sky through the harmonics already), the moon's light through the clouds.
 

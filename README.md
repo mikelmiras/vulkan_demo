@@ -484,7 +484,8 @@ dropping on the right.
   loaded). The sun is still the scene's directional light; the fog keeps the horizon colour.
 - **Reflection probes** (Add > Reflection probe): a box where shiny things reflect their real surroundings instead
   of the sky. The probe renders the scene from its centre in all six directions (when it's first seen, moved or
-  resized, or on Bake in its Inspector), and that picture is prefiltered like a sky image; surfaces inside the box
+  resized, on Bake in its Inspector, and when the sky it was baked under has changed: the sun moved by 2 degrees
+  with the time of day, the clouds or the haze; one probe a frame), and that picture is prefiltered like a sky image; surfaces inside the box
   reflect it (lined up with the walls of a box-shaped room with *Box projection*) and get their ambient light from
   it, blending into the sky over the last metre inside its edges. The four probes nearest the camera are used.
 - **Global illumination** (Scene look > Global illumination; off by default): light bounces off surfaces, so a red
@@ -624,7 +625,9 @@ dropping on the right.
   above, the ground's light from below. At night stars come out in the dark sky and the **moon** (opposite the
   sun) takes over as the light, dim and blue, its shadows too. **Clouds** (0..1 of the sky) are a layer 2 km up,
   drifting with the wind, lit by the sun through the air (red at sunset) and the sky, their shadows moving over the
-  ground.
+  ground. They're in the sky's light too: as much of the ambient's harmonics as they cover (on average) takes their
+  colour, so an overcast day's shade is grey and even rather than blue, and the ground's light is dimmed by their
+  shadows on average.
 - **Specular anti-aliasing**: where the normal changes within a pixel (small curved things, distant bumpy ground),
   highlights are widened to match, so they don't sparkle and crawl.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU

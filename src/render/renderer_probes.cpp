@@ -24,6 +24,26 @@ float fromHalf(uint16_t h) {
     return f;
 }
 
+// The sky a probe baked now is lit by: the scene's sun (turned to the time of day for the physical sky), its clouds
+// and haze (the clouds and haze matter to the physical sky alone)
+atmosphere::SkyState skyStateOf(const SceneRenderInfo& info) {
+    atmosphere::SkyState state;
+    Vec3 dir = normalize({-0.45f, -1.f, -0.3f});   // (fillFrameUBO's default sun)
+    if (info.lights)
+        for (const LightInfo& l : *info.lights)
+            if (l.directional) {
+                dir = l.direction;
+                break;
+            }
+    state.toSun = normalize(dir) * -1.f;
+    if (info.physicalSky) {
+        if (info.timeOfDay >= 0.f) state.toSun = atmosphere::sunDirection(info.timeOfDay, info.latitude, info.skyRotation);
+        state.cloudCover = std::clamp(info.cloudCover, 0.f, 1.f);
+        state.haze = std::clamp(info.haze, 0.f, 20.f);
+    }
+    return state;
+}
+
 // The six views: forward and up
 const Vec3 kFaceForward[6] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 const Vec3 kFaceUp[6] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, 1, 0}};
@@ -64,6 +84,7 @@ bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, Ba
         uploadJoints(f);
 
         VkCommandBuffer cb = beginOneTimeCommands();
+        readyFreshImages(cb);   // (before the first frame: what set 0 holds isn't readable yet)
         recordInstanceUpload(cb);
         if (msaa.image)
             imageBarrier(cb, msaa.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -169,6 +190,7 @@ bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, Ba
     for (int k = 0; k < 9; ++k)
         for (int c = 0; c < 3; ++c) out.sh[k][c] = env.sh[k][c];
     out.key = probe.key;
+    out.sky = skyStateOf(info);
 
     destroyBuffer(readback);
     destroyImage(depth);
@@ -188,11 +210,27 @@ void Renderer::updateProbes(const SceneRenderInfo& info) {
         return length(a->position - info.camPos) < length(b->position - info.camPos);
     });
     if (nearest.size() > 4) nearest.resize(4);
-    bool waited = false;
+    bool waited = false, rebaked = false;
+    const atmosphere::SkyState sky = skyStateOf(info);
     for (const ProbeInfo* p : nearest) {
         int found = -1;
         for (size_t i = 0; i < probes_.size(); ++i)
             if (probes_[i].key == p->key) found = (int)i;
+        // Baked under another sky (the time of day, the clouds): baked again, one a frame (each a stall)
+        if (found >= 0 && !rebaked && atmosphere::skyChangedEnough(probes_[(size_t)found].sky, sky)) {
+            if (!waited) {
+                vkDeviceWaitIdle(device_);
+                waited = true;
+                writeEnvironmentDescriptors();
+            }
+            BakedProbe baked;
+            if (bakeProbe(info, *p, baked)) {
+                baked.lastUsed = probes_[(size_t)found].lastUsed;
+                destroyImage(probes_[(size_t)found].radiance);
+                probes_[(size_t)found] = std::move(baked);
+            }
+            rebaked = true;
+        }
         if (found < 0) {   // new (or changed): baked now, between frames
             if (!waited) {
                 vkDeviceWaitIdle(device_);

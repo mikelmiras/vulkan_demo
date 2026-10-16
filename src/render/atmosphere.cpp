@@ -240,6 +240,67 @@ Vec3 sunDirection(float hours, float latitude, float turn) {
     return normalize({c * d.x + s * d.z, d.y, -s * d.x + c * d.z});
 }
 
+void hemisphereHarmonics(bool upper, float out[9]) {
+    // (exactly: over either half, every term but the constant and the vertical one sums to nothing)
+    for (int k = 0; k < 9; ++k) out[k] = 0.f;
+    out[0] = 0.282095f * 2.f * PI;
+    out[1] = 0.488603f * PI * (upper ? 1.f : -1.f);
+}
+
+namespace {
+// shaders/common.glsl's skyHash and cloudNoise (the same sums: the same clouds)
+float fract(float x) { return x - std::floor(x); }
+float skyHash(float px, float py, float pz) {
+    px = fract(px * 0.1031f), py = fract(py * 0.1030f), pz = fract(pz * 0.0973f);
+    float d = px * (py + 33.33f) + py * (px + 33.33f) + pz * (pz + 33.33f);
+    px += d, py += d, pz += d;
+    return fract((px + py) * pz);
+}
+float cloudNoise(float x, float y) {
+    float ix = std::floor(x), iy = std::floor(y), fx = x - ix, fy = y - iy;
+    float ux = fx * fx * (3.f - 2.f * fx), uy = fy * fy * (3.f - 2.f * fy);
+    float a = skyHash(ix, iy, 1.f), b = skyHash(ix + 1.f, iy, 1.f), c = skyHash(ix, iy + 1.f, 1.f), e = skyHash(ix + 1.f, iy + 1.f, 1.f);
+    return (a + (b - a) * ux) * (1.f - uy) + (c + (e - c) * ux) * uy;
+}
+float smoothstep(float e0, float e1, float x) {
+    float t = std::clamp((x - e0) / (e1 - e0), 0.f, 1.f);
+    return t * t * (3.f - 2.f * t);
+}
+}  // namespace
+
+float cloudFraction(float cover) {
+    cover = std::clamp(cover, 0.f, 1.f);
+    if (cover <= 0.f) return 0.f;
+    // The layer's density averaged over 48 x 48 points across 12 x 12 of its noise's cells (its pattern's scale)
+    constexpr int kN = 48;
+    double sum = 0.0;
+    for (int j = 0; j < kN; ++j)
+        for (int i = 0; i < kN; ++i) {
+            float x = (i + 0.37f) * (12.f / kN), y = (j + 0.61f) * (12.f / kN);
+            float n = cloudNoise(x, y) * 0.6f + cloudNoise(x * 2.7f + 7.1f, y * 2.7f + 7.1f) * 0.3f +
+                      cloudNoise(x * 7.3f + 3.3f, y * 7.3f + 3.3f) * 0.1f;
+            sum += smoothstep(1.f - cover, 1.f - cover + 0.25f, n) * std::min(cover * 3.f, 1.f);
+        }
+    return (float)(sum / (kN * kN));
+}
+
+void cloudyHarmonics(Vec3 sh[9], float fraction, Vec3 cloud) {
+    struct Upper {
+        float k[9];
+        Upper() { hemisphereHarmonics(true, k); }
+    };
+    static const Upper upperHalf;   // (made once)
+    const float* upper = upperHalf.k;
+    fraction = std::clamp(fraction, 0.f, 1.f);
+    for (int k = 0; k < 9; ++k) sh[k] = sh[k] * (1.f - fraction) + cloud * (upper[k] * fraction);
+}
+
+bool skyChangedEnough(const SkyState& baked, const SkyState& now) {
+    return dot(normalize(baked.toSun), normalize(now.toSun)) < std::cos(2.f * DEG2RAD) ||
+           std::fabs(baked.cloudCover - now.cloudCover) > 0.05f ||
+           std::fabs(baked.haze - now.haze) > 0.05f * std::max(baked.haze, 0.1f);
+}
+
 Vec3 seaLevelExtinction(float haze) { return mediumAt(0.f, haze).extinction; }
 
 SkyLight skyLight(Vec3 toSun, float haze) {

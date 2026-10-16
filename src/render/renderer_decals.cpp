@@ -32,6 +32,24 @@ void Renderer::createDecalBuffers() {
     }
 }
 
+void Renderer::writeDecalStandIns() {
+    VkDescriptorImageInfo images[kDecalTextures], normals[kDecalNormals];
+    for (uint32_t s = 0; s < kDecalTextures; ++s) images[s] = {sampler_, whiteTexture_.image.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    for (uint32_t s = 0; s < kDecalNormals; ++s) normals[s] = {sampler_, flatNormal_.linear, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    for (int i = 0; i < MAX_FRAMES; ++i) {
+        VkWriteDescriptorSet w[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+        w[0].dstSet = w[1].dstSet = descSets_[i];
+        w[0].dstBinding = 25;
+        w[0].descriptorCount = kDecalTextures;
+        w[0].descriptorType = w[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w[0].pImageInfo = images;
+        w[1].dstBinding = 28;
+        w[1].descriptorCount = kDecalNormals;
+        w[1].pImageInfo = normals;
+        vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
+    }
+}
+
 // This frame's decals (the main view's camera picks them; the extra views see the same) and weather
 void Renderer::writeDecals(const SceneRenderInfo& info, FrameUBO& u) {
     u.weather[0] = std::clamp(info.wetness, 0.f, 1.f);

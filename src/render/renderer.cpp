@@ -1289,6 +1289,7 @@ void Renderer::createResources(const MeshLibrary&) {
     whiteTexture_ = createTexture(white, 1, 1);
     const uint8_t flat[4] = {128, 128, 255, 255};
     flatNormal_ = createTexture(flat, 1, 1);
+    writeDecalStandIns();   // (a probe baked before the first frame draws with these sets)
     uploadTextures();
 }
 
@@ -1344,18 +1345,20 @@ void Renderer::initImGui() {
 // Frame
 // ---------------------------------------------------------------------------------------------
 
-void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, const SceneRenderInfo& scene,
-                              ImDrawData* ui) {
-    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VK_CHECK(vkBeginCommandBuffer(cb, &bi));
-    uploadTextures(cb);   // new ones, a few megabytes a frame (until then they're drawn plain)
+// Images made since the last frame (or since the start), which set 0 and the post sets hold whether they're used or
+// not: put in the layouts they're read in, before anything reads them (a frame, or a probe baked before one)
+void Renderer::readyFreshImages(VkCommandBuffer cb) {
+    if (skyFresh_) {   // (readable from the first frame: binding 23 always holds the sky table, used or not)
+        for (VkImage image : {skyTransmittance_.image, skyView_.image, skyMultiple_.image})
+            mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                       VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        skyFresh_ = false;
+    }
     if (uiLayerFresh_ && uiLayer_.image) {   // (the UI layer, just made: readable before it's drawn this frame)
         imageBarrier(cb, uiLayer_.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
     uiLayerFresh_ = false;
-    recordSky(cb);   // (the physical sky's tables: before anything this frame reads them)
     if (lumFresh_) {   // (auto-exposure's images, just made: readable before anything samples them)
         for (VkImage image : {lum_.image, exposure_[0].image, exposure_[1].image})
             mipBarrier(cb, image, 0, image == lum_.image ? kLumMips : 1, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1392,6 +1395,16 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         v.fresh = false;
     }
+}
+
+void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, const SceneRenderInfo& scene,
+                              ImDrawData* ui) {
+    VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VK_CHECK(vkBeginCommandBuffer(cb, &bi));
+    uploadTextures(cb);   // new ones, a few megabytes a frame (until then they're drawn plain)
+    readyFreshImages(cb);   // (images made since the last frame: in their layouts)
+    recordSky(cb);   // (the physical sky's tables: before anything this frame reads them)
     stampNames_[frame_].clear();
     if (timestamps_[frame_]) vkCmdResetQueryPool(cb, timestamps_[frame_], 0, kMaxTimestamps);
     timestamp(cb, "start");

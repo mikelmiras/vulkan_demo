@@ -118,3 +118,49 @@ TEST(atmosphere_settings_saved) {
     Scene plain;
     CHECK(!plain.render.physicalSky && plain.render.timeOfDay < 0.f);   // (off unless asked for: the colours)
 }
+
+TEST(atmosphere_clouds_in_the_ambient) {
+    // The clouds' average: none without cover, more with more, most of the sky when overcast
+    CHECK(cloudFraction(0.f) == 0.f);
+    float some = cloudFraction(0.3f), more = cloudFraction(0.6f), all = cloudFraction(1.f);
+    CHECK(some > 0.02f && some < more && more < all);
+    CHECK(all > 0.8f && all <= 1.f);
+    // Over the sky's harmonics: none leaves them; all of it makes them the clouds' alone (even all round: no pull
+    // towards the sun's side), grey where the sky was blue
+    Vec3 sky[9], clear[9];
+    skyHarmonics(normalize(Vec3{0.f, 0.5f, 1.f}), 1.f, sky);
+    for (int k = 0; k < 9; ++k) clear[k] = sky[k];
+    cloudyHarmonics(sky, 0.f, {0.1f, 0.1f, 0.1f});
+    CHECK_NEAR(sky[2].z, clear[2].z, 1e-7);
+    cloudyHarmonics(sky, 1.f, {0.1f, 0.1f, 0.1f});
+    float upper[9];
+    hemisphereHarmonics(true, upper);
+    CHECK_NEAR(sky[0].x, 0.1 * upper[0], 1e-6);
+    CHECK_NEAR(sky[0].z, sky[0].x, 1e-6);
+    CHECK(std::fabs(sky[2].z) < 1e-3f && std::fabs(sky[3].x) < 1e-3f);
+    // The two halves add up to the whole sphere's: its constant term alone (sqrt(4 pi))
+    float lower[9];
+    hemisphereHarmonics(false, lower);
+    CHECK_NEAR(upper[0] + lower[0], std::sqrt(4.0 * PI), 1e-3);
+    CHECK_NEAR(upper[1], -lower[1], 1e-3);
+    CHECK(std::fabs(upper[2] + lower[2]) < 1e-3f);
+}
+
+TEST(atmosphere_probes_rebaked_when_the_sky_moves) {
+    SkyState baked;
+    baked.toSun = sunDirection(10.f, 40.f);
+    SkyState now = baked;
+    CHECK(!skyChangedEnough(baked, now));
+    now.toSun = sunDirection(10.05f, 40.f);   // (three minutes: under a degree)
+    CHECK(!skyChangedEnough(baked, now));
+    now.toSun = sunDirection(10.5f, 40.f);    // (half an hour)
+    CHECK(skyChangedEnough(baked, now));
+    now = baked;
+    now.cloudCover = 0.03f;
+    CHECK(!skyChangedEnough(baked, now));
+    now.cloudCover = 0.2f;
+    CHECK(skyChangedEnough(baked, now));
+    now = baked;
+    now.haze = 1.2f;
+    CHECK(skyChangedEnough(baked, now));
+}

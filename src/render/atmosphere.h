@@ -42,6 +42,21 @@ Vec3 multipleScattering(float height, float cosSunZenith, float haze = 1.f);
 void skyHarmonics(Vec3 toSun, float haze, Vec3 out[9]);
 void harmonics(Vec3 d, float out[9]);
 
+// The harmonics of a radiance of 1 over the upper (y > 0) or the lower half of the sphere
+void hemisphereHarmonics(bool upper, float out[9]);
+// The clouds (shaders/common.glsl's layer) over the sky's harmonics: `fraction` of the upper half covered (the
+// layer's average density: cloudFraction), each of radiance `cloud`, the rest the sky's own
+float cloudFraction(float cover);
+void cloudyHarmonics(Vec3 sh[9], float fraction, Vec3 cloud);
+
+// The sky a reflection probe was baked under: rebaked when it moved enough since (the sun by about 2 degrees, the
+// cloud cover by 0.05, the haze by 5%)
+struct SkyState {
+    Vec3 toSun{0, 1, 0};
+    float cloudCover = 0.f, haze = 1.f;
+};
+bool skyChangedEnough(const SkyState& baked, const SkyState& now);
+
 // How much the air dims light per km at the ground (rgb): aerial perspective's
 Vec3 seaLevelExtinction(float haze = 1.f);
 

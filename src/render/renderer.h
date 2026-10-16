@@ -425,6 +425,7 @@ private:
         Image radiance;
         float sh[9][3] = {};
         uint64_t lastUsed = 0;
+        atmosphere::SkyState sky;   // (the sun, clouds and haze it was baked under: rebaked when they've moved enough)
     };
     std::vector<BakedProbe> probes_;
     std::vector<int> activeProbes_;           // indices into probes_, nearest first (at most 4)
@@ -589,6 +590,8 @@ private:
     ClusterSetup clusterSetup_;          // the main view's clusters this frame (writeLights)
     bool clusterSetupValid_ = false;
     void createDecalBuffers();
+    void readyFreshImages(VkCommandBuffer cb);   // images just made: into the layouts they're read in
+    void writeDecalStandIns();   // (every frame's set: white textures and flat normal maps until a frame picks its own)
     void writeDecals(const SceneRenderInfo& info, render_detail::FrameUBO& u);
     // Foliage (renderer_lights.cpp): every terrain's plants in one buffer per frame (binding 16), rewritten when
     // they change; drawn instanced after the solid objects
@@ -930,6 +933,7 @@ private:
     bool skyViewMade_ = false;
     float skyHaze_ = -1.f;      // the transmittance table's (-1: not drawn)
     float skyHazeNow_ = 1.f, skyLightHaze_ = -1.f;
+    float cloudCoverFor_ = 0.f, cloudFraction_ = 0.f;   // (the cover the clouds' average was found for)
     Vec3 skyToSun_{0, 1, 0}, skyViewSun_{0, 1, 0}, skyLightSun_{0, 0, 0}, skySunHere_{1, 1, 1};
     atmosphere::SkyLight skyLight_;
     Vec3 skyHarmonics_[9];

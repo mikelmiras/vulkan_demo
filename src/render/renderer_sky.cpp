@@ -71,34 +71,9 @@ void Renderer::applyAtmosphere(const SceneRenderInfo& info, LightInfo& sun, Vec3
     const Vec3 night = Vec3{0.0004f, 0.0006f, 0.0012f} * std::max(info.skyIntensity, 0.f);   // (starlight, airglow)
     horizon = times(skyLight_.horizon, outer) + night;
     zenith = times(skyLight_.zenith, outer) + night;
-    // The ground: what it reflects (its colour) of the sun's light reaching it and the sky's
-    const Vec3 sunHere = times(srgbToLinear(sun.color) * sun.intensity, skyLight_.sun);
-    const Vec3 lit = sunHere * (std::max(toSun.y, 0.f) / PI) + (horizon + zenith) * 0.5f;
-    ground = times(srgbToLinear(info.ground), lit);
-    // The sky's light on the scene as spherical harmonics (the ambient: brighter towards the sun's side, blue
-    // overhead), the ground's below the horizon; as irradiance (convolved with the cosine: Ramamoorthi & Hanrahan)
-    static float lower[9];   // (the lower half-sphere's own harmonics, once)
-    static bool lowerMade = false;
-    if (!lowerMade) {
-        for (float& c : lower) c = 0.f;
-        constexpr int kDirs = 128;
-        for (int i = 0; i < kDirs; ++i) {
-            float y = 1.f - 2.f * (i + 0.5f) / kDirs, rr = std::sqrt(std::max(0.f, 1.f - y * y)), phi = i * 2.39996323f;
-            if (y >= 0.f) continue;
-            float b[9];
-            atmosphere::harmonics({rr * std::cos(phi), y, rr * std::sin(phi)}, b);
-            for (int k = 0; k < 9; ++k) lower[k] += b[k] * 4.f * PI / kDirs;
-        }
-        lowerMade = true;
-    }
-    const float band[9] = {PI, 2.f * PI / 3.f, 2.f * PI / 3.f, 2.f * PI / 3.f, PI / 4.f, PI / 4.f, PI / 4.f, PI / 4.f, PI / 4.f};
-    for (int k = 0; k < 9; ++k) {
-        Vec3 L = times(skyHarmonics_[k], outer) + ground * lower[k];
-        if (k == 0) L += night * (2.f * std::sqrt(PI));   // (starlight all round: its constant term)
-        set4(u.sh[k], L * band[k], 0.f);
-    }
     // Night: the moon (opposite the sun: a full one) takes over as the light once the sun's well down, dim and blue,
     // dimmed by the air it crosses too
+    const Vec3 sunHere = times(srgbToLinear(sun.color) * sun.intensity, skyLight_.sun);
     const Vec3 toMoon = toSun * -1.f;
     const float dark = std::clamp((-toSun.y - 0.03f) / 0.08f, 0.f, 1.f);
     const bool moonlit = dark > 0.f && toMoon.y > 0.f;
@@ -108,6 +83,35 @@ void Renderer::applyAtmosphere(const SceneRenderInfo& info, LightInfo& sun, Vec3
         skySunHere_ = times(moon, atmosphere::transmittance(atmosphere::kViewHeight, toMoon.y, haze));
     } else {
         skySunHere_ = sunHere;
+    }
+    // The clouds: as much of the sky as they cover (on average) is their colour (common.glsl's skyColor: lit by the
+    // sun, and by the sky), and the sun reaching the ground is dimmed by their shadows (cloudShadow's) on average
+    const float cover = std::clamp(info.cloudCover, 0.f, 1.f);
+    if (cover != cloudCoverFor_) {
+        cloudFraction_ = atmosphere::cloudFraction(cover);
+        cloudCoverFor_ = cover;
+    }
+    const Vec3 cloud = skySunHere_ * ((moonlit ? 0.5f : 0.15f) * (1.f - 0.5f * cloudFraction_)) + (horizon + zenith) * 0.6f;
+    // The ground: what it reflects (its colour) of the sun's light reaching it and the sky's
+    const Vec3 lit = sunHere * (std::max(toSun.y, 0.f) / PI * (1.f - 0.75f * cloudFraction_)) + (horizon + zenith) * 0.5f;
+    ground = times(srgbToLinear(info.ground), lit);
+    // The sky's light on the scene as spherical harmonics (the ambient: brighter towards the sun's side, blue
+    // overhead, greyer under clouds), the ground's below the horizon; as irradiance (convolved with the cosine:
+    // Ramamoorthi & Hanrahan)
+    static float lower[9];   // (the lower half-sphere's own harmonics, once)
+    static bool lowerMade = false;
+    if (!lowerMade) {
+        atmosphere::hemisphereHarmonics(false, lower);
+        lowerMade = true;
+    }
+    Vec3 skySh[9];
+    for (int k = 0; k < 9; ++k) skySh[k] = times(skyHarmonics_[k], outer);
+    atmosphere::cloudyHarmonics(skySh, cloudFraction_, cloud);
+    const float band[9] = {PI, 2.f * PI / 3.f, 2.f * PI / 3.f, 2.f * PI / 3.f, PI / 4.f, PI / 4.f, PI / 4.f, PI / 4.f, PI / 4.f};
+    for (int k = 0; k < 9; ++k) {
+        Vec3 L = skySh[k] + ground * lower[k];
+        if (k == 0) L += night * (2.f * std::sqrt(PI));   // (starlight all round: its constant term)
+        set4(u.sh[k], L * band[k], 0.f);
     }
     sun.color = {1, 1, 1};   // (the colour, linear, is skySunHere_: set by the caller in sunColor)
     sun.intensity = std::max(skySunHere_.x, std::max(skySunHere_.y, skySunHere_.z)) > 1e-5f ? 1.f : 0.f;
@@ -127,12 +131,6 @@ void Renderer::recordSky(VkCommandBuffer cb) {
     const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    if (skyFresh_) {   // (readable from the first frame: binding 23 always holds the sky table, used or not)
-        for (VkImage image : {skyTransmittance_.image, skyView_.image, skyMultiple_.image})
-            mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, readable, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
-                       fragStage, VK_ACCESS_SHADER_READ_BIT);
-        skyFresh_ = false;
-    }
     if (!skyOn_) return;
     auto draw = [&](const Image& image, VkExtent2D size, VkPipeline pipeline, const float* push, bool withSet) {
         mipBarrier(cb, image.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
