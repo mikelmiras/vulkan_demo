@@ -446,9 +446,9 @@ private:
     std::vector<int> activeProbes_;           // indices into probes_, nearest first (at most 4)
     std::vector<ProbeInfo> activeProbeInfo_;
     uint64_t frameCounter_ = 0;
-    void updateProbes(const SceneRenderInfo& info);   // bakes what's new (waits for the GPU), picks the nearest four
-    // A probe being baked over several frames (a rebake: its sky changed): its targets, the next face, the panorama
-    // being prefiltered on a worker thread
+    void updateProbes(const SceneRenderInfo& info);   // starts bakes (new probes, changed skies), picks the nearest four
+    // A probe being baked over several frames (new, or its sky changed): its targets, the next face (drawn in a
+    // frame's own commands, a face a frame), the panorama being prefiltered on a worker thread
     struct ProbeBake {
         ProbeInfo probe;
         uint32_t size = 0;
@@ -458,15 +458,25 @@ private:
         atmosphere::SkyState sky;          // (the sky it's baked under)
         std::future<Environment> env;
         bool active = false;
+        bool fresh = false;                // a new probe (added when done) rather than a rebake (swapped in)
+        uint64_t lastDrawn = 0;            // the frame (frameCounter_) that drew its last face so far
     };
     ProbeBake rebake_;
     std::vector<std::pair<Image, uint64_t>> retiredProbes_;   // replaced pictures, destroyed from this frame on
     void startBake(const ProbeInfo& probe, ProbeBake& b);
-    void bakeFace(const SceneRenderInfo& info, ProbeBake& b, int face);
     void endBake(ProbeBake& b);
     void takeProbe(const Environment& env, BakedProbe& out);
-    void advanceRebake(const SceneRenderInfo& info);   // (after the frame's fence: a face, or the result swapped in)
-    bool bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, BakedProbe& out);
+    void finishBake();   // the panorama ready: the probe swapped in, or added (the least used evicted)
+    void advanceRebake(const SceneRenderInfo& info);   // (after the frame's fence: a face planned, or the result taken)
+    // This frame's probe face (renderer_probes.cpp): planned by advanceRebake (its frame data, before the main view's,
+    // whose lights it takes: finishProbeFace), culled by prepareInstances, drawn by recordProbeFace after the GI's
+    int probeFace_ = -1;   // (-1: none this frame)
+    Vec3 probeFacePos_;
+    Mat4 probeFaceViewProj_;
+    render_detail::FrameUBO* probeFaceUbo_ = nullptr;   // (kept in probeFaceData_)
+    std::vector<uint8_t> probeFaceData_;
+    void finishProbeFace(const render_detail::FrameUBO& u);
+    void recordProbeFace(VkCommandBuffer cb);
     void writeProbeDescriptors();             // this frame's set: the active probes (black where none)
     void setProbeData(render_detail::FrameUBO& u);
     void destroyProbes();   // textures reloaded in place (TextureLibrary revisions): waits for the GPU
@@ -828,7 +838,8 @@ private:
     // and projected onto spherical harmonics by gi_project.comp into giProbes_ (set 0, binding 17)
     static constexpr int kGiX = 8, kGiY = 4, kGiZ = 8, kGiProbes = kGiX * kGiY * kGiZ;
     static constexpr int kGiPerFrame = 2, kGiFace = 32;
-    static constexpr int kUboSlots = 1 + kMaxViews + 6 * kGiPerFrame;   // this view, the extra views, probe faces
+    // This view, the extra views, the GI probes' faces, a reflection probe's face
+    static constexpr int kProbeSlot = 1 + kMaxViews + 6 * kGiPerFrame, kUboSlots = kProbeSlot + 1;
     struct GiSlot {
         int cell[3] = {0, 0, 0};   // the world cell it holds
         bool made = false;         // drawn at least once for that cell
@@ -847,6 +858,7 @@ private:
     int giDrawSlot_[kGiPerFrame] = {};
     Vec3 giDrawPos_[kGiPerFrame];
     std::vector<Batch> giBatches_[kGiPerFrame];
+    std::vector<Batch> probeBatches_, probeTransparent_;   // (the reflection probe's face this frame: probeFace_)
     uint64_t giFrame_ = 0;
     int giUnmade_ = 0;
     bool giOn_ = false;                // (this frame)

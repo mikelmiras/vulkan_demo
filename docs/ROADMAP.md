@@ -2017,7 +2017,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | 122 (done) | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
 | 123 (done) | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
 | 124 (done) | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
-| 125 | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
+| 125 (done) | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
 | 126 | Soft shadows from lamps: a blocker search for spot and point lights (PCSS, by the light's size), so a lamp's shadows sharpen at contact and soften away from it | Lamp shadows have one fixed softness |
 | 127 | Night Drive's sidewalks: pedestrians walking them (navigation mesh), crossing at the zebra crossings on walk signals, the traffic waiting for them | The streets have cars but no one walking |
 | 128 | Depth of field's near field weighed by coverage (no see-through edge) with tiles at quarter size, and motion blur by each object's own motion within a shutter | The near field's edge is a little transparent; the tiles' pass costs more than it needs |
@@ -2109,4 +2109,22 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   the demo, under CI's validation layer. The temporal pass 132.6 ms against 114.0 (lavapipe, Night Drive): the
   history's five taps. Not done: a settings menu in the sample game, the history weight by the pixel's sub-pixel
   offset, YCoCg clipping.
+- **125, probes without waits**: the bake job (ProbeBake; fresh for a new probe) now covers new probes too:
+  updateProbes starts it for the nearest new or sky-changed probe (one at a time; a new one isn't active until it's
+  done: the sky's reflection meanwhile). After the frame's fence advanceRebake plans the next face: its FrameUBO
+  (filled before the main view's, as the GI faces are: it takes the main view's lights, finishProbeFace, into its
+  own slot, kProbeSlot, one more than the GI's), prepareInstances culls the items by its frustum with their levels
+  of detail from the probe (probeBatches_, probeTransparent_, in the frame's index list), and recordProbeFace draws
+  it after the GI faces in the frame's command buffer, copies it into the read-back buffer's slice and makes that
+  visible to the host. Once the frame of the last face is done (probes::facesDone: its fence waited, a frame's
+  margin) fromProbeFaces runs on the worker; finishBake swaps the picture in, or adds the probe (evicting
+  probes::evictionVictim: the least recently used not active now; the old picture retired until no frame in
+  flight holds it), and looks the active probes' indices up again. bakeProbe, bakeFace and the vkDeviceWaitIdle
+  are gone. A probe dropped mid-bake is freed once no frame in flight draws into it. The GI faces already see the
+  clouds (they draw the sky through skyColor, cloud layer included): checked, with GI the shade drops from 66.5 to
+  31.3 (cover 0 to 0.95) against 68.5 to 39.0 without. Checked: the probe scene at frame 6 (the sky's light) and 30
+  (the probe's), frame 60 the same; with the time of day moved every frame (a temporary hack, reverted: rebakes
+  back to back), MSAA and temporal AA, the editor, Night Drive, the demo, under CI's validation layer (which found
+  the multisampled target's write-after-write between faces: fixed). Not done: two probes baking at once, a face's
+  lights its own (it takes the main view's nearest), the probe's faces on the GPU culling path.
 

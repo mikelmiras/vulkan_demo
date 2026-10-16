@@ -164,6 +164,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         viewTransparent_[v].clear();
     }
     for (auto& b : giBatches_) b.clear();
+    probeBatches_.clear();
+    probeTransparent_.clear();
     for (auto& b : shadowBatches_) b.clear();
     for (auto& b : shadowCutoutBatches_) b.clear();
     for (auto& b : shadowTintBatches_) b.clear();
@@ -379,6 +381,33 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         viewIndices += giVisible[(size_t)n].size();
     }
 
+    // The reflection probe's face drawn this frame (renderer_probes.cpp): what's in it, by its own distances' levels
+    std::vector<uint32_t> probeVisible, probeTransparent;
+    std::vector<int> probeLods;
+    if (probeFace_ >= 0) {
+        Frustum face(probeFaceViewProj_);
+        probeLods.assign(items.size(), 0);
+        for (uint32_t i = 0; i < (uint32_t)items.size(); ++i) {
+            const DrawItem& o = items[i];
+            const Mesh& mesh = meshes_->get(o.mesh);
+            if (o.jointOffset < 0 && !face.visible(o.model, mesh.boundsMin, mesh.boundsMax)) continue;
+            if (!mesh.lods.empty() && o.jointOffset < 0) {
+                Vec3 c = transformPoint(o.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
+                float scale = std::max({length(transformDir(o.model, {1, 0, 0})), length(transformDir(o.model, {0, 1, 0})),
+                                        length(transformDir(o.model, {0, 0, 1}))});
+                probeLods[i] = chooseLod(length(mesh.boundsMax - mesh.boundsMin) * 0.5f * scale, length(c - probeFacePos_), 1.f,
+                                         (int)mesh.lods.size());
+            }
+            (o.alphaMode == 2 ? probeTransparent : probeVisible).push_back(i);
+        }
+        std::stable_sort(probeVisible.begin(), probeVisible.end(), [&](uint32_t a, uint32_t b) {
+            VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
+            if (ta != tb) return ta < tb;
+            return items[a].mesh < items[b].mesh;
+        });
+        viewIndices += probeVisible.size() + probeTransparent.size();
+    }
+
     // ---- The instances: one per item, then the outlined ones again (in the outline colour); only the ones that
     // differ from what the store holds are uploaded
     const size_t total = items.size() + outlined;
@@ -522,6 +551,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
             int coarsest = items[i].jointOffset < 0 ? (int)meshes_->get(items[i].mesh).lods.size() : 0;
             append(giBatches_[g], i, items[i].mesh, coarsest, textureSet(items[i]));
         }
+    for (uint32_t i : probeVisible) append(probeBatches_, i, items[i].mesh, probeLods[i], textureSet(items[i]));
+    for (uint32_t i : probeTransparent) append(probeTransparent_, i, items[i].mesh, probeLods[i], textureSet(items[i]));
     for (size_t v = 0; v < viewCount; ++v) {
         for (uint32_t i : viewVisible[v]) append(viewBatches_[v], i, items[i].mesh, viewLods[v][i], textureSet(items[i]));
         for (uint32_t i : viewTransparent[v]) append(viewTransparent_[v], i, items[i].mesh, viewLods[v][i], textureSet(items[i]));

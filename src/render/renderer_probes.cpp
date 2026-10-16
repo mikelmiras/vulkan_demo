@@ -1,5 +1,6 @@
-// Reflection probes: the scene rendered from a point in six directions (no shadows, no probes, no particles), read
-// back, turned into a panorama and prefiltered like a sky image (render/environment.h); set 0, bindings 9-12.
+// Reflection probes: the scene rendered from a point in six directions (no shadows, no probes, no particles), a face
+// a frame in the frame's own commands, read back, turned into a panorama and prefiltered like a sky image on a worker
+// thread (render/environment.h); set 0, bindings 9-12.
 #include "render/renderer.h"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <future>
 
 #include "core/profiler.h"
+#include "render/probe_schedule.h"
 #include "render/renderer_internal.h"
 
 using namespace render_detail;
@@ -61,40 +63,47 @@ void Renderer::endBake(ProbeBake& b) {
     b = ProbeBake{};
 }
 
-// One face: the scene from the probe (no shadows, no probes: their maps follow the main camera), read back (waits)
-void Renderer::bakeFace(const SceneRenderInfo& info, ProbeBake& b, int face) {
-    const VkImageAspectFlags dsAspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-    SceneRenderInfo f = info;
+// The bake's next face, planned for this frame: the scene from the probe (no shadows, no probes: their maps follow
+// the main camera), its frame data in its own slot (filled before the main view's: the lights it writes then are the
+// ones kept, and the face takes them, finishProbeFace)
+static void planFace(const SceneRenderInfo& info, const Vec3& pos, int face, uint32_t size, SceneRenderInfo& f) {
+    f = info;
     f.views = nullptr;
-    f.camPos = b.probe.position;
+    f.camPos = pos;
     f.camForward = environment::probeFaceForward(face);
     f.fovY = 90.f * DEG2RAD;
     f.aspect = 1.f;
     f.zNear = 0.05f;
     f.zFar = 1000.f;
     f.viewProj = perspective(f.fovY, 1.f, f.zNear, f.zFar, true) *
-                 lookAt(b.probe.position, b.probe.position + environment::probeFaceForward(face), environment::probeFaceUp(face));
+                 lookAt(pos, pos + environment::probeFaceForward(face), environment::probeFaceUp(face));
     f.viewportX = f.viewportY = 0.f;
-    f.viewportW = f.viewportH = (float)b.size;
-    FrameUBO u{};
-    fillFrameUBO(f, u, false);   // (no shadows, no probes: their maps follow the main camera)
-    std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
-    prepareInstances(f, false);   // (culled on the CPU: these draws aren't indirect)
-    uploadJoints(f);
+    f.viewportW = f.viewportH = (float)size;
+}
 
-    VkCommandBuffer cb = beginOneTimeCommands();
-    readyFreshImages(cb);   // (before the first frame: what set 0 holds isn't readable yet)
-    recordInstanceUpload(cb);
+void Renderer::finishProbeFace(const FrameUBO& u) {
+    if (probeFace_ < 0) return;
+    probeFaceUbo_->ambient[3] = u.ambient[3];   // (its lights: the buffer holds the main view's)
+    std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * kProbeSlot, probeFaceUbo_, sizeof(FrameUBO));
+}
+
+// The planned face, in the frame's own commands: drawn into the bake's target, copied into its slice of the read-back
+// buffer (read on the host once this frame's fence is passed)
+void Renderer::recordProbeFace(VkCommandBuffer cb) {
+    if (probeFace_ < 0 || !rebake_.active) return;
+    ProbeBake& b = rebake_;
+    const VkImageAspectFlags dsAspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     if (b.msaa.image)
         imageBarrier(cb, b.msaa.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
-                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                     VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);   // (after the last face's)
     imageBarrier(cb, b.resolved.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    const VkPipelineStageFlags depthStages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     imageBarrier(cb, b.depth.image, dsAspect, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
-                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                 depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, depthStages,
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
     VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
     color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -127,40 +136,45 @@ void Renderer::bakeFace(const SceneRenderInfo& info, ProbeBake& b, int face) {
     VkRect2D scissor{{0, 0}, {b.size, b.size}};
     vkCmdSetViewport(cb, 0, 1, &viewport);
     vkCmdSetScissor(cb, 0, 1, &scissor);
-    VkBuffer vbs[2] = {vertexBuffer_.buffer, skinBuffer_.buffer};
-    VkDeviceSize offsets[2] = {0, 0};
-    vkCmdBindVertexBuffers(cb, 0, 2, vbs, offsets);
-    vkCmdBindIndexBuffer(cb, indexBuffer_.buffer, 0, VK_INDEX_TYPE_UINT32);
-    const uint32_t slot = 0;
+    const uint32_t slot = (uint32_t)(uboStride_ * kProbeSlot);
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
     VkDescriptorSet bound = VK_NULL_HANDLE;
-    auto draw = [&](const Batch& b) {
-        if (b.texture != bound) {
-            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
-            bound = b.texture;
+    auto draw = [&](const Batch& bt) {
+        if (bt.texture != bound) {
+            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &bt.texture, 0, nullptr);
+            bound = bt.texture;
         }
-        drawBatch(cb, b);
+        drawBatch(cb, bt);
+        stats_.drawCalls++;
     };
-    if (info.items) {
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
-        for (const Batch& b : sceneBatches_) draw(b);
-    }
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, scenePipeline_);
+    for (const Batch& bt : probeBatches_) draw(bt);
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline_);
     vkCmdDraw(cb, 3, 1, 0, 0);
-    if (info.items && !transparentBatches_.empty()) {
+    if (!probeTransparent_.empty()) {
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentPipeline_);
-        for (const Batch& b : transparentBatches_) draw(b);
+        for (const Batch& bt : probeTransparent_) draw(bt);
     }
     vkCmdEndRendering(cb);
     imageBarrier(cb, b.resolved.image, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
     VkBufferImageCopy region{};
-    region.bufferOffset = (VkDeviceSize)b.size * b.size * 8 * (VkDeviceSize)face;
+    region.bufferOffset = (VkDeviceSize)b.size * b.size * 8 * (VkDeviceSize)probeFace_;
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.imageExtent = {b.size, b.size, 1};
     vkCmdCopyImageToBuffer(cb, b.resolved.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, b.readback.buffer, 1, &region);
-    endOneTimeCommands(cb);   // (waits)
+    VkBufferMemoryBarrier host{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};   // (the host reads it after the fence)
+    host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    host.srcQueueFamilyIndex = host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    host.buffer = b.readback.buffer;
+    host.size = VK_WHOLE_SIZE;
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &host, 0, nullptr);
+    const uint32_t mainSlot = 0;
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &mainSlot);
+    b.face = probeFace_ + 1;
+    b.lastDrawn = frameCounter_;
 }
 
 namespace {
@@ -179,21 +193,11 @@ void Renderer::takeProbe(const Environment& env, BakedProbe& out) {
         for (int c = 0; c < 3; ++c) out.sh[k][c] = env.sh[k][c];
 }
 
-bool Renderer::bakeProbe(const SceneRenderInfo& info, const ProbeInfo& probe, BakedProbe& out) {
-    PROFILE_SCOPE("Bake reflection probe");
-    ProbeBake b;
-    startBake(probe, b);
-    for (int face = 0; face < 6; ++face) bakeFace(info, b, face);
-    takeProbe(environment::fromProbeFaces(readFaces(b.readback.mapped, b.size), b.size), out);
-    out.key = probe.key;
-    out.sky = skyStateOf(info);
-    endBake(b);
-    return true;
-}
-
-// A rebake under way (a probe whose sky changed): a face a frame (after the frame's fence: its buffers are free),
-// then the panorama and prefiltering on a worker thread, then the new picture swapped in; the old one destroyed once
-// no frame in flight can read it. Frames go on drawing with the old picture meanwhile.
+// A bake under way (a new probe, or one whose sky changed), after the frame's fence: the next face planned for this
+// frame (drawn in its commands: recordProbeFace); once the last face's frame is done (its fence passed), the panorama
+// and prefiltering on a worker thread; once that's ready, the picture taken (finishBake). The old picture of a
+// rebake, or the sky's for a new probe, is drawn with meanwhile; a replaced picture is destroyed once no frame in
+// flight can read it.
 void Renderer::advanceRebake(const SceneRenderInfo& info) {
     for (auto it = retiredProbes_.begin(); it != retiredProbes_.end();)
         if (it->second <= frameCounter_) {
@@ -202,29 +206,79 @@ void Renderer::advanceRebake(const SceneRenderInfo& info) {
         } else {
             ++it;
         }
+    probeFace_ = -1;
     if (!rebake_.active) return;
-    PROFILE_SCOPE("Rebake reflection probe");
-    int found = -1;
-    for (size_t i = 0; i < probes_.size(); ++i)
-        if (probes_[i].key == rebake_.probe.key) found = (int)i;
-    if (found < 0) {   // (gone meanwhile: dropped)
+    PROFILE_SCOPE("Bake reflection probe");
+    const bool drawnDone = probes::facesDone(frameCounter_, rebake_.lastDrawn, MAX_FRAMES);   // (none in flight uses its targets)
+    bool wanted = false;
+    if (info.probes)
+        for (const ProbeInfo& p : *info.probes) wanted = wanted || p.key == rebake_.probe.key;
+    if (!wanted) {   // (gone meanwhile: dropped, once nothing in flight draws into it)
+        if (!drawnDone) return;
         if (rebake_.env.valid()) rebake_.env.wait();
         endBake(rebake_);
         return;
     }
     if (rebake_.face < 6) {
-        bakeFace(info, rebake_, rebake_.face++);
-        if (rebake_.face == 6)
+        SceneRenderInfo f;
+        planFace(info, rebake_.probe.position, rebake_.face, rebake_.size, f);
+        probeFaceData_.assign(sizeof(FrameUBO), 0);
+        probeFaceUbo_ = reinterpret_cast<FrameUBO*>(probeFaceData_.data());
+        fillFrameUBO(f, *probeFaceUbo_, false);   // (no shadows, no probes: their maps follow the main camera)
+        probeFace_ = rebake_.face;
+        probeFacePos_ = f.camPos;
+        probeFaceViewProj_ = f.viewProj;
+        return;
+    }
+    if (!rebake_.env.valid()) {
+        if (drawnDone)
             rebake_.env = std::async(std::launch::async, environment::fromProbeFaces, readFaces(rebake_.readback.mapped, rebake_.size),
                                      rebake_.size);
         return;
     }
-    if (rebake_.env.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    if (rebake_.env.wait_for(std::chrono::seconds(0)) == std::future_status::ready) finishBake();
+}
+
+void Renderer::finishBake() {
+    int found = -1;
+    for (size_t i = 0; i < probes_.size(); ++i)
+        if (probes_[i].key == rebake_.probe.key) found = (int)i;
+    if (found < 0) {   // a new probe: added (the least recently used one not in use now evicted to make room)
+        if (probes_.size() >= 8) {
+            std::vector<uint64_t> used;
+            std::vector<bool> active;
+            for (const BakedProbe& p : probes_) {
+                used.push_back(p.lastUsed);
+                bool on = false;
+                for (const ProbeInfo& q : activeProbeInfo_) on = on || q.key == p.key;
+                active.push_back(on);
+            }
+            const int oldest = probes::evictionVictim(used, active);
+            if (oldest >= 0) {
+                retiredProbes_.push_back({probes_[(size_t)oldest].radiance, frameCounter_ + MAX_FRAMES + 1});
+                probes_.erase(probes_.begin() + oldest);
+            }
+        }
+        probes_.push_back(BakedProbe{});
+        found = (int)probes_.size() - 1;
+        probes_.back().key = rebake_.probe.key;
+        probes_.back().lastUsed = frameCounter_;
+    } else {
+        retiredProbes_.push_back({probes_[(size_t)found].radiance, frameCounter_ + MAX_FRAMES + 1});
+    }
     BakedProbe& p = probes_[(size_t)found];
-    retiredProbes_.push_back({p.radiance, frameCounter_ + MAX_FRAMES + 1});
     takeProbe(rebake_.env.get(), p);
     p.sky = rebake_.sky;
     endBake(rebake_);
+    activeProbes_.clear();   // (indices into probes_ may have moved: the active ones looked up again)
+    std::vector<ProbeInfo> still;
+    for (const ProbeInfo& q : activeProbeInfo_)
+        for (size_t i = 0; i < probes_.size(); ++i)
+            if (probes_[i].key == q.key) {
+                activeProbes_.push_back((int)i);
+                still.push_back(q);
+            }
+    activeProbeInfo_ = still;
 }
 
 void Renderer::updateProbes(const SceneRenderInfo& info) {
@@ -238,42 +292,22 @@ void Renderer::updateProbes(const SceneRenderInfo& info) {
         return length(a->position - info.camPos) < length(b->position - info.camPos);
     });
     if (nearest.size() > 4) nearest.resize(4);
-    bool waited = false, rebaked = false;
+    bool started = false;
     const atmosphere::SkyState sky = skyStateOf(info);
     for (const ProbeInfo* p : nearest) {
         int found = -1;
         for (size_t i = 0; i < probes_.size(); ++i)
             if (probes_[i].key == p->key) found = (int)i;
-        // Baked under another sky (the time of day, the clouds): baked again over the next frames (advanceRebake: a
-        // face a frame, no stall), one at a time; it keeps its picture until the new one's ready
-        if (found >= 0 && !rebaked && !rebake_.active && atmosphere::skyChangedEnough(probes_[(size_t)found].sky, sky)) {
+        // New (or changed): baked over the next frames (advanceRebake: a face a frame, no wait), the sky's
+        // reflection meanwhile; or baked under another sky (the time of day, the clouds): baked again the same way,
+        // keeping its picture until the new one's ready. One bake at a time, the nearest probe first
+        if (!started && !rebake_.active && (found < 0 || atmosphere::skyChangedEnough(probes_[(size_t)found].sky, sky))) {
             startBake(*p, rebake_);
             rebake_.sky = sky;
-            rebaked = true;
+            rebake_.fresh = found < 0;
+            started = true;
         }
-        if (found < 0) {   // new (or changed): baked now, between frames
-            if (!waited) {
-                vkDeviceWaitIdle(device_);
-                waited = true;
-                writeEnvironmentDescriptors();   // (stand-ins while baking: an evicted probe may still be bound)
-            }
-            if (probes_.size() >= 8) {   // the least recently used goes
-                auto oldest = std::min_element(probes_.begin(), probes_.end(), [](const BakedProbe& a, const BakedProbe& b) {
-                    return a.lastUsed < b.lastUsed;
-                });
-                destroyImage(oldest->radiance);
-                probes_.erase(oldest);
-            }
-            BakedProbe baked;
-            if (!bakeProbe(info, *p, baked)) continue;
-            probes_.push_back(std::move(baked));
-            found = (int)probes_.size() - 1;
-            // (indices into probes_ may have moved with an eviction: look the earlier ones up again)
-            activeProbes_.clear();
-            for (const ProbeInfo& q : activeProbeInfo_)
-                for (size_t i = 0; i < probes_.size(); ++i)
-                    if (probes_[i].key == q.key) activeProbes_.push_back((int)i);
-        }
+        if (found < 0) continue;
         probes_[(size_t)found].lastUsed = frameCounter_;
         activeProbes_.push_back(found);
         activeProbeInfo_.push_back(*p);

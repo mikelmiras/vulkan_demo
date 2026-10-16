@@ -1555,6 +1555,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
 
     // ---- Global illumination: the probes due this frame, drawn and projected
     recordGi(cb, info);
+    recordProbeFace(cb);   // (a reflection probe's face, while one's being baked)
 
     // ---- The extra views, each whole into its own image (they use the same targets, before this view does)
     if (info.items && info.views)
@@ -2289,6 +2290,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     }
     setProbeData(u);
     finishGi(u);
+    finishProbeFace(u);
     // Volumetric fog: the main view's (only with something to draw and its shadows worked out)
     fogOn_ = info.volumetricFog && info.items && fogInjectPipeline_ && info.fogDensity > 0.f;
     if (fogOn_) {
