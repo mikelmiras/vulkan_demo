@@ -369,6 +369,67 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
             remember(layer, false);
         }
         vkCmdEndRendering(cb);
+        // ... and the lamps' tint, in the same tiles at a quarter of the size: each drawn lamp's cleared white, then
+        // what lets light through multiplied in (the split-screen views' cascades have none)
+        if (shadowTintPipeline_ && lampTint_.image) {
+            const float k = (float)lampTint_.size / (float)atlas_.size;
+            VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+            b.srcAccessMask = 0;
+            b.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            b.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            b.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.image = lampTint_.image;
+            b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+            VkRenderingAttachmentInfo ta{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            ta.imageView = lampTint_.layers[0];
+            ta.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            ta.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;   // (the tiles not drawn again keep theirs)
+            ta.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            VkRenderingInfo tri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+            tri.renderArea = {{0, 0}, {lampTint_.size, lampTint_.size}};
+            tri.layerCount = 1;
+            tri.colorAttachmentCount = 1;
+            tri.pColorAttachments = &ta;
+            vkCmdBeginRendering(cb, &tri);
+            for (uint32_t layer = kCascades; layer < kShadowLayers; ++layer) {
+                if (!((draw >> layer) & 1) || shadowLamp_[layer][3] <= 0.f) continue;
+                const ShadowTile& t = shadowTiles_[layer];
+                const uint32_t x = (uint32_t)(t.x * k), y = (uint32_t)(t.y * k), size = std::max((uint32_t)(t.size * k), 1u);
+                VkClearAttachment clear{VK_IMAGE_ASPECT_COLOR_BIT, 0, {}};
+                clear.clearValue.color = {{1.f, 1.f, 1.f, 1.f}};
+                VkClearRect rect{{{(int32_t)x, (int32_t)y}, {size, size}}, 0, 1};
+                vkCmdClearAttachments(cb, 1, &clear, 1, &rect);
+                const std::vector<Batch>& casters = shadowTintBatches_[layer];
+                tinted_[layer] = !casters.empty();
+                if (casters.empty()) continue;
+                VkViewport vp{(float)x, (float)y, (float)size, (float)size, 0.f, 1.f};
+                VkRect2D sc{{(int32_t)x, (int32_t)y}, {size, size}};
+                vkCmdSetViewport(cb, 0, 1, &vp);
+                vkCmdSetScissor(cb, 0, 1, &sc);
+                int32_t index = (int32_t)layer;
+                vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowTintPipeline_);
+                VkDescriptorSet bound = VK_NULL_HANDLE;
+                for (const Batch& bt : casters) {
+                    if (bt.texture != bound) {
+                        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &bt.texture, 0, nullptr);
+                        bound = bt.texture;
+                    }
+                    drawBatch(cb, bt);
+                }
+            }
+            vkCmdEndRendering(cb);
+            b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            b.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                                 nullptr, 1, &b);
+        }
     }
     for (VkImage image : images)
         barrier(image, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,

@@ -735,7 +735,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[40] = {
+    VkDescriptorSetLayoutBinding frameBindings[41] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -776,11 +776,12 @@ void Renderer::createPipelines() {
         {35, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {36, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {37, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // AO before lighting
-        {38, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the sun's shadow tint
+        {38, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // the sun's shadow tint (the fog's too)
         {39, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // reflections' near pyramid
+        {40, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // the lamps' shadow tint (their atlas's tiles)
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 40;
+    dslci.bindingCount = 41;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
@@ -1112,6 +1113,7 @@ void Renderer::endOneTimeCommands(VkCommandBuffer cb) {
 void Renderer::createShadowResources() {
     cascades_ = createShadowArray(kCascadeSize, kCascades);
     shadowTint_ = createShadowArray(kCascadeSize / 2, kCascades, VK_FORMAT_R16G16B16A16_SFLOAT);
+    lampTint_ = createShadowArray(kAtlasSize / 4, 1, VK_FORMAT_R16G16B16A16_SFLOAT);   // (the lamps': the atlas's shape)
     shadowTintFresh_ = true;
     atlas_ = createShadowArray(kAtlasSize, 1);
     createCookies();
@@ -1200,7 +1202,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (27 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (28 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1327,10 +1329,13 @@ void Renderer::createResources(const MeshLibrary&) {
         more[3].pImageInfo = &skyInfo;
         vkUpdateDescriptorSets(device_, 4, more, 0, nullptr);
         VkDescriptorImageInfo tintInfo{postSampler_, shadowTint_.array, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};   // (filtered: soft edges)
-        VkWriteDescriptorSet tw = w[1];
-        tw.dstBinding = 38;
-        tw.pImageInfo = &tintInfo;
-        vkUpdateDescriptorSets(device_, 1, &tw, 0, nullptr);
+        VkDescriptorImageInfo lampTintInfo{postSampler_, lampTint_.layers[0], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet tw[2] = {w[1], w[1]};
+        tw[0].dstBinding = 38;
+        tw[0].pImageInfo = &tintInfo;
+        tw[1].dstBinding = 40;
+        tw[1].pImageInfo = &lampTintInfo;
+        vkUpdateDescriptorSets(device_, 2, tw, 0, nullptr);
 
         VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &imageAvailable_[i]));
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
@@ -1456,22 +1461,24 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         velocityFresh_ = false;
     }
-    if (shadowTintFresh_ && shadowTint_.image) {   // (the sun's tint layers: white until something's drawn into them)
+    if (shadowTintFresh_ && shadowTint_.image)   // (the tint layers, the sun's and the lamps': white until drawn into)
+        for (VkImage tintImage : {shadowTint_.image, lampTint_.image}) {
         VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
         b.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image = shadowTint_.image;
+        b.image = tintImage;
         b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, VK_REMAINING_ARRAY_LAYERS};
         vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
         VkClearColorValue white{{1.f, 1.f, 1.f, 1.f}};
-        vkCmdClearColorImage(cb, shadowTint_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &white, 1, &b.subresourceRange);
+        vkCmdClearColorImage(cb, tintImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &white, 1, &b.subresourceRange);
         b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
         b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &b);
         shadowTintFresh_ = false;
     }
     if (fxTilesFresh_ && fxTiles_.image) {   // (depth of field's near tiles, just made: readable, in fxSet_ either way)
@@ -2340,10 +2347,14 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
         prepareMotion(info);   // (before the instances and joints: where each was last frame)
         prepareInstances(info);
         {   // (the sun's tint: on if a cascade holds some, or will once drawn this frame; the main view's slot)
-            bool tint = false;
-            for (uint32_t c = 0; c < kCascades; ++c) tint = tint || tinted_[c] || !shadowTintBatches_[c].empty();
-            static_cast<FrameUBO*>(ubo_[frame_].mapped)->shadowParams[3] = tint && frameShadows_ ? 1.f : 0.f;
-            tintOn_ = tint && frameShadows_;
+            bool sun = false, lamps = false;
+            for (uint32_t c = 0; c < kCascades; ++c) sun = sun || tinted_[c] || !shadowTintBatches_[c].empty();
+            for (uint32_t l = kCascades; l < kShadowLayers; ++l)
+                lamps = lamps || (((shadowLayers_ >> l) & 1) && (tinted_[l] || !shadowTintBatches_[l].empty()));
+            sun = sun && frameShadows_;
+            static_cast<FrameUBO*>(ubo_[frame_].mapped)->shadowParams[3] = (sun ? 1.f : 0.f) + (lamps ? 2.f : 0.f);
+            const bool tint = sun || lamps;
+            tintOn_ = tint;
             if (tintOn_ && !tintedLit_[0][0]) createTintedLit();   // (once: the first scene with coloured shadows)
         }
         uploadJoints(info);
@@ -2429,6 +2440,7 @@ void Renderer::shutdown() {
     vkDestroySampler(device_, shadowCompareSampler_, nullptr);
     destroyShadowArray(cascades_);
     destroyShadowArray(shadowTint_);
+    destroyShadowArray(lampTint_);
     destroyShadowArray(atlas_);
     destroyImage(cookies_);
     for (int i = 0; i < MAX_FRAMES; ++i) {

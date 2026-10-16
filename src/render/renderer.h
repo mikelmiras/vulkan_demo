@@ -590,7 +590,8 @@ private:
     // translucent casters let through (multiplied), a the nearest one's depth (white, 1: nothing)
     ShadowArray shadowTint_;
     bool shadowTintFresh_ = false;
-    bool tinted_[4] = {};            // (each cascade's tint layer holds something: frame.shadowParams.w)
+    bool tinted_[kShadowLayers] = {};   // (each layer's tint holds something: frame.shadowParams.w's bits)
+    ShadowArray lampTint_;           // the lamps' tint (set 0 binding 40): the atlas's tiles at a quarter of its size
     VkPipeline shadowTintPipeline_ = VK_NULL_HANDLE;
     struct ShadowTile {
         uint32_t x = 0, y = 0, size = 0;
@@ -858,7 +859,7 @@ private:
     void recordGi(VkCommandBuffer cb, const SceneRenderInfo& info);
     std::vector<Batch> shadowBatches_[kShadowLayers];         // per shadow layer: solid casters ...
     std::vector<Batch> shadowCutoutBatches_[kShadowLayers];   // ... and ones with holes (cut-outs, see-through)
-    std::vector<Batch> shadowTintBatches_[kCascades];         // ... and the sun's ones letting light through, tinted
+    std::vector<Batch> shadowTintBatches_[kShadowLayers];     // ... and those letting light through, tinted (sun, lamps)
     Mat4 shadowViewProj_[kShadowLayers];
     VkPipeline skyPipeline_ = VK_NULL_HANDLE;
     VkPipeline createSkyPipeline();

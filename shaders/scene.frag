@@ -1,6 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
+#include "tint.glsl"
 #include "fog.glsl"
 #include "screen_trace.glsl"
 #ifdef EARLY_DEPTH
@@ -13,7 +14,6 @@ layout(early_fragment_tests) in;
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadowCascades;   // the sun's, 4 layers (comparing)
 layout(set = 0, binding = 5) uniform sampler2DShadow shadowAtlas;          // spot and point lights' (tiles; comparing)
-layout(set = 0, binding = 38) uniform sampler2DArray shadowTint;         // the sun's tint per cascade: rgb let through, a depth
 layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;        // the sun's again, as depths (PCSS)
 layout(set = 0, binding = 21) uniform sampler3D fogVolume;                 // volumetric fog, integrated (fog.glsl)
 layout(set = 0, binding = 22) uniform sampler2D fogSurface;                // ... each cell column's surface distance
@@ -230,24 +230,6 @@ float sunVisibility(vec3 N, vec3 L) {
         vis = mix(vis, c + 1 < 4 ? cascadeShadow(c + 1, q, 0.0005) : 1.0, blend);
     }
     return vis;
-}
-
-// What the sun's light comes through on its way here (glass, a curtain: its cascade's tint layer), if it's behind
-// what tinted it; white elsewhere (frame.shadowParams.w = 0: none this frame)
-vec3 sunTint(vec3 N) {
-    float d = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
-    int c = 0;
-    while (c < 4 && d > frame.cascadeSplits[c]) ++c;
-    if (c >= 4) return vec3(1.0);
-    vec3 proj = (frame.shadowViewProj[c] * vec4(vWorldPos + N * (0.03 + 0.03 * float(c)), 1.0)).xyz;
-    vec2 uv = proj.xy * 0.5 + 0.5;
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec3(1.0);
-    // (the colour filtered: at an edge, part white; behind if behind the nearest of the four texels' depths, so
-    // the filtered colour fades the edge rather than a stepped test cutting it)
-    vec3 through = textureLod(shadowTint, vec3(uv, float(c)), 0.0).rgb;
-    vec4 depths = textureGather(shadowTint, vec3(uv, float(c)), 3);
-    float nearest = min(min(depths.x, depths.y), min(depths.z, depths.w));
-    return proj.z > nearest + 0.002 ? through : vec3(1.0);
 }
 
 // Normal mapping without stored tangents: the frame comes from screen-space derivatives (Schueler 2013)
@@ -943,7 +925,7 @@ void main() {
     if (halfTraced && frame.trace.w > 0.5) vis *= tracedContact;   // (the contact the shadow maps miss)
     if (frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0) vis *= cloudShadow(vWorldPos);   // (clouds drifting over)
     vec3 sunLight = frame.sunColor.rgb;
-    if (kTint && frame.shadowParams.w > 0.5 && vis > 0.0) sunLight *= sunTint(N);   // (through glass, a curtain: coloured)
+    if (kTint && sunTinted() && vis > 0.0) sunLight *= sunTint(vWorldPos, N);   // (through glass, a curtain: coloured)
     color += shade(s, L, sunLight) * vis;
 
     // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone. The main view
@@ -991,10 +973,13 @@ void main() {
             vec3 a = -d, m = abs(a);
             int face = m.x >= m.y && m.x >= m.z ? (a.x > 0.0 ? 0 : 1) : m.y >= m.z ? (a.y > 0.0 ? 2 : 3) : (a.z > 0.0 ? 4 : 5);
             light *= atlasShadow(shadowView + face, vWorldPos + lightSide * (0.02 + 0.01 * dist), 0.0002);
+            shadowView += face;   // (its tint: that face's)
         }
         if (light <= 0.0) continue;
         if (halfTraced && frame.trace.w > 0.5 && float(index) == frame.contactLight.w) light *= tracedLampContact;
-        color += shade(s, Lp, li.color.rgb * light);
+        vec3 lampLight = li.color.rgb * light;
+        if (kTint && shadowView >= 0 && lampsTinted()) lampLight *= lampTint(shadowView, vWorldPos + lightSide * 0.04);
+        color += shade(s, Lp, lampLight);
     }
 
     if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, gUV).rgb;   // (water: its waves there)

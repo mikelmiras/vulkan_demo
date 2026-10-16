@@ -511,7 +511,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     for (size_t k = 0; k < casters.size(); ++k)
         for (uint32_t i : casters[k]) {
             const int lod = shadowLod(k, i);
-            if (shadowLayers[k] < kCascades && tintsShadow(items[i]))   // (the sun's: tinting its light, not blocking it)
+            const uint32_t layer = shadowLayers[k];   // (the sun's and the lamps': tinting their light, not blocking it)
+            if ((layer < kCascades || shadowLamp_[layer][3] > 0.f) && tintsShadow(items[i]))
                 append(shadowTintBatches_[shadowLayers[k]], i, items[i].mesh, lod, textureSet(items[i]));
             else if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], i, items[i].mesh, lod, plain);
             else append(shadowCutoutBatches_[shadowLayers[k]], i, items[i].mesh, lod, textureSet(items[i]));

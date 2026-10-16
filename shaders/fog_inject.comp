@@ -18,6 +18,7 @@ layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; }
 layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]; };
 layout(set = 0, binding = 5) uniform sampler2DShadow shadowAtlas;   // spot and point lights' (tiles; comparing)
 layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;
+#include "tint.glsl"
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D scatter;
 layout(set = 1, binding = 2) uniform sampler3D history;   // last frame's cells (the other frame in flight's)
 
@@ -87,7 +88,9 @@ void main() {
     vec3 light = frame.fogColor.rgb;   // (the plain fog's colour: what it shows with no light of its own)
     float side = 2.0 * depth * tanY / float(kFogCells.y);   // (a cell's size there: across, and along the view)
     float deep = fogSliceDepth(float(id.z) + 1.0) - fogSliceDepth(float(id.z));
-    light += frame.sunColor.rgb * sunLight(p, depth, frame.camRight.xyz, frame.camUp.xyz, view, side, deep) *
+    vec3 sunColour = frame.sunColor.rgb;
+    if (sunTinted()) sunColour *= sunTint(p, vec3(0.0));   // (through glass, a curtain: the fog's light coloured too)
+    light += sunColour * sunLight(p, depth, frame.camRight.xyz, frame.camUp.xyz, view, side, deep) *
              fogPhase(frame.sunDir.xyz, view, g) * strength;
     // The lights of the cluster this cell is in (as scene.frag finds them)
     vec4 c = frame.viewProj * vec4(p, 1.0);
@@ -113,15 +116,15 @@ void main() {
             if (li.color.w > 0.5) l *= smoothstep(li.dir.w, li.params.x, dot(travel, li.dir.xyz));   // (a spot's cone)
             int shadowView = int(li.params.y);
             if (l > 0.0 && shadowView >= 0) {   // (what's in its way: beams cut off behind a car, a lamp's cone by a wall)
-                if (li.color.w > 0.5) {
-                    l *= lightShadow(shadowView, p);
-                } else {   // a point light's cube: the face towards p
+                if (li.color.w <= 0.5) {   // a point light's cube: the face towards p
                     vec3 m = abs(d);
-                    int face = m.x >= m.y && m.x >= m.z ? (d.x > 0.0 ? 0 : 1) : m.y >= m.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5);
-                    l *= lightShadow(shadowView + face, p);
+                    shadowView += m.x >= m.y && m.x >= m.z ? (d.x > 0.0 ? 0 : 1) : m.y >= m.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5);
                 }
+                l *= lightShadow(shadowView, p);
             }
-            light += li.color.rgb * l * fogPhase(travel, view, g) * strength;
+            vec3 lampColour = li.color.rgb;
+            if (l > 0.0 && shadowView >= 0 && lampsTinted()) lampColour *= lampTint(shadowView, p);   // (its beam coloured)
+            light += lampColour * l * fogPhase(travel, view, g) * strength;
         }
     }
     vec4 now = vec4(light * density, density);

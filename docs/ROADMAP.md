@@ -2013,7 +2013,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 |---|------|-----|
 | 119 (done) | Frame-level features out of the lit shader when unused: coloured shadows, glowing decals, water's refraction and the shafts' extras behind specialization constants chosen per frame (a small cache of specialized pipelines) | Each feature's lookups cost every pixel on lavapipe even when the frame has none of it (coloured shadows: about 5%) |
 | 120 (done) | Screen-space reflections traced over the Hi-Z pyramid (hierarchical: long rays in few steps, exact hits), widening with roughness (a cone over the blurred levels) | Reflections march fixed steps: short, and they miss thin things; Night Drive's wet streets want the whole street mirrored |
-| 121 | Coloured shadows from spot and point lights too (tint tiles in the atlas), and in the volumetric fog | Only the sun's shadows are tinted; a lamp behind stained glass casts grey |
+| 121 (done) | Coloured shadows from spot and point lights too (tint tiles in the atlas), and in the volumetric fog | Only the sun's shadows are tinted; a lamp behind stained glass casts grey |
 | 122 | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
 | 123 | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
 | 124 | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
@@ -2051,4 +2051,17 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   measured 118 ms in the same run, against about 70 before it: the dilation's nine depth reads, variance and the
   sharpening pass; worth a look.) Not done: more pyramid levels (16, 32 px tiles for longer jumps), the GI rays
   over it, roughness widening the ray into a cone over the pyramid.
+- **121, lamps' coloured shadows, in the fog too**: lampTint_ (createShadowArray's colour form, one layer, a quarter
+  of the atlas's 4096: 1024 RGBA16F; set 0 binding 40) holds each lamp layer's tint in its tile's place scaled by a
+  quarter; after the atlas's depth pass, each lamp tile drawn this frame is cleared white and its tint casters
+  (tintsShadow, now for lamp layers too: shadowLamp_; the split-screen views' cascades keep the old path) drawn with
+  shadowTintPipeline_ into it. tinted_ is per layer; frame.shadowParams.w is now bits: 1 the sun's, 2 the lamps'.
+  tint.glsl (new shared include: sunTint moved out of scene.frag, lampTint, tintAt: the filtered colour behind
+  the gathered nearest depth) is used by scene.frag's light loop (the spot's view, or the point light's face) under
+  kTint, and by fog_inject.comp (binding 38 and 40 now for compute too): the sun's light in the fog tinted at the
+  cell, a lamp's beam by its tint. Checked: a spot shining down through red glass (opacity 0.5) at night: its pool
+  red-brown under the glass, white round it; with volumetric fog its beam white above the glass and red below;
+  MSAA; the sun's coloured shadows unchanged (the frame-time text alone differs); Night Drive, the editor, under
+  validation with sync checks. Not done: tints for split-screen views' cascades, coloured light through
+  see-through things in the GI.
 

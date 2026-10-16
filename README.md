@@ -492,7 +492,8 @@ dropping on the right.
   (glass, a stained window) and thin translucent ones (translucency 0.5 and over: paper, a curtain) don't block its
   light but tint it, their colour more the more opaque they are (a layer per cascade, half its size, holds what
   they let through and the nearest one's depth); more opaque see-through ones cast a plain shadow. Spot and point
-  lights' shadows treat see-through things as before (a shadow only where mostly opaque). Frames without any leave
+  lights do the same (a tint tile beside each shadow tile, at a quarter of the atlas's size): a lamp behind
+  stained glass throws its colour, and in volumetric fog the beam takes it below the glass. Frames without any leave
   the lookups out of the lit shader (a specialization: the tinted variants are made the first time a scene has
   them).
 - **Ambient occlusion**: corners, creases and the ground under things darken a little (screen-space, from the

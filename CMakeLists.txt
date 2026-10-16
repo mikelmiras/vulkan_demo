@@ -58,6 +58,7 @@ foreach(src ${SHADER_SOURCES})
             ${CMAKE_SOURCE_DIR}/shaders/water.glsl ${CMAKE_SOURCE_DIR}/shaders/atmosphere.glsl
             ${CMAKE_SOURCE_DIR}/shaders/screen_trace.glsl ${CMAKE_SOURCE_DIR}/shaders/trace_common.glsl
             ${CMAKE_SOURCE_DIR}/shaders/shafts.glsl ${CMAKE_SOURCE_DIR}/shaders/camera_fx.glsl ${CMAKE_SOURCE_DIR}/shaders/sss.glsl
+            ${CMAKE_SOURCE_DIR}/shaders/tint.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
@@ -76,7 +77,7 @@ add_custom_command(
   OUTPUT ${out}
   COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
   COMMAND ${GLSLC} -DEARLY_DEPTH ${CMAKE_SOURCE_DIR}/shaders/scene.frag -o ${out}
-  DEPENDS ${CMAKE_SOURCE_DIR}/shaders/scene.frag ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
+  DEPENDS ${CMAKE_SOURCE_DIR}/shaders/scene.frag ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl ${CMAKE_SOURCE_DIR}/shaders/tint.glsl
           ${CMAKE_SOURCE_DIR}/shaders/screen_trace.glsl ${CMAKE_SOURCE_DIR}/shaders/water.glsl
   COMMENT "Compiling scene_early.frag")
 list(APPEND SPIRV_OUTPUTS ${out})
