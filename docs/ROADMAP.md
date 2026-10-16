@@ -1728,7 +1728,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | 105 (done) | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
 | 106 (done) | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
 | 107 (done) | Camera effects: depth of field (bokeh, from the depth, focus by distance or on a target) and motion blur along the motion vectors; both settings, off by default | No way to soften the background or show speed |
-| 108 | Night Drive's traffic: a few AI cars driving the grid with their headlights and tail lights, spray from wet tyres (GPU particles), all within the benchmark's budget | The showcase's streets are empty: a city at night needs traffic to show the lights, reflections and rain |
+| 108 (done) | Night Drive's traffic: a few AI cars driving the grid with their headlights and tail lights, spray from wet tyres (GPU particles), all within the benchmark's budget | The showcase's streets are empty: a city at night needs traffic to show the lights, reflections and rain |
 
 ### Round 10 notes
 - **99, AO before lighting**: recordAoLit (renderer_trace.cpp) runs ssao.frag after the prepass (the depth made
@@ -1837,4 +1837,17 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   MSAA), Night Drive and the editor as before, under validation with sync checks. Not done: the near field's blur
   spreading over a sharp background (a pre-pass of the largest near circle), the sky's motion (the camera's turn),
   per-object shutter (all of the frame's motion).
+- **108, Night Drive's traffic**: make_city.py adds six cars (traffic_rng: the rest of the city as before) with
+  scripts/TrafficCar.lua: on the grid (its first street, pitch, count as fields), in the right-hand lane, planning
+  the next crossroads ahead (on, left or right, only where a street carries on; at the city's edge, back), turning
+  where its lane meets the new one (the body's yaw eased round), braking for anything three rays from its bumper
+  meet within 7 m. Their colliders, moved by the script, are kinematic (physics.cpp: game code moving a static
+  body), so the taxi bumps into them. Each has a spot (no shadows), a tail glow and spray: a GPU emitter behind the
+  back wheels (see-through, lit) whose rate scripts/SprayBySpeed.lua sets from its speed through a new Lua property,
+  particleRate (lua_script.cpp, tested); the taxi has one too. New test: night_drive_traffic (ten seconds: every car
+  drives over 30 m and never leaves a street, no script errors). GPU benchmark at high on lavapipe: Night Drive
+  1212 ms against the 1195 recorded before round 10 (the round's passes and the traffic within 2%); the stress
+  scene 3412 against 2788 (within the check's 1.5x; its opaque pass grew: worth a look, see round 11). Checked: a
+  camera following a traffic car (its tail lamps and spray), Night Drive under validation with sync checks. Not
+  done: traffic lights, cars yielding at crossroads (they only stop for what's ahead), pedestrians.
 

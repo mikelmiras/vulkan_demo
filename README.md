@@ -1447,7 +1447,7 @@ Callbacks, all optional: `start()`, `update(dt)` (fixed step), `onTriggerEnter(o
 
 - **Entities** (`self.entity`, `game.find(...)`, ...): `id`, `name`, `exists`, `position` / `rotation` (degrees) /
   `scale` (local), `worldPosition`, `forward` / `right` / `up`, `visible`, `layer`, `tags`, `parent`, `velocity`
-  (rigid bodies), `color` (mesh renderers); vectors are copies: change one and assign it back. Methods:
+  (rigid bodies), `color` (mesh renderers), `particleRate` (particle emitters: particles a second); vectors are copies: change one and assign it back. Methods:
   `hasTag`, `addTag`, `removeTag`, `destroy`, `send(name, value, text)`, `moveCharacter(delta)` (returns
   `grounded`, `hitWall`, ...), `lookAt(point)`, `emitParticles(n)`, `playSound(clip, volume)`, `setRagdoll(limp)`,
   `script("Type")` (another Lua behaviour's `self`), `getField("Type", "name")` / `setField("Type", "name", v)`

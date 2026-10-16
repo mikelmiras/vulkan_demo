@@ -755,6 +755,9 @@ int entityIndex(lua_State* L) {   // e.key
     } else if (key == "color") {
         if (e->meshRenderer) pushVec3(L, e->meshRenderer->color);
         else lua_pushnil(L);
+    } else if (key == "particleRate") {
+        if (e->particleEmitter) lua_pushnumber(L, e->particleEmitter->rate);
+        else lua_pushnil(L);
     } else lua_pushnil(L);
     return 1;
 }
@@ -782,6 +785,9 @@ int entityNewIndex(lua_State* L) {   // e.key = value
     } else if (key == "color") {
         if (!e.meshRenderer) return luaL_error(L, "'%s' has no mesh renderer", e.name.c_str());
         e.meshRenderer->color = toVec3(L, 3);
+    } else if (key == "particleRate") {   // (its emitter's particles a second: spray by speed, smoke by throttle)
+        if (!e.particleEmitter) return luaL_error(L, "'%s' has no particle emitter", e.name.c_str());
+        e.particleEmitter->rate = std::max((float)luaL_checknumber(L, 3), 0.f);
     } else return luaL_error(L, "entities have no settable property '%s'", key.c_str());
     return 0;
 }

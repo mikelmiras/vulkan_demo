@@ -213,6 +213,40 @@ return Grunt
     scripting::reset();
 }
 
+// An emitter's rate from Lua: read, set (never below 0), and an error on an entity with no emitter
+TEST(lua_particle_rate) {
+    test::ImGuiContextGuard imgui;
+    scripting::reset();
+    std::string error;
+    REQUIRE(scripting::define("Throttle", R"lua(
+local Throttle = {}
+function Throttle:update(dt)
+    local e = self.entity
+    game.state.before = e.particleRate
+    e.particleRate = e.particleRate * 2 + 1
+    local ok = pcall(function() game.find("Plain").particleRate = 3 end)
+    game.state.plainFailed = not ok and 1 or 0
+    if game.time() > 0.05 then e.particleRate = -5 end
+end
+return Throttle
+)lua", error));
+    Scene s;
+    Entity& e = scripted(s, "Hose", "Throttle");
+    e.particleEmitter = ParticleEmitter{};
+    e.particleEmitter->rate = 10.f;
+    s.create("Plain");
+    Game g;
+    g.start(s, meshes());
+    steps(g, 1);
+    CHECK(g.state().number("before") == 10.f);
+    CHECK_NEAR(s.findByName("Hose")->particleEmitter->rate, 21.0, 1e-5);
+    CHECK(g.state().number("plainFailed") == 1.f);
+    steps(g, 10);
+    CHECK(s.findByName("Hose")->particleEmitter->rate == 0.f);
+    g.stop();
+    scripting::reset();
+}
+
 // A runtime error: logged once (in the viewport too), the instance stops; others carry on
 TEST(lua_runtime_error) {
     test::ImGuiContextGuard imgui;

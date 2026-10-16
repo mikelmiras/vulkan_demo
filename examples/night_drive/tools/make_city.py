@@ -21,6 +21,9 @@ LAMP_EVERY = 22.0     # street lamps along each street (m)
 
 rng = random.Random(SEED)
 puddle_rng = random.Random(SEED + 1)   # (its own: the rest of the city stays as it was without puddles)
+traffic_rng = random.Random(SEED + 2)  # (and the traffic's)
+TRAFFIC = 6           # cars driving the streets
+LANE = 3.6            # from a street's middle to its lanes'
 entities = []
 next_id = [1]
 
@@ -247,6 +250,45 @@ for _ in range(16):
     entity("Roof", (0, 0.75, 0), scale=(0.55, 0.6, 0.8) if along_x else (0.8, 0.6, 0.55), parent=car,
            meshRenderer=look("Cube", paint, roughness=0.25, metallic=0.6))
 
+# ---- Traffic: cars driving the grid (scripts/TrafficCar.lua) in the right-hand lanes, turning at the crossroads,
+# with headlights (no shadows: there are a few), tail lamps and spray from their wet tyres ---------------------------
+def spray(parent, z):
+    # (behind the back wheels, thrown up and back; its rate by speed: scripts/SprayBySpeed.lua)
+    entity("Spray", (0, -0.55, z), rot=(60, 0, 0), parent=parent, particles={
+        "rate": 0, "burst": 0, "playOnStart": True, "duration": 0, "lifetime": 0.45, "lifetimeRandom": 0.15,
+        "speed": 3.0, "speedRandom": 0.4, "spread": 35, "radius": 0.8, "gravity": 9.0, "drag": 1.5,
+        "startSize": 0.25, "endSize": 0.9, "startColor": [0.6, 0.65, 0.7], "endColor": [0.5, 0.55, 0.6],
+        "startAlpha": 0.25, "endAlpha": 0.0, "intensity": 1.0, "additive": False, "maxParticles": 160,
+        "lit": True, "gpu": True},
+        behaviours=[{"type": "SprayBySpeed", "maxRate": 150, "fullSpeed": 14, "from": 1.5}])
+
+
+for n in range(TRAFFIC):
+    k = traffic_rng.randrange(BLOCKS + 1)
+    street = -HALF + STREET / 2 + k * PITCH
+    a = block_origin(traffic_rng.randrange(BLOCKS)) + traffic_rng.uniform(8, BLOCK - 8)
+    sign = traffic_rng.choice((-1, 1))
+    if traffic_rng.random() < 0.5:   # along x: its lane on the right of where it's heading
+        pos, yaw = (a, 0.75, street + sign * LANE), -90 * sign
+    else:
+        pos, yaw = (street - sign * LANE, 0.75, a), 90 + 90 * sign
+    paint = traffic_rng.choice(PAINT)
+    car = entity("Traffic car", pos, (0, yaw, 0), collider=box_collider((1.8, 1.0, 4.3)),
+                 behaviours=[{"type": "TrafficCar", "speed": traffic_rng.uniform(7.5, 10.5), "lane": LANE,
+                              "first": -HALF + STREET / 2, "pitch": PITCH, "streets": BLOCKS + 1, "seed": n + 1}])
+    entity("Body", (0, 0, 0), scale=(1.8, 1.0, 4.3), parent=car, meshRenderer=look("Cube", paint, roughness=0.25, metallic=0.6))
+    entity("Roof", (0, 0.75, 0.2), scale=(1.5, 0.6, 2.2), parent=car, meshRenderer=look("Cube", paint, roughness=0.25, metallic=0.6))
+    for side in (-1, 1):
+        entity("Headlamp", (side * 0.6, 0.1, -2.16), scale=(0.35, 0.16, 0.04), parent=car,
+               meshRenderer=look("Cube", (1, 1, 1), emissive=(1.0, 0.95, 0.8), strength=5.0))
+        entity("Tail lamp", (side * 0.65, 0.12, 2.16), scale=(0.3, 0.14, 0.04), parent=car,
+               meshRenderer=look("Cube", (0.5, 0.0, 0.0), emissive=(1.0, 0.05, 0.02), strength=6.0))
+    entity("Headlights", (0, 0.2, -2.3), rot=(-14, 0, 0), parent=car,
+           light={"type": "spot", "color": [1.0, 0.93, 0.78], "intensity": 3.5, "range": 22.0, "spotAngle": 48.0,
+                  "spotSoftness": 0.8, "castShadows": False})
+    entity("Tail glow", (0, 0.3, 2.5), parent=car, light=point_light((1.0, 0.08, 0.04), 0.5, 4.0))
+    spray(car, 1.9)
+
 # ---- The taxi (yours): a Jolt vehicle, front wheels steering, back ones driven, headlights -------------------------
 start = (-HALF + STREET / 2 + PITCH + 3.5, 1.3, 10.0)
 taxi = entity("Taxi", start, meshRenderer=look("Cube", (0.95, 0.68, 0.05), roughness=0.3, metallic=0.4), scale=(1, 1, 1),
@@ -281,6 +323,7 @@ entity("Headlights", (0, 0.2, -2.4), rot=(-14, 0, 0), parent=taxi,
        light={"type": "spot", "color": [1.0, 0.93, 0.78], "intensity": 5.0, "range": 28.0, "spotAngle": 50.0,
               "spotSoftness": 0.8, "castShadows": True})
 entity("Tail glow", (0, 0.3, 2.6), parent=taxi, light=point_light((1.0, 0.08, 0.04), 0.6, 4.0))
+spray(taxi, 2.1)
 # Rain round the taxi (so wherever the camera follows it): streaks falling from a sphere above it, slanting a little
 # in the wind, lit by the lamps, the neon and the headlights (dark elsewhere: they show where there's light)
 # (seen from 100 m up: drops drawn a few centimetres wide, streaks a metre long, or they'd be under a pixel; on the

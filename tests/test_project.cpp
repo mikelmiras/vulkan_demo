@@ -1,6 +1,7 @@
 // core/project: project-relative paths, project.json, moving a project
 #include "test.h"
 
+#include <cmath>
 #include <fstream>
 
 #include "core/compress.h"
@@ -11,6 +12,7 @@
 #include "app/export.h"
 #include "core/vfs.h"
 #include "scene/serialization.h"
+#include "game/game.h"
 #include "game/module.h"
 #include "platform/platform.h"
 
@@ -469,14 +471,15 @@ TEST(export_shipping_build_info) {
 #endif
 
 #ifdef VKWORLD_SAMPLE_GAME
-// The Night Drive example loads: its scene, its taxi (a vehicle with a driver), its camera script
+// The Night Drive example loads: its scene, its taxi (a vehicle with a driver), its scripts (the camera, the
+// traffic, the spray)
 TEST(night_drive_example_loads) {
     namespace fs = std::filesystem;
     fs::path dir = fs::u8path(VKWORLD_SAMPLE_GAME).parent_path() / "night_drive";
     REQUIRE(fs::is_regular_file(dir / "project.json"));
     fs::path previous = project::root();
     project::setRoot(dir);
-    CHECK(scripting::loadProject(dir) == 1);
+    CHECK(scripting::loadProject(dir) == 3);
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary texs = buildTextureLibrary();
     Scene scene;
@@ -494,6 +497,56 @@ TEST(night_drive_example_loads) {
     int lights = 0;
     for (const Entity& e : scene.entities) lights += e.light ? 1 : 0;
     CHECK(lights > 50);
+    scripting::reset();
+    project::setRoot(previous);
+}
+
+// Night Drive's traffic: every car drives (tens of metres in a few seconds), always on a street (within a street's
+// width of one's middle, one way or the other), its scripts and the spray's without errors
+TEST(night_drive_traffic) {
+    namespace fs = std::filesystem;
+    test::ImGuiContextGuard imgui;
+    fs::path dir = fs::u8path(VKWORLD_SAMPLE_GAME).parent_path() / "night_drive";
+    fs::path previous = project::root();
+    project::setRoot(dir);
+    REQUIRE(scripting::loadProject(dir) == 3);
+    MeshLibrary meshes = buildMeshLibrary();
+    TextureLibrary texs = buildTextureLibrary();
+    Scene scene;
+    std::string error;
+    REQUIRE(loadScene((dir / "scenes" / "city.vkw").u8string(), scene, meshes, texs, error));
+    std::vector<EntityId> cars;
+    for (const Entity& e : scene.entities)
+        if (e.name == "Traffic car") cars.push_back(e.id);
+    REQUIRE(cars.size() >= 4);
+    // The grid (tools/make_city.py): streets 16 m wide every 60 m, the first's middle at -90
+    const float first = -90.f, pitch = 60.f, half = 8.f;
+    auto onStreet = [&](float c) {
+        float k = std::round((c - first) / pitch);
+        return k >= 0.f && k <= 3.f && std::fabs(c - (first + k * pitch)) <= half;
+    };
+    std::vector<Vec3> start, last;
+    for (EntityId id : cars) start.push_back(scene.find(id)->transform.pos());
+    last = start;
+    std::vector<float> driven(cars.size(), 0.f);
+    Game g;
+    g.start(scene, meshes);
+    bool offStreet = false;
+    for (int i = 0; i < 600; ++i) {   // (ten seconds)
+        ImGui::NewFrame();
+        g.step();
+        ImGui::EndFrame();
+        for (size_t c = 0; c < cars.size(); ++c) {
+            Vec3 p = scene.find(cars[c])->transform.pos();
+            driven[c] += length(p - last[c]);
+            last[c] = p;
+            if (!onStreet(p.x) && !onStreet(p.z)) offStreet = true;
+        }
+    }
+    for (float d : driven) CHECK(d > 30.f);
+    CHECK(!offStreet);
+    for (const auto& [t, line] : g.log()) CHECK(line.find("rror") == std::string::npos);
+    g.stop();
     scripting::reset();
     project::setRoot(previous);
 }

@@ -29264,6 +29264,2310 @@
   },
   {
    "id": 851,
+   "name": "Traffic car",
+   "transform": {
+    "position": [
+     26.4,
+     0.75,
+     67.92621823153897
+    ],
+    "rotation": [
+     0,
+     180,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "collider": {
+    "shape": "box",
+    "center": [
+     0,
+     0,
+     0
+    ],
+    "size": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficCar",
+     "speed": 8.630931283676938,
+     "lane": 3.6,
+     "first": -90.0,
+     "pitch": 60.0,
+     "streets": 4,
+     "seed": 1
+    }
+   ]
+  },
+  {
+   "id": 852,
+   "name": "Body",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "parent": 851,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.35,
+     0.03,
+     0.03
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 853,
+   "name": "Roof",
+   "transform": {
+    "position": [
+     0,
+     0.75,
+     0.2
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.5,
+     0.6,
+     2.2
+    ]
+   },
+   "parent": 851,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.35,
+     0.03,
+     0.03
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 854,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     -0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 851,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 855,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     -0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 851,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 856,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 851,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 857,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 851,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 858,
+   "name": "Headlights",
+   "transform": {
+    "position": [
+     0,
+     0.2,
+     -2.3
+    ],
+    "rotation": [
+     -14,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 851,
+   "light": {
+    "type": "spot",
+    "color": [
+     1.0,
+     0.93,
+     0.78
+    ],
+    "intensity": 3.5,
+    "range": 22.0,
+    "spotAngle": 48.0,
+    "spotSoftness": 0.8,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 859,
+   "name": "Tail glow",
+   "transform": {
+    "position": [
+     0,
+     0.3,
+     2.5
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 851,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.08,
+     0.04
+    ],
+    "intensity": 0.5,
+    "range": 4.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 860,
+   "name": "Spray",
+   "transform": {
+    "position": [
+     0,
+     -0.55,
+     1.9
+    ],
+    "rotation": [
+     60,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 851,
+   "particles": {
+    "rate": 0,
+    "burst": 0,
+    "playOnStart": true,
+    "duration": 0,
+    "lifetime": 0.45,
+    "lifetimeRandom": 0.15,
+    "speed": 3.0,
+    "speedRandom": 0.4,
+    "spread": 35,
+    "radius": 0.8,
+    "gravity": 9.0,
+    "drag": 1.5,
+    "startSize": 0.25,
+    "endSize": 0.9,
+    "startColor": [
+     0.6,
+     0.65,
+     0.7
+    ],
+    "endColor": [
+     0.5,
+     0.55,
+     0.6
+    ],
+    "startAlpha": 0.25,
+    "endAlpha": 0.0,
+    "intensity": 1.0,
+    "additive": false,
+    "maxParticles": 160,
+    "lit": true,
+    "gpu": true
+   },
+   "behaviours": [
+    {
+     "type": "SprayBySpeed",
+     "maxRate": 150,
+     "fullSpeed": 14,
+     "from": 1.5
+    }
+   ]
+  },
+  {
+   "id": 861,
+   "name": "Traffic car",
+   "transform": {
+    "position": [
+     -71.9299889768432,
+     0.75,
+     26.4
+    ],
+    "rotation": [
+     0,
+     90,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "collider": {
+    "shape": "box",
+    "center": [
+     0,
+     0,
+     0
+    ],
+    "size": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficCar",
+     "speed": 9.335474360011888,
+     "lane": 3.6,
+     "first": -90.0,
+     "pitch": 60.0,
+     "streets": 4,
+     "seed": 2
+    }
+   ]
+  },
+  {
+   "id": 862,
+   "name": "Body",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.35,
+     0.03,
+     0.03
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 863,
+   "name": "Roof",
+   "transform": {
+    "position": [
+     0,
+     0.75,
+     0.2
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.5,
+     0.6,
+     2.2
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.35,
+     0.03,
+     0.03
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 864,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     -0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 865,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     -0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 866,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 867,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 861,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 868,
+   "name": "Headlights",
+   "transform": {
+    "position": [
+     0,
+     0.2,
+     -2.3
+    ],
+    "rotation": [
+     -14,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 861,
+   "light": {
+    "type": "spot",
+    "color": [
+     1.0,
+     0.93,
+     0.78
+    ],
+    "intensity": 3.5,
+    "range": 22.0,
+    "spotAngle": 48.0,
+    "spotSoftness": 0.8,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 869,
+   "name": "Tail glow",
+   "transform": {
+    "position": [
+     0,
+     0.3,
+     2.5
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 861,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.08,
+     0.04
+    ],
+    "intensity": 0.5,
+    "range": 4.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 870,
+   "name": "Spray",
+   "transform": {
+    "position": [
+     0,
+     -0.55,
+     1.9
+    ],
+    "rotation": [
+     60,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 861,
+   "particles": {
+    "rate": 0,
+    "burst": 0,
+    "playOnStart": true,
+    "duration": 0,
+    "lifetime": 0.45,
+    "lifetimeRandom": 0.15,
+    "speed": 3.0,
+    "speedRandom": 0.4,
+    "spread": 35,
+    "radius": 0.8,
+    "gravity": 9.0,
+    "drag": 1.5,
+    "startSize": 0.25,
+    "endSize": 0.9,
+    "startColor": [
+     0.6,
+     0.65,
+     0.7
+    ],
+    "endColor": [
+     0.5,
+     0.55,
+     0.6
+    ],
+    "startAlpha": 0.25,
+    "endAlpha": 0.0,
+    "intensity": 1.0,
+    "additive": false,
+    "maxParticles": 160,
+    "lit": true,
+    "gpu": true
+   },
+   "behaviours": [
+    {
+     "type": "SprayBySpeed",
+     "maxRate": 150,
+     "fullSpeed": 14,
+     "from": 1.5
+    }
+   ]
+  },
+  {
+   "id": 871,
+   "name": "Traffic car",
+   "transform": {
+    "position": [
+     56.10225062523962,
+     0.75,
+     86.4
+    ],
+    "rotation": [
+     0,
+     90,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "collider": {
+    "shape": "box",
+    "center": [
+     0,
+     0,
+     0
+    ],
+    "size": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficCar",
+     "speed": 7.605915976855161,
+     "lane": 3.6,
+     "first": -90.0,
+     "pitch": 60.0,
+     "streets": 4,
+     "seed": 3
+    }
+   ]
+  },
+  {
+   "id": 872,
+   "name": "Body",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "parent": 871,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.05,
+     0.08,
+     0.2
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 873,
+   "name": "Roof",
+   "transform": {
+    "position": [
+     0,
+     0.75,
+     0.2
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.5,
+     0.6,
+     2.2
+    ]
+   },
+   "parent": 871,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.05,
+     0.08,
+     0.2
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 874,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     -0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 871,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 875,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     -0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 871,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 876,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 871,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 877,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 871,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 878,
+   "name": "Headlights",
+   "transform": {
+    "position": [
+     0,
+     0.2,
+     -2.3
+    ],
+    "rotation": [
+     -14,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 871,
+   "light": {
+    "type": "spot",
+    "color": [
+     1.0,
+     0.93,
+     0.78
+    ],
+    "intensity": 3.5,
+    "range": 22.0,
+    "spotAngle": 48.0,
+    "spotSoftness": 0.8,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 879,
+   "name": "Tail glow",
+   "transform": {
+    "position": [
+     0,
+     0.3,
+     2.5
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 871,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.08,
+     0.04
+    ],
+    "intensity": 0.5,
+    "range": 4.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 880,
+   "name": "Spray",
+   "transform": {
+    "position": [
+     0,
+     -0.55,
+     1.9
+    ],
+    "rotation": [
+     60,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 871,
+   "particles": {
+    "rate": 0,
+    "burst": 0,
+    "playOnStart": true,
+    "duration": 0,
+    "lifetime": 0.45,
+    "lifetimeRandom": 0.15,
+    "speed": 3.0,
+    "speedRandom": 0.4,
+    "spread": 35,
+    "radius": 0.8,
+    "gravity": 9.0,
+    "drag": 1.5,
+    "startSize": 0.25,
+    "endSize": 0.9,
+    "startColor": [
+     0.6,
+     0.65,
+     0.7
+    ],
+    "endColor": [
+     0.5,
+     0.55,
+     0.6
+    ],
+    "startAlpha": 0.25,
+    "endAlpha": 0.0,
+    "intensity": 1.0,
+    "additive": false,
+    "maxParticles": 160,
+    "lit": true,
+    "gpu": true
+   },
+   "behaviours": [
+    {
+     "type": "SprayBySpeed",
+     "maxRate": 150,
+     "fullSpeed": 14,
+     "from": 1.5
+    }
+   ]
+  },
+  {
+   "id": 881,
+   "name": "Traffic car",
+   "transform": {
+    "position": [
+     -26.4,
+     0.75,
+     3.958586435768858
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "collider": {
+    "shape": "box",
+    "center": [
+     0,
+     0,
+     0
+    ],
+    "size": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficCar",
+     "speed": 9.023459078030474,
+     "lane": 3.6,
+     "first": -90.0,
+     "pitch": 60.0,
+     "streets": 4,
+     "seed": 4
+    }
+   ]
+  },
+  {
+   "id": 882,
+   "name": "Body",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "parent": 881,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.05,
+     0.08,
+     0.2
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 883,
+   "name": "Roof",
+   "transform": {
+    "position": [
+     0,
+     0.75,
+     0.2
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.5,
+     0.6,
+     2.2
+    ]
+   },
+   "parent": 881,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.05,
+     0.08,
+     0.2
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 884,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     -0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 881,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 885,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     -0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 881,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 886,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 881,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 887,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 881,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 888,
+   "name": "Headlights",
+   "transform": {
+    "position": [
+     0,
+     0.2,
+     -2.3
+    ],
+    "rotation": [
+     -14,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 881,
+   "light": {
+    "type": "spot",
+    "color": [
+     1.0,
+     0.93,
+     0.78
+    ],
+    "intensity": 3.5,
+    "range": 22.0,
+    "spotAngle": 48.0,
+    "spotSoftness": 0.8,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 889,
+   "name": "Tail glow",
+   "transform": {
+    "position": [
+     0,
+     0.3,
+     2.5
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 881,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.08,
+     0.04
+    ],
+    "intensity": 0.5,
+    "range": 4.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 890,
+   "name": "Spray",
+   "transform": {
+    "position": [
+     0,
+     -0.55,
+     1.9
+    ],
+    "rotation": [
+     60,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 881,
+   "particles": {
+    "rate": 0,
+    "burst": 0,
+    "playOnStart": true,
+    "duration": 0,
+    "lifetime": 0.45,
+    "lifetimeRandom": 0.15,
+    "speed": 3.0,
+    "speedRandom": 0.4,
+    "spread": 35,
+    "radius": 0.8,
+    "gravity": 9.0,
+    "drag": 1.5,
+    "startSize": 0.25,
+    "endSize": 0.9,
+    "startColor": [
+     0.6,
+     0.65,
+     0.7
+    ],
+    "endColor": [
+     0.5,
+     0.55,
+     0.6
+    ],
+    "startAlpha": 0.25,
+    "endAlpha": 0.0,
+    "intensity": 1.0,
+    "additive": false,
+    "maxParticles": 160,
+    "lit": true,
+    "gpu": true
+   },
+   "behaviours": [
+    {
+     "type": "SprayBySpeed",
+     "maxRate": 150,
+     "fullSpeed": 14,
+     "from": 1.5
+    }
+   ]
+  },
+  {
+   "id": 891,
+   "name": "Traffic car",
+   "transform": {
+    "position": [
+     -73.37353209890922,
+     0.75,
+     93.6
+    ],
+    "rotation": [
+     0,
+     -90,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "collider": {
+    "shape": "box",
+    "center": [
+     0,
+     0,
+     0
+    ],
+    "size": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficCar",
+     "speed": 10.448914168113857,
+     "lane": 3.6,
+     "first": -90.0,
+     "pitch": 60.0,
+     "streets": 4,
+     "seed": 5
+    }
+   ]
+  },
+  {
+   "id": 892,
+   "name": "Body",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "parent": 891,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.02
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 893,
+   "name": "Roof",
+   "transform": {
+    "position": [
+     0,
+     0.75,
+     0.2
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.5,
+     0.6,
+     2.2
+    ]
+   },
+   "parent": 891,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.02,
+     0.02,
+     0.02
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 894,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     -0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 891,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 895,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     -0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 891,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 896,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 891,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 897,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 891,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 898,
+   "name": "Headlights",
+   "transform": {
+    "position": [
+     0,
+     0.2,
+     -2.3
+    ],
+    "rotation": [
+     -14,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 891,
+   "light": {
+    "type": "spot",
+    "color": [
+     1.0,
+     0.93,
+     0.78
+    ],
+    "intensity": 3.5,
+    "range": 22.0,
+    "spotAngle": 48.0,
+    "spotSoftness": 0.8,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 899,
+   "name": "Tail glow",
+   "transform": {
+    "position": [
+     0,
+     0.3,
+     2.5
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 891,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.08,
+     0.04
+    ],
+    "intensity": 0.5,
+    "range": 4.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 900,
+   "name": "Spray",
+   "transform": {
+    "position": [
+     0,
+     -0.55,
+     1.9
+    ],
+    "rotation": [
+     60,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 891,
+   "particles": {
+    "rate": 0,
+    "burst": 0,
+    "playOnStart": true,
+    "duration": 0,
+    "lifetime": 0.45,
+    "lifetimeRandom": 0.15,
+    "speed": 3.0,
+    "speedRandom": 0.4,
+    "spread": 35,
+    "radius": 0.8,
+    "gravity": 9.0,
+    "drag": 1.5,
+    "startSize": 0.25,
+    "endSize": 0.9,
+    "startColor": [
+     0.6,
+     0.65,
+     0.7
+    ],
+    "endColor": [
+     0.5,
+     0.55,
+     0.6
+    ],
+    "startAlpha": 0.25,
+    "endAlpha": 0.0,
+    "intensity": 1.0,
+    "additive": false,
+    "maxParticles": 160,
+    "lit": true,
+    "gpu": true
+   },
+   "behaviours": [
+    {
+     "type": "SprayBySpeed",
+     "maxRate": 150,
+     "fullSpeed": 14,
+     "from": 1.5
+    }
+   ]
+  },
+  {
+   "id": 901,
+   "name": "Traffic car",
+   "transform": {
+    "position": [
+     33.6,
+     0.75,
+     51.622520005090905
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "collider": {
+    "shape": "box",
+    "center": [
+     0,
+     0,
+     0
+    ],
+    "size": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "behaviours": [
+    {
+     "type": "TrafficCar",
+     "speed": 9.500573284275632,
+     "lane": 3.6,
+     "first": -90.0,
+     "pitch": 60.0,
+     "streets": 4,
+     "seed": 6
+    }
+   ]
+  },
+  {
+   "id": 902,
+   "name": "Body",
+   "transform": {
+    "position": [
+     0,
+     0,
+     0
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.8,
+     1.0,
+     4.3
+    ]
+   },
+   "parent": 901,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.05,
+     0.08,
+     0.2
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 903,
+   "name": "Roof",
+   "transform": {
+    "position": [
+     0,
+     0.75,
+     0.2
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1.5,
+     0.6,
+     2.2
+    ]
+   },
+   "parent": 901,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.05,
+     0.08,
+     0.2
+    ],
+    "roughness": 0.25,
+    "metallic": 0.6
+   }
+  },
+  {
+   "id": 904,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     -0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 901,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 905,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     -0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 901,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 906,
+   "name": "Headlamp",
+   "transform": {
+    "position": [
+     0.6,
+     0.1,
+     -2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.35,
+     0.16,
+     0.04
+    ]
+   },
+   "parent": 901,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     1,
+     1,
+     1
+    ],
+    "emissive": [
+     1.0,
+     0.95,
+     0.8
+    ],
+    "emissiveStrength": 5.0
+   }
+  },
+  {
+   "id": 907,
+   "name": "Tail lamp",
+   "transform": {
+    "position": [
+     0.65,
+     0.12,
+     2.16
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     0.3,
+     0.14,
+     0.04
+    ]
+   },
+   "parent": 901,
+   "meshRenderer": {
+    "mesh": "Cube",
+    "color": [
+     0.5,
+     0.0,
+     0.0
+    ],
+    "emissive": [
+     1.0,
+     0.05,
+     0.02
+    ],
+    "emissiveStrength": 6.0
+   }
+  },
+  {
+   "id": 908,
+   "name": "Headlights",
+   "transform": {
+    "position": [
+     0,
+     0.2,
+     -2.3
+    ],
+    "rotation": [
+     -14,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 901,
+   "light": {
+    "type": "spot",
+    "color": [
+     1.0,
+     0.93,
+     0.78
+    ],
+    "intensity": 3.5,
+    "range": 22.0,
+    "spotAngle": 48.0,
+    "spotSoftness": 0.8,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 909,
+   "name": "Tail glow",
+   "transform": {
+    "position": [
+     0,
+     0.3,
+     2.5
+    ],
+    "rotation": [
+     0,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 901,
+   "light": {
+    "type": "point",
+    "color": [
+     1.0,
+     0.08,
+     0.04
+    ],
+    "intensity": 0.5,
+    "range": 4.0,
+    "castShadows": false
+   }
+  },
+  {
+   "id": 910,
+   "name": "Spray",
+   "transform": {
+    "position": [
+     0,
+     -0.55,
+     1.9
+    ],
+    "rotation": [
+     60,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 901,
+   "particles": {
+    "rate": 0,
+    "burst": 0,
+    "playOnStart": true,
+    "duration": 0,
+    "lifetime": 0.45,
+    "lifetimeRandom": 0.15,
+    "speed": 3.0,
+    "speedRandom": 0.4,
+    "spread": 35,
+    "radius": 0.8,
+    "gravity": 9.0,
+    "drag": 1.5,
+    "startSize": 0.25,
+    "endSize": 0.9,
+    "startColor": [
+     0.6,
+     0.65,
+     0.7
+    ],
+    "endColor": [
+     0.5,
+     0.55,
+     0.6
+    ],
+    "startAlpha": 0.25,
+    "endAlpha": 0.0,
+    "intensity": 1.0,
+    "additive": false,
+    "maxParticles": 160,
+    "lit": true,
+    "gpu": true
+   },
+   "behaviours": [
+    {
+     "type": "SprayBySpeed",
+     "maxRate": 150,
+     "fullSpeed": 14,
+     "from": 1.5
+    }
+   ]
+  },
+  {
+   "id": 911,
    "name": "Taxi",
    "transform": {
     "position": [
@@ -29369,7 +31673,7 @@
    ]
   },
   {
-   "id": 852,
+   "id": 912,
    "name": "Body",
    "transform": {
     "position": [
@@ -29388,7 +31692,7 @@
      4.4
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29401,7 +31705,7 @@
    }
   },
   {
-   "id": 853,
+   "id": 913,
    "name": "Cabin",
    "transform": {
     "position": [
@@ -29420,7 +31724,7 @@
      2.1
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29433,7 +31737,7 @@
    }
   },
   {
-   "id": 854,
+   "id": 914,
    "name": "Roof sign",
    "transform": {
     "position": [
@@ -29452,7 +31756,7 @@
      0.3
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29469,7 +31773,7 @@
    }
   },
   {
-   "id": 855,
+   "id": 915,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -29488,7 +31792,7 @@
      0.04
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29505,7 +31809,7 @@
    }
   },
   {
-   "id": 856,
+   "id": 916,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -29524,7 +31828,7 @@
      0.04
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29541,7 +31845,7 @@
    }
   },
   {
-   "id": 857,
+   "id": 917,
    "name": "Headlamp",
    "transform": {
     "position": [
@@ -29560,7 +31864,7 @@
      0.04
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29577,7 +31881,7 @@
    }
   },
   {
-   "id": 858,
+   "id": 918,
    "name": "Tail lamp",
    "transform": {
     "position": [
@@ -29596,7 +31900,7 @@
      0.04
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "meshRenderer": {
     "mesh": "Cube",
     "color": [
@@ -29613,7 +31917,7 @@
    }
   },
   {
-   "id": 859,
+   "id": 919,
    "name": "Headlights",
    "transform": {
     "position": [
@@ -29632,7 +31936,7 @@
      1
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "light": {
     "type": "spot",
     "color": [
@@ -29648,7 +31952,7 @@
    }
   },
   {
-   "id": 860,
+   "id": 920,
    "name": "Tail glow",
    "transform": {
     "position": [
@@ -29667,7 +31971,7 @@
      1
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "light": {
     "type": "point",
     "color": [
@@ -29681,7 +31985,70 @@
    }
   },
   {
-   "id": 861,
+   "id": 921,
+   "name": "Spray",
+   "transform": {
+    "position": [
+     0,
+     -0.55,
+     2.1
+    ],
+    "rotation": [
+     60,
+     0,
+     0
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ]
+   },
+   "parent": 911,
+   "particles": {
+    "rate": 0,
+    "burst": 0,
+    "playOnStart": true,
+    "duration": 0,
+    "lifetime": 0.45,
+    "lifetimeRandom": 0.15,
+    "speed": 3.0,
+    "speedRandom": 0.4,
+    "spread": 35,
+    "radius": 0.8,
+    "gravity": 9.0,
+    "drag": 1.5,
+    "startSize": 0.25,
+    "endSize": 0.9,
+    "startColor": [
+     0.6,
+     0.65,
+     0.7
+    ],
+    "endColor": [
+     0.5,
+     0.55,
+     0.6
+    ],
+    "startAlpha": 0.25,
+    "endAlpha": 0.0,
+    "intensity": 1.0,
+    "additive": false,
+    "maxParticles": 160,
+    "lit": true,
+    "gpu": true
+   },
+   "behaviours": [
+    {
+     "type": "SprayBySpeed",
+     "maxRate": 150,
+     "fullSpeed": 14,
+     "from": 1.5
+    }
+   ]
+  },
+  {
+   "id": 922,
    "name": "Rain",
    "transform": {
     "position": [
@@ -29700,7 +32067,7 @@
      1
     ]
    },
-   "parent": 851,
+   "parent": 911,
    "particles": {
     "rate": 7000,
     "burst": 0,
@@ -29737,7 +32104,7 @@
    }
   },
   {
-   "id": 862,
+   "id": 923,
    "name": "Wheel FL",
    "transform": {
     "position": [
@@ -29756,10 +32123,10 @@
      1
     ]
    },
-   "parent": 851
+   "parent": 911
   },
   {
-   "id": 863,
+   "id": 924,
    "name": "Tyre",
    "transform": {
     "position": [
@@ -29778,7 +32145,7 @@
      0.76
     ]
    },
-   "parent": 862,
+   "parent": 923,
    "meshRenderer": {
     "mesh": "Sphere",
     "color": [
@@ -29790,7 +32157,7 @@
    }
   },
   {
-   "id": 864,
+   "id": 925,
    "name": "Wheel FR",
    "transform": {
     "position": [
@@ -29809,10 +32176,10 @@
      1
     ]
    },
-   "parent": 851
+   "parent": 911
   },
   {
-   "id": 865,
+   "id": 926,
    "name": "Tyre",
    "transform": {
     "position": [
@@ -29831,7 +32198,7 @@
      0.76
     ]
    },
-   "parent": 864,
+   "parent": 925,
    "meshRenderer": {
     "mesh": "Sphere",
     "color": [
@@ -29843,7 +32210,7 @@
    }
   },
   {
-   "id": 866,
+   "id": 927,
    "name": "Wheel BL",
    "transform": {
     "position": [
@@ -29862,10 +32229,10 @@
      1
     ]
    },
-   "parent": 851
+   "parent": 911
   },
   {
-   "id": 867,
+   "id": 928,
    "name": "Tyre",
    "transform": {
     "position": [
@@ -29884,7 +32251,7 @@
      0.76
     ]
    },
-   "parent": 866,
+   "parent": 927,
    "meshRenderer": {
     "mesh": "Sphere",
     "color": [
@@ -29896,7 +32263,7 @@
    }
   },
   {
-   "id": 868,
+   "id": 929,
    "name": "Wheel BR",
    "transform": {
     "position": [
@@ -29915,10 +32282,10 @@
      1
     ]
    },
-   "parent": 851
+   "parent": 911
   },
   {
-   "id": 869,
+   "id": 930,
    "name": "Tyre",
    "transform": {
     "position": [
@@ -29937,7 +32304,7 @@
      0.76
     ]
    },
-   "parent": 868,
+   "parent": 929,
    "meshRenderer": {
     "mesh": "Sphere",
     "color": [
@@ -29949,7 +32316,7 @@
    }
   },
   {
-   "id": 870,
+   "id": 931,
    "name": "Moon",
    "transform": {
     "position": [
@@ -29980,7 +32347,7 @@
    }
   },
   {
-   "id": 871,
+   "id": 932,
    "name": "Camera",
    "transform": {
     "position": [
