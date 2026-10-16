@@ -27,6 +27,14 @@ layout(location = 0) out vec4 outColor;
 // Blended in a compressed range: one very bright pixel doesn't outweigh the rest (and flicker)
 vec3 compress(vec3 c) { return c / (1.0 + max(c.r, max(c.g, c.b))); }
 vec3 expand(vec3 c) { return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4); }
+// The history pulled towards the middle of the colours around now (clipped to their box along the line to its
+// centre, rather than clamped per channel: no colour shift at the box's edge)
+vec3 clipToBox(vec3 lo, vec3 hi, vec3 c) {
+    vec3 centre = 0.5 * (lo + hi), extent = 0.5 * (hi - lo) + 1e-5;
+    vec3 v = c - centre, a = abs(v / extent);
+    float m = max(a.x, max(a.y, a.z));
+    return m > 1.0 ? centre + v / m : c;
+}
 
 void main() {
     vec2 px = gl_FragCoord.xy;
@@ -46,15 +54,21 @@ void main() {
         outColor = cur;
         return;
     }
-    // The colours around this pixel now (in the picture drawn), and their mean for sharpening
-    vec3 lo = vec3(1e9), hi = vec3(-1e9), plus = vec3(0.0);
+    // The colours around this pixel now (in the picture drawn): their range, and their mean and spread (variance
+    // clipping: the history kept within 1.25 standard deviations of the mean, inside the range, so flickering
+    // and ghosting colours are pulled in harder than by the range alone), and the cross's mean for sharpening
+    vec3 lo = vec3(1e9), hi = vec3(-1e9), plus = vec3(0.0), m1 = vec3(0.0), m2 = vec3(0.0);
     for (int y = -1; y <= 1; ++y)
         for (int x = -1; x <= 1; ++x) {
             vec3 c = compress(texture(current, at + vec2(x, y) * pc.params.yz).rgb);
             lo = min(lo, c);
             hi = max(hi, c);
+            m1 += c;
+            m2 += c * c;
             if (abs(x) + abs(y) == 1) plus += c;
         }
+    vec3 mean = m1 / 9.0, sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3(0.0)));
+    vec3 boxLo = max(lo, mean - 1.25 * sigma), boxHi = min(hi, mean + 1.25 * sigma);
     vec3 now = compress(cur.rgb);
     if (pc.extra.z > 0.0) now = clamp(now + (now - plus * 0.25) * pc.extra.z, lo, hi);   // (sharpened, no halos)
 #ifdef UPSCALE_ONLY
@@ -70,7 +84,17 @@ void main() {
     vec4 prev = pc.reproject * vec4(ndc, depth, 1.0);
     vec2 prevPx = (prev.xy / prev.w * 0.5 + 0.5) * vp.zw + vp.xy;
     if (pc.extra.w > 0.5) {   // moving things: where they were, by their own motion (the sky's: by the depth)
-        vec2 v = texelFetch(velocityMap, ivec2(scaled ? vp.xy + (px - vp.xy) * scale : px), 0).rg;
+        // (the nearest thing's motion round this pixel: an edge moves with what's in front, not what's behind)
+        ivec2 centre = ivec2(scaled ? vp.xy + (px - vp.xy) * scale : px), size = textureSize(depthMap, 0);
+        ivec2 nearest = centre;
+        float nearestDepth = 2.0;
+        for (int y = -1; y <= 1; ++y)
+            for (int x = -1; x <= 1; ++x) {
+                ivec2 q = clamp(centre + ivec2(x, y), ivec2(0), size - 1);
+                float d = texelFetch(depthMap, q, 0).r;
+                if (d < nearestDepth) nearestDepth = d, nearest = q;
+            }
+        vec2 v = texelFetch(velocityMap, nearest, 0).rg;
         if (v.x < 10000.0) prevPx = px - v * vp.zw;
     }
     bool seen = prevPx.x >= vp.x && prevPx.y >= vp.y && prevPx.x < vp.x + vp.z && prevPx.y < vp.y + vp.w;
@@ -84,11 +108,11 @@ void main() {
         float w = exp(-2.29 * dot(d, d));
         vec3 sampled = compress(texelFetch(current, ivec2(t), 0).rgb);
         float alpha = min(1.0, (1.0 - pc.params.x) / (scale * scale)) * w;
-        vec3 before = clamp(compress(texture(history, prevPx * pc.params.yz).rgb), lo, hi);
+        vec3 before = clipToBox(boxLo, boxHi, compress(texture(history, prevPx * pc.params.yz).rgb));
         outColor = vec4(expand(mix(before, sampled, alpha)), cur.a);
         return;
     }
-    vec3 before = clamp(compress(texture(history, prevPx * pc.params.yz).rgb), lo, hi);
+    vec3 before = clipToBox(boxLo, boxHi, compress(texture(history, prevPx * pc.params.yz).rgb));
     outColor = vec4(expand(mix(now, before, seen ? pc.params.x : 0.0)), cur.a);   // (alpha: the outline's marker)
 #endif
 }

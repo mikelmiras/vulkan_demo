@@ -1868,7 +1868,7 @@ traffic lights.
 | 114 (done) | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
 | 115 (done) | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
 | 116 (done) | Light shafts from lamps (the brightest few in view, without volumetric fog) and from the sun through occluders off screen (its shadow map marched in the half-size pass) | Shafts come only from the sun, and only from what's on screen |
-| 117 | Sharper temporal AA: motion vectors dilated to the nearest depth, variance clipping of the history, a contrast-adaptive sharpening pass after it (and after the upscaler) | TAA softens the picture and ghosts behind thin moving things |
+| 117 (done) | Sharper temporal AA: motion vectors dilated to the nearest depth, variance clipping of the history, a contrast-adaptive sharpening pass after it (and after the upscaler) | TAA softens the picture and ghosts behind thin moving things |
 | 118 | Night Drive's crossroads: traffic lights (red, amber, green on the poles, their glow on the wet road) that the traffic stops for, and cars yielding at the crossroads | The traffic drives through every crossroads without stopping |
 
 ### Round 11 notes
@@ -1978,4 +1978,15 @@ traffic lights.
   low sun behind the pillar (the haze and its dark streak, MSAA, render scale 0.7), a spot lamp in the open (its
   beam a haze near it and its pool), Night Drive, the editor, under validation with sync checks. Not done: point
   lights' halos (cubes: six views to pick from), the air's extinction, shafts in split-screen views.
+- **117, sharper temporal AA**: taa.frag takes each pixel's motion from the nearest depth in its 3 x 3 (dilated: an
+  edge moves with what's in front), and clips the history (along the line to the box's centre, not per channel)
+  to the neighbourhood's mean +- 1.25 standard deviations within its range (variance clipping, in the compressed
+  range the blend works in). sharpen.frag (after FidelityFX CAS: each pixel pushed from its cross by what the
+  contrast leaves room for) replaces the copy of the result into the HDR picture, reading it through the other
+  temporal set's history binding (that set's history is this frame's result), so the history stays unsharpened
+  (no build-up); 0.3 after temporal AA, 0.5 when upscaling, VKWORLD_SHARPEN=0..1. Checked: the demo with temporal
+  AA, its horizontal edge energy 1.47 to 1.76 with the sharpening; a camera panning at 120 degrees a second (no
+  trails), the moving-camera Night Drive copy, render scale 0.7 with and without temporal AA, Night Drive, the
+  editor, under validation with sync checks. Not done: the sharpness as a player setting, a history confidence
+  (blend weight by how far the history was moved).
 

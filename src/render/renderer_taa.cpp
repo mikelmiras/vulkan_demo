@@ -149,7 +149,32 @@ void Renderer::recordTaa(VkCommandBuffer cb, const SceneRenderInfo& info, TaaSta
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);
 
-    // The result back into the HDR image (the passes after read that), and kept as next frame's history
+    // The result back into the HDR image (the passes after read that), sharpened (contrast-adaptive: sharpen.frag,
+    // reading it through the other set's history), and kept as next frame's history as it is
+    const float sharpness = sharpenOverride_ >= 0.f ? sharpenOverride_ : scale < 0.999f ? 0.5f : 0.3f;
+    if (sharpenPipeline_ && sharpness > 0.f) {
+        imageBarrier(cb, out.image, VK_IMAGE_ASPECT_COLOR_BIT, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                     fragStage, VK_ACCESS_SHADER_READ_BIT);
+        imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, readable, target, fragStage, VK_ACCESS_SHADER_READ_BIT,
+                     colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        VkRenderingAttachmentInfo sa = att;
+        sa.imageView = hdr_.view;
+        VkRenderingInfo sr = ri;
+        sr.pColorAttachments = &sa;
+        vkCmdBeginRendering(cb, &sr);
+        vkCmdSetViewport(cb, 0, 1, &vp);
+        vkCmdSetScissor(cb, 0, 1, &sc);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, sharpenPipeline_);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, taaLayout_, 0, 1, &t.sets[1 - t.index], 0, nullptr);
+        Push sp = p;
+        sp.params[0] = sharpness;
+        vkCmdPushConstants(cb, taaLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(sp), &sp);
+        vkCmdDraw(cb, 3, 1, 0, 0);
+        vkCmdEndRendering(cb);
+        t.index = 1 - t.index;
+        t.history = true;
+        return;   // (out: readable, next frame's history; the HDR image: a target, as after the copy)
+    }
     imageBarrier(cb, out.image, VK_IMAGE_ASPECT_COLOR_BIT, target, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, colorStage,
                  VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
     imageBarrier(cb, hdr_.image, VK_IMAGE_ASPECT_COLOR_BIT, readable, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, fragStage,

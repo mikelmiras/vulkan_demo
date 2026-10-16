@@ -65,6 +65,7 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     if (const char* v = std::getenv("VKWORLD_SHADOW_CULL"); v && !std::strcmp(v, "0")) casterCulling_ = false;
     if (const char* v = std::getenv("VKWORLD_LEAN_SHADING"); v && !std::strcmp(v, "0")) leanShading_ = false;
     if (const char* v = std::getenv("VKWORLD_SSS"); v && !std::strcmp(v, "0")) sssWanted_ = false;
+    if (const char* v = std::getenv("VKWORLD_SHARPEN")) sharpenOverride_ = std::clamp((float)std::atof(v), 0.f, 1.f);
     if (const char* v = std::getenv("VKWORLD_AO_LIT"); v && !std::strcmp(v, "0")) aoLitWanted_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_CACHE"); v && !std::strcmp(v, "0")) shadowCacheOn_ = false;
     if (const char* v = std::getenv("VKWORLD_RENDER_SCALE"))   // (before the post images: the upscaler's are made with them)
@@ -840,6 +841,7 @@ void Renderer::createPipelines() {
     VK_CHECK(vkCreatePipelineLayout(device_, &pl, nullptr, &taaLayout_));
     taaPipeline_ = createPostPipeline("taa.frag.spv", hdrFormat_, false, taaLayout_);
     taaUpscalePipeline_ = createPostPipeline("taa_upscale.frag.spv", hdrFormat_, false, taaLayout_);
+    sharpenPipeline_ = createPostPipeline("sharpen.frag.spv", hdrFormat_, false, taaLayout_);   // (after either)
     bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
     lumPipeline_ = createPostPipeline("luminance.frag.spv", VK_FORMAT_R16_SFLOAT, false);
     // (the half-size traces: the scene's frame data, set 0; renderer_trace.cpp)
@@ -2368,7 +2370,7 @@ void Renderer::shutdown() {
     destroySampledPipelines();
     for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, shadowTintPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
                          compositeViewPipeline_,
-                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_,
+                         taaPipeline_, taaUpscalePipeline_, sharpenPipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_,
                          ssrTraceMsPipeline_, giTraceMsPipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, taaLayout_, nullptr);

@@ -43,7 +43,8 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/particles.comp shaders/particle_sort.comp shaders/particle_gather.comp
                    shaders/shafts.frag shaders/shafts_ms.frag shaders/camera_fx.frag shaders/camera_fx_ms.frag
                    shaders/ssao_temporal.frag shaders/ssao_temporal_ms.frag shaders/camera_fx_tiles.frag
-                   shaders/camera_fx_tiles_ms.frag shaders/shadow_tint.frag shaders/sss.frag shaders/sss_ms.frag)
+                   shaders/camera_fx_tiles_ms.frag shaders/shadow_tint.frag shaders/sss.frag shaders/sss_ms.frag
+                   shaders/sharpen.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)

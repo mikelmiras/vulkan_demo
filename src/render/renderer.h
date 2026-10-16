@@ -884,6 +884,8 @@ private:
     VkDescriptorSet sssSets_[2] = {};
     bool sssSeen_ = false, sssOn_ = false;
     bool sssWanted_ = true;          // (VKWORLD_SSS=0: none, to compare)
+    VkPipeline sharpenPipeline_ = VK_NULL_HANDLE;   // contrast-adaptive sharpening after temporal AA (sharpen.frag)
+    float sharpenOverride_ = -1.f;   // (VKWORLD_SHARPEN=0..1; otherwise 0.3 after temporal AA, 0.5 upscaling)
     void recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene);
     VkPipeline fxTilesPipeline_ = VK_NULL_HANDLE;    // (its near field's tiles: fxTiles_)
     VkPipeline shaftsPipeline_ = VK_NULL_HANDLE;   // light shafts (shafts.glsl): half size, over the depth (aoSet_)
