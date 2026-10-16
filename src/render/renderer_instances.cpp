@@ -357,6 +357,9 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         d.layers[1] = o.clearcoatRoughness;
         d.layers[2] = o.sheen;
         d.layers[3] = o.anisotropy;
+        d.scatter[0] = std::clamp(o.translucency, 0.f, 1.f);
+        d.scatter[1] = std::clamp(o.subsurface, 0.f, 1.f);
+        d.scatter[2] = packColor(o.subsurfaceColor);
         d.surface[0] = o.parallaxDepth;
         d.surface[1] = o.detailTiling;
         d.surface[2] = o.detailStrength;

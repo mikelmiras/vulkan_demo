@@ -184,6 +184,9 @@ TEST(materials_and_render_settings_saved) {
     mr.clearcoatRoughness = 0.1f;
     mr.sheen = 0.6f;
     mr.anisotropy = -0.4f;
+    mr.translucency = 0.45f;
+    mr.subsurface = 0.8f;
+    mr.subsurfaceColor = {0.9f, 0.4f, 0.3f};
     e.meshRenderer = mr;
     s.create("Plain").meshRenderer = MeshRenderer{};
     s.render.exposure = 1.3f;
@@ -230,8 +233,12 @@ TEST(materials_and_render_settings_saved) {
     CHECK_NEAR(l.clearcoatRoughness, 0.1, 1e-6);
     CHECK_NEAR(l.sheen, 0.6, 1e-6);
     CHECK_NEAR(l.anisotropy, -0.4, 1e-6);
+    CHECK_NEAR(l.translucency, 0.45, 1e-6);
+    CHECK_NEAR(l.subsurface, 0.8, 1e-6);
+    CHECK_VEC(l.subsurfaceColor, test::v3(0.9f, 0.4f, 0.3f), 1e-6f);
     const MeshRenderer& unlayered = *loaded.findByName("Plain")->meshRenderer;   // (none: as before)
     CHECK(unlayered.clearcoat == 0.f && unlayered.sheen == 0.f && unlayered.anisotropy == 0.f);
+    CHECK(unlayered.translucency == 0.f && unlayered.subsurface == 0.f);
     CHECK_NEAR(loaded.render.exposure, 1.3, 1e-6);
     CHECK_NEAR(loaded.render.bloomStrength, 0.2, 1e-6);
     CHECK_NEAR(loaded.render.fogDensity, 0.01, 1e-6);
@@ -336,3 +343,16 @@ TEST(gltf_alpha_modes) {
     CHECK_NEAR(loaded.findByName("Leaf")->meshRenderer->alphaCutoff, 0.3, 1e-6);
 }
 #endif
+
+TEST(materials_light_inside_undone) {
+    // Translucency and subsurface edits are changes the editor's undo sees
+    Scene before;
+    before.create("Leaf").meshRenderer = MeshRenderer{};
+    Scene after = before;
+    after.findByName("Leaf")->meshRenderer->translucency = 0.7f;
+    CHECK(!diffScenes(before, after).empty());
+    after = before;
+    after.findByName("Leaf")->meshRenderer->subsurfaceColor.y = 0.9f;
+    CHECK(!diffScenes(before, after).empty());
+    CHECK(diffScenes(before, before).empty());
+}

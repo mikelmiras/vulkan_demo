@@ -23,6 +23,7 @@ layout(location = 10) flat out vec4 vLayers;  // clear coat, its roughness, shee
 layout(location = 11) flat out vec4 vSurface; // parallax, detail, sheltered (Instance.surface)
 layout(location = 12) out vec4 vClipNow;      // motion vectors (the prepass): where it is, unjittered ...
 layout(location = 13) out vec4 vClipBefore;   // ... and where it was last frame
+layout(location = 14) flat out vec4 vScatter;   // translucency, subsurface, its colour (Instance.scatter)
 
 invariant gl_Position;   // (the depth prepass and the lit pass after it must land on the same depths)
 
@@ -40,6 +41,7 @@ void main() {
     vStream = inst.stream;
     vLayers = inst.layers;
     vSurface = inst.surface;
+    vScatter = inst.scatter;
     vSplat = inWeights;
     vHole = inst.params.x > 1.5 && inst.params.x < 2.5 ? float(inJoints.x) : 0.0;
     if (inst.params.x > 2.5) {   // water: its grid moved by the waves (rest positions in the world), how high a crest is

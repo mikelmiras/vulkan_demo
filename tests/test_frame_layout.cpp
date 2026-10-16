@@ -1,7 +1,9 @@
-// The frame's uniforms: FrameUBO (render/renderer_internal.h) must match shaders/common.glsl's Frame block field for
-// field (names, order, sizes); both files are read and their declarations compared, so a field added to one alone fails
+// The frame's uniforms and the objects' data: FrameUBO and InstanceData (render/renderer_internal.h) must match
+// shaders/common.glsl's Frame block and Instance struct field for field (names, order, sizes); both files are read
+// and their declarations compared, so a field added to one alone fails. And packColor's colours.
 #include "test.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -78,24 +80,44 @@ std::vector<Field> fields(const std::string& text, const std::string& open, int 
 
 int glslFloats(const std::string& type) { return type == "mat4" ? 16 : type == "vec4" ? 4 : -1000; }   // (vec4s alone: std140 has no padding then)
 int cppFloats(const std::string& type) { return type == "Mat4" ? 16 : type == "float" ? 1 : -1000; }
-}  // namespace
 
-TEST(frame_uniforms_match_the_shaders) {
+
+// Each field of the shaders' block against the C++ struct's; the struct's size the fields' sum (no padding: vec4s and
+// mat4s alone, std140's and std430's layouts alike then)
+void compareLayouts(const char* glslOpen, const char* cppOpen, size_t cppSize) {
     std::string root = std::string(VKWORLD_TEST_ASSETS) + "/../../";
-    std::vector<Field> glsl = fields(readFile(root + "shaders/common.glsl"), "uniform Frame {", glslFloats);
-    std::vector<Field> cpp = fields(readFile(root + "src/render/renderer_internal.h"), "struct FrameUBO {", cppFloats);
-    REQUIRE(glsl.size() > 20);
+    std::vector<Field> glsl = fields(readFile(root + "shaders/common.glsl"), glslOpen, glslFloats);
+    std::vector<Field> cpp = fields(readFile(root + "src/render/renderer_internal.h"), cppOpen, cppFloats);
+    REQUIRE(glsl.size() > 5);
     CHECK(glsl.size() == cpp.size());
     int total = 0;
     for (size_t i = 0; i < glsl.size() && i < cpp.size(); ++i) {
         if (glsl[i].name != cpp[i].name || glsl[i].floats != cpp[i].floats) {
-            test::fail(__FILE__, __LINE__, "field " + std::to_string(i) + ": " + glsl[i].name + " (" +
+            test::fail(__FILE__, __LINE__, std::string(cppOpen) + " field " + std::to_string(i) + ": " + glsl[i].name + " (" +
                                                std::to_string(glsl[i].floats) + ") in the shaders, " + cpp[i].name + " (" +
-                                               std::to_string(cpp[i].floats) + ") in FrameUBO");
+                                               std::to_string(cpp[i].floats) + ") in C++");
             break;
         }
         CHECK(glsl[i].floats > 0);
         total += glsl[i].floats;
     }
-    CHECK(sizeof(FrameUBO) == size_t(total) * sizeof(float));
+    CHECK(cppSize == size_t(total) * sizeof(float));
+}
+}  // namespace
+
+TEST(frame_uniforms_match_the_shaders) {
+    compareLayouts("uniform Frame {", "struct FrameUBO {", sizeof(FrameUBO));
+    compareLayouts("struct Instance {", "struct InstanceData {", sizeof(InstanceData));
+}
+
+TEST(packed_colours) {
+    CHECK(packColor({0.f, 0.f, 0.f}) == 0.f);
+    CHECK(packColor({1.f, 1.f, 1.f}) == 16777215.f);   // (2^24 - 1: whole in a float)
+    CHECK(packColor({1.f, 0.f, 0.f}) == 255.f * 65536.f);
+    CHECK(packColor({0.f, 1.f, 0.f}) == 255.f * 256.f);
+    CHECK(packColor({2.f, -1.f, 0.5f}) == 255.f * 65536.f + 128.f);   // (clamped; rounded)
+    // unpackColor's sums (common.glsl), back to the bytes
+    float p = packColor({1.f, 0.35f, 0.2f});
+    float r = std::floor(p / 65536.f), g = std::fmod(std::floor(p / 256.f), 256.f), b = std::fmod(p, 256.f);
+    CHECK(r == 255.f && g == 89.f && b == 51.f);
 }

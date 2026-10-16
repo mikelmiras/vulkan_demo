@@ -489,6 +489,8 @@ void Editor::drawComponents(Entity& e) {
                 struct Preset {
                     const char* name;
                     float metallic, roughness, clearcoat, clearcoatRoughness, sheen, anisotropy;
+                    float translucency = 0.f, subsurface = 0.f;
+                    Vec3 subsurfaceColor{1.f, 0.35f, 0.2f};
                 };
                 static const Preset presets[] = {
                     {"Plastic", 0.f, 0.45f, 0.f, 0.05f, 0.f, 0.f},      {"Rubber", 0.f, 0.9f, 0.f, 0.05f, 0.f, 0.f},
@@ -496,6 +498,10 @@ void Editor::drawComponents(Entity& e) {
                     {"Brushed metal", 1.f, 0.35f, 0.f, 0.05f, 0.f, 0.7f}, {"Car paint", 0.5f, 0.4f, 1.f, 0.04f, 0.f, 0.f},
                     {"Lacquered wood", 0.f, 0.6f, 0.8f, 0.08f, 0.f, 0.f}, {"Cloth", 0.f, 0.85f, 0.f, 0.05f, 1.f, 0.f},
                     {"Velvet", 0.f, 0.95f, 0.f, 0.05f, 1.f, 0.f},          {"Stone", 0.f, 0.8f, 0.f, 0.05f, 0.f, 0.f},
+                    {"Leaf", 0.f, 0.6f, 0.f, 0.05f, 0.f, 0.f, 0.7f},       {"Paper", 0.f, 0.9f, 0.f, 0.05f, 0.f, 0.f, 0.5f},
+                    {"Skin", 0.f, 0.55f, 0.f, 0.05f, 0.f, 0.f, 0.f, 0.7f, {1.f, 0.35f, 0.2f}},
+                    {"Wax", 0.f, 0.4f, 0.f, 0.05f, 0.f, 0.f, 0.2f, 0.9f, {1.f, 0.8f, 0.5f}},
+                    {"Marble", 0.f, 0.25f, 0.f, 0.05f, 0.f, 0.f, 0.f, 0.5f, {0.9f, 0.85f, 0.8f}},
                 };
                 if (ImGui::BeginCombo("Preset", "(choose to apply)")) {
                     for (const Preset& p : presets)
@@ -507,6 +513,9 @@ void Editor::drawComponents(Entity& e) {
                             mr.clearcoatRoughness = p.clearcoatRoughness;
                             mr.sheen = p.sheen;
                             mr.anisotropy = p.anisotropy;
+                            mr.translucency = p.translucency;
+                            mr.subsurface = p.subsurface;
+                            if (p.subsurface > 0.f) mr.subsurfaceColor = p.subsurfaceColor;
                         }
                     ImGui::EndCombo();
                 }
@@ -530,6 +539,17 @@ void Editor::drawComponents(Entity& e) {
             track();
             tooltip("Highlights stretched across the surface, like brushed metal: along the texture's u (above 0) or v "
                     "(below)");
+            ImGui::SliderFloat("Translucency", &mr.translucency, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("Thin things (leaves, paper, curtains, lampshades): light from behind shows through, in the colour");
+            ImGui::SliderFloat("Subsurface", &mr.subsurface, 0.f, 1.f, "%.2f");
+            track();
+            tooltip("Thick soft things (skin, wax, marble, jade): light spreads under the surface past the shadow's "
+                    "edge, in the colour below, and shadows soften");
+            if (mr.subsurface > 0.f) {
+                ImGui::ColorEdit3("Subsurface colour", &mr.subsurfaceColor.x);
+                track();
+            }
             texturePicker("Metal/rough map", mr.metalRoughTexture, "glTF layout: green = roughness, blue = metallic");
             texturePicker("Normal map", mr.normalTexture, "Tangent space; drop a texture from the Assets panel here");
             if (mr.normalTexture >= 0) {

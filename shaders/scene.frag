@@ -69,6 +69,7 @@ layout(location = 8) in float vHole;
 layout(location = 9) flat in vec4 vStream;
 layout(location = 10) flat in vec4 vLayers;   // clear coat, its roughness, sheen, anisotropy
 layout(location = 11) flat in vec4 vSurface;  // parallax depth, detail tiling, detail strength, w = 1: sheltered
+layout(location = 14) flat in vec4 vScatter;  // translucency, subsurface, its colour (packed: unpackColor)
 
 vec2 gUV;   // the texture coordinates the material is read at (vUV, moved by parallax occlusion)
 
@@ -292,14 +293,17 @@ struct Surface {
     vec3 sheenColor;
     float aniso;
     vec3 T, B;            // (anisotropy's directions: along the texture's u and v)
+    float translucency;   // thin things: light from behind through them
+    float subsurface;     // thick ones: light spread under the surface, past the shadow's edge, in scatterColor
+    vec3 scatterColor;
 };
 
 // Light reflected towards V from a light of `radiance` along L. Intensities mean "how bright a white matte surface
 // facing the light looks", hence the PI.
 vec3 shade(Surface s, vec3 L, vec3 radiance) {
-    float NdotL = max(dot(s.N, L), 0.0);
+    float ndl = dot(s.N, L), NdotL = max(ndl, 0.0);
     float coatNdotL = s.coat > 0.0 ? max(dot(s.coatN, L), 0.0) : 0.0;
-    if (NdotL <= 0.0 && coatNdotL <= 0.0) return vec3(0.0);
+    if (NdotL <= 0.0 && coatNdotL <= 0.0 && s.translucency <= 0.0 && s.subsurface <= 0.0) return vec3(0.0);
     vec3 V = s.V, H = normalize(L + V);
     float NdotV = max(dot(s.N, V), 1e-4), NdotH = max(dot(s.N, H), 0.0), VdotH = clamp(dot(V, H), 0.0, 1.0);   // (pow of a negative is NaN)
     float a = max(s.rough * s.rough, 0.002);
@@ -318,7 +322,18 @@ vec3 shade(Surface s, vec3 L, vec3 radiance) {
     }
     vec3 spec = dv * F * s.energy;
     vec3 diffuse = (1.0 - F) * (1.0 - s.metallic) * s.base / PI;
-    vec3 result = (diffuse + spec) * NdotL;
+    vec3 lit = vec3(NdotL);
+    if (s.subsurface > 0.0) {   // wrapped diffuse: the light reaches past the terminator, reddened (skin's) there
+        float w = 0.5 * s.subsurface;
+        float wrapped = clamp((ndl + w) / (1.0 + w), 0.0, 1.0);
+        lit = mix(lit, wrapped * mix(s.scatterColor, vec3(1.0), clamp(ndl * 2.0, 0.0, 1.0)), s.subsurface);
+    }
+    vec3 result = diffuse * lit * (1.0 - 0.25 * s.translucency) + spec * NdotL;
+    if (s.translucency > 0.0) {   // thin: light from behind comes through (its colour), and looking towards the light
+                                  // through it (grass, whose normals point up, against the sun) it glows
+        float back = max(-ndl, 0.0), towards = pow(clamp(dot(-s.V, L), 0.0, 1.0), 4.0);
+        result += (1.0 - s.metallic) * s.base / PI * (s.translucency * (0.6 * back + 1.2 * towards));
+    }
     if (s.sheen > 0.0) {   // cloth: Estevez & Kulla's "Charlie" sheen (roughness 0.5), Neubelt's visibility
         const float invA = 4.0;   // (1 / 0.5 squared)
         float sin2h = max(1.0 - NdotH * NdotH, 0.0078125);
@@ -824,6 +839,9 @@ void main() {
     s.aniso = water || terrain ? 0.0 : clamp(vLayers.w, -0.95, 0.95);
     s.T = vec3(1.0, 0.0, 0.0);
     s.B = vec3(0.0, 0.0, 1.0);
+    s.translucency = water || terrain ? 0.0 : clamp(vScatter.x, 0.0, 1.0);
+    s.subsurface = water || terrain ? 0.0 : clamp(vScatter.y, 0.0, 1.0);
+    s.scatterColor = unpackColor(vScatter.z);
     vec3 R = reflect(-V, N);
     if (abs(s.aniso) > 0.01) {   // the texture's u and v across the surface (screen-space derivatives), and the
                                  // reflection bent towards the highlight's stretch
@@ -847,6 +865,7 @@ void main() {
         vec4 g = halfTraced ? tracedIrradiance : traceIrradiance(vWorldPos, N, gl_FragCoord.xy, fine ? 2 : 1, fine ? 8 : 6, spin);
         diffuseLight = mix(diffuseLight, g.rgb, g.a * frame.prevCamForward.w);
     }
+    if (s.translucency > 0.0) diffuseLight += irradiance(-N) * (0.6 * s.translucency);   // (the sky behind, through it)
     // Ambient occlusion (before lighting: frame.occlusion.x) on the indirect light alone: nooks and contacts get
     // less of the sky's, the probes' and the bounced light, never of the sun's or the lamps'
     float ambientOcclusion = 1.0;
@@ -877,6 +896,11 @@ void main() {
     // Sun
     vec3 L = normalize(-frame.sunDir.xyz);
     float vis = dot(N, L) > 0.0 || (s.coat > 0.0 && dot(s.coatN, L) > 0.0) ? sunVisibility(N, L) : 0.0;
+    // (lit from behind, through it: the shadow on its lit side; past a soft surface's terminator: a little towards
+    // the light, out of its own shadow; and a soft surface's shadows softer)
+    if (dot(N, L) <= 0.0 && s.translucency > 0.0) vis = sunVisibility(-N, L);
+    else if (dot(N, L) <= 0.0 && s.subsurface > 0.0) vis = sunVisibility(L, L);
+    if (s.subsurface > 0.0) vis = mix(vis, sqrt(vis), s.subsurface);
     if (!water && frame.waterInfo.y > 0.5) vis *= caustics(vWorldPos);   // (under water: the waves focus it)
     if (halfTraced && frame.trace.w > 0.5) vis *= tracedContact;   // (the contact the shadow maps miss)
     if (frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0) vis *= cloudShadow(vWorldPos);   // (clouds drifting over)
@@ -904,6 +928,7 @@ void main() {
         float dist = length(d), range = li.posRange.w;
         if (dist >= range) continue;
         vec3 Lp = d / max(dist, 1e-4);
+        vec3 lightSide = dot(N, Lp) < 0.0 && s.translucency > 0.0 ? -N : N;   // (the shadow on the side it's lit from)
         float window = clamp(1.0 - (dist * dist) / (range * range), 0.0, 1.0);
         float light = window * window;
         int shadowView = int(li.params.y);
@@ -920,11 +945,11 @@ void main() {
                 light *= dot(texture(cookies, vec3(clamp(cuv, 0.0, 1.0), li.params.z)).rgb, vec3(0.3333));
                 if (light <= 0.0) continue;
             }
-            if (shadowView >= 0) light *= atlasShadow(shadowView, vWorldPos + N * 0.04, 0.00015);
+            if (shadowView >= 0) light *= atlasShadow(shadowView, vWorldPos + lightSide * 0.04, 0.00015);
         } else if (shadowView >= 0) {   // a point light's cube: the face towards this point (+x -x +y -y +z -z)
             vec3 a = -d, m = abs(a);
             int face = m.x >= m.y && m.x >= m.z ? (a.x > 0.0 ? 0 : 1) : m.y >= m.z ? (a.y > 0.0 ? 2 : 3) : (a.z > 0.0 ? 4 : 5);
-            light *= atlasShadow(shadowView + face, vWorldPos + N * (0.02 + 0.01 * dist), 0.0002);
+            light *= atlasShadow(shadowView + face, vWorldPos + lightSide * (0.02 + 0.01 * dist), 0.0002);
         }
         if (light <= 0.0) continue;
         color += shade(s, Lp, li.color.rgb * light);

@@ -54,6 +54,10 @@ struct MeshRenderer {
     float clearcoatRoughness = 0.05f;
     float sheen = 0.f;                // cloth's soft rim of light at grazing angles (velvet, felt), tinted by the colour
     float anisotropy = 0.f;           // -1..1: highlights stretched across (brushed metal), along the texture's u (> 0) or v
+    // Light inside the material
+    float translucency = 0.f;         // thin things (leaves, paper, curtains): light from behind shows through, tinted
+    float subsurface = 0.f;           // thick ones (skin, wax, marble, jade): light spreads under the surface, past the
+    Vec3 subsurfaceColor{1.f, 0.35f, 0.2f};   // shadow's edge, in this colour (sRGB)
     // Surface detail
     int heightTexture = -1;           // a height map (white high) for parallax occlusion: the surface looks deep
     float parallaxDepth = 0.f;        // how deep, in texture units (0.02..0.08 suits most; 0: flat)

@@ -42,6 +42,8 @@ struct DrawItem {
     int alphaMode = 0;          // 0 opaque, 1 mask (cut out below alphaCutoff), 2 blend (see-through)
     float opacity = 1.f, alphaCutoff = 0.5f;
     float clearcoat = 0.f, clearcoatRoughness = 0.05f, sheen = 0.f, anisotropy = 0.f;
+    float translucency = 0.f, subsurface = 0.f;
+    Vec3 subsurfaceColor{1.f, 0.35f, 0.2f};   // (sRGB)
     int heightTexture = -1, detailTexture = -1;
     float parallaxDepth = 0.f, detailTiling = 8.f, detailStrength = 1.f;
     bool sheltered = false;

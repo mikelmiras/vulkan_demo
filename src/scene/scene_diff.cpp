@@ -22,7 +22,8 @@ bool eq(const MeshRenderer& a, const MeshRenderer& b) {
            a.alphaCutoff == b.alphaCutoff && a.clearcoat == b.clearcoat && a.clearcoatRoughness == b.clearcoatRoughness &&
            a.sheen == b.sheen && a.anisotropy == b.anisotropy && a.heightTexture == b.heightTexture &&
            a.parallaxDepth == b.parallaxDepth && a.detailTexture == b.detailTexture && a.detailTiling == b.detailTiling &&
-           a.detailStrength == b.detailStrength && a.sheltered == b.sheltered;
+           a.detailStrength == b.detailStrength && a.sheltered == b.sheltered && a.translucency == b.translucency &&
+           a.subsurface == b.subsurface && eq(a.subsurfaceColor, b.subsurfaceColor);
 }
 bool eq(const Camera& a, const Camera& b) {
     return a.fovY == b.fovY && a.zNear == b.zNear && a.zFar == b.zFar && a.player == b.player;

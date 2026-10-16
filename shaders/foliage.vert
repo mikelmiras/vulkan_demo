@@ -23,6 +23,7 @@ layout(location = 10) flat out vec4 vLayers;
 layout(location = 11) flat out vec4 vSurface;
 layout(location = 12) out vec4 vClipNow;      // motion vectors (the camera's alone: plants stay put)
 layout(location = 13) out vec4 vClipBefore;
+layout(location = 14) flat out vec4 vScatter;   // translucency, subsurface, its colour (Instance.scatter)
 
 // Terrain::Plant: position (terrain space), yaw, scale, shade
 layout(std430, set = 0, binding = 16) readonly buffer Plants { float plants[]; };
@@ -61,6 +62,7 @@ void main() {
     vStream = vec4(-1.0, 0.0, 0.0, 0.0);   // (grass isn't streamed)
     vLayers = vec4(0.0, 0.05, 0.0, 0.0);   // (no coat, sheen or anisotropy)
     vSurface = vec4(0.0, 8.0, 0.0, 0.0);   // (no parallax or detail; the weather wets it)
+    vScatter = vec4(0.5, 0.0, 0.0, 0.0);   // (leaves and blades: the sun through them)
     vSplat = vec4(0.0);
     vHole = 0.0;
     gl_Position = frame.viewProj * world;

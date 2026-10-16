@@ -1723,7 +1723,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | 100 (done) | See-through GPU particles: sorted back to front on the GPU (bitonic), so smoke, steam and dust can move to the GPU; Night Drive's steam on it | Round 9's GPU particles are additive only |
 | 101 (done) | The half-size traces with MSAA and under a render scale: the prepass's surface from sample 0 of a multisampled G-buffer, the traces mapped to the drawn area | With MSAA or a render scale under 1, reflections and GI fall back to per-pixel tracing, contact shadows to none |
 | 102 (done) | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
-| 103 | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
+| 103 (done) | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
 | 104 | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
 | 105 | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
 | 106 | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
@@ -1774,4 +1774,18 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   to 29, 40, 39), a probe scene with the sun moved every frame (a rebake a frame) under validation with sync
   checks. Not done: rebakes spread over frames (a face a frame: each is a stall now), the clouds in the GI probes'
   sky (they see the sky through the harmonics already), the moon's light through the clouds.
+- **103, translucency and subsurface**: MeshRenderer::translucency, subsurface and subsurfaceColor (format 56, module
+  API 65; Instance.scatter: the colour packed as r * 65536 + g * 256 + b, whole in a float, packColor /
+  unpackColor). scene.frag's shade(): subsurface wraps the diffuse (w = 0.5 * subsurface: light to 120 degrees),
+  tinted by the colour at and past the terminator; translucency dims the front's diffuse by a quarter and adds the
+  colour's light from behind (0.6 * the back's cosine) and towards the light (1.2 * pow(dot(-V, L), 4): grass,
+  whose normals point up, glows against the sun). The sun's shadow is looked up on the lit side for back-lit thin
+  things (and a little towards the light past a soft surface's terminator, out of its own shadow); a soft
+  surface's shadows are softened (sqrt of the visibility, by the amount); point and spot lights' too. The ambient
+  adds the sky behind (irradiance(-N)) to translucent things. Foliage: translucency 0.5. Presets: leaf, paper, skin,
+  wax, marble. New test: InstanceData against common.glsl's Instance (the layout test's), packColor. Checked: three
+  back-lit cards (0, 0.5, 1: dark to glowing), three side-lit spheres (the terminator from hard to soft and red), a
+  meadow against a low sun (green 106 to 115 over the grass), Night Drive (TAA, MSAA), the sample game, the editor,
+  under validation. Not done: thickness (a map, or the depth through the object), screen-space diffusion of the
+  lit picture (skin's blur), translucency in the shadow maps (coloured shadows under leaves).
 

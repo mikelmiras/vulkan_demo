@@ -96,6 +96,9 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
         d.clearcoatRoughness = mr.clearcoatRoughness;
         d.sheen = mr.sheen;
         d.anisotropy = mr.anisotropy;
+        d.translucency = mr.translucency;
+        d.subsurface = mr.subsurface;
+        d.subsurfaceColor = mr.subsurfaceColor;
         d.heightTexture = mr.heightTexture;
         d.parallaxDepth = mr.heightTexture >= 0 ? mr.parallaxDepth : 0.f;
         d.detailTexture = mr.detailTexture;

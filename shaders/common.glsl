@@ -198,6 +198,13 @@ vec3 throughWater(vec3 color, vec3 pos) {
     return color * through + body * (1.0 - through);
 }
 
+// packColor's (renderer_internal.h) colour back, linear
+vec3 unpackColor(float packed) {
+    float p = floor(packed + 0.5);
+    vec3 srgb = vec3(floor(p / 65536.0), mod(floor(p / 256.0), 256.0), mod(p, 256.0)) / 255.0;
+    return pow(srgb, vec3(2.2));
+}
+
 // One per drawn object; draws are instanced, gl_InstanceIndex picks the object
 struct Instance {
     mat4 model;
@@ -212,6 +219,7 @@ struct Instance {
     vec4 surface;  // parallax depth (0: none), detail tiling, detail strength (0: none), w = 1: sheltered from weather
     mat4 prevModel;  // last frame's model matrix (motion vectors)
     vec4 motion;     // x = last frame's joints' first matrix (-1: none)
+    vec4 scatter;    // translucency, subsurface, its colour (8-bit sRGB packed: r * 65536 + g * 256 + b), unused
 };
 layout(std430, set = 0, binding = 2) readonly buffer Instances {
     Instance instances[];

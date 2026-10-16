@@ -4,7 +4,9 @@
 
 #include <vulkan/vulkan.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 
@@ -127,7 +129,15 @@ struct InstanceData {
     float surface[4];    // parallax depth (0: none), detail tiling, detail strength (0: none), w = 1: sheltered
     Mat4 prevModel;      // last frame's model matrix (motion vectors)
     float motion[4];     // x = last frame's joints' first matrix (-1: none)
+    float scatter[4];    // translucency, subsurface, its colour (8-bit sRGB packed: r * 65536 + g * 256 + b), unused
 };
+
+// An sRGB colour (0..1) as one float, exactly: 8 bits a channel, r * 65536 + g * 256 + b (under 2^24, so a float
+// holds it whole); common.glsl's unpackColor undoes it (to linear)
+inline float packColor(Vec3 srgb) {
+    auto byte = [](float v) { return (uint32_t)std::lround(std::clamp(v, 0.f, 1.f) * 255.f); };
+    return (float)(byte(srgb.x) * 65536u + byte(srgb.y) * 256u + byte(srgb.z));
+}
 
 // The six planes of a view-projection's frustum (Vulkan clip space: 0 <= z <= w), as (normal, distance)
 struct Frustum {

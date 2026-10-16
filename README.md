@@ -427,8 +427,14 @@ dropping on the right.
   lacquer; its roughness apart), **sheen** (cloth's soft glow at grazing angles: velvet, felt) and **anisotropy**
   (highlights stretched across the surface along the texture's u or v: brushed metal). The specular keeps the
   light that bounces between microfacets (multiple-scattering compensation), so rough metals don't turn dull and
-  dark. The inspector's *Preset* sets a kind of material at once (plastic, rubber, polished, rough or brushed metal,
-  car paint, lacquered wood, cloth, velvet, stone).
+  dark. Light inside the material: **translucency** for thin things (leaves, paper, curtains, lampshades): light
+  from behind comes through in their colour, glowing most when you look towards the light through them, and the sky
+  behind lights them too; terrain foliage is translucent (0.5), so grass against a low sun glows. **Subsurface** for
+  thick, soft things (skin, wax, marble, jade): the light reaches past the shadow's edge (wrapped diffuse), tinted
+  by the *Subsurface colour* there (red for skin), and their shadows are softer. Both are approximations, not a
+  diffusion of light through the volume: thickness isn't taken into account. The inspector's *Preset* sets a kind
+  of material at once (plastic, rubber, polished, rough or brushed metal, car paint, lacquered wood, cloth, velvet,
+  stone, leaf, paper, skin, wax, marble).
   Surface detail: a **height map** with a **parallax depth** gives **parallax occlusion mapping**. The view ray is
   stepped down into the heights (more steps at grazing angles and at higher quality) and the material read where it
   meets them, so bricks stand out and mortar sinks in, without more geometry. A **detail map** is a fine normal map
