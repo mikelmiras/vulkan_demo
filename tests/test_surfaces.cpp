@@ -35,6 +35,14 @@ TEST(decals_nearest_and_texture_slots) {
     for (size_t k = 0; k < tight.decals.size(); ++k)
         if (all[(size_t)tight.decals[k]].texture < 0) CHECK(tight.slots[k] == -1);
     CHECK(pickDecals({}, {0, 0, 0}, 64, 16).decals.empty());
+    // Normal maps: slots of their own (none asked for: none given)
+    all[4].normalTexture = 11;
+    all[2].normalTexture = 11;
+    all[1].normalTexture = 12;
+    DecalPick withNormals = pickDecals(all, {0, 0, 0}, 3, 8, 1);
+    CHECK(withNormals.normalTextures.size() == 1 && withNormals.normalTextures[0] == 11);
+    CHECK(withNormals.normalSlots[0] == 0 && withNormals.normalSlots[1] == 0 && withNormals.normalSlots[2] == -1);
+    CHECK(pickDecals(all, {0, 0, 0}, 3, 8).normalTextures.empty());
 }
 
 TEST(decals_collected_with_their_box) {
@@ -87,6 +95,8 @@ TEST(surfaces_saved) {
     d.roughness = 0.3f;
     d.wetness = 0.4f;
     d.angleFade = 0.2f;
+    d.normalTexture = textures().find("Bricks Normal");
+    d.normalStrength = 0.8f;
     mark.decal = d;
     s.render.wetness = 0.8f;
     s.render.puddles = 0.3f;
@@ -111,6 +121,8 @@ TEST(surfaces_saved) {
     CHECK_NEAR(ld.roughness, 0.3, 1e-6);
     CHECK_NEAR(ld.wetness, 0.4, 1e-6);
     CHECK_NEAR(ld.angleFade, 0.2, 1e-6);
+    CHECK(ld.normalTexture == d.normalTexture && ld.normalTexture >= 0);
+    CHECK_NEAR(ld.normalStrength, 0.8, 1e-6);
     CHECK_NEAR(loaded.render.wetness, 0.8, 1e-6);
     CHECK_NEAR(loaded.render.puddles, 0.3, 1e-6);
     CHECK_NEAR(loaded.render.rain, 0.6, 1e-6);

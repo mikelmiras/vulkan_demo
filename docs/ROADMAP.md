@@ -1573,7 +1573,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | # | Task | Why |
 |---|------|-----|
 | 89 (done) | Motion vectors: a velocity per pixel from each object's last-frame transform (and skinning, and the waves), for temporal AA and the temporal effects (SSGI, fog's history, upscaling) instead of reprojecting by depth alone | Moving things (the taxi, animated characters, water) smear and ghost under temporal AA: their history is looked up where the static world was |
-| 90 | Clustered decals: decals binned into the light clusters (each pixel tests only the decals of its cluster), decal normal maps (cracks, tyre tracks, manhole covers), more than 64 | Every pixel tests every decal drawn; flat decals look painted on |
+| 90 (done) | Clustered decals: decals binned into the light clusters (each pixel tests only the decals of its cluster), decal normal maps (cracks, tyre tracks, manhole covers), more than 64 | Every pixel tests every decal drawn; flat decals look painted on |
 | 91 | Half-resolution effects: screen-space reflections, SSGI and ambient occlusion traced at half size and brought up with a depth-aware (bilateral) upsample, temporally accumulated | Round 8's screen-space effects run per pixel in the lit shader; on a 1050 Ti at 1080p they're most of the frame |
 | 92 | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
 | 93 | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
@@ -1599,4 +1599,15 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   Not done: motion vectors without the prepass (VKWORLD_PREPASS=0: depth only, as before), for see-through things
   and particles (drawn after it), the extra views (split-screen: depth only), the history taken from the nearest
   depth's motion of a 3 x 3 (edges of moving things), SSGI's and the fog's histories following them.
+- **90, clustered decals**: writeDecals now runs after writeLights and bins the picked decals (their bounding
+  spheres) into the same clusters with buildLightClusters, into a buffer of their own per frame (binding 27,
+  16384 indices); scene.frag finds the pixel's cluster (clusterAt, as the lights do) and loops over its decals
+  (probe and split-screen views, unclustered, over all of them). kMaxDecals 64 -> 256. Decal gains normalTexture /
+  normalStrength (scene format 51, module API 60): its own 8 slots (binding 28, linear views, flat where none),
+  bending the normal along the box's x and z (the texture's u and v) by the decal's coverage without its opacity.
+  The texture lookups moved into decalColour / decalNormal (a switch: the slot now differs between pixels of a
+  wave, each case's index a constant). Checked: pickDecals' normal slots and the saved normal map (tests); a scene
+  with 300 dirt decals, a normal-only crack patch and a textured plate with a normal map under validation with sync
+  checks (TAA, MSAA, the editor, Night Drive). Lavapipe: that scene's lit pass 222 ms without its decals, 237 with
+  256 of them. Not done: decals on see-through things, decal angle fade by the bent normal, emissive decals.
 

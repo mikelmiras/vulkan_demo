@@ -14,6 +14,7 @@
 #include "assets/meshes.h"
 #include "render/atmosphere.h"
 #include "render/environment.h"
+#include "render/light_clusters.h"
 #include "render/display.h"
 #include "render/texture_streaming.h"
 #include "assets/textures.h"
@@ -87,6 +88,8 @@ struct DecalInfo {
     Vec3 color{1, 1, 1};        // linear
     float opacity = 1.f, roughness = -1.f, wetness = 0.f, angleFade = 0.5f;
     int texture = -1;
+    int normalTexture = -1;
+    float normalStrength = 1.f;
 };
 
 struct ProbeInfo {
@@ -553,9 +556,13 @@ private:
     void createLightBuffers();
     // Decals (renderer_decals.cpp): the nearest, a buffer per frame (binding 24), their textures (binding 25)
 public:
-    static constexpr uint32_t kMaxDecals = 64, kDecalTextures = 16;
+    static constexpr uint32_t kMaxDecals = 256, kDecalTextures = 16, kDecalNormals = 8;
 private:
+    static constexpr size_t kMaxDecalIndices = 16384;   // (decals listed in the clusters, all of them together)
     Buffer decalBuffers_[MAX_FRAMES];
+    Buffer decalClusters_[MAX_FRAMES];   // (binding 27: as the lights' clusters, binding 15)
+    ClusterSetup clusterSetup_;          // the main view's clusters this frame (writeLights)
+    bool clusterSetupValid_ = false;
     void createDecalBuffers();
     void writeDecals(const SceneRenderInfo& info, render_detail::FrameUBO& u);
     // Foliage (renderer_lights.cpp): every terrain's plants in one buffer per frame (binding 16), rewritten when

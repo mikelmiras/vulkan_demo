@@ -193,6 +193,8 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
     s.tilesX = kClusterX;
     s.tilesY = kClusterY;
     s.slices = kClusterSlices;
+    clusterSetup_ = s;   // (the decals go into the same clusters)
+    clusterSetupValid_ = true;
     std::vector<ClusterLight> bounds(count);
     for (size_t i = 0; i < count; ++i) bounds[i] = {lights[i]->position, std::max(lights[i]->range, 0.01f)};
     std::vector<uint32_t> data;

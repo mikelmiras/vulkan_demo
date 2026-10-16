@@ -107,7 +107,8 @@ bool eq(const Water& a, const Water& b) {   // (its mesh: runtime)
 }
 bool eq(const Decal& a, const Decal& b) {
     return a.texture == b.texture && eq(a.color, b.color) && a.opacity == b.opacity && a.roughness == b.roughness &&
-           a.wetness == b.wetness && a.angleFade == b.angleFade;
+           a.wetness == b.wetness && a.angleFade == b.angleFade && a.normalTexture == b.normalTexture &&
+           a.normalStrength == b.normalStrength;
 }
 bool eq(const ReflectionProbe& a, const ReflectionProbe& b) {
     return eq(a.size, b.size) && a.resolution == b.resolution && a.boxProjection == b.boxProjection;

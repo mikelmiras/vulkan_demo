@@ -631,6 +631,11 @@ void Editor::drawComponents(Entity& e) {
             ImGui::SliderFloat("Angle fade", &d.angleFade, 0.f, 1.f, "%.2f");
             track();
             tooltip("Fades on surfaces turned away from its direction (down the box), so walls it crosses aren't smeared");
+            texturePicker("Normal map##decal", d.normalTexture, "Bumps where it shows (cracks, tyre tracks, a manhole's rim)");
+            if (d.normalTexture >= 0) {
+                ImGui::SliderFloat("Normal strength##decal", &d.normalStrength, 0.f, 2.f, "%.2f");
+                track();
+            }
         }
     }
     if (e.reflectionProbe) {

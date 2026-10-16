@@ -535,6 +535,8 @@ struct Decal {
     float roughness = -1.f;       // the surface's roughness under it (-1: as it is)
     float wetness = 0.f;          // 0..1: wet there (1: a puddle: dark, glossy, with rings in the rain)
     float angleFade = 0.5f;       // fading on surfaces turned away from its direction (0: none, 1: most)
+    int normalTexture = -1;       // a normal map over the surface where it shows (cracks, tyre tracks, a manhole's rim)
+    float normalStrength = 1.f;
 };
 
 // A heightmap ground (scene/terrain.h): a square grid of heights over size x size metres, centred on the entity (its

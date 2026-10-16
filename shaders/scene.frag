@@ -48,9 +48,12 @@ struct GpuDecal {
     vec4 params;    // x = texture slot (-1: none), y = roughness (-1: as it is), z = wetness, w = angle fade
     vec4 down;      // xyz: its direction in the world
     vec4 sphere;    // round its box: centre, radius squared
+    vec4 normal;    // x = normal map slot (-1: none), y = its strength
 };
 layout(std430, set = 0, binding = 24) readonly buffer Decals { GpuDecal decals[]; };
 layout(set = 0, binding = 25) uniform sampler2D decalTextures[16];
+layout(std430, set = 0, binding = 27) readonly buffer DecalClusters { uint decalClusters[]; };   // (as the lights')
+layout(set = 0, binding = 28) uniform sampler2D decalNormals[8];
 // Water's refraction (renderer.cpp): the opaque picture (rgb) and its distances along the view (a), copied before
 // the see-through things are drawn
 layout(set = 0, binding = 26) uniform sampler2D refraction;
@@ -544,6 +547,54 @@ vec4 fogAt(vec2 uv, float depth) {
     return sum / max(total, 1e-6);
 }
 
+// The light cluster a point is in (the decals are binned into the same ones)
+uint clusterAt(vec3 p) {
+    vec4 c = frame.viewProj * vec4(p, 1.0);
+    vec2 uv = clamp(c.xy / c.w * 0.5 + 0.5, vec2(0.0), vec2(0.9999));
+    float depth = dot(p - frame.camPos.xyz, frame.camForward.xyz);
+    int slice = depth <= frame.clusterDepth.x ? 0 : int(log(depth / frame.clusterDepth.x) * frame.clusterDepth.y);
+    slice = clamp(slice, 0, int(frame.clusterGrid.z) - 1);
+    ivec2 tile = ivec2(uv * frame.clusterGrid.xy);
+    return uint((slice * int(frame.clusterGrid.y) + tile.y) * int(frame.clusterGrid.x) + tile.x);
+}
+
+// A decal's texture and normal map by slot (a switch: each case a constant index, so the slot may differ from pixel
+// to pixel without dynamic indexing)
+vec4 decalColour(int slot, vec2 uv, vec2 gx, vec2 gy) {
+    switch (slot) {
+    case 0: return textureGrad(decalTextures[0], uv, gx, gy);
+    case 1: return textureGrad(decalTextures[1], uv, gx, gy);
+    case 2: return textureGrad(decalTextures[2], uv, gx, gy);
+    case 3: return textureGrad(decalTextures[3], uv, gx, gy);
+    case 4: return textureGrad(decalTextures[4], uv, gx, gy);
+    case 5: return textureGrad(decalTextures[5], uv, gx, gy);
+    case 6: return textureGrad(decalTextures[6], uv, gx, gy);
+    case 7: return textureGrad(decalTextures[7], uv, gx, gy);
+    case 8: return textureGrad(decalTextures[8], uv, gx, gy);
+    case 9: return textureGrad(decalTextures[9], uv, gx, gy);
+    case 10: return textureGrad(decalTextures[10], uv, gx, gy);
+    case 11: return textureGrad(decalTextures[11], uv, gx, gy);
+    case 12: return textureGrad(decalTextures[12], uv, gx, gy);
+    case 13: return textureGrad(decalTextures[13], uv, gx, gy);
+    case 14: return textureGrad(decalTextures[14], uv, gx, gy);
+    default: return textureGrad(decalTextures[15], uv, gx, gy);
+    }
+}
+vec3 decalNormal(int slot, vec2 uv, vec2 gx, vec2 gy) {
+    vec4 t;
+    switch (slot) {
+    case 0: t = textureGrad(decalNormals[0], uv, gx, gy); break;
+    case 1: t = textureGrad(decalNormals[1], uv, gx, gy); break;
+    case 2: t = textureGrad(decalNormals[2], uv, gx, gy); break;
+    case 3: t = textureGrad(decalNormals[3], uv, gx, gy); break;
+    case 4: t = textureGrad(decalNormals[4], uv, gx, gy); break;
+    case 5: t = textureGrad(decalNormals[5], uv, gx, gy); break;
+    case 6: t = textureGrad(decalNormals[6], uv, gx, gy); break;
+    default: t = textureGrad(decalNormals[7], uv, gx, gy); break;
+    }
+    return t.xyz * 2.0 - 1.0;
+}
+
 // Weather: value noise (where puddles form) and raindrops' rings on standing water
 float hash12(vec2 p) {
     vec3 q = fract(vec3(p.xyx) * 0.1031);
@@ -723,14 +774,21 @@ void main() {
         rough = mix(rough, 0.6, foam);
         metallic = 0.0;
     }
-    // Decals: each box the point is in (nearest first, later ones over earlier) paints its colour (its texture's,
-    // where its alpha is), sets the roughness and wets the surface; fading at the box's top and bottom and on
-    // surfaces turned away from it
+    // Decals: each box the point is in (nearest first, later ones over earlier; the main view's: those of its
+    // cluster) paints its colour (its texture's, where its alpha is), sets the roughness, bends the normal by its
+    // normal map and wets the surface; fading at the box's top and bottom and on surfaces turned away from it
     float decalWet = 0.0;
     if (!water && frame.weather.w > 0.5) {
         vec3 dpdx = dFdx(vWorldPos), dpdy = dFdy(vWorldPos);   // (before any branch: for the textures' levels)
-        int count = int(frame.weather.w + 0.5);
-        for (int i = 0; i < count; ++i) {
+        uint first = 0u, count = uint(frame.weather.w + 0.5);
+        bool clustered = frame.clusterGrid.w > 0.5;
+        if (clustered) {
+            uint cluster = clusterAt(vWorldPos);
+            first = uint(frame.clusterGrid.x * frame.clusterGrid.y * frame.clusterGrid.z) * 2u + decalClusters[cluster * 2u];
+            count = decalClusters[cluster * 2u + 1u];
+        }
+        for (uint k = 0u; k < count; ++k) {
+            int i = clustered ? int(decalClusters[first + k]) : int(k);
             vec3 off = vWorldPos - decals[i].sphere.xyz;   // (most are nowhere near: a sphere's test first)
             if (dot(off, off) > decals[i].sphere.w) continue;
             vec3 q = (decals[i].toBox * vec4(vWorldPos, 1.0)).xyz;
@@ -738,34 +796,20 @@ void main() {
             vec4 p = decals[i].params;
             float facing = dot(surfaceN, -decals[i].down.xyz);
             float a = decals[i].color.a * mix(1.0, smoothstep(0.05, 0.5, facing), p.w) * (1.0 - smoothstep(0.35, 0.5, abs(q.y)));
-            vec4 tex = vec4(1.0);
-            int slot = int(p.x);
-            if (slot >= 0) {   // (the slot's the same for every pixel this pass: a switch, no dynamic indexing)
-                vec2 uv = vec2(q.x, q.z) + 0.5;
-                vec2 gx = (decals[i].toBox * vec4(dpdx, 0.0)).xz, gy = (decals[i].toBox * vec4(dpdy, 0.0)).xz;
-                switch (slot) {
-                case 0: tex = textureGrad(decalTextures[0], uv, gx, gy); break;
-                case 1: tex = textureGrad(decalTextures[1], uv, gx, gy); break;
-                case 2: tex = textureGrad(decalTextures[2], uv, gx, gy); break;
-                case 3: tex = textureGrad(decalTextures[3], uv, gx, gy); break;
-                case 4: tex = textureGrad(decalTextures[4], uv, gx, gy); break;
-                case 5: tex = textureGrad(decalTextures[5], uv, gx, gy); break;
-                case 6: tex = textureGrad(decalTextures[6], uv, gx, gy); break;
-                case 7: tex = textureGrad(decalTextures[7], uv, gx, gy); break;
-                case 8: tex = textureGrad(decalTextures[8], uv, gx, gy); break;
-                case 9: tex = textureGrad(decalTextures[9], uv, gx, gy); break;
-                case 10: tex = textureGrad(decalTextures[10], uv, gx, gy); break;
-                case 11: tex = textureGrad(decalTextures[11], uv, gx, gy); break;
-                case 12: tex = textureGrad(decalTextures[12], uv, gx, gy); break;
-                case 13: tex = textureGrad(decalTextures[13], uv, gx, gy); break;
-                case 14: tex = textureGrad(decalTextures[14], uv, gx, gy); break;
-                default: tex = textureGrad(decalTextures[15], uv, gx, gy); break;
-                }
-            }
+            vec2 uv = vec2(q.x, q.z) + 0.5;
+            vec2 gx = (decals[i].toBox * vec4(dpdx, 0.0)).xz, gy = (decals[i].toBox * vec4(dpdy, 0.0)).xz;
+            vec4 tex = p.x >= 0.0 ? decalColour(int(p.x), uv, gx, gy) : vec4(1.0);
             float coverage = a * tex.a;
             base = mix(base, tex.rgb * decals[i].color.rgb, coverage);
             if (p.y >= 0.0) rough = mix(rough, p.y, coverage);
             decalWet = max(decalWet, p.z * coverage);
+            if (decals[i].normal.x >= 0.0) {   // (along its box's x and z: the texture's u and v)
+                float shown = mix(1.0, smoothstep(0.05, 0.5, facing), p.w) * tex.a * (1.0 - smoothstep(0.35, 0.5, abs(q.y)));
+                mat4 m = decals[i].toBox;
+                vec3 T = normalize(vec3(m[0][0], m[1][0], m[2][0])), B = normalize(vec3(m[0][2], m[1][2], m[2][2]));
+                vec3 n = decalNormal(int(decals[i].normal.x), uv, gx, gy);
+                N = normalize(N + (T * n.x - B * n.y) * (decals[i].normal.y * shown));
+            }
         }
     }
     // Weather: wet surfaces (those facing up most; not sheltered ones) darker where porous and glossier; standing

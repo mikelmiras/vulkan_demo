@@ -712,7 +712,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[27] = {
+    VkDescriptorSetLayoutBinding frameBindings[29] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -740,9 +740,11 @@ void Renderer::createPipelines() {
         {24, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // decals
         {25, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDecalTextures, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... their textures
         {26, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // water's refraction
+        {27, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // decals' clusters
+        {28, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDecalNormals, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... normal maps
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 27;
+    dslci.bindingCount = 29;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
@@ -1099,8 +1101,8 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (16 + kDecalTextures) * MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 10 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (16 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
     dpci.poolSizeCount = 3;
@@ -1854,8 +1856,6 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         motionPrevViewProj_ = info.viewProj;
         motionPrevValid_ = true;
     }
-    if (shadows) writeDecals(info, u);   // (and the weather)
-    else u.weather[0] = info.wetness, u.weather[1] = info.puddles, u.weather[2] = info.rain;
     if (shadows) {
         shadowLayers_ = computeShadows(info, normalize(sun.direction), frameShadows_, points, u, lightShadow);
         for (uint32_t i = 0; i < kShadowLayers; ++i) shadowViewProj_[i] = u.shadowViewProj[i];
@@ -1869,6 +1869,8 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     set4(u.sunColor, info.physicalSky ? skySunHere_ * sun.intensity : srgbToLinear(sun.color) * sun.intensity, 0.f);
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
     writeLights(info, points, lightShadow, u, shadows);
+    if (shadows) writeDecals(info, u);   // (and the weather; binned into the lights' clusters)
+    else u.weather[0] = info.wetness, u.weather[1] = info.puddles, u.weather[2] = info.rain;
     set4(u.zenith, zenith, 0.f);
     set4(u.ground, ground, 0.f);
     set4(u.envParams, {envId_ != 0 ? 1.f : 0.f, info.skyIntensity, info.skyRotation}, 0.f);
@@ -2147,6 +2149,7 @@ void Renderer::shutdown() {
     for (int i = 0; i < MAX_FRAMES; ++i) {
         destroyBuffer(lights_[i]);
         destroyBuffer(decalBuffers_[i]);
+        destroyBuffer(decalClusters_[i]);
         destroyBuffer(clusters_[i]);
         destroyBuffer(plantBuffers_[i]);
         if (feedback_[i].buffer) destroyBuffer(feedback_[i]);

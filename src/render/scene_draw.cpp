@@ -198,6 +198,8 @@ std::vector<DecalInfo> collectDecals(const Scene& scene, const std::vector<Mat4>
         d.wetness = dc.wetness;
         d.angleFade = dc.angleFade;
         d.texture = dc.texture;
+        d.normalTexture = dc.normalTexture;
+        d.normalStrength = dc.normalStrength;
         if (d.radius > 0.f) decals.push_back(d);
     }
     return decals;

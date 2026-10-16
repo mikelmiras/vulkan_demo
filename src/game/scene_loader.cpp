@@ -41,7 +41,10 @@ void remapEntity(Entity& e, const std::vector<int>& meshMap, const std::vector<i
         tex(m.heightTexture);
         tex(m.detailTexture);
     }
-    if (e.decal) tex(e.decal->texture);
+    if (e.decal) {
+        tex(e.decal->texture);
+        tex(e.decal->normalTexture);
+    }
     if (e.terrain) {
         for (Terrain::Layer& l : e.terrain->layers) tex(l.texture);
         e.terrain->meshes.clear();   // (made in the library it's drawn from)
