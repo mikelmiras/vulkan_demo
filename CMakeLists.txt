@@ -42,7 +42,8 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/ssr_trace.frag shaders/gi_trace.frag
                    shaders/particles.comp shaders/particle_sort.comp shaders/particle_gather.comp
                    shaders/shafts.frag shaders/shafts_ms.frag shaders/camera_fx.frag shaders/camera_fx_ms.frag
-                   shaders/ssao_temporal.frag shaders/ssao_temporal_ms.frag)
+                   shaders/ssao_temporal.frag shaders/ssao_temporal_ms.frag shaders/camera_fx_tiles.frag
+                   shaders/camera_fx_tiles_ms.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -258,6 +259,7 @@ set(ENGINE_SOURCES
   src/render/texture_streaming.cpp
   src/render/shadow_cascades.cpp
   src/render/light_shafts.cpp
+  src/render/camera_fx.cpp
   src/render/renderer_fog.cpp
   src/render/volumetric_fog.cpp
   src/render/display.cpp

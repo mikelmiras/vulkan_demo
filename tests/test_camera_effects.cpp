@@ -2,6 +2,9 @@
 // focusDistance), the settings saved with a scene and seen by undo
 #include "test.h"
 
+#include <cmath>
+
+#include "render/camera_fx.h"
 #include "render/scene_draw.h"
 #include "scene/scene.h"
 #include "scene/scene_diff.h"
@@ -46,4 +49,24 @@ TEST(camera_effects_saved) {
     Scene after = loaded;
     after.render.focusTarget = kNoEntity;
     CHECK(!diffScenes(loaded, after).empty());
+}
+
+TEST(camera_effects_sky_motion) {
+    // A camera looking down -z; turned 10 degrees to the left last frame: the sky ahead was to its right then
+    Mat4 proj = perspective(60.f * DEG2RAD, 16.f / 9.f, 0.1f, 500.f, true);
+    Mat4 now = proj * lookAt({5, 2, 3}, {5, 2, 2}, {0, 1, 0});
+    float h[9];
+    camerafx::skyMotion(now, now, h);   // (still: none)
+    for (int k = 0; k < 9; ++k) CHECK_NEAR(h[k], k % 4 == 0 ? 1.0 : 0.0, 1e-5);
+    Mat4 moved = proj * lookAt({50, 8, -30}, {50, 8, -31}, {0, 1, 0});   // (moved, not turned: the sky stays put)
+    camerafx::skyMotion(now, moved, h);
+    for (int k = 0; k < 9; ++k) CHECK_NEAR(h[k] / h[8], k % 4 == 0 ? 1.0 : 0.0, 1e-4);
+    float a = 10.f * DEG2RAD;
+    Mat4 turned = proj * lookAt({5, 2, 3}, {5 - std::sin(a), 2, 3 - std::cos(a)}, {0, 1, 0});
+    camerafx::skyMotion(now, turned, h);
+    // The middle of the screen now (straight down -z) was right of the middle last frame, at tan(10) / tan(fovX / 2)
+    float x = h[2] / h[8], y = h[5] / h[8];
+    float tanX = std::tan(30.f * DEG2RAD) * 16.f / 9.f;
+    CHECK_NEAR(x, std::tan(a) / tanX, 1e-3);
+    CHECK_NEAR(y, 0.0, 1e-4);
 }

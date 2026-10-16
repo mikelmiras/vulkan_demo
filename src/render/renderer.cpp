@@ -898,6 +898,9 @@ void Renderer::createSampledPipelines() {
                                              VK_FORMAT_R16G16B16A16_SFLOAT, false);
         cameraFxPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "camera_fx_ms.frag.spv" : "camera_fx.frag.spv",
                                                hdrFormat_, false);
+        fxTilesPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "camera_fx_tiles_ms.frag.spv"
+                                                                                 : "camera_fx_tiles.frag.spv",
+                                              VK_FORMAT_R16_SFLOAT, false);
     }
     particleAlphaPipeline_ = createParticlePipeline(false);
     particleAdditivePipeline_ = createParticlePipeline(true);
@@ -906,7 +909,7 @@ void Renderer::createSampledPipelines() {
 
 void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &aoTemporalPipeline_, &ssrCapturePipeline_,
-                          &shaftsPipeline_, &cameraFxPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
+                          &shaftsPipeline_, &cameraFxPipeline_, &fxTilesPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
                           &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
                           &sceneLayeredPipeline_, &sceneEarlyLayeredPipeline_,
                           &prepassVelocityPipeline_, &prepassFoliageVelocityPipeline_}) {
@@ -1397,6 +1400,11 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
             mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         velocityFresh_ = false;
+    }
+    if (fxTilesFresh_ && fxTiles_.image) {   // (depth of field's near tiles, just made: readable, in fxSet_ either way)
+        mipBarrier(cb, fxTiles_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        fxTilesFresh_ = false;
     }
     if (refractionFresh_ && refraction_.image) {   // (water's refraction picture, just made: readable from now)
         mipBarrier(cb, refraction_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1999,6 +2007,7 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         traceHistory_ = traceOn_;
         u.motionViewProj = info.viewProj;
         u.motionPrevViewProj = motionPrevValid_ ? motionPrevViewProj_ : info.viewProj;
+        fxPrevViewProj_ = u.motionPrevViewProj;   // (the camera effects' sky motion)
         u.motion[0] = std::clamp(info.frameSeconds, 0.f, 0.25f);
         u.motion[1] = velocityOn_ ? 1.f : 0.f;
         motionPrevViewProj_ = info.viewProj;

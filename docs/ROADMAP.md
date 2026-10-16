@@ -1862,7 +1862,7 @@ traffic lights.
 |---|------|-----|
 | 109 (done) | The lit pass's cost: each feature's share of scene.frag measured (the GPU benchmark, features on and off), the rarely used ones (translucency, subsurface, glowing decals, layers) behind specialization constants or per-material variants so the common path stays lean | The stress scene's opaque pass grew about 20% over round 10 (3412 ms against 2788 on lavapipe) |
 | 110 (done) | Temporal ambient occlusion: a history (reprojected with the motion vectors, dropped where the depth changed), more samples over time, bent normals for the indirect light's direction | AO before lighting is a fresh half-size estimate each frame: noisy at medium quality, and the ambient's direction ignores what's hidden |
-| 111 | Depth of field's near field and the sky's motion: a pre-pass of each tile's largest near circle so a blurred foreground spreads over a sharp background; the camera's own motion for the sky in motion blur | A blurred foreground has crisp edges; the sky never smears when the camera turns |
+| 111 (done) | Depth of field's near field and the sky's motion: a pre-pass of each tile's largest near circle so a blurred foreground spreads over a sharp background; the camera's own motion for the sky in motion blur | A blurred foreground has crisp edges; the sky never smears when the camera turns |
 | 112 | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
 | 113 | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
 | 114 | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
@@ -1900,4 +1900,17 @@ traffic lights.
   scale 0.7, the editor, under validation with sync checks; the stress scene's opaque pass 2281-2344 ms over three
   runs (2157 in task 109's single run; the bent normal measured free). Not done: a history for split-screen views
   and the composite's AO, the bent normal for the GI traces.
+- **111, depth of field's near field, the sky's motion**: camera_fx.glsl's TILES variant (camera_fx_tiles(_ms).frag,
+  fxTilesPipeline_) writes fxTiles_ (R16F, a texel per 8 x 8 pixels): the largest circle of confusion nearer than
+  the focus over 4 x 4 of the tile's pixels; the main pass takes the largest of the 3 x 3 tiles round its own and
+  gathers as far as that or its own circle, whichever's bigger (the weights as before: what's behind counts no more
+  than the pixel's circle, so a sharp background pixel gathers only the blurred foreground over it). The sky:
+  camerafx::skyMotion (render/camera_fx.*, tested: still and moved without turning give the identity; a 10 degree
+  turn moves the middle tan(10) / tan(fovX / 2)) takes this frame's clip-space direction to last frame's (the two
+  view-projections' rows x, y, w over columns x, y, z: the camera's place drops out), in push constants d, e, f;
+  where the motion vectors have nothing, the shader finds the sky's motion from it (fxPrevViewProj_ kept from
+  fillFrameUBO). Checked: the demo focused on the centre sphere (the near crates' blur now spreads over the
+  background), a camera panning at 120 degrees a second with motion blur (objects and the sky round them smear;
+  MSAA too), Night Drive, the editor, under validation with sync checks. Not done: the near field's own blur
+  weighted by coverage (its edge is soft but a little transparent), the tiles at quarter size.
 

@@ -543,6 +543,9 @@ private:
     VkSampler nearestSampler_ = VK_NULL_HANDLE;
     Image envSky_, envRadiance_;
     Image fx_;         // the picture with the camera effects, copied back over hdr_ (camera_fx.glsl)
+    Image fxTiles_;    // each 8 x 8 tile's largest near circle of confusion (fxSet_'s binding 3)
+    bool fxTilesFresh_ = false;
+    Mat4 fxPrevViewProj_;   // (the main view's last frame: the sky's motion)
     VkDescriptorSet fxSet_ = VK_NULL_HANDLE;   // (the picture, the depth, the motion vectors)
     Image shafts_;     // the sun's light shafts this frame, half size (shafts.glsl); the composite's binding 7
     Vec3 shaftsSunDir_{0, -1, 0}, shaftsSunColor_{0, 0, 0};   // (the main view's sun this frame: fillFrameUBO)
@@ -844,6 +847,7 @@ private:
     VkDescriptorSet aoSet_ = VK_NULL_HANDLE;
     VkPipeline aoPipeline_ = VK_NULL_HANDLE;
     VkPipeline cameraFxPipeline_ = VK_NULL_HANDLE;   // depth of field and motion blur (camera_fx.glsl): fxSet_
+    VkPipeline fxTilesPipeline_ = VK_NULL_HANDLE;    // (its near field's tiles: fxTiles_)
     VkPipeline shaftsPipeline_ = VK_NULL_HANDLE;   // light shafts (shafts.glsl): half size, over the depth (aoSet_)
     // Screen-space reflections: this frame's picture and distances captured after the post passes (prevColor_, set
     // 0 binding 18), for scene.frag's rays next frame; the camera it was taken with
