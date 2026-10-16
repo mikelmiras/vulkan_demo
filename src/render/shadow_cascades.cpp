@@ -7,11 +7,16 @@ namespace shadows {
 
 void sunCascades(const Camera& camera, Vec3 sunDir, float distance, float texels, Mat4* viewProj, float* splits,
                  float (*extent)[2]) {
+    sunCascades(camera, sunDir, 0.f, distance, texels, viewProj, splits, extent);
+}
+
+void sunCascades(const Camera& camera, Vec3 sunDir, float nearest, float distance, float texels, Mat4* viewProj,
+                 float* splits, float (*extent)[2]) {
     Vec3 fwd = normalize(camera.forward);
     Vec3 right = std::fabs(fwd.y) > 0.999f ? Vec3{1, 0, 0} : normalize(cross(fwd, {0, 1, 0}));
     Vec3 up = cross(right, fwd);
     float tanY = std::tan(camera.fovY * 0.5f), tanX = tanY * std::max(camera.aspect, 0.01f);
-    const float n = 0.1f, f = distance;
+    const float n = std::max(nearest, 0.1f), f = std::max(nearest, 0.f) + std::max(distance, 1.f);
     float prev = n;
     for (int c = 0; c < kCascades; ++c) {
         float t = (float)(c + 1) / (float)kCascades;

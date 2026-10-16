@@ -72,7 +72,9 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
     // ---- The sun (render/shadow_cascades.h)
     float extent[kCascades][2] = {};
     auto cascades = [&](const SceneRenderInfo& v, float texels, Mat4* vps, float* splits) {
-        shadows::sunCascades({v.camPos, v.camForward, v.fovY, v.aspect}, sunDir, shadowDistance(), texels,
+        // (from the nearest thing in view: an overhead camera's cascades all on the ground it sees; the main view's)
+        const float nearest = &v == &info && fittedCascades_ ? std::max(viewNear_ * 0.9f, 0.1f) : 0.1f;
+        shadows::sunCascades({v.camPos, v.camForward, v.fovY, v.aspect}, sunDir, nearest, shadowDistance(), texels,
                              sunShadows ? vps : nullptr, splits, extent);
     };
     cascades(info, (float)kCascadeSize, u.shadowViewProj, u.cascadeSplits);

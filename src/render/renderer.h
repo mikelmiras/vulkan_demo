@@ -575,6 +575,9 @@ private:
     // Lights (binding 14) and their clusters (binding 15), per frame
     Buffer lights_[MAX_FRAMES], clusters_[MAX_FRAMES];
     void createLightBuffers();
+    float viewNear_ = 0.1f, viewFar_ = 1000.f;   // what's in view, along it (fitViewDepth)
+    bool fittedCascades_ = true;                 // the sun's cascades from the nearest thing in view (VKWORLD_SHADOW_FIT=0: from the camera)
+    void fitViewDepth(const SceneRenderInfo& info);
     // Decals (renderer_decals.cpp): the nearest, a buffer per frame (binding 24), their textures (binding 25)
 public:
     static constexpr uint32_t kMaxDecals = 256, kDecalTextures = 16, kDecalNormals = 8;

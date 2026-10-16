@@ -57,3 +57,22 @@ TEST(sun_cascades_snap_to_texels) {
         }
     }
 }
+
+// Fitted to what's in view: an overhead camera 100 m up sees nothing nearer than about 100 m, and its cascades all
+// fall between there and the shadow distance beyond, instead of mostly on empty air in front of it
+TEST(shadow_cascades_fitted_to_the_view) {
+    shadows::Camera cam{{0, 100, 0}, normalize(Vec3{0, -1, 0.3f}), 0.35f, 16.f / 9.f};
+    Vec3 sun = normalize(Vec3{-0.4f, -1.f, -0.3f});
+    float near[4], fitted[4];
+    shadows::sunCascades(cam, sun, 60.f, 1024.f, nullptr, near);
+    shadows::sunCascades(cam, sun, 95.f, 60.f, 1024.f, nullptr, fitted);
+    CHECK(near[0] < 5.f);                          // (from the camera: the first slice ends in mid-air)
+    CHECK(fitted[0] > 95.f && fitted[0] < 110.f);  // (fitted: every slice on the ground)
+    CHECK_NEAR(fitted[3], 155.0, 1e-3);
+    for (int c = 1; c < 4; ++c) CHECK(fitted[c] > fitted[c - 1]);
+    float extentNear[4][2], extentFitted[4][2];
+    Mat4 vp[4];
+    shadows::sunCascades(cam, sun, 60.f, 1024.f, vp, near, extentNear);
+    shadows::sunCascades(cam, sun, 95.f, 60.f, 1024.f, vp, fitted, extentFitted);
+    CHECK(extentFitted[3][0] > extentNear[0][0]);   // (well: the slices are where they're needed, wider for it)
+}

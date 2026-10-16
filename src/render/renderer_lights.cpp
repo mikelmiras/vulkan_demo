@@ -129,6 +129,27 @@ void Renderer::drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info, VkPip
     }
 }
 
+// The depth range of what's in view (every object's box; all of 0.1 to 1000 m otherwise): the light clusters' slices
+// and the sun's cascades fit to it
+void Renderer::fitViewDepth(const SceneRenderInfo& info) {
+    viewNear_ = 0.1f;
+    viewFar_ = 1000.f;
+    if (!info.items) return;
+    std::vector<std::pair<Vec3, Vec3>> boxes;
+    boxes.reserve(info.items->size());
+    for (const DrawItem& d : *info.items) {
+        if (d.mesh < 0 || d.mesh >= meshes_->count()) continue;
+        const Mesh& mesh = meshes_->get(d.mesh);
+        Vec3 c = transformPoint(d.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f), e = (mesh.boundsMax - mesh.boundsMin) * 0.5f;
+        Vec3 r{std::fabs(d.model.m[0]) * e.x + std::fabs(d.model.m[4]) * e.y + std::fabs(d.model.m[8]) * e.z,
+               std::fabs(d.model.m[1]) * e.x + std::fabs(d.model.m[5]) * e.y + std::fabs(d.model.m[9]) * e.z,
+               std::fabs(d.model.m[2]) * e.x + std::fabs(d.model.m[6]) * e.y + std::fabs(d.model.m[10]) * e.z};
+        boxes.push_back({c - r, c + r});
+    }
+    if (info.plants && !info.plants->empty()) boxes.clear();   // (plants aren't items: the whole range then)
+    fitDepthRange(info.viewProj, info.camPos, info.camForward, boxes, viewNear_, viewFar_);
+}
+
 void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const LightInfo*>& lights,
                            const std::vector<int>& shadowView, FrameUBO& u, bool clustered) {
     auto* out = static_cast<GpuLight*>(lights_[frame_].mapped);
@@ -158,22 +179,11 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
     }
     u.ambient[3] = (float)count;
     lightCount_ = (uint32_t)count;
-    // The slices fitted to the depth of what's in view (every object's box; all of 0.1 to 1000 m otherwise)
+    // The slices fitted to the depth of what's in view (fitViewDepth: the main view's, this frame)
     float near = 0.1f, far = 1000.f;
     if (clustered && info.items) {
-        std::vector<std::pair<Vec3, Vec3>> boxes;
-        boxes.reserve(info.items->size());
-        for (const DrawItem& d : *info.items) {
-            if (d.mesh < 0 || d.mesh >= meshes_->count()) continue;
-            const Mesh& mesh = meshes_->get(d.mesh);
-            Vec3 c = transformPoint(d.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f), e = (mesh.boundsMax - mesh.boundsMin) * 0.5f;
-            Vec3 r{std::fabs(d.model.m[0]) * e.x + std::fabs(d.model.m[4]) * e.y + std::fabs(d.model.m[8]) * e.z,
-                   std::fabs(d.model.m[1]) * e.x + std::fabs(d.model.m[5]) * e.y + std::fabs(d.model.m[9]) * e.z,
-                   std::fabs(d.model.m[2]) * e.x + std::fabs(d.model.m[6]) * e.y + std::fabs(d.model.m[10]) * e.z};
-            boxes.push_back({c - r, c + r});
-        }
-        if (info.plants && !info.plants->empty()) boxes.clear();   // (plants aren't items: the whole range then)
-        fitDepthRange(info.viewProj, info.camPos, info.camForward, boxes, near, far);
+        near = viewNear_;
+        far = viewFar_;
         fogFar_ = far;   // (the volumetric fog's cells reach as far, from about half as near)
         fogNear_ = near;
     }

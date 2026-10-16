@@ -60,6 +60,7 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     textures_ = &textures;
     if (const char* v = std::getenv("VKWORLD_UI_LAYER"); v && !std::strcmp(v, "1")) uiLayerForced_ = true;
     if (const char* v = std::getenv("VKWORLD_PREPASS"); v && !std::strcmp(v, "0")) prepass_ = false;
+    if (const char* v = std::getenv("VKWORLD_SHADOW_FIT"); v && !std::strcmp(v, "0")) fittedCascades_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_CACHE"); v && !std::strcmp(v, "0")) shadowCacheOn_ = false;
     if (const char* v = std::getenv("VKWORLD_RENDER_SCALE"))   // (before the post images: the upscaler's are made with them)
         renderScaleSet_ = scaleNow_ = std::clamp((float)std::atof(v), 0.5f, 1.f);
@@ -1935,6 +1936,7 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         motionPrevValid_ = true;
     }
     if (shadows) {
+        fitViewDepth(info);   // (before the cascades and the clusters: both fit to it)
         shadowLayers_ = computeShadows(info, normalize(sun.direction), frameShadows_, points, u, lightShadow);
         for (uint32_t i = 0; i < kShadowLayers; ++i) shadowViewProj_[i] = u.shadowViewProj[i];
     }

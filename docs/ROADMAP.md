@@ -1580,7 +1580,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | 94 (done) | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
 | 95 (done) | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
 | 96 (done) | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
-| 97 | Shadows: tighter cascades (fitted to the visible depth range), cached shadows for static point lights' cubes, shadow-map space culled by the Hi-Z pyramid | Shadows still take a large share at medium and high; many cascades cover empty space |
+| 97 (done) | Shadows: tighter cascades (fitted to the visible depth range), cached shadows for static point lights' cubes, shadow-map space culled by the Hi-Z pyramid | Shadows still take a large share at medium and high; many cascades cover empty space |
 | 98 | A GPU benchmark: engine_bench --gpu timing the frame's passes on the stress scene and Night Drive (fixed camera paths), baselines per GPU, and quality presets picked from them on first run | Round 8 couldn't be measured on the 1050 Ti or the M4 here; a game should start at settings its GPU can hold |
 
 ### Round 9 notes
@@ -1689,4 +1689,13 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   pool in two split-screen views (TAA, MSAA), the editor, Night Drive under validation with sync checks. Not done:
   refraction in reflection probes, god rays under the water, the surface's waves seen from below bending the view,
   water boxes' sides (they have none: rays leaving sideways see out).
+- **97, shadows**: fitViewDepth (renderer_lights.cpp) fits the visible depth range once a frame, before the shadows
+  (the light clusters used to, after them); sunCascades gains a nearest distance: the slices run from it (90% of
+  the fitted near, the main view's) to it plus the shadow distance, logarithmically as before. Night Drive's camera
+  sees nothing nearer than about 100 m: its cascades went from 0.1-150 m (the first two in mid-air) to all on the
+  street. VKWORLD_SHADOW_FIT=0 for the old way. Static point lights' cubes were already cached (task 81: every
+  atlas tile keeps what it holds). Checked: the slices fitted (test); an overhead sunny view (sharper edges fitted)
+  and Night Drive under validation with sync checks. Not done: casters culled against the Hi-Z pyramid (only those
+  whose shadows land on something visible), cascades fitted per frame to the receivers' bounds (they stay spheres,
+  snapped, to hold still), split-screen views' cascades fitted.
 

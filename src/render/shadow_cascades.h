@@ -21,5 +21,9 @@ constexpr int kCascades = 4;
 constexpr float kBehind = 120.f;   // room behind each slice for things between it and the sun, metres
 void sunCascades(const Camera& camera, Vec3 sunDir, float distance, float texels, Mat4* viewProj, float* splits,
                  float (*extent)[2] = nullptr);
+// The same over the view's depth from `nearest` (metres: where the first thing in view is) to `nearest + distance`:
+// fitted to what's in view, so an overhead camera's cascades all fall on the ground it sees
+void sunCascades(const Camera& camera, Vec3 sunDir, float nearest, float distance, float texels, Mat4* viewProj,
+                 float* splits, float (*extent)[2] = nullptr);
 
 }  // namespace shadows

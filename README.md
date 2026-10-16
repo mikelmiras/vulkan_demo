@@ -464,7 +464,9 @@ dropping on the right.
   **Cached**: a shadow map is only drawn again when what it holds changes (its camera, its place in the atlas, or any
   caster in it moving, animating or changing): a still street lamp's shadows cost nothing frame after frame, and the
   sun's two far cascades catch up with a moving camera every second and fourth frame (`VKWORLD_SHADOW_CACHE=0`:
-  everything every frame). In **volumetric fog**, spot and point lights' shadows cut their beams and halos too
+  everything every frame). The sun's cascades are **fitted to the view**: they start at the nearest thing in sight
+  rather than at the camera (`VKWORLD_SHADOW_FIT=0`: from the camera), so an overhead camera's four cascades all
+  fall on the ground it sees, and the shadow distance counts from there. In **volumetric fog**, spot and point lights' shadows cut their beams and halos too
   (headlights stop at the wall they light).
   Cut-outs cast shadows with their holes; see-through materials cast one only where they're mostly opaque (glass:
   none).
