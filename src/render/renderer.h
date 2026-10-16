@@ -865,6 +865,12 @@ private:
     void createTraceImages();
     void writeTraceBindings();
     void recordTrace(VkCommandBuffer cb, const SceneRenderInfo& scene);
+    // Ambient occlusion before lighting (renderer_trace.cpp): the main view's, after the prepass, into aoLit_ (set 0
+    // binding 37), which scene.frag puts on the indirect light alone; the composite then leaves it out
+    Image aoLit_;
+    bool aoLitOn_ = false;           // this frame's main view does it
+    bool aoLitWanted_ = true;        // (VKWORLD_AO_LIT=0: over the finished picture, as before)
+    void recordAoLit(VkCommandBuffer cb, const SceneRenderInfo& scene);
     bool refractionFresh_ = false;
     bool refractOn_ = false;        // this frame's main view does it
     bool viewRefracts_ = false, viewRefract_[kMaxViews] = {};   // (the extra views': in recordView)

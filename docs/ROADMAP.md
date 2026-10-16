@@ -1719,7 +1719,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 
 | # | Task | Why |
 |---|------|-----|
-| 99 | Ambient occlusion before lighting: computed after the depth prepass (with a history, at half size) and applied to the ambient, probe and GI light only (and to reflections as specular occlusion), not multiplied over the finished picture | The composite darkens everything AO finds, sunlit and lamp-lit surfaces too: contact areas in direct light look dirty, and specular occlusion needs screen-space GI |
+| 99 (done) | Ambient occlusion before lighting: computed after the depth prepass (with a history, at half size) and applied to the ambient, probe and GI light only (and to reflections as specular occlusion), not multiplied over the finished picture | The composite darkens everything AO finds, sunlit and lamp-lit surfaces too: contact areas in direct light look dirty, and specular occlusion needs screen-space GI |
 | 100 | See-through GPU particles: sorted back to front on the GPU (bitonic), so smoke, steam and dust can move to the GPU; Night Drive's steam on it | Round 9's GPU particles are additive only |
 | 101 | The half-size traces with MSAA and under a render scale: the prepass's surface from sample 0 of a multisampled G-buffer, the traces mapped to the drawn area | With MSAA or a render scale under 1, reflections and GI fall back to per-pixel tracing, contact shadows to none |
 | 102 | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
@@ -1729,4 +1729,16 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | 106 | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
 | 107 | Camera effects: depth of field (bokeh, from the depth, focus by distance or on a target) and motion blur along the motion vectors; both settings, off by default | No way to soften the background or show speed |
 | 108 | Night Drive's traffic: a few AI cars driving the grid with their headlights and tail lights, spray from wet tyres (GPU particles), all within the benchmark's budget | The showcase's streets are empty: a city at night needs traffic to show the lights, reflections and rain |
+
+### Round 10 notes
+- **99, AO before lighting**: recordAoLit (renderer_trace.cpp) runs ssao.frag after the prepass (the depth made
+  read-only around it) into aoLit_ (R8, half size, cleared to 1; set 0 binding 37) over the drawn area pixel for
+  pixel (scale 1: the render scale needs no undoing), then binds the scene's set again (the post layout's set had
+  disturbed it: the lit pass's draws lost set 0 when no trace pass followed, a validation error and a crash with
+  MSAA). scene.frag reads it with four bilinear taps and multiplies the indirect diffuse (sky, probes, GI, SSGI)
+  and sheen's rim; specular occlusion (Lagarde) now comes from it as well as from the GI rays, so it works without
+  screen-space GI. The composite skips AO for the main view then (frame.occlusion.x); split-screen views keep it
+  there. VKWORLD_AO_LIT=0 for the old way. Checked: an overhead sunny scene (the pillars' sunlit feet no longer
+  darkened), TAA, MSAA, render scale 0.7, the editor, Night Drive under validation with sync checks. Not done: a
+  history (temporal AO), bent normals, AO before lighting in split-screen views.
 

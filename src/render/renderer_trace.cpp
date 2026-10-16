@@ -20,6 +20,7 @@ void Renderer::createTraceImages() {
         tracedLight_[k] = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     }
     // (the traced pixels' distances, r, and contact shadows, g)
+    aoLit_ = createImage(VK_FORMAT_R8_UNORM, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     tracedDepth_ = createImage(VK_FORMAT_R32G32_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     traceHistory_ = false;
     writeTraceBindings();
@@ -40,7 +41,8 @@ void Renderer::writeTraceBindings() {
             {33, {postSampler_, traced_[1 - i].view, readable}},
             {34, {postSampler_, tracedLight_[1 - i].view, readable}},
             {35, {nearestSampler_, tracedDepth_.view, readable}},
-            {36, {nearestSampler_, velocity_.view, readable}}};
+            {36, {nearestSampler_, velocity_.view, readable}},
+            {37, {postSampler_, aoLit_.view, readable}}};
         if (aoSupported_)
             images.push_back({29, {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL}});
         std::vector<VkWriteDescriptorSet> w(images.size(), {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET});
@@ -53,6 +55,57 @@ void Renderer::writeTraceBindings() {
         }
         vkUpdateDescriptorSets(device_, (uint32_t)w.size(), w.data(), 0, nullptr);
     }
+}
+
+// After the prepass, before the lit pass: the ambient occlusion of what's drawn (ssao.frag, as the composite's was),
+// over the drawn area (pixel for pixel: no render scale to undo), for scene.frag
+void Renderer::recordAoLit(VkCommandBuffer cb, const SceneRenderInfo& scene) {
+    if (!aoLitOn_) return;
+    const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    const VkPipelineStageFlags depthStages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    const VkImageAspectFlags dsAspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                 fragStage, VK_ACCESS_SHADER_READ_BIT);
+    mipBarrier(cb, aoLit_.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    const VkExtent2D half{std::max((extent_.width + 1) / 2, 1u), std::max((extent_.height + 1) / 2, 1u)};
+    VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    att.imageView = aoLit_.view;
+    att.imageLayout = target;
+    att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;   // (outside the drawn area: none)
+    att.clearValue.color = {{1.f, 1.f, 1.f, 1.f}};
+    att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, half};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &att;
+    vkCmdBeginRendering(cb, &ri);
+    VkViewport vp{0.f, 0.f, (float)half.width, (float)half.height, 0.f, 1.f};
+    VkRect2D sc{{0, 0}, half};
+    vkCmdSetViewport(cb, 0, 1, &vp);
+    vkCmdSetScissor(cb, 0, 1, &sc);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, aoPipeline_);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &aoSet_, 0, nullptr);
+    const float vx = std::clamp(scene.viewportX, 0.f, (float)extent_.width), vy = std::clamp(scene.viewportY, 0.f, (float)extent_.height);
+    const float vw = std::max(std::min(scene.viewportW, (float)extent_.width - vx), 1.f);
+    const float vh = std::max(std::min(scene.viewportH, (float)extent_.height - vy), 1.f);
+    const float tanY = std::tan(scene.fovY * 0.5f), tanX = tanY * (vw / vh);
+    float push[24] = {tanX, tanY, scene.zNear, scene.zFar, scene.aoRadius, scene.aoStrength, vx, vy,
+                      vw, vh, 1.f, quality_ == Quality::High ? 12.f : 8.f};   // (scale 1: the drawn area as it is)
+    vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), push);
+    vkCmdDraw(cb, 3, 1, 0, 0);
+    vkCmdEndRendering(cb);
+    mipBarrier(cb, aoLit_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+               VK_ACCESS_SHADER_READ_BIT);
+    imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, fragStage, 0, depthStages,
+                 VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+    const uint32_t slot = 0;   // (the scene's frame data bound again: the post layout's set disturbed it)
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
+    timestamp(cb, "Ambient occlusion");
 }
 
 // After the prepass (its depth, surface and motion written), before the lit pass: the two half-size passes

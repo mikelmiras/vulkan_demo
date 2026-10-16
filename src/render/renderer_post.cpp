@@ -332,7 +332,7 @@ void Renderer::writeSsrBinding() {
 void Renderer::destroyPostImages() {
     if (refraction_.image) destroyImage(refraction_);
     if (velocity_.image) destroyImage(velocity_);
-    for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_})
+    for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_})
         if (img->image) destroyImage(*img);
     if (prevMip0_) vkDestroyImageView(device_, prevMip0_, nullptr);
     prevMip0_ = VK_NULL_HANDLE;
@@ -418,7 +418,8 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     float vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
     float vw = std::min(info.viewportW, (float)extent_.width - vx);
     float vh = std::min(info.viewportH, (float)extent_.height - vy);
-    bool ao = aoSupported_ && info.aoStrength > 0.f && quality_ != Quality::Low && info.items && vw >= 1.f && vh >= 1.f;
+    bool ao = aoSupported_ && info.aoStrength > 0.f && quality_ != Quality::Low && info.items && vw >= 1.f && vh >= 1.f &&
+              !(view < 0 && aoLitOn_);   // (the main view's, done before lighting: on the indirect light alone)
     mipBarrier(cb, ao_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, ao ? target : readable, colorStage | fragStage, 0,
                ao ? colorStage : fragStage, ao ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
     if (ao) {

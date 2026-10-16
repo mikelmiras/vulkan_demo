@@ -61,6 +61,7 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     if (const char* v = std::getenv("VKWORLD_UI_LAYER"); v && !std::strcmp(v, "1")) uiLayerForced_ = true;
     if (const char* v = std::getenv("VKWORLD_PREPASS"); v && !std::strcmp(v, "0")) prepass_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_FIT"); v && !std::strcmp(v, "0")) fittedCascades_ = false;
+    if (const char* v = std::getenv("VKWORLD_AO_LIT"); v && !std::strcmp(v, "0")) aoLitWanted_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_CACHE"); v && !std::strcmp(v, "0")) shadowCacheOn_ = false;
     if (const char* v = std::getenv("VKWORLD_RENDER_SCALE"))   // (before the post images: the upscaler's are made with them)
         renderScaleSet_ = scaleNow_ = std::clamp((float)std::atof(v), 0.5f, 1.f);
@@ -716,7 +717,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[37] = {
+    VkDescriptorSetLayoutBinding frameBindings[38] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -756,9 +757,10 @@ void Renderer::createPipelines() {
         {34, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {35, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {36, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {37, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // AO before lighting
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 37;
+    dslci.bindingCount = 38;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
@@ -1123,7 +1125,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (24 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (25 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1360,7 +1362,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     }
     if (velocityFresh_ && velocity_.image) {   // (the prepass's outputs and the traces', just made: readable from now)
         for (VkImage image : {velocity_.image, gbuffer_.image, traced_[0].image, traced_[1].image, tracedLight_[0].image,
-                              tracedLight_[1].image, tracedDepth_.image})
+                              tracedLight_[1].image, tracedDepth_.image, aoLit_.image})
             mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         velocityFresh_ = false;
@@ -1458,6 +1460,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
         timestamp(cb, "Volumetric fog");
     }
+    if (prepassed) recordAoLit(cb, scene);   // (ambient occlusion, for the indirect light: renderer_trace.cpp)
     if (prepassed) recordTrace(cb, scene);   // (reflections and GI at half size: renderer_trace.cpp)
     recordGpuParticles(cb);
 
@@ -1923,6 +1926,10 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted) && prepass_ && info.items && prepassVelocityPipeline_ &&
                       velocity_.image;
         traceOn_ = traceWanted && velocityOn_;
+        // (ambient occlusion before lighting: with the prepass and a depth to read; else the composite's, as before)
+        aoLitOn_ = prepass_ && info.items && aoSupported_ && aoPipeline_ && info.aoStrength > 0.f && quality_ != Quality::Low &&
+                   aoLit_.image && aoLitWanted_;
+        u.occlusion[0] = aoLitOn_ ? 1.f : 0.f;
         u.trace[0] = traceOn_ ? 1.f : 0.f;
         u.trace[1] = traceOn_ && traceHistory_ ? 1.f : 0.f;
         u.trace[2] = (float)(traceIndex_++ % 4);

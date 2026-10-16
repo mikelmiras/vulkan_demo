@@ -77,6 +77,7 @@ vec2 gUV;   // the texture coordinates the material is read at (vUV, moved by pa
 // upsample: no bleeding across edges)
 layout(set = 0, binding = 31) uniform sampler2D tracedReflections;   // rgb, a = how much to trust it
 layout(set = 0, binding = 32) uniform sampler2D tracedLight;         // rgb = what the GI rays met, a = how much
+layout(set = 0, binding = 37) uniform sampler2D occlusionMap;       // ambient occlusion before lighting (half size)
 layout(set = 0, binding = 35) uniform sampler2D tracedDepth;         // r = the traced pixel's distance along the view,
                                                                      // g = its contact shadow (1: lit)
 bool halfTraced = false;
@@ -846,17 +847,27 @@ void main() {
         vec4 g = halfTraced ? tracedIrradiance : traceIrradiance(vWorldPos, N, gl_FragCoord.xy, fine ? 2 : 1, fine ? 8 : 6, spin);
         diffuseLight = mix(diffuseLight, g.rgb, g.a * frame.prevCamForward.w);
     }
-    // Specular occlusion (Lagarde): where the GI rays found things close all round (a crevice), the reflection of
-    // the surroundings is mostly hidden too, more so for rougher surfaces and head-on views
-    float specularOcclusion = 1.0;
-    if (halfTraced && frame.prevCamForward.w > 0.0) {
-        float ao = 1.0 - clamp(tracedIrradiance.a, 0.0, 1.0) * 0.8;
-        specularOcclusion = clamp(pow(NdotV + ao, exp2(-16.0 * rough - 1.0)) - 1.0 + ao, 0.0, 1.0);
+    // Ambient occlusion (before lighting: frame.occlusion.x) on the indirect light alone: nooks and contacts get
+    // less of the sky's, the probes' and the bounced light, never of the sun's or the lamps'
+    float ambientOcclusion = 1.0;
+    if (frame.occlusion.x > 0.5) {
+        vec2 t = 1.0 / vec2(textureSize(occlusionMap, 0)), at = gl_FragCoord.xy * 0.5 * t;
+        ambientOcclusion = 0.25 * (textureLod(occlusionMap, at + vec2(-0.5, -0.5) * t, 0.0).r +
+                                   textureLod(occlusionMap, at + vec2(0.5, -0.5) * t, 0.0).r +
+                                   textureLod(occlusionMap, at + vec2(-0.5, 0.5) * t, 0.0).r +
+                                   textureLod(occlusionMap, at + vec2(0.5, 0.5) * t, 0.0).r);
+        diffuseLight *= ambientOcclusion;
     }
+    // Specular occlusion (Lagarde): where things are close all round (a crevice: the AO, or the GI rays' hits), the
+    // reflection of the surroundings is mostly hidden too, more so for rougher surfaces and head-on views
+    float specularOcclusion = 1.0;
+    float ao = ambientOcclusion;
+    if (halfTraced && frame.prevCamForward.w > 0.0) ao = min(ao, 1.0 - clamp(tracedIrradiance.a, 0.0, 1.0) * 0.8);
+    if (ao < 1.0) specularOcclusion = clamp(pow(NdotV + ao, exp2(-16.0 * rough - 1.0)) - 1.0 + ao, 0.0, 1.0);
     vec3 color = base * (1.0 - metallic) * diffuseLight +
                  (f0 * dfg.x + dfg.y) * s.energy * environment(R, rough) * specularOcclusion;
     if (s.sheen > 0.0)   // (cloth's rim of light from all around)
-        color = color * (1.0 - 0.25 * s.sheen) + s.sheenColor * irradiance(N) * (0.05 + 0.6 * pow(1.0 - NdotV, 4.0));
+        color = color * (1.0 - 0.25 * s.sheen) + s.sheenColor * irradiance(N) * ambientOcclusion * (0.05 + 0.6 * pow(1.0 - NdotV, 4.0));
     if (s.coat > 0.0) {   // (the coat's own reflection over the rest)
         float cv = max(dot(s.coatN, V), 1e-4);
         vec3 coatEnv = envBRDF(vec3(0.04), s.coatRough, cv) * s.coat;

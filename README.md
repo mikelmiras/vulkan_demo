@@ -471,7 +471,10 @@ dropping on the right.
   Cut-outs cast shadows with their holes; see-through materials cast one only where they're mostly opaque (glass:
   none).
 - **Ambient occlusion**: corners, creases and the ground under things darken a little (screen-space, from the
-  depth, at half resolution; strength and radius in the scene's look settings).
+  depth, at half resolution; strength and radius in the scene's look settings). It's worked out before lighting,
+  after the depth prepass, and darkens the light that comes from all round (the sky's, the probes', the bounced
+  light) and the reflections in crevices, never the sun's or the lamps': a sunlit kerb isn't dirtied. Split-screen
+  views and `VKWORLD_AO_LIT=0` (or VKWORLD_PREPASS=0) darken the finished picture as before.
 - **Sky**: a gradient from the horizon (also the fog colour) to the zenith, the ground below, and the sun's disc
   and glow. It also lights the scene: ambient light and reflections come from it (blurrier on rougher surfaces).
 - **Sky images**: a scene can use a panorama instead (Scene look > Sky image: an equirectangular image, twice as
