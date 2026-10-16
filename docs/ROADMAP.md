@@ -2003,3 +2003,24 @@ traffic lights.
   lights within 4%), the stress scene 2744 (2788). Not done: cars yielding to each other when turning (the lights
   keep the ways apart), pedestrians and crossings' signals.
 
+## Round 12 (planned)
+
+Visuals and performance (the standing request), from round 11's notes: frame-level features out of the lit
+shader when unused, longer and sharper reflections, coloured and softer lamp shadows, skin's light done properly,
+light in the air from every lamp, the last stalls in probes, and Night Drive's sidewalks brought to life.
+
+| # | Task | Why |
+|---|------|-----|
+| 119 | Frame-level features out of the lit shader when unused: coloured shadows, glowing decals, water's refraction and the shafts' extras behind specialization constants chosen per frame (a small cache of specialized pipelines) | Each feature's lookups cost every pixel on lavapipe even when the frame has none of it (coloured shadows: about 5%) |
+| 120 | Screen-space reflections traced over the Hi-Z pyramid (hierarchical: long rays in few steps, exact hits), widening with roughness (a cone over the blurred levels) | Reflections march fixed steps: short, and they miss thin things; Night Drive's wet streets want the whole street mirrored |
+| 121 | Coloured shadows from spot and point lights too (tint tiles in the atlas), and in the volumetric fog | Only the sun's shadows are tinted; a lamp behind stained glass casts grey |
+| 122 | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
+| 123 | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
+| 124 | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
+| 125 | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
+| 126 | Soft shadows from lamps: a blocker search for spot and point lights (PCSS, by the light's size), so a lamp's shadows sharpen at contact and soften away from it | Lamp shadows have one fixed softness |
+| 127 | Night Drive's sidewalks: pedestrians walking them (navigation mesh), crossing at the zebra crossings on walk signals, the traffic waiting for them | The streets have cars but no one walking |
+| 128 | Depth of field's near field weighed by coverage (no see-through edge) with tiles at quarter size, and motion blur by each object's own motion within a shutter | The near field's edge is a little transparent; the tiles' pass costs more than it needs |
+
+### Round 12 notes
+
