@@ -434,7 +434,8 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
     ImGui::Text("GPU: %s", gpuName.c_str());
     ImGui::Text("%.0f FPS (%.2f ms)", fps_, fps_ > 0.f ? 1000.f / fps_ : 0.f);
     ImGui::Text("Draw calls: %u   Triangles: %u", stats.drawCalls, stats.triangles);
-    ImGui::Text("Objects: %u drawn, %u culled, %u cast shadows", stats.objects, stats.culled, stats.shadowCasters);
+    ImGui::Text("Objects: %u drawn, %u culled, %u cast shadows (%u skipped: out of view)", stats.objects, stats.culled,
+                stats.shadowCasters, stats.shadowCulled);
     if (stats.textureBudget)   // (texture streaming: what's on the GPU, against its budget)
         ImGui::Text("Textures: %.0f of %.0f MB", (double)stats.textureBytes / (1 << 20), (double)stats.textureBudget / (1 << 20));
     if (playing()) ImGui::Text("Game update: %.2f ms (fixed %.0f Hz)", game_.updateMs(), 1.f / Game::kFixedDt);

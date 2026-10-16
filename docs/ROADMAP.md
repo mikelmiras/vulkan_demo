@@ -1725,7 +1725,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | 102 (done) | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
 | 103 (done) | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
 | 104 (done) | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
-| 105 | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
+| 105 (done) | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
 | 106 | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
 | 107 | Camera effects: depth of field (bokeh, from the depth, focus by distance or on a target) and motion blur along the motion vectors; both settings, off by default | No way to soften the background or show speed |
 | 108 | Night Drive's traffic: a few AI cars driving the grid with their headlights and tail lights, spray from wet tyres (GPU particles), all within the benchmark's budget | The showcase's streets are empty: a city at night needs traffic to show the lights, reflections and rain |
@@ -1796,4 +1796,18 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   cyan stripe on the ground (glow 6 and 4), with and without SSGI (the ground under the sign red 2.5 to 13.6),
   Night Drive, under validation with sync checks. Not done: a decal covering an emissive surface hiding its glow,
   glowing decals as real lights (shadows, off-screen light).
+- **105, shadow casters culled by the view**: shadows::castsIntoView (shadow_cascades.cpp, tested) sweeps a caster's
+  bounding sphere along the sun down to the scene's lowest point (fitViewDepth's boxes: viewFloor_) and tests the
+  capsule against the view's volume plane by plane (sides, then near and far: fitViewDepth's range, the far end at
+  most the shadow distance and 50 m). prepareInstances keeps a sun-cascade caster only if it passes: the first two
+  cascades (drawn every frame) against the view widened 0.05 rad, the far two (drawn every second and fourth frame:
+  task 81) against one widened 0.35 rad, for the camera's turn before they're redrawn. Casters in those far two
+  are drawn a level of detail coarser (in the cache's hash). Spot and point lights' views and split-screen views'
+  cascades are as before. RenderStats::shadowCulled (the editor's stats), VKWORLD_SHADOW_CULL=0. Not the Hi-Z
+  pyramid the plan said: it's the GPU's, a frame late, and the CPU decides the casters; the visible depth range and
+  the floor stand in for the receivers. Checked: the pictures with and without the same within run-to-run noise
+  (the demo 0.08% of pixels against 0.36% between two runs; Night Drive 0.40% against 0.42%; the stress scene
+  0.002%); GPU benchmark at high (the camera turning a circle): the shadow pass 145 to 126 ms a frame in Night
+  Drive, 41.5 to 35 in the demo, on lavapipe; under validation with sync checks. Not done: receivers' own bounds
+  (boxes of what's visible rather than the whole view volume), culling for spot and point lights' maps by the view.
 

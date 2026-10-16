@@ -26,4 +26,12 @@ void sunCascades(const Camera& camera, Vec3 sunDir, float distance, float texels
 void sunCascades(const Camera& camera, Vec3 sunDir, float nearest, float distance, float texels, Mat4* viewProj,
                  float* splits, float (*extent)[2] = nullptr);
 
+// Whether a caster (a sphere round it) can shadow anything in view: its shadow, the sphere swept along the sun's
+// direction down to `floor` (the lowest thing in view, world y; a shadow below it lands on nothing), meets the view's
+// volume between `near` and `far` (metres along it), widened by `widen` radians each way (for cascades drawn every
+// few frames: what the camera turns towards before they're drawn again). Conservative: each of the volume's planes
+// apart, so a few that shadow nothing still pass.
+bool castsIntoView(const Camera& camera, float near, float far, float widen, Vec3 sunDir, float floor, Vec3 centre,
+                   float radius);
+
 }  // namespace shadows

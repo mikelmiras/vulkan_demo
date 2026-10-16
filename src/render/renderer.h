@@ -201,6 +201,7 @@ struct RenderStats {
     uint32_t objects = 0;      // drawn in the main pass (after culling)
     uint32_t culled = 0;       // outside the view
     uint32_t shadowCasters = 0;
+    uint32_t shadowCulled = 0;       // sun cascades' casters skipped: their shadows land on nothing in view
     uint32_t shadowViewsDrawn = 0;   // shadow maps drawn this frame (the rest kept from before: Renderer's cache)
     uint64_t textureBytes = 0;    // textures on the GPU (streaming keeps it under its budget)
     uint64_t textureBudget = 0;
@@ -582,6 +583,9 @@ private:
     void createLightBuffers();
     float viewNear_ = 0.1f, viewFar_ = 1000.f;   // what's in view, along it (fitViewDepth)
     bool fittedCascades_ = true;                 // the sun's cascades from the nearest thing in view (VKWORLD_SHADOW_FIT=0: from the camera)
+    bool casterCulling_ = true;                  // the sun's casters only if their shadows reach the view (VKWORLD_SHADOW_CULL=0: all)
+    float viewFloor_ = -1e9f;                    // the lowest thing in the scene (fitViewDepth; shadows below land on nothing)
+    Vec3 shadowSunDir_{0, -1, 0};                // this frame's sun, as it shines (computeShadows)
     void fitViewDepth(const SceneRenderInfo& info);
     // Decals (renderer_decals.cpp): the nearest, a buffer per frame (binding 24), their textures (binding 25)
 public:

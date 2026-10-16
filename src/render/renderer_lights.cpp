@@ -134,6 +134,7 @@ void Renderer::drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info, VkPip
 void Renderer::fitViewDepth(const SceneRenderInfo& info) {
     viewNear_ = 0.1f;
     viewFar_ = 1000.f;
+    viewFloor_ = -1e9f;
     if (!info.items) return;
     std::vector<std::pair<Vec3, Vec3>> boxes;
     boxes.reserve(info.items->size());
@@ -147,6 +148,10 @@ void Renderer::fitViewDepth(const SceneRenderInfo& info) {
         boxes.push_back({c - r, c + r});
     }
     if (info.plants && !info.plants->empty()) boxes.clear();   // (plants aren't items: the whole range then)
+    if (!boxes.empty()) {
+        viewFloor_ = 1e9f;
+        for (const auto& b : boxes) viewFloor_ = std::min(viewFloor_, b.first.y);
+    }
     fitDepthRange(info.viewProj, info.camPos, info.camForward, boxes, viewNear_, viewFar_);
 }
 

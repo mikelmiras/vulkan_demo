@@ -475,7 +475,11 @@ dropping on the right.
   sun's two far cascades catch up with a moving camera every second and fourth frame (`VKWORLD_SHADOW_CACHE=0`:
   everything every frame). The sun's cascades are **fitted to the view**: they start at the nearest thing in sight
   rather than at the camera (`VKWORLD_SHADOW_FIT=0`: from the camera), so an overhead camera's four cascades all
-  fall on the ground it sees, and the shadow distance counts from there. In **volumetric fog**, spot and point lights' shadows cut their beams and halos too
+  fall on the ground it sees, and the shadow distance counts from there. Their **casters are culled by the view**:
+  a caster is drawn into the sun's maps only if its shadow (its bounds swept along the sunlight, down to the lowest
+  thing in the scene) can land in view; the far cascades, drawn every few frames, use a wider view for what the
+  camera turns to meanwhile, and draw their casters a level of detail coarser (`VKWORLD_SHADOW_CULL=0`: every caster
+  in a cascade's box, at the camera's level). The editor's stats count the casters skipped. In **volumetric fog**, spot and point lights' shadows cut their beams and halos too
   (headlights stop at the wall they light).
   Cut-outs cast shadows with their holes; see-through materials cast one only where they're mostly opaque (glass:
   none).

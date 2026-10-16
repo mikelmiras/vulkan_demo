@@ -69,6 +69,7 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
                                   std::vector<int>& shadowLayer) {
     uint64_t layers = 0;
     shadowLayer.assign(lights.size(), -1);
+    shadowSunDir_ = sunDir;
     // ---- The sun (render/shadow_cascades.h)
     float extent[kCascades][2] = {};
     auto cascades = [&](const SceneRenderInfo& v, float texels, Mat4* vps, float* splits) {

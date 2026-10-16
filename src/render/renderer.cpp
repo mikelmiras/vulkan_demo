@@ -61,6 +61,7 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     if (const char* v = std::getenv("VKWORLD_UI_LAYER"); v && !std::strcmp(v, "1")) uiLayerForced_ = true;
     if (const char* v = std::getenv("VKWORLD_PREPASS"); v && !std::strcmp(v, "0")) prepass_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_FIT"); v && !std::strcmp(v, "0")) fittedCascades_ = false;
+    if (const char* v = std::getenv("VKWORLD_SHADOW_CULL"); v && !std::strcmp(v, "0")) casterCulling_ = false;
     if (const char* v = std::getenv("VKWORLD_AO_LIT"); v && !std::strcmp(v, "0")) aoLitWanted_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_CACHE"); v && !std::strcmp(v, "0")) shadowCacheOn_ = false;
     if (const char* v = std::getenv("VKWORLD_RENDER_SCALE"))   // (before the post images: the upscaler's are made with them)

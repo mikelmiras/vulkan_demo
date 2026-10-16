@@ -6,6 +6,7 @@
 
 #include "assets/mesh_lod.h"
 #include "render/renderer_internal.h"
+#include "render/shadow_cascades.h"
 
 using namespace render_detail;
 
@@ -192,6 +193,11 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         float radius = length(mesh.boundsMax - mesh.boundsMin) * 0.5f * scale;
         lods[i] = chooseLod(radius, length(c - info.camPos), tanHalf, (int)mesh.lods.size());
     }
+    // The sun's casters: those whose shadows can land on something in view (from a little before the nearest thing
+    // in it to the farthest, or the shadows' reach)
+    const bool cullCasters = casterCulling_ && !shadowViews.empty();
+    const shadows::Camera viewCam{info.camPos, info.camForward, info.fovY, info.aspect};
+    const float castNear = std::max(viewNear_ * 0.9f - 1.f, 0.f), castFar = std::min(viewFar_ * 1.05f + 1.f, shadowDistance() + 50.f);
     // Visible items, sorted so that equal (texture, mesh) pairs sit together and can be drawn as one batch
     std::vector<uint32_t> visible, transparent;
     visible.reserve(items.size());
@@ -203,8 +209,25 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         if (gpu && o.alphaMode != 2) visible.push_back(i);
         else if (skinned || view.visible(o.model, mesh.boundsMin, mesh.boundsMax)) (o.alphaMode == 2 ? transparent : visible).push_back(i);
         else stats_.culled++;
-        for (size_t k = 0; k < shadowViews.size() && !o.water; ++k)   // each shadow camera: what it sees (water casts none)
+        // Its shadow in view (shadows::castsIntoView): for the sun's two cascades drawn every frame, the view's own
+        // volume; for the two drawn every few frames, a wider one (what the camera may turn to before they're redrawn)
+        bool shadowNear = true, shadowFar = true;
+        if (!skinned && cullCasters && !o.water) {
+            Vec3 c = transformPoint(o.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
+            float scale = std::max({length(transformDir(o.model, {1, 0, 0})), length(transformDir(o.model, {0, 1, 0})),
+                                    length(transformDir(o.model, {0, 0, 1}))});
+            float radius = length(mesh.boundsMax - mesh.boundsMin) * 0.5f * scale;
+            shadowFar = shadows::castsIntoView(viewCam, castNear, castFar, 0.35f, shadowSunDir_, viewFloor_, c, radius);
+            shadowNear = shadowFar && shadows::castsIntoView(viewCam, castNear, castFar, 0.05f, shadowSunDir_, viewFloor_, c, radius);
+        }
+        for (size_t k = 0; k < shadowViews.size() && !o.water; ++k) {   // each shadow camera: what it sees (water casts none)
+            const uint32_t layer = shadowLayers[k];
+            if (layer < kCascades && !(layer < 2 ? shadowNear : shadowFar)) {
+                stats_.shadowCulled++;
+                continue;
+            }
             if (skinned || shadowViews[k].visible(o.model, mesh.boundsMin, mesh.boundsMax)) casters[k].push_back(i);
+        }
     }
     std::stable_sort(visible.begin(), visible.end(), [&](uint32_t a, uint32_t b) {
         VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
@@ -221,6 +244,13 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         Vec3 da = centre(a) - info.camPos, db = centre(b) - info.camPos;
         return dot(da, da) > dot(db, db);
     });
+    // A caster's level in a shadow layer: the camera's, a level coarser in the sun's far cascades (their texels are
+    // metres wide: the detail doesn't show)
+    auto shadowLod = [&](size_t k, uint32_t i) {
+        const int levels = (int)meshes_->get(items[i].mesh).lods.size();
+        if (items[i].jointOffset >= 0 || levels == 0) return lods[i];
+        return shadowLayers[k] >= 2 && shadowLayers[k] < kCascades ? std::min(lods[i] + 1, levels) : lods[i];
+    };
     // Each shadow layer's casters, hashed (FNV-1a): what's drawn into it (mesh, level, material for cut-outs, where,
     // vertices rewritten in place); skinned ones change every frame
     for (size_t k = 0; k < casters.size(); ++k) {
@@ -232,7 +262,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         for (uint32_t i : casters[k]) {
             const DrawItem& o = items[i];
             mix(&o.mesh, sizeof(o.mesh));
-            mix(&lods[i], sizeof(int));
+            const int lod = shadowLod(k, i);
+            mix(&lod, sizeof(int));
             mix(o.model.m, sizeof(o.model.m));
             mix(&o.alphaMode, sizeof(o.alphaMode));
             if (o.alphaMode != 0) {
@@ -452,8 +483,9 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     VkDescriptorSet plain = materialSet(DrawItem{});
     for (size_t k = 0; k < casters.size(); ++k)
         for (uint32_t i : casters[k]) {
-            if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], i, items[i].mesh, lods[i], plain);
-            else append(shadowCutoutBatches_[shadowLayers[k]], i, items[i].mesh, lods[i], textureSet(items[i]));
+            const int lod = shadowLod(k, i);
+            if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], i, items[i].mesh, lod, plain);
+            else append(shadowCutoutBatches_[shadowLayers[k]], i, items[i].mesh, lod, textureSet(items[i]));
         }
     for (int g = 0; g < giCount_; ++g)
         for (uint32_t i : giVisible[(size_t)g]) {

@@ -76,3 +76,28 @@ TEST(shadow_cascades_fitted_to_the_view) {
     shadows::sunCascades(cam, sun, 95.f, 60.f, 1024.f, vp, fitted, extentFitted);
     CHECK(extentFitted[3][0] > extentNear[0][0]);   // (well: the slices are where they're needed, wider for it)
 }
+
+TEST(shadow_casters_culled_by_the_view) {
+    // A camera at the origin looking down -z (60 degrees up and down, 16:9); the view from 0.1 to 100 m
+    shadows::Camera cam{{0, 0, 0}, {0, 0, -1}, 60.f * DEG2RAD, 16.f / 9.f};
+    auto casts = [&](Vec3 sun, float floor, Vec3 c, float r = 0.5f, float widen = 0.05f) {
+        return shadows::castsIntoView(cam, 0.1f, 100.f, widen, normalize(sun), floor, c, r);
+    };
+    const Vec3 overhead{0, -1, 0};
+    CHECK(casts(overhead, 0.f, {0, 1, -10}));          // in front: its shadow under it, in view
+    CHECK(!casts(overhead, 0.f, {0, 1, 10}));          // behind the camera: its shadow too
+    CHECK(!casts(overhead, 0.f, {200, 1, -10}));       // far off to the side
+    CHECK(!casts(overhead, 0.f, {0, 1, -300}));        // past the view's far end
+    CHECK(casts(overhead, 0.f, {0, 40, -10}));         // high above the view (out of it): its shadow falls into it
+    // A low sun shining away from the camera: a tall thing behind it throws its shadow forward into view, unless
+    // the lowest thing in view is so high the shadow has passed under it by then
+    const Vec3 low{0, -0.2f, -1};
+    CHECK(casts(low, 0.f, {0, 5, 10}));
+    CHECK(!casts(low, 4.f, {0, 5, 10}));
+    // Just outside the side of the view (50 degrees off, the edge at 46): out, unless widened for a far cascade
+    Vec3 side{20.f * std::tan(50.f * DEG2RAD), 1.f, -20.f};
+    CHECK(!casts(overhead, 0.f, side));
+    CHECK(casts(overhead, 0.f, side, 0.5f, 0.35f));
+    // A big caster reaching into view from outside it
+    CHECK(casts(overhead, 0.f, side, 6.f));
+}

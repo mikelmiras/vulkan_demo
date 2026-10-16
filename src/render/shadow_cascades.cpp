@@ -50,4 +50,25 @@ void sunCascades(const Camera& camera, Vec3 sunDir, float nearest, float distanc
     }
 }
 
+bool castsIntoView(const Camera& camera, float near, float far, float widen, Vec3 sunDir, float floor, Vec3 centre,
+                   float radius) {
+    const Vec3 fwd = normalize(camera.forward), sun = normalize(sunDir);
+    const Vec3 right = normalize(cross(fwd, std::fabs(fwd.y) > 0.999f ? Vec3{0, 0, 1} : Vec3{0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    // The shadow's reach: down to the floor (a sun near the horizon: far, but not past the view's far end)
+    float reach = far + radius;
+    if (sun.y < -1e-3f) reach = std::min(reach, std::max(centre.y + radius - floor, 0.f) / -sun.y);
+    const Vec3 a = centre - camera.position, b = a + sun * reach;
+    // Inward normals (through the camera) of the sides, then the near and far ends
+    const float tanY = std::tan(camera.fovY * 0.5f);
+    const float hy = std::min(camera.fovY * 0.5f + widen, 1.55f), hx = std::min(std::atan(tanY * camera.aspect) + widen, 1.55f);
+    const Vec3 sides[4] = {right * std::cos(hx) + fwd * std::sin(hx), right * -std::cos(hx) + fwd * std::sin(hx),
+                           up * std::cos(hy) + fwd * std::sin(hy), up * -std::cos(hy) + fwd * std::sin(hy)};
+    for (const Vec3& n : sides)
+        if (dot(a, n) < -radius && dot(b, n) < -radius) return false;
+    if (dot(a, fwd) - near < -radius && dot(b, fwd) - near < -radius) return false;
+    if (far - dot(a, fwd) < -radius && far - dot(b, fwd) < -radius) return false;
+    return true;
+}
+
 }  // namespace shadows
