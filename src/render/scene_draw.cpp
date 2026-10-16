@@ -209,6 +209,10 @@ bool hasMaterialLayers(const DrawItem& o) {
     return o.clearcoat > 0.f || o.sheen > 0.f || std::fabs(o.anisotropy) > 0.01f || o.translucency > 0.f || o.subsurface > 0.f;
 }
 
+bool tintsShadow(const DrawItem& o) {
+    return !o.water && ((o.alphaMode == 2 && o.opacity < 0.75f) || (o.alphaMode != 2 && o.translucency >= 0.5f));
+}
+
 float focusDistance(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 camPos, Vec3 camForward) {
     const RenderSettings& r = scene.render;
     if (r.focusTarget != kNoEntity)

@@ -1863,7 +1863,7 @@ traffic lights.
 | 109 (done) | The lit pass's cost: each feature's share of scene.frag measured (the GPU benchmark, features on and off), the rarely used ones (translucency, subsurface, glowing decals, layers) behind specialization constants or per-material variants so the common path stays lean | The stress scene's opaque pass grew about 20% over round 10 (3412 ms against 2788 on lavapipe) |
 | 110 (done) | Temporal ambient occlusion: a history (reprojected with the motion vectors, dropped where the depth changed), more samples over time, bent normals for the indirect light's direction | AO before lighting is a fresh half-size estimate each frame: noisy at medium quality, and the ambient's direction ignores what's hidden |
 | 111 (done) | Depth of field's near field and the sky's motion: a pre-pass of each tile's largest near circle so a blurred foreground spreads over a sharp background; the camera's own motion for the sky in motion blur | A blurred foreground has crisp edges; the sky never smears when the camera turns |
-| 112 | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
+| 112 (done) | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
 | 113 | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
 | 114 | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
 | 115 | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
@@ -1913,4 +1913,19 @@ traffic lights.
   background), a camera panning at 120 degrees a second with motion blur (objects and the sky round them smear;
   MSAA too), Night Drive, the editor, under validation with sync checks. Not done: the near field's own blur
   weighted by coverage (its edge is soft but a little transparent), the tiles at quarter size.
+- **112, coloured shadows**: shadowTint_ (createShadowArray's colour form: RGBA16F, a layer per cascade at 1024,
+  set 0 binding 38, filtered): white to start, then each tinting caster (tintsShadow, scene_draw.h, tested:
+  see-through under 75% opaque, or translucency 0.5 and over; not water) drawn with shadowTintPipeline_
+  (shadow.vert, now also passing the colour and translucency; shadow_tint.frag; no depth; colour multiplied in,
+  alpha the nearest depth by a MIN blend): glass lets through mix(white, colour, opacity) times (1 - opacity / 2),
+  a translucent thing its colour times its translucency. Drawn right after each cascade's depth, so cached with it
+  (the casters were already in its hash); such casters left out of the cascade's depth. scene.frag's sunTint takes
+  the filtered colour where the receiver is behind the nearest of the four texels' depths (textureGather: the edge
+  fades instead of stepping), times the sun's light; frame.shadowParams.w (patched into the main view's slot after
+  prepareInstances: tinted_ or this frame's tint casters) turns it on. Checked: red glass (opacity 0.4) and a green
+  curtain (translucency 0.8) over the ground in the sun beside a solid panel (reddish-brown, green and grey
+  shadows), MSAA, Night Drive, the editor, the sample game, under validation with sync checks. Cost: the stress
+  scene's opaque pass about 5% more on lavapipe with no tint in it (lavapipe works through the lookups even when
+  the frame's flag is off; a GPU skips a branch the same for every pixel). Not done: tints in spot and point
+  lights' shadows and in the volumetric fog, coloured caustics (focus through curved glass).
 

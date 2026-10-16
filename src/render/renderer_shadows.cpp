@@ -14,19 +14,23 @@
 
 using namespace render_detail;
 
-Renderer::ShadowArray Renderer::createShadowArray(uint32_t size, uint32_t count) {
+Renderer::ShadowArray Renderer::createShadowArray(uint32_t size, uint32_t count, VkFormat color) {
     ShadowArray a;
     a.size = size;
     a.count = count;
+    const bool colour = color != VK_FORMAT_UNDEFINED;
+    const VkFormat format = colour ? color : shadowFormat_;
+    const VkImageAspectFlags aspect = colour ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
     VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = shadowFormat_;
+    ci.format = format;
     ci.extent = {size, size, 1};
     ci.mipLevels = 1;
     ci.arrayLayers = count;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ci.usage = (colour ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) |
+               VK_IMAGE_USAGE_SAMPLED_BIT;
     VK_CHECK(vkCreateImage(device_, &ci, nullptr, &a.image));
     VkMemoryRequirements req;
     vkGetImageMemoryRequirements(device_, a.image, &req);
@@ -38,13 +42,13 @@ Renderer::ShadowArray Renderer::createShadowArray(uint32_t size, uint32_t count)
     VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     vci.image = a.image;
     vci.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-    vci.format = shadowFormat_;
-    vci.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, count};
+    vci.format = format;
+    vci.subresourceRange = {aspect, 0, 1, 0, count};
     VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &a.array));
     vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     a.layers.resize(count);
     for (uint32_t l = 0; l < count; ++l) {
-        vci.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, l, 1};
+        vci.subresourceRange = {aspect, 0, 1, l, 1};
         VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &a.layers[l]));
     }
     return a;
@@ -284,6 +288,60 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
         if ((draw >> layer) & 1) drawView(layer, 0, 0, cascades_.size);
         vkCmdEndRendering(cb);
         remember(layer, !((draw >> layer) & 1));
+    }
+    // ... and their tint layers (white, then what lets light through multiplied in): with them, as cached as they are
+    if (cascadesTouched && shadowTintPipeline_) {
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = shadowTint_.image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, VK_REMAINING_ARRAY_LAYERS};
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &b);
+        for (uint32_t layer = 0; layer < kCascades; ++layer) {
+            if (!(((draw | clearOnly) >> layer) & 1)) continue;
+            const bool drawn = (draw >> layer) & 1;
+            VkRenderingAttachmentInfo ta{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            ta.imageView = shadowTint_.layers[layer];
+            ta.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            ta.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            ta.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            ta.clearValue.color = {{1.f, 1.f, 1.f, 1.f}};
+            VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+            ri.renderArea = {{0, 0}, {shadowTint_.size, shadowTint_.size}};
+            ri.layerCount = 1;
+            ri.colorAttachmentCount = 1;
+            ri.pColorAttachments = &ta;
+            vkCmdBeginRendering(cb, &ri);
+            const std::vector<Batch>& casters = shadowTintBatches_[layer];
+            if (drawn && !casters.empty()) {
+                VkViewport vp{0.f, 0.f, (float)shadowTint_.size, (float)shadowTint_.size, 0.f, 1.f};
+                VkRect2D sc{{0, 0}, {shadowTint_.size, shadowTint_.size}};
+                vkCmdSetViewport(cb, 0, 1, &vp);
+                vkCmdSetScissor(cb, 0, 1, &sc);
+                int32_t index = (int32_t)layer;
+                vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowTintPipeline_);
+                VkDescriptorSet bound = VK_NULL_HANDLE;
+                for (const Batch& bt : casters) {
+                    if (bt.texture != bound) {
+                        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &bt.texture, 0, nullptr);
+                        bound = bt.texture;
+                    }
+                    drawBatch(cb, bt);
+                }
+            }
+            vkCmdEndRendering(cb);
+            tinted_[layer] = drawn && !casters.empty();
+        }
+        b.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &b);
     }
     // The atlas: one pass, each view cleared and drawn in its tile (the rest is never read)
     if (atlasUsed) {

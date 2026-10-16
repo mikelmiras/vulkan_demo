@@ -166,6 +166,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     for (auto& b : giBatches_) b.clear();
     for (auto& b : shadowBatches_) b.clear();
     for (auto& b : shadowCutoutBatches_) b.clear();
+    for (auto& b : shadowTintBatches_) b.clear();
     outlineBatches_.clear();
     stats_ = {};
     if (!info.items) return;
@@ -487,7 +488,9 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     for (size_t k = 0; k < casters.size(); ++k)
         for (uint32_t i : casters[k]) {
             const int lod = shadowLod(k, i);
-            if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], i, items[i].mesh, lod, plain);
+            if (shadowLayers[k] < kCascades && tintsShadow(items[i]))   // (the sun's: tinting its light, not blocking it)
+                append(shadowTintBatches_[shadowLayers[k]], i, items[i].mesh, lod, textureSet(items[i]));
+            else if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], i, items[i].mesh, lod, plain);
             else append(shadowCutoutBatches_[shadowLayers[k]], i, items[i].mesh, lod, textureSet(items[i]));
         }
     for (int g = 0; g < giCount_; ++g)

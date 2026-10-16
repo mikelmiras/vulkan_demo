@@ -484,8 +484,11 @@ dropping on the right.
   camera turns to meanwhile, and draw their casters a level of detail coarser (`VKWORLD_SHADOW_CULL=0`: every caster
   in a cascade's box, at the camera's level). The editor's stats count the casters skipped. In **volumetric fog**, spot and point lights' shadows cut their beams and halos too
   (headlights stop at the wall they light).
-  Cut-outs cast shadows with their holes; see-through materials cast one only where they're mostly opaque (glass:
-  none).
+  Cut-outs cast shadows with their holes. **Coloured shadows**: in the sun, see-through materials under 75% opaque
+  (glass, a stained window) and thin translucent ones (translucency 0.5 and over: paper, a curtain) don't block its
+  light but tint it, their colour more the more opaque they are (a layer per cascade, half its size, holds what
+  they let through and the nearest one's depth); more opaque see-through ones cast a plain shadow. Spot and point
+  lights' shadows treat see-through things as before (a shadow only where mostly opaque).
 - **Ambient occlusion**: corners, creases and the ground under things darken a little (screen-space, from the
   depth, at half resolution; strength and radius in the scene's look settings). It's worked out before lighting,
   after the depth prepass, and darkens the light that comes from all round (the sky's, the probes', the bounced

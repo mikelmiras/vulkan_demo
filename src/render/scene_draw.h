@@ -24,6 +24,10 @@ std::vector<GpuEmitterInfo> collectGpuEmitters(const Scene& scene, const std::ve
 // Whether a draw item's material has layers (a coat, sheen, anisotropy, translucency, subsurface): drawn with the
 // lit pass's layered variant, the rest with the lean one (scene.frag's kLayers)
 bool hasMaterialLayers(const DrawItem& item);
+// Whether a shadow caster lets the sun's light through, tinted, rather than blocking it: see-through ones under 75%
+// opaque (glass, a stained window) and thin translucent ones (translucency 0.5 and over: paper, a curtain); drawn
+// into the sun's tint layers instead of its depth (spot and point lights' shadows treat them as before)
+bool tintsShadow(const DrawItem& item);
 // The distance depth of field keeps sharp (RenderSettings): its focus target's along the view, if it has one (at
 // least 0.1 m), else its focus distance
 float focusDistance(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 camPos, Vec3 camForward);

@@ -308,6 +308,7 @@ private:
         VkFormat colorFormat = VK_FORMAT_UNDEFINED;   // (the colour attachment's, if not the HDR image's)
         VkFormat colorFormat2 = VK_FORMAT_UNDEFINED;  // a second one's (the prepass's outputs)
         bool lean = false;               // scene.frag without material layers (its kLayers specialization: false)
+        bool tint = false;               // the sun's shadow tint (RGBA16F, no depth): colour multiplied, alpha the nearest
     };
 
     void createInstance();
@@ -473,7 +474,7 @@ private:
         std::vector<VkImageView> layers;       // rendered into
         uint32_t size = 0, count = 0;
     };
-    ShadowArray createShadowArray(uint32_t size, uint32_t layers);
+    ShadowArray createShadowArray(uint32_t size, uint32_t layers, VkFormat color = VK_FORMAT_UNDEFINED);   // (a colour one: sampled, drawn into)
     void destroyShadowArray(ShadowArray& a);
     // Fills the frame's shadow matrices and cascade splits, and places the lights' shadows in the atlas (the
     // most important first, bigger); returns which views to render (bit per view). shadowLayer[i] gets the view
@@ -563,6 +564,12 @@ private:
     static constexpr float kShadowDistance = 160.f;   // the sun's shadows reach this far from the camera
     VkFormat shadowFormat_ = VK_FORMAT_D32_SFLOAT;
     ShadowArray cascades_, atlas_;   // the sun's cascades; spot and point lights' tiles in one image
+    // The sun's shadow tint (a layer per cascade, half its size; set 0 binding 38): rgb what see-through and thin
+    // translucent casters let through (multiplied), a the nearest one's depth (white, 1: nothing)
+    ShadowArray shadowTint_;
+    bool shadowTintFresh_ = false;
+    bool tinted_[4] = {};            // (each cascade's tint layer holds something: frame.shadowParams.w)
+    VkPipeline shadowTintPipeline_ = VK_NULL_HANDLE;
     struct ShadowTile {
         uint32_t x = 0, y = 0, size = 0;
     };
@@ -824,6 +831,7 @@ private:
     void recordGi(VkCommandBuffer cb, const SceneRenderInfo& info);
     std::vector<Batch> shadowBatches_[kShadowLayers];         // per shadow layer: solid casters ...
     std::vector<Batch> shadowCutoutBatches_[kShadowLayers];   // ... and ones with holes (cut-outs, see-through)
+    std::vector<Batch> shadowTintBatches_[kCascades];         // ... and the sun's ones letting light through, tinted
     Mat4 shadowViewProj_[kShadowLayers];
     VkPipeline skyPipeline_ = VK_NULL_HANDLE;
     VkPipeline createSkyPipeline();

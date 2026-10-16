@@ -374,3 +374,24 @@ TEST(materials_with_layers_drawn_layered) {
     barely.anisotropy = 0.005f;   // (too little to show)
     CHECK(!hasMaterialLayers(barely));
 }
+
+TEST(shadow_casters_that_tint) {
+    // Glass under 75% opaque and thin translucent things tint the sun's light; solid, nearly opaque, water: not
+    DrawItem glass;
+    glass.alphaMode = 2;
+    glass.opacity = 0.4f;
+    CHECK(tintsShadow(glass));
+    DrawItem smoked = glass;
+    smoked.opacity = 0.9f;
+    CHECK(!tintsShadow(smoked));
+    DrawItem curtain;
+    curtain.translucency = 0.7f;
+    CHECK(tintsShadow(curtain));
+    DrawItem leaf;
+    leaf.translucency = 0.3f;   // (a little: still blocks)
+    CHECK(!tintsShadow(leaf));
+    CHECK(!tintsShadow(DrawItem{}));
+    DrawItem water = glass;
+    water.water = true;
+    CHECK(!tintsShadow(water));
+}

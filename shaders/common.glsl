@@ -20,7 +20,8 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 cascadeSplits;   // far end of each sun shadow cascade, metres along the view
     vec4 cascadeScale[4]; // per cascade: x = metres across its map, y = metres of depth it spans, z = texels across
     vec4 shadowParams;    // x = the sun's softness, y = 1: shadow taps turned per pixel (with temporal AA),
-                          // z = quality (0 low, 1 medium, 2 high: how many taps and steps the lit shader takes)
+                          // z = quality (0 low, 1 medium, 2 high: how many taps and steps the lit shader takes),
+                          // w = 1: the sun's tint layers hold something (binding 38)
     vec4 fogParams;       // volumetric fog: x = 1 if on, y = light strength, z = anisotropy, w = height falloff
     vec4 fogRange;        // its cells' slices: x = the first's start (m), y = slices / log(far / near), z = far
     mat4 fogPrevViewProj; // the fog's last frame (its cells blend with what they held then): its camera ...
