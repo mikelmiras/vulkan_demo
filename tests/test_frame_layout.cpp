@@ -112,6 +112,22 @@ TEST(frame_uniforms_match_the_shaders) {
     compareLayouts("struct GpuDecal {", "struct GpuDecal {", sizeof(GpuDecal), "scene.frag");
 }
 
+// The post passes' push constants (renderer.cpp's post layout: 96 bytes, six vec4s) hold every post shader's block
+TEST(post_push_constants_fit) {
+    std::string root = std::string(VKWORLD_TEST_ASSETS) + "/../../shaders/";
+    for (const char* shader : {"ssao.glsl", "composite.frag", "shafts.glsl", "camera_fx.glsl", "bloom_down.frag", "bloom_up.frag",
+                               "luminance.frag", "adapt.frag", "ssr_capture.glsl"}) {
+        std::string text = readFile(root + shader);
+        size_t at = text.find("layout(push_constant) uniform ");
+        REQUIRE(at != std::string::npos);
+        size_t open = text.find('{', at);
+        std::vector<Field> f = fields(text, text.substr(at, open - at + 1), glslFloats);
+        int floats = 0;
+        for (const Field& x : f) floats += x.floats;
+        if (floats <= 0 || floats > 24) test::fail(__FILE__, __LINE__, std::string(shader) + ": " + std::to_string(floats) + " floats");
+    }
+}
+
 TEST(packed_colours) {
     CHECK(packColor({0.f, 0.f, 0.f}) == 0.f);
     CHECK(packColor({1.f, 1.f, 1.f}) == 16777215.f);   // (2^24 - 1: whole in a float)

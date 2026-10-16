@@ -41,7 +41,8 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/adapt.frag shaders/sky_transmittance.frag shaders/sky_view.frag shaders/sky_multiple.frag
                    shaders/ssr_trace.frag shaders/gi_trace.frag
                    shaders/particles.comp shaders/particle_sort.comp shaders/particle_gather.comp
-                   shaders/shafts.frag shaders/shafts_ms.frag shaders/camera_fx.frag shaders/camera_fx_ms.frag)
+                   shaders/shafts.frag shaders/shafts_ms.frag shaders/camera_fx.frag shaders/camera_fx_ms.frag
+                   shaders/ssao_temporal.frag shaders/ssao_temporal_ms.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)

@@ -889,6 +889,9 @@ void Renderer::createSampledPipelines() {
     if (aoSupported_) {
         aoPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "ssao_ms.frag.spv" : "ssao.frag.spv",
                                          VK_FORMAT_R8_UNORM, false);
+        aoTemporalPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "ssao_temporal_ms.frag.spv"
+                                                                                    : "ssao_temporal.frag.spv",
+                                                 VK_FORMAT_R16G16B16A16_SFLOAT, false);
         ssrCapturePipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "ssr_capture_ms.frag.spv" : "ssr_capture.frag.spv",
                                                  hdrFormat_, false);
         shaftsPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "shafts_ms.frag.spv" : "shafts.frag.spv",
@@ -902,7 +905,7 @@ void Renderer::createSampledPipelines() {
 }
 
 void Renderer::destroySampledPipelines() {
-    for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &ssrCapturePipeline_,
+    for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &aoTemporalPipeline_, &ssrCapturePipeline_,
                           &shaftsPipeline_, &cameraFxPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
                           &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
                           &sceneLayeredPipeline_, &sceneEarlyLayeredPipeline_,
@@ -1163,7 +1166,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
     // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation; +1: the sky's)
-    const uint32_t postSetCount = 2 * kMaxBloomMips + 10 + 2 * kMaxViews;   // (+1: the camera effects')
+    const uint32_t postSetCount = 2 * kMaxBloomMips + 12 + 2 * kMaxViews;   // (+1: the camera effects'; +2: AO's history)
     VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
@@ -1188,6 +1191,8 @@ void Renderer::createResources(const MeshLibrary&) {
     adaptSet_ = postSets[7 + 2 * kMaxBloomMips + 2 * kMaxViews];
     skyViewSet_ = postSets[8 + 2 * kMaxBloomMips + 2 * kMaxViews];
     fxSet_ = postSets[9 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    aoTemporalSets_[0] = postSets[10 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    aoTemporalSets_[1] = postSets[11 + 2 * kMaxBloomMips + 2 * kMaxViews];
     {   // (the luminance image is mipped by blits: its format must allow filtered ones)
         VkFormatProperties fp;
         vkGetPhysicalDeviceFormatProperties(gpu_, VK_FORMAT_R16_SFLOAT, &fp);
@@ -1388,7 +1393,7 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
     }
     if (velocityFresh_ && velocity_.image) {   // (the prepass's outputs and the traces', just made: readable from now)
         for (VkImage image : {velocity_.image, gbuffer_.image, traced_[0].image, traced_[1].image, tracedLight_[0].image,
-                              tracedLight_[1].image, tracedDepth_.image, aoLit_.image})
+                              tracedLight_[1].image, tracedDepth_.image, aoLit_[0].image, aoLit_[1].image})
             mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         velocityFresh_ = false;
@@ -1977,12 +1982,13 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         // (and contact shadows, which need only this frame's depth)
         const bool contact = info.contactShadows && quality_ != Quality::Low;
         const bool traceWanted = ((captureOn(info) && ssrValid_) || contact) && aoSupported_ && ssrTracePipeline_;
-        velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted || info.motionBlur > 0.f) && prepass_ && info.items && prepassVelocityPipeline_ &&
-                      velocity_.image;
+        velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted || info.motionBlur > 0.f) && prepass_ && info.items &&
+                      prepassVelocityPipeline_ && velocity_.image;
         traceOn_ = traceWanted && velocityOn_;
         // (ambient occlusion before lighting: with the prepass and a depth to read; else the composite's, as before)
         aoLitOn_ = prepass_ && info.items && aoSupported_ && aoPipeline_ && info.aoStrength > 0.f && quality_ != Quality::Low &&
-                   aoLit_.image && aoLitWanted_;
+                   aoLit_[0].image && aoTemporalPipeline_ && aoLitWanted_;
+        if (!aoLitOn_) aoHistory_ = false;   // (when it's back on: from fresh)
         u.occlusion[0] = aoLitOn_ ? 1.f : 0.f;
         u.drawnViewport[0] = info.viewportX, u.drawnViewport[1] = info.viewportY;   // (the scaled info: as drawn)
         u.drawnViewport[2] = std::max(info.viewportW, 1.f), u.drawnViewport[3] = std::max(info.viewportH, 1.f);

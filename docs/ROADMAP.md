@@ -1861,7 +1861,7 @@ traffic lights.
 | # | Task | Why |
 |---|------|-----|
 | 109 (done) | The lit pass's cost: each feature's share of scene.frag measured (the GPU benchmark, features on and off), the rarely used ones (translucency, subsurface, glowing decals, layers) behind specialization constants or per-material variants so the common path stays lean | The stress scene's opaque pass grew about 20% over round 10 (3412 ms against 2788 on lavapipe) |
-| 110 | Temporal ambient occlusion: a history (reprojected with the motion vectors, dropped where the depth changed), more samples over time, bent normals for the indirect light's direction | AO before lighting is a fresh half-size estimate each frame: noisy at medium quality, and the ambient's direction ignores what's hidden |
+| 110 (done) | Temporal ambient occlusion: a history (reprojected with the motion vectors, dropped where the depth changed), more samples over time, bent normals for the indirect light's direction | AO before lighting is a fresh half-size estimate each frame: noisy at medium quality, and the ambient's direction ignores what's hidden |
 | 111 | Depth of field's near field and the sky's motion: a pre-pass of each tile's largest near circle so a blurred foreground spreads over a sharp background; the camera's own motion for the sky in motion blur | A blurred foreground has crisp edges; the sky never smears when the camera turns |
 | 112 | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
 | 113 | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
@@ -1886,4 +1886,18 @@ traffic lights.
   VKWORLD_LEAN_SHADING=0 for comparison. Checked: the subsurface spheres (layered), Night Drive (TAA, MSAA), the
   editor, under validation with sync checks. Not done: AO before lighting in one tap (temporal AO, task 110, will
   smooth it instead), variants per feature (one lean and one full only).
+- **110, temporal AO with bent normals**: ssao.glsl's TEMPORAL variant (ssao_temporal(_ms).frag, aoTemporalPipeline_)
+  writes RGBA16F: the occlusion, the distance and the bent normal (the unhidden samples' mean direction, view space
+  into world by the camera's right and up in push constants: the post push block now uses all six vec4s; a new
+  test checks every post shader's block fits). The kernel turns by the golden angle each frame; last frame's result
+  (aoLit_ ping-pong: frame i writes aoLit_[i], reads aoLit_[1 - i] through aoTemporalSets_[i]) is blended in at 80%
+  where the motion vectors find it and its distance is within 5% (the bent normals mixed and renormalized).
+  Without motion vectors the history holds only while the camera's matrix is unchanged (aoViewProj_): making them
+  for it cost the stress scene's prepass 232 to 681 ms on lavapipe. scene.frag reads it with one filtered tap (was
+  four) and puts the bent normal's turn (from the geometric normal) on the mapped one for the sky's and probes'
+  irradiance. Checked: the AO alone, its pixel-to-pixel noise 36% lower round the crates and 15% on the ground with
+  the history (the demo, camera still); the moving-camera Night Drive copy (no ghosting seen), TAA, MSAA, render
+  scale 0.7, the editor, under validation with sync checks; the stress scene's opaque pass 2281-2344 ms over three
+  runs (2157 in task 109's single run; the bent normal measured free). Not done: a history for split-screen views
+  and the composite's AO, the bent normal for the GI traces.
 

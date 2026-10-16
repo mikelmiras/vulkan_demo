@@ -20,7 +20,9 @@ void Renderer::createTraceImages() {
         tracedLight_[k] = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     }
     // (the traced pixels' distances, r, and contact shadows, g)
-    aoLit_ = createImage(VK_FORMAT_R8_UNORM, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
+    for (Image& a : aoLit_)   // (the occlusion, the distance, the bent normal: ssao.glsl's TEMPORAL)
+        a = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
+    aoHistory_ = false;
     if (samples_ != VK_SAMPLE_COUNT_1_BIT) {   // (MSAA: the prepass draws its outputs multisampled, resolved after)
         velocityMs_ = createImage(VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
                                   VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, samples_, 1);
@@ -48,7 +50,7 @@ void Renderer::writeTraceBindings() {
             {34, {postSampler_, tracedLight_[1 - i].view, readable}},
             {35, {nearestSampler_, tracedDepth_.view, readable}},
             {36, {nearestSampler_, velocity_.view, readable}},
-            {37, {postSampler_, aoLit_.view, readable}}};
+            {37, {postSampler_, aoLit_[i].view, readable}}};
         if (aoSupported_)
             images.push_back({29, {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL}});
         std::vector<VkWriteDescriptorSet> w(images.size(), {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET});
@@ -60,6 +62,21 @@ void Renderer::writeTraceBindings() {
             w[k].pImageInfo = &images[k].second;
         }
         vkUpdateDescriptorSets(device_, (uint32_t)w.size(), w.data(), 0, nullptr);
+        if (aoSupported_ && aoTemporalSets_[i]) {   // (AO before lighting: the depth, the motion, its history)
+            VkDescriptorImageInfo infos[3] = {{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
+                                              {nearestSampler_, velocity_.view, readable},
+                                              {postSampler_, aoLit_[1 - i].view, readable}};
+            VkWriteDescriptorSet t[3];
+            for (uint32_t k = 0; k < 3; ++k) {
+                t[k] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                t[k].dstSet = aoTemporalSets_[i];
+                t[k].dstBinding = k;
+                t[k].descriptorCount = 1;
+                t[k].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                t[k].pImageInfo = &infos[k];
+            }
+            vkUpdateDescriptorSets(device_, 3, t, 0, nullptr);
+        }
     }
 }
 
@@ -75,13 +92,14 @@ void Renderer::recordAoLit(VkCommandBuffer cb, const SceneRenderInfo& scene) {
     imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, depthStages, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
                  fragStage, VK_ACCESS_SHADER_READ_BIT);
-    mipBarrier(cb, aoLit_.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    const Image& out = aoLit_[frame_];   // (the other: last frame's, read)
+    mipBarrier(cb, out.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     const VkExtent2D half{std::max((extent_.width + 1) / 2, 1u), std::max((extent_.height + 1) / 2, 1u)};
     VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    att.imageView = aoLit_.view;
+    att.imageView = out.view;
     att.imageLayout = target;
-    att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;   // (outside the drawn area: none)
-    att.clearValue.color = {{1.f, 1.f, 1.f, 1.f}};
+    att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;   // (outside the drawn area: none, no distance, no bent normal)
+    att.clearValue.color = {{1.f, 0.f, 0.5f, 0.5f}};
     att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
     ri.renderArea = {{0, 0}, half};
@@ -93,19 +111,31 @@ void Renderer::recordAoLit(VkCommandBuffer cb, const SceneRenderInfo& scene) {
     VkRect2D sc{{0, 0}, half};
     vkCmdSetViewport(cb, 0, 1, &vp);
     vkCmdSetScissor(cb, 0, 1, &sc);
-    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, aoPipeline_);
-    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &aoSet_, 0, nullptr);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, aoTemporalPipeline_);
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, postLayout_, 0, 1, &aoTemporalSets_[frame_], 0, nullptr);
     const float vx = std::clamp(scene.viewportX, 0.f, (float)extent_.width), vy = std::clamp(scene.viewportY, 0.f, (float)extent_.height);
     const float vw = std::max(std::min(scene.viewportW, (float)extent_.width - vx), 1.f);
     const float vh = std::max(std::min(scene.viewportH, (float)extent_.height - vy), 1.f);
     const float tanY = std::tan(scene.fovY * 0.5f), tanX = tanY * (vw / vh);
+    // (the camera's axes: the bent normal into the world; the history only with motion vectors to find it by)
+    const Vec3 fwd = normalize(scene.camForward);
+    const Vec3 right = normalize(cross(fwd, std::fabs(fwd.y) > 0.999f ? Vec3{0, 0, 1} : Vec3{0, 1, 0})), up = cross(right, fwd);
+    // (without motion vectors, only while the camera holds still: last frame's then where this frame's is; with
+    // them, each point found where it was)
+    bool still = true;
+    for (int k = 0; k < 16; ++k) still = still && scene.viewProj.m[k] == aoViewProj_.m[k];
+    aoViewProj_ = scene.viewProj;
+    const bool history = aoHistory_ && (velocityOn_ || still);
     float push[24] = {tanX, tanY, scene.zNear, scene.zFar, scene.aoRadius, scene.aoStrength, vx, vy,
-                      vw, vh, 1.f, quality_ == Quality::High ? 12.f : 8.f};   // (scale 1: the drawn area as it is)
+                      vw, vh, 1.f, quality_ == Quality::High ? 12.f : 8.f,   // (scale 1: the drawn area as it is)
+                      (float)(frameCounter_ % 64), history ? 1.f : 0.f, velocityOn_ ? 0.f : 1.f, 0.f,
+                      right.x, right.y, right.z, 0.f, up.x, up.y, up.z, 0.f};
     vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), push);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);
-    mipBarrier(cb, aoLit_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+    mipBarrier(cb, out.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                VK_ACCESS_SHADER_READ_BIT);
+    aoHistory_ = true;
     imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, fragStage, 0, depthStages,
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);

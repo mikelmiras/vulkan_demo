@@ -78,7 +78,8 @@ vec2 gUV;   // the texture coordinates the material is read at (vUV, moved by pa
 // upsample: no bleeding across edges)
 layout(set = 0, binding = 31) uniform sampler2D tracedReflections;   // rgb, a = how much to trust it
 layout(set = 0, binding = 32) uniform sampler2D tracedLight;         // rgb = what the GI rays met, a = how much
-layout(set = 0, binding = 37) uniform sampler2D occlusionMap;       // ambient occlusion before lighting (half size)
+layout(set = 0, binding = 37) uniform sampler2D occlusionMap;       // ambient occlusion before lighting (half size): r =
+                                                                     // occlusion, g = distance (0: none), ba = bent normal
 layout(set = 0, binding = 35) uniform sampler2D tracedDepth;         // r = the traced pixel's distance along the view,
                                                                      // g = its contact shadow (1: lit), b = the lamp's
 bool halfTraced = false;
@@ -867,7 +868,24 @@ void main() {
 
     // Ambient: hemisphere light, diffuse plus a reflection of it (so metals aren't black in the shade)
     vec3 f0 = s.f0;
-    vec3 diffuseLight = irradiance(N);
+    // Ambient occlusion (before lighting: frame.occlusion.x, with its history) on the indirect light alone: nooks
+    // and contacts get less of the sky's, the probes' and the bounced light, never of the sun's or the lamps'; and
+    // its bent normal (where the open sky is) turns the sky's and the probes' light towards what's unhidden
+    float ambientOcclusion = 1.0;
+    vec3 ambientN = N;
+    if (frame.occlusion.x > 0.5) {
+        vec4 o = textureLod(occlusionMap, gl_FragCoord.xy * 0.5 / vec2(textureSize(occlusionMap, 0)), 0.0);
+        ambientOcclusion = o.r;
+        if (o.g > 0.0) {   // (the bent normal is the geometry's: its turn put on the mapped normal)
+            vec2 e = o.ba * 2.0 - 1.0;
+            vec3 b = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+            float t = clamp(-b.z, 0.0, 1.0);
+            b.xy += vec2(b.x >= 0.0 ? -t : t, b.y >= 0.0 ? -t : t);
+            vec3 turned = normalize(N + normalize(b) - surfaceN);
+            if (dot(turned, N) > 0.1) ambientN = turned;
+        }
+    }
+    vec3 diffuseLight = irradiance(ambientN);
     if (frame.prevCamForward.w > 0.0 && alphaMode != 2 && !water) {   // (light bounced off what's on screen nearby)
         bool fine = frame.shadowParams.z > 1.5;
         float spin = frame.shadowParams.y > 0.5 ? mod(frame.time.y, 64.0) * 5.588 : 0.0;
@@ -875,17 +893,7 @@ void main() {
         diffuseLight = mix(diffuseLight, g.rgb, g.a * frame.prevCamForward.w);
     }
     if (s.translucency > 0.0) diffuseLight += irradiance(-N) * (0.6 * s.translucency);   // (the sky behind, through it)
-    // Ambient occlusion (before lighting: frame.occlusion.x) on the indirect light alone: nooks and contacts get
-    // less of the sky's, the probes' and the bounced light, never of the sun's or the lamps'
-    float ambientOcclusion = 1.0;
-    if (frame.occlusion.x > 0.5) {
-        vec2 t = 1.0 / vec2(textureSize(occlusionMap, 0)), at = gl_FragCoord.xy * 0.5 * t;
-        ambientOcclusion = 0.25 * (textureLod(occlusionMap, at + vec2(-0.5, -0.5) * t, 0.0).r +
-                                   textureLod(occlusionMap, at + vec2(0.5, -0.5) * t, 0.0).r +
-                                   textureLod(occlusionMap, at + vec2(-0.5, 0.5) * t, 0.0).r +
-                                   textureLod(occlusionMap, at + vec2(0.5, 0.5) * t, 0.0).r);
-        diffuseLight *= ambientOcclusion;
-    }
+    diffuseLight *= ambientOcclusion;
     // Specular occlusion (Lagarde): where things are close all round (a crevice: the AO, or the GI rays' hits), the
     // reflection of the surroundings is mostly hidden too, more so for rougher surfaces and head-on views
     float specularOcclusion = 1.0;

@@ -894,9 +894,14 @@ private:
     void createTraceImages();
     void writeTraceBindings();
     void recordTrace(VkCommandBuffer cb, const SceneRenderInfo& scene);
-    // Ambient occlusion before lighting (renderer_trace.cpp): the main view's, after the prepass, into aoLit_ (set 0
-    // binding 37), which scene.frag puts on the indirect light alone; the composite then leaves it out
-    Image aoLit_;
+    // Ambient occlusion before lighting (renderer_trace.cpp): the main view's, after the prepass, into aoLit_[frame_]
+    // (frame i's set 0 binding 37: its own; the other is its history), which scene.frag puts on the indirect light
+    // alone, turned to its bent normal; the composite then leaves it out
+    Image aoLit_[2];
+    VkDescriptorSet aoTemporalSets_[2] = {};   // (frame i's: the depth, the motion, aoLit_[1 - i])
+    VkPipeline aoTemporalPipeline_ = VK_NULL_HANDLE;
+    bool aoHistory_ = false;         // last frame's aoLit_ is good (not just made)
+    Mat4 aoViewProj_;                // (the camera it was made from: without motion vectors, used only if it's still)
     bool aoLitOn_ = false;           // this frame's main view does it
     bool aoLitWanted_ = true;        // (VKWORLD_AO_LIT=0: over the finished picture, as before)
     void recordAoLit(VkCommandBuffer cb, const SceneRenderInfo& scene);

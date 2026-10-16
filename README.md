@@ -489,7 +489,11 @@ dropping on the right.
 - **Ambient occlusion**: corners, creases and the ground under things darken a little (screen-space, from the
   depth, at half resolution; strength and radius in the scene's look settings). It's worked out before lighting,
   after the depth prepass, and darkens the light that comes from all round (the sky's, the probes', the bounced
-  light) and the reflections in crevices, never the sun's or the lamps': a sunlit kerb isn't dirtied. Split-screen
+  light) and the reflections in crevices, never the sun's or the lamps': a sunlit kerb isn't dirtied. Its samples
+  turn every frame and it keeps a history (followed by the motion vectors when they're made: temporal AA, the
+  half-size traces, motion blur; otherwise kept while the camera holds still), so it settles smooth. It also finds
+  the **bent normal**, the open sky's mean direction, and the sky's and the probes' light comes from there: a wall's
+  foot next to a crate takes the light from above and away rather than from the crate. Split-screen
   views and `VKWORLD_AO_LIT=0` (or VKWORLD_PREPASS=0) darken the finished picture as before.
 - **Sky**: a gradient from the horizon (also the fog colour) to the zenith, the ground below, and the sun's disc
   and glow. It also lights the scene: ambient light and reflections come from it (blurrier on rougher surfaces).

@@ -361,7 +361,7 @@ void Renderer::destroyPostImages() {
     if (shafts_.image) destroyImage(shafts_);
     if (fx_.image) destroyImage(fx_);
     if (velocity_.image) destroyImage(velocity_);
-    for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_,
+    for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_[0], &aoLit_[1],
                        &velocityMs_, &gbufferMs_})
         if (img->image) destroyImage(*img);
     if (prevMip0_) vkDestroyImageView(device_, prevMip0_, nullptr);
