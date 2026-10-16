@@ -2012,7 +2012,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | # | Task | Why |
 |---|------|-----|
 | 119 (done) | Frame-level features out of the lit shader when unused: coloured shadows, glowing decals, water's refraction and the shafts' extras behind specialization constants chosen per frame (a small cache of specialized pipelines) | Each feature's lookups cost every pixel on lavapipe even when the frame has none of it (coloured shadows: about 5%) |
-| 120 | Screen-space reflections traced over the Hi-Z pyramid (hierarchical: long rays in few steps, exact hits), widening with roughness (a cone over the blurred levels) | Reflections march fixed steps: short, and they miss thin things; Night Drive's wet streets want the whole street mirrored |
+| 120 (done) | Screen-space reflections traced over the Hi-Z pyramid (hierarchical: long rays in few steps, exact hits), widening with roughness (a cone over the blurred levels) | Reflections march fixed steps: short, and they miss thin things; Night Drive's wet streets want the whole street mirrored |
 | 121 | Coloured shadows from spot and point lights too (tint tiles in the atlas), and in the volumetric fog | Only the sun's shadows are tinted; a lamp behind stained glass casts grey |
 | 122 | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
 | 123 | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
@@ -2034,4 +2034,21 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   picture (only the frame-time text differs), MSAA; Night Drive, the editor, under validation with sync checks.
   Not done: other constants per frame (none measured worth it yet), the variants' compile spread off the frame
   that first needs them.
+- **120, reflections over a near pyramid**: the culling's Hi-Z keeps the farthest depth (what hides) of this frame's
+  depth; tracing wants the nearest of last frame's picture (what can be hit). near_z.comp builds it after the
+  picture's captured (recordNear: three levels, the nearest of the picture's alpha per 2 x 2, 4 x 4, 8 x 8; R32F,
+  GENERAL, set 0 binding 39; ensureNear remakes it with the picture, its pipeline and sampler the culling's).
+  traceReflection (screen_trace.glsl): at each sample, where the ray leaves its 8 x 8 tile on screen; if the ray's
+  deepest point in the tile (where it leaves, going away) is in front of the tile's nearest by 0.1 m, it jumps to
+  that edge or one growing step (x 1.12 a sample, as before), whichever's further; otherwise steps a couple of
+  pixels (no more than the growing step); the hit's thickness test by the last step's length. 120 m, 56 samples
+  at high (36 medium). Two wrong turns on the way: tile by tile alone ran out of samples on long rays (a 660-pixel
+  ray is 80 tiles), and testing the ray's depth where it entered the tile let it pass behind things in the tile's
+  far part (stripes). Checked against the old trace's shader on the same build (it ignores binding 39): a mirror
+  slab under the demo's pillars, the long reflection up to the centre pillar's cube kept, the distant pillars,
+  cubes and rings now mirrored, no stripes; MSAA, render scale 0.7; Night Drive (the half-size traces 98 ms a
+  frame on lavapipe, as before), the editor, under validation with sync checks. (Task 117's temporal AA pass
+  measured 118 ms in the same run, against about 70 before it: the dilation's nine depth reads, variance and the
+  sharpening pass; worth a look.) Not done: more pyramid levels (16, 32 px tiles for longer jumps), the GI rays
+  over it, roughness widening the ray into a cone over the pyramid.
 

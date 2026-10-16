@@ -735,7 +735,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[39] = {
+    VkDescriptorSetLayoutBinding frameBindings[40] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -777,9 +777,10 @@ void Renderer::createPipelines() {
         {36, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {37, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // AO before lighting
         {38, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the sun's shadow tint
+        {39, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // reflections' near pyramid
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 39;
+    dslci.bindingCount = 40;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
@@ -1199,7 +1200,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (26 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (27 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1342,6 +1343,7 @@ void Renderer::createResources(const MeshLibrary&) {
     }
 
     createCulling();
+    ensureNear();   // (the reflections' near pyramid: its pipeline and sampler are the culling's)
     createLightBuffers();
     createDecalBuffers();
     createGpuParticles();
@@ -2208,6 +2210,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     updateCookies(info);
     updateProbes(info);
     if (occlusion_ && gpuCulling_) ensureHiz(scene);   // (sized to the viewport the scene is drawn in)
+    ensureNear();   // (sized to the picture: remade after a resize)
 
     {
         PROFILE_SCOPE("Wait for the GPU");

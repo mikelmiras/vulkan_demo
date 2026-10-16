@@ -255,6 +255,7 @@ void Renderer::createHiz() {
     hizDepthPipeline_ = pipeline("hiz_depth.comp.spv");
     hizDepthMsPipeline_ = pipeline("hiz_depth_ms.comp.spv");
     hizReducePipeline_ = pipeline("hiz_reduce.comp.spv");
+    nearPipeline_ = pipeline("near_z.comp.spv");   // (the reflections' pyramid: the same layout)
     VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 16}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -280,7 +281,13 @@ void Renderer::destroyHiz() {
     hizLevels_.clear();
     if (hiz_.image) destroyImage(hiz_);
     vkDestroyDescriptorPool(device_, hizPool_, nullptr);
-    for (VkPipeline p : {hizDepthPipeline_, hizDepthMsPipeline_, hizReducePipeline_}) vkDestroyPipeline(device_, p, nullptr);
+    for (VkPipeline p : {hizDepthPipeline_, hizDepthMsPipeline_, hizReducePipeline_, nearPipeline_}) vkDestroyPipeline(device_, p, nullptr);
+    for (VkImageView v : nearLevels_) vkDestroyImageView(device_, v, nullptr);
+    nearLevels_.clear();
+    if (near_.image) destroyImage(near_);
+    if (nearPool_) vkDestroyDescriptorPool(device_, nearPool_, nullptr);
+    nearPool_ = VK_NULL_HANDLE;
+    nearSize_ = {0, 0};
     vkDestroyPipelineLayout(device_, hizLayout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, hizSetLayout_, nullptr);
     vkDestroySampler(device_, hizSampler_, nullptr);
@@ -364,6 +371,128 @@ void Renderer::ensureHiz(const SceneRenderInfo& info) {
         if (cullSets_[f]) writeCullSet();
     }
     frame_ = (uint32_t)keep;
+}
+
+void Renderer::ensureNear() {
+    if (!nearPipeline_ || !prevColor_.image || !prevMip0_) return;
+    const VkExtent2D size{std::max((extent_.width + 1) / 2, 1u), std::max((extent_.height + 1) / 2, 1u)};
+    if (near_.image && size.width == nearSize_.width && size.height == nearSize_.height && nearSource_ == prevMip0_) return;
+    if (near_.image) vkDeviceWaitIdle(device_);   // (frames in flight read it: a resize)
+    for (VkImageView v : nearLevels_) vkDestroyImageView(device_, v, nullptr);
+    nearLevels_.clear();
+    if (near_.image) destroyImage(near_);
+    if (!nearPool_) {
+        VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3}};
+        VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        dpci.maxSets = 3;
+        dpci.poolSizeCount = 2;
+        dpci.pPoolSizes = sizes;
+        VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &nearPool_));
+        std::vector<VkDescriptorSetLayout> layouts(3, hizSetLayout_);
+        VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        dsai.descriptorPool = nearPool_;
+        dsai.descriptorSetCount = 3;
+        dsai.pSetLayouts = layouts.data();
+        VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, nearSets_));
+    }
+    nearSize_ = size;
+    nearSource_ = prevMip0_;   // (remade with the picture: an anti-aliasing change keeps its size, not its views)
+    near_ = createImage(VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                        VK_IMAGE_ASPECT_COLOR_BIT, size.width, size.height, VK_SAMPLE_COUNT_1_BIT, 3);
+    for (uint32_t m = 0; m < 3; ++m) {
+        VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vci.image = near_.image;
+        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format = VK_FORMAT_R32_SFLOAT;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, m, 1, 0, 1};
+        VkImageView v;
+        VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &v));
+        nearLevels_.push_back(v);
+    }
+    // Level k's set: the picture's first level (its alpha) or level k - 1 to read, level k to write
+    for (uint32_t m = 0; m < 3; ++m) {
+        VkDescriptorImageInfo src{hizSampler_, m == 0 ? prevMip0_ : nearLevels_[m - 1],
+                                  m == 0 ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL};
+        VkDescriptorImageInfo dst{VK_NULL_HANDLE, nearLevels_[m], VK_IMAGE_LAYOUT_GENERAL};
+        VkWriteDescriptorSet wr[2] = {{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}, {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}};
+        wr[0].dstSet = wr[1].dstSet = nearSets_[m];
+        wr[0].dstBinding = 0;
+        wr[0].descriptorCount = 1;
+        wr[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        wr[0].pImageInfo = &src;
+        wr[1].dstBinding = 1;
+        wr[1].descriptorCount = 1;
+        wr[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        wr[1].pImageInfo = &dst;
+        vkUpdateDescriptorSets(device_, 2, wr, 0, nullptr);
+    }
+    // GENERAL from the start, all 0 (everything near: the trace steps finely until a picture's been captured)
+    VkCommandBuffer cb = beginOneTimeCommands();
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = near_.image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 3, 0, 1};
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
+    VkClearColorValue zero{{0.f, 0.f, 0.f, 0.f}};
+    vkCmdClearColorImage(cb, near_.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &b.subresourceRange);
+    b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    b.oldLayout = b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         0, 0, nullptr, 0, nullptr, 1, &b);
+    endOneTimeCommands(cb);
+    // Every frame's set: binding 39 (all three levels, sampled by level)
+    VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vci.image = near_.image;
+    vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vci.format = VK_FORMAT_R32_SFLOAT;
+    vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 3, 0, 1};
+    if (near_.view) vkDestroyImageView(device_, near_.view, nullptr);
+    VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &near_.view));
+    for (VkDescriptorSet set : descSets_) {
+        if (!set) continue;
+        VkDescriptorImageInfo info{hizSampler_, near_.view, VK_IMAGE_LAYOUT_GENERAL};
+        VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        w.dstSet = set;
+        w.dstBinding = 39;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w.pImageInfo = &info;
+        vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
+    }
+}
+
+// After last frame's picture is captured (readable): its near pyramid, for this frame's reflections next
+void Renderer::recordNear(VkCommandBuffer cb) {
+    if (!near_.image) return;
+    auto barrier = [&](VkPipelineStageFlags src, VkAccessFlags srcAccess, VkPipelineStageFlags dst, VkAccessFlags dstAccess) {
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.srcAccessMask = srcAccess;
+        b.dstAccessMask = dstAccess;
+        b.oldLayout = b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = near_.image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 3, 0, 1};
+        vkCmdPipelineBarrier(cb, src, dst, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+    barrier(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_ACCESS_SHADER_WRITE_BIT);   // (this frame's traces read it)
+    struct Push {
+        int32_t a[4], b[4];
+    } p{};
+    for (uint32_t m = 0; m < 3; ++m) {
+        uint32_t w = std::max(nearSize_.width >> m, 1u), h = std::max(nearSize_.height >> m, 1u);
+        p = {{m == 0 ? 1 : 0, 0, (int32_t)w, (int32_t)h}, {}};
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, nearPipeline_);
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, hizLayout_, 0, 1, &nearSets_[m], 0, nullptr);
+        vkCmdPushConstants(cb, hizLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(p), &p);
+        vkCmdDispatch(cb, (w + 7) / 8, (h + 7) / 8, 1);
+        barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                m < 2 ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    }
 }
 
 // After the main pass (its depth readable): the pyramid, for the next frame's culling

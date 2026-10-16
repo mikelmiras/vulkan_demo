@@ -893,6 +893,17 @@ private:
     float sharpenOverride_ = -1.f;   // (VKWORLD_SHARPEN=0..1; otherwise 0.3 after temporal AA, 0.5 upscaling)
     void recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene);
     void createTintedLit();
+    // The reflections' near pyramid (near_z.comp; set 0 binding 39): the nearest distance of last frame's picture
+    // per 2 x 2, 4 x 4 and 8 x 8, built after the picture's captured; GENERAL throughout
+    Image near_;
+    std::vector<VkImageView> nearLevels_;
+    VkDescriptorSet nearSets_[3] = {};
+    VkDescriptorPool nearPool_ = VK_NULL_HANDLE;
+    VkPipeline nearPipeline_ = VK_NULL_HANDLE;
+    VkExtent2D nearSize_{0, 0};
+    VkImageView nearSource_ = VK_NULL_HANDLE;
+    void ensureNear();   // (made for the picture's size; the frames' sets pointed at it: waits for the GPU if remade)
+    void recordNear(VkCommandBuffer cb);
     VkPipeline fxTilesPipeline_ = VK_NULL_HANDLE;    // (its near field's tiles: fxTiles_)
     VkPipeline shaftsPipeline_ = VK_NULL_HANDLE;   // light shafts (shafts.glsl): half size, over the depth (aoSet_)
     // Screen-space reflections: this frame's picture and distances captured after the post passes (prevColor_, set

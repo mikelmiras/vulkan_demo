@@ -698,10 +698,11 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                            transfer, VK_ACCESS_TRANSFER_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
             }
             mipBarrier(cb, prevColor_.image, 0, prevMips_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readable, transfer,
-                       VK_ACCESS_TRANSFER_READ_BIT, fragStage, VK_ACCESS_SHADER_READ_BIT);
+                       VK_ACCESS_TRANSFER_READ_BIT, fragStage | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         } else {
-            mipBarrier(cb, prevColor_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
-                       VK_ACCESS_SHADER_READ_BIT);
+            mipBarrier(cb, prevColor_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                       fragStage | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         }
+        recordNear(cb);   // (its near pyramid: the reflections' skipping)
     }
 }

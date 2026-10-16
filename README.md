@@ -528,7 +528,9 @@ dropping on the right.
   Limits: light can leak through thin walls (no visibility test per probe); probes inside walls see darkness.
 - **Screen-space reflections** (Scene look > Screen-space reflections; off by default): surfaces up to roughness
   0.8 reflect what's on screen: each pixel's reflected ray is marched through the last frame's picture and
-  distances, and what it meets is blended over the probe or sky reflection, fading at the picture's edges and
+  distances (up to 120 m: where nothing in the ray's 8 x 8 tile of the picture is as near as the ray, it jumps
+  across, taken from a pyramid of the picture's nearest distances; near things, it steps a couple of pixels at a
+  time, so thin ones aren't stepped over), and what it meets is blended over the probe or sky reflection, fading at the picture's edges and
   handing over to the probes as the surface gets rougher. The picture is mipped: a rough surface reads it as
   blurred as its reflection spreads over the distance to what it meets. What's off screen or hidden falls back to
   the probes and the sky.

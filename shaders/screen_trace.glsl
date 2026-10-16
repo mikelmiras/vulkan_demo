@@ -12,7 +12,10 @@ float pictureLevel(float width, float dist) {
 
 // Screen-space reflection from `pos` along r: marches through the last frame's picture (each point placed with its
 // camera) until it passes just behind what was drawn there; rgb = what it hit (as blurred as a surface this rough
-// spreads it over the distance), a = how much to trust it (0: nothing)
+// spreads it over the distance), a = how much to trust it (0: nothing). Hierarchical: where nothing in the ray's
+// 8 x 8 tile of the picture is as near as the ray (the near pyramid, binding 39), it jumps to where the ray leaves
+// the tile on screen; elsewhere it steps a couple of pixels at a time. Long rays (to 120 m) in few samples.
+layout(set = 0, binding = 39) uniform sampler2D lastFrameNear;   // (the nearest distance per 2 x 2, 4 x 4, 8 x 8)
 vec4 traceReflection(vec3 pos, vec3 r, float rough, vec2 pixel) {
     vec2 size = vec2(textureSize(lastFrame, 0));
     vec3 start = pos + r * 0.05;
@@ -21,22 +24,42 @@ vec4 traceReflection(vec3 pos, vec3 r, float rough, vec2 pixel) {
     vec4 clip0 = frame.prevViewProj * vec4(start, 1.0), clipDir = frame.prevViewProj * vec4(r, 0.0);
     float z0 = dot(start - frame.prevCamPos.xyz, frame.prevCamForward.xyz), zDir = dot(r, frame.prevCamForward.xyz);
     vec2 scale = frame.prevViewport.zw * 0.5 / size, offset = (frame.prevViewport.xy + frame.prevViewport.zw * 0.5) / size;
-    float t = 0.1, step = 0.12, last = 0.0;
-    const float maxDistance = 40.0;
-    // (medium quality: fewer, longer steps over the same distance, fewer to refine the hit)
+    const float maxDistance = 120.0, kTile = 8.0;
+    // (medium quality: fewer samples, longer steps where it steps, less refining)
     bool fine = frame.shadowParams.z > 1.5;
-    int steps = fine ? 40 : 24, refine = fine ? 5 : 3;
-    float grow = fine ? 1.12 : 1.21;
-    for (int i = 0; i < steps && t < maxDistance; ++i) {
+    int samples = fine ? 56 : 36, refine = fine ? 5 : 3;
+    float stepPixels = fine ? 2.0 : 3.5, grow = fine ? 1.12 : 1.21;
+    float t = 0.1, last = 0.0, step = 0.12;
+    for (int i = 0; i < samples && t < maxDistance; ++i) {
         vec4 clip = clip0 + clipDir * t;
         if (clip.w <= 1e-4) break;
         vec2 ndc = clip.xy / clip.w;
         if (abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0) break;   // (off the picture)
         vec2 uv = ndc * scale + offset;
-        float sceneZ = textureLod(lastFrame, uv, 0.0).a;
         float rayZ = z0 + zDir * t;
+        // (how fast the ray crosses the picture here: pixels per metre along it)
+        vec4 ahead = clip0 + clipDir * (t + 0.25);
+        vec2 screenDir = ahead.w > 1e-4 ? ((ahead.xy / ahead.w) * scale + offset - uv) * size / 0.25 : vec2(0.0);
+        float speed = max(length(screenDir), 1e-3);
+        // Where the ray leaves this 8 x 8 tile on screen; if nothing in the tile is as near as the ray anywhere in it
+        // (its farthest there: where it leaves, going away; or here, coming nearer), straight to that edge
+        vec2 at = uv * size, inTile = mod(at, kTile);
+        vec2 toEdge = vec2(screenDir.x > 0.0 ? kTile - inTile.x : inTile.x, screenDir.y > 0.0 ? kTile - inTile.y : inTile.y);
+        vec2 times = toEdge / max(abs(screenDir), vec2(1e-3));
+        float exitT = min(times.x, times.y) + 0.5 / speed;
+        float deepest = max(rayZ, z0 + zDir * (t + exitT));
+        // (the step grows along the ray, as before: long rays in few samples)
+        step *= grow;
+        if (deepest < textureLod(lastFrameNear, uv, 2.0).r - 0.1) {   // (clear: the tile's edge or a step, the further)
+            last = t;
+            t += max(exitT, step);
+            continue;
+        }
+        // Something in this tile as near: finer, a couple of pixels at a time (thin things aren't stepped over)
+        float fineStep = min(step, max(stepPixels / speed, 0.04));
+        float sceneZ = textureLod(lastFrame, uv, 0.0).a;
         // (behind it by less than a step, or a little more: thin things aren't missed between two samples)
-        if (rayZ > sceneZ && rayZ < sceneZ + max(0.25 + t * 0.04, step * 1.5)) {
+        if (rayZ > sceneZ && rayZ < sceneZ + max(0.25 + t * 0.04, (t - last) * 1.5)) {
             float lo = last, hi = t;   // (the crossing, closer)
             for (int k = 0; k < refine; ++k) {
                 float mid = 0.5 * (lo + hi);
@@ -53,8 +76,7 @@ vec4 traceReflection(vec3 pos, vec3 r, float rough, vec2 pixel) {
             return vec4(min(seen, vec3(64.0)), edge.x * edge.y * (1.0 - t / maxDistance));
         }
         last = t;
-        t += step;
-        step *= grow;
+        t += fineStep;
     }
     return vec4(0.0);
 }

@@ -1,0 +1,25 @@
+#version 450
+// The reflections' pyramid (renderer_post.cpp, after last frame's picture is captured): each level keeps the
+// nearest distance of the 2 x 2 texels under it, from the picture's alpha (its distances) at half size, then from
+// the level before; screen_trace.glsl's reflections skip tiles where nothing is as near as the ray.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D dst;
+layout(push_constant) uniform Push {
+    ivec4 a;   // zw: this level's size; x = 1: from the picture (its alpha)
+    ivec4 b;
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= pc.a.z || p.y >= pc.a.w) return;
+    ivec2 size = textureSize(src, 0), q = p * 2;
+    float d = 1e30;
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x) {
+            vec4 t = texelFetch(src, min(q + ivec2(x, y), size - 1), 0);
+            d = min(d, pc.a.x == 1 ? t.a : t.r);
+        }
+    imageStore(dst, p, vec4(d));
+}
