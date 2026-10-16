@@ -864,6 +864,8 @@ private:
     // (tracedDepth_, 35) for scene.frag's upsample; set 0 binding 29 the depth, 30 the surface, 36 the motion
     Image gbuffer_, traced_[2], tracedLight_[2], tracedDepth_;
     VkPipeline ssrTracePipeline_ = VK_NULL_HANDLE, giTracePipeline_ = VK_NULL_HANDLE;
+    VkPipeline ssrTraceMsPipeline_ = VK_NULL_HANDLE, giTraceMsPipeline_ = VK_NULL_HANDLE;
+    Image velocityMs_, gbufferMs_;   // (with MSAA: the prepass's outputs, multisampled, resolved into velocity_, gbuffer_)
     bool traceOn_ = false;           // this frame's main view traces at half size
     bool traceHistory_ = false;      // last frame did (its results are this frame's history)
     uint32_t traceIndex_ = 0;

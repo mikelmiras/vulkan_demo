@@ -92,6 +92,7 @@ struct FrameUBO {
     // Reflections and GI traced at half size (renderer_trace.cpp)
     Mat4 invViewProj;         // this frame's clip space (jittered) back to the world
     float occlusion[4];       // x = 1: ambient occlusion before lighting (binding 37: scene.frag's indirect light)
+    float drawnViewport[4];   // the scene's rectangle as drawn (pixels: smaller with a render scale): the traces'
     float trace[4];           // x = 1: traced this frame, y = 1: their history is good, z = the 2 x 2 block's pixel,
                               // w = 1: contact shadows (in tracedDepth_'s g)
 };

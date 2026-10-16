@@ -75,6 +75,18 @@ add_custom_command(
           ${CMAKE_SOURCE_DIR}/shaders/screen_trace.glsl ${CMAKE_SOURCE_DIR}/shaders/water.glsl
   COMMENT "Compiling scene_early.frag")
 list(APPEND SPIRV_OUTPUTS ${out})
+# The half-size traces over a multisampled depth (MSAA: its first sample)
+foreach(trace ssr_trace gi_trace)
+  set(out ${CMAKE_BINARY_DIR}/shaders/${trace}_ms.frag.spv)
+  add_custom_command(
+    OUTPUT ${out}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+    COMMAND ${GLSLC} -DMS ${CMAKE_SOURCE_DIR}/shaders/${trace}.frag -o ${out}
+    DEPENDS ${CMAKE_SOURCE_DIR}/shaders/${trace}.frag ${CMAKE_SOURCE_DIR}/shaders/common.glsl
+            ${CMAKE_SOURCE_DIR}/shaders/screen_trace.glsl ${CMAKE_SOURCE_DIR}/shaders/trace_common.glsl
+    COMMENT "Compiling ${trace}_ms.frag")
+  list(APPEND SPIRV_OUTPUTS ${out})
+endforeach()
 # The depth prepass writing motion vectors too (temporal AA)
 set(out ${CMAKE_BINARY_DIR}/shaders/depth_prepass_velocity.frag.spv)
 add_custom_command(
@@ -453,6 +465,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_render_scale.cpp
     tests/test_atmosphere.cpp
     tests/test_surfaces.cpp
+    tests/test_frame_layout.cpp
     tests/test_gpu_benchmark.cpp
     tests/test_gamepads.cpp
     tests/test_text_shaping.cpp

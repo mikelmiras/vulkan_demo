@@ -505,16 +505,17 @@ dropping on the right.
   and an emissive sign lights its surroundings. Each pixel marches one or two short rays (up to 4 m) over its
   hemisphere through the last frame's picture; what they meet (blurred) lights it, and where they meet nothing the
   probes' and the sky's light does. The picture holds last frame's bounces, so light keeps bouncing frame after
-  frame. Without MSAA (temporal AA or none) reflections and GI are traced at **half size** before the lit pass: the
-  depth prepass also writes each pixel's normal and roughness, each half-size pixel traces one of its four pixels
+  frame. Reflections and GI are traced at **half size** before the lit pass (with MSAA and under a render scale
+  too): the depth prepass also writes each pixel's normal and roughness, each half-size pixel traces one of its four pixels
   (a different one each frame, more GI rays than per pixel) and keeps a history of the others (followed by the
   motion vectors, dropped where the depth changed), and the lit pass brings them up to full size with a depth-aware
-  filter. With MSAA, a render scale under 1, and on see-through surfaces and water they're traced per pixel in
-  the lit pass (the rays turning every frame with temporal AA; a fine, steady dither with MSAA). Off at low quality.
+  filter. With MSAA the prepass draws them multisampled and averages them, and the traces read the depth's first
+  sample; under a render scale they cover the drawn area alone. On see-through surfaces and water they're traced
+  per pixel in the lit pass (the rays turning every frame). Off at low quality.
   Where GI is traced at half size, its rays also give **specular occlusion**: in a crevice, where they find things
   close all round, the surroundings' reflection is hidden too (more for rough surfaces).
 - **Contact shadows** (Scene look > Contact shadows): a short ray towards the sun through the view's depth for
-  each pixel (with the half-size traces: no MSAA, full render scale), catching the contact the shadow maps are too
+  each pixel (with the half-size traces), catching the contact the shadow maps are too
   coarse for: a tyre on the road, a box against a wall, the gaps between stacked crates. Its reach grows with
   distance (the same few pixels); about 3% of Night Drive's frame on lavapipe.
 - **HDR output** (View > HDR output, `VKWORLD_HDR=1`, or a game's `settings.hdr`): on a display (and driver) that

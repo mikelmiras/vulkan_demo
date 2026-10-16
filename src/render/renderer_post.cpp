@@ -332,7 +332,8 @@ void Renderer::writeSsrBinding() {
 void Renderer::destroyPostImages() {
     if (refraction_.image) destroyImage(refraction_);
     if (velocity_.image) destroyImage(velocity_);
-    for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_})
+    for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_,
+                       &velocityMs_, &gbufferMs_})
         if (img->image) destroyImage(*img);
     if (prevMip0_) vkDestroyImageView(device_, prevMip0_, nullptr);
     prevMip0_ = VK_NULL_HANDLE;

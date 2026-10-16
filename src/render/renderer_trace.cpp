@@ -21,6 +21,12 @@ void Renderer::createTraceImages() {
     }
     // (the traced pixels' distances, r, and contact shadows, g)
     aoLit_ = createImage(VK_FORMAT_R8_UNORM, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
+    if (samples_ != VK_SAMPLE_COUNT_1_BIT) {   // (MSAA: the prepass draws its outputs multisampled, resolved after)
+        velocityMs_ = createImage(VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+                                  VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, samples_, 1);
+        gbufferMs_ = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+                                 VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, samples_, 1);
+    }
     tracedDepth_ = createImage(VK_FORMAT_R32G32_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     traceHistory_ = false;
     writeTraceBindings();
@@ -150,8 +156,9 @@ void Renderer::recordTrace(VkCommandBuffer cb, const SceneRenderInfo& scene) {
             mipBarrier(cb, img->image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                        VK_ACCESS_SHADER_READ_BIT);
     };
-    pass(ssrTracePipeline_, {&traced_[frame_], &tracedDepth_});
-    if (ssgiOn(scene)) pass(giTracePipeline_, {&tracedLight_[frame_]});
+    const bool ms = samples_ != VK_SAMPLE_COUNT_1_BIT;   // (the depth multisampled: its first sample)
+    pass(ms ? ssrTraceMsPipeline_ : ssrTracePipeline_, {&traced_[frame_], &tracedDepth_});
+    if (ssgiOn(scene)) pass(ms ? giTraceMsPipeline_ : giTracePipeline_, {&tracedLight_[frame_]});
     imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, fragStage, 0, depthStages,
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);

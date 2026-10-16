@@ -820,6 +820,9 @@ void Renderer::createPipelines() {
     ssrTracePipeline_ = createPostPipeline("ssr_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_,
                                            VK_FORMAT_R32G32_SFLOAT);
     giTracePipeline_ = createPostPipeline("gi_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
+    ssrTraceMsPipeline_ = createPostPipeline("ssr_trace_ms.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_,
+                                             VK_FORMAT_R32G32_SFLOAT);   // (MSAA: over its depth's first sample)
+    giTraceMsPipeline_ = createPostPipeline("gi_trace_ms.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
     adaptPipeline_ = createPostPipeline("adapt.frag.spv", VK_FORMAT_R32_SFLOAT, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
@@ -848,7 +851,7 @@ void Renderer::createSampledPipelines() {
     depth.vertShader = "foliage.vert.spv";
     depth.cull = VK_CULL_MODE_NONE;
     prepassFoliagePipeline_ = createPipeline(depth);
-    if (samples_ == VK_SAMPLE_COUNT_1_BIT) {   // (with temporal AA: the motion vectors too)
+    {   // (without MSAA or with: the motion vectors and the surface too)
         depth.fragShader = "depth_prepass_velocity.frag.spv";
         depth.noColor = false;
         depth.colorWrite = true;
@@ -1787,6 +1790,19 @@ void Renderer::recordPrepass(VkCommandBuffer cb, const SceneRenderInfo& info, co
         outputs[1] = velocity;
         outputs[1].imageView = gbuffer_.view;
         outputs[1].clearValue.color = {{0.f, 0.f, 0.f, 0.f}};   // (w = 0: nothing drawn)
+        if (velocityMs_.image) {   // (MSAA: drawn multisampled, averaged into the plain images at the end)
+            for (VkImage image : {velocityMs_.image, gbufferMs_.image})
+                mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, colorStage,
+                           VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);   // (after last frame's)
+            const Image* ms[2] = {&velocityMs_, &gbufferMs_};
+            for (int k = 0; k < 2; ++k) {
+                outputs[k].resolveImageView = outputs[k].imageView;
+                outputs[k].resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                outputs[k].resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                outputs[k].imageView = ms[k]->view;
+                outputs[k].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            }
+        }
         ri.colorAttachmentCount = 2;
         ri.pColorAttachments = outputs;
     }
@@ -1921,8 +1937,7 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         // (half-size traces: no MSAA, the prepass, a depth to read, last frame's picture, full size)
         // (and contact shadows, which need only this frame's depth)
         const bool contact = info.contactShadows && quality_ != Quality::Low;
-        const bool traceWanted = ((captureOn(info) && ssrValid_) || contact) && aoSupported_ && ssrTracePipeline_ &&
-                                 scaleNow_ >= 0.999f;
+        const bool traceWanted = ((captureOn(info) && ssrValid_) || contact) && aoSupported_ && ssrTracePipeline_;
         velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted) && prepass_ && info.items && prepassVelocityPipeline_ &&
                       velocity_.image;
         traceOn_ = traceWanted && velocityOn_;
@@ -1930,6 +1945,8 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         aoLitOn_ = prepass_ && info.items && aoSupported_ && aoPipeline_ && info.aoStrength > 0.f && quality_ != Quality::Low &&
                    aoLit_.image && aoLitWanted_;
         u.occlusion[0] = aoLitOn_ ? 1.f : 0.f;
+        u.drawnViewport[0] = info.viewportX, u.drawnViewport[1] = info.viewportY;   // (the scaled info: as drawn)
+        u.drawnViewport[2] = std::max(info.viewportW, 1.f), u.drawnViewport[3] = std::max(info.viewportH, 1.f);
         u.trace[0] = traceOn_ ? 1.f : 0.f;
         u.trace[1] = traceOn_ && traceHistory_ ? 1.f : 0.f;
         u.trace[2] = (float)(traceIndex_++ % 4);
@@ -2214,7 +2231,8 @@ void Renderer::shutdown() {
     destroySampledPipelines();
     for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
                          compositeViewPipeline_,
-                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_})
+                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_,
+                         ssrTraceMsPipeline_, giTraceMsPipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, taaLayout_, nullptr);
     destroyPostImages();

@@ -1721,7 +1721,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 |---|------|-----|
 | 99 (done) | Ambient occlusion before lighting: computed after the depth prepass (with a history, at half size) and applied to the ambient, probe and GI light only (and to reflections as specular occlusion), not multiplied over the finished picture | The composite darkens everything AO finds, sunlit and lamp-lit surfaces too: contact areas in direct light look dirty, and specular occlusion needs screen-space GI |
 | 100 (done) | See-through GPU particles: sorted back to front on the GPU (bitonic), so smoke, steam and dust can move to the GPU; Night Drive's steam on it | Round 9's GPU particles are additive only |
-| 101 | The half-size traces with MSAA and under a render scale: the prepass's surface from sample 0 of a multisampled G-buffer, the traces mapped to the drawn area | With MSAA or a render scale under 1, reflections and GI fall back to per-pixel tracing, contact shadows to none |
+| 101 (done) | The half-size traces with MSAA and under a render scale: the prepass's surface from sample 0 of a multisampled G-buffer, the traces mapped to the drawn area | With MSAA or a render scale under 1, reflections and GI fall back to per-pixel tracing, contact shadows to none |
 | 102 | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
 | 103 | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
 | 104 | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
@@ -1750,4 +1750,14 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   Sorting every slot (rain's too) cost 11 ms a frame on lavapipe; only the see-through ones', 2.9 ms (the pass with
   rain and steam). Checked: Night Drive under validation with sync checks. Not done: the CPU's and the GPU's
   see-through particles sorted together, sorting by tiles (one big sort a frame).
+- **101, traces with MSAA and a render scale**: with MSAA the prepass draws its velocity and surface (normal,
+  roughness) into multisampled transient images (velocityMs_, gbufferMs_) resolved by averaging into the plain ones;
+  ssr_trace / gi_trace are also built with -DMS (the depth a sampler2DMS, its first sample) and picked when samples_
+  > 1. The frame's drawnViewport (the scaled rectangle) maps the traces' points, contact shadows' depth texels and
+  the history's motion to the drawn area, and the history checks last frame's picture through prevViewProj /
+  prevViewport, which also fixed traces in the editor's viewport (offset from the window's corner). The scaleNow_
+  check that turned them off went. New test: FrameUBO against common.glsl's Frame block (names, order, sizes),
+  read from both files. Checked: MSAA, TAA, render scale 0.7, the editor, Night Drive with MSAA, under validation
+  with sync checks (the multisampled images' transition waits on last frame's writes). Not done: a resolve that
+  keeps an edge's nearest sample instead of the average (normals averaged across an edge).
 
