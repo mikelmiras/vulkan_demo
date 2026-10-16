@@ -1711,7 +1711,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   baselines (from those machines: `--write`), a camera path of the scene's own, render scale chosen along with the
   quality.
 
-## Round 10 (planned)
+## Round 10 (done)
 
 Visuals and performance again (the standing request), from round 9's notes: ambient occlusion where it belongs
 (on indirect light, not the whole picture), the shortcuts left in the screen-space effects and GPU particles,
@@ -1850,4 +1850,26 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   scene 3412 against 2788 (within the check's 1.5x; its opaque pass grew: worth a look, see round 11). Checked: a
   camera following a traffic car (its tail lamps and spray), Night Drive under validation with sync checks. Not
   done: traffic lights, cars yielding at crossroads (they only stop for what's ahead), pedestrians.
+
+## Round 11 (planned)
+
+Visuals and performance (the standing request), from round 10's notes: the lit pass's cost back down, the
+screen-space effects' shortcuts (AO without a history, depth of field's near field, shafts only from the sun),
+light coloured by what it passes through, probes without stalls, sharper temporal AA; Night Drive's streets get
+traffic lights.
+
+| # | Task | Why |
+|---|------|-----|
+| 109 | The lit pass's cost: each feature's share of scene.frag measured (the GPU benchmark, features on and off), the rarely used ones (translucency, subsurface, glowing decals, layers) behind specialization constants or per-material variants so the common path stays lean | The stress scene's opaque pass grew about 20% over round 10 (3412 ms against 2788 on lavapipe) |
+| 110 | Temporal ambient occlusion: a history (reprojected with the motion vectors, dropped where the depth changed), more samples over time, bent normals for the indirect light's direction | AO before lighting is a fresh half-size estimate each frame: noisy at medium quality, and the ambient's direction ignores what's hidden |
+| 111 | Depth of field's near field and the sky's motion: a pre-pass of each tile's largest near circle so a blurred foreground spreads over a sharp background; the camera's own motion for the sky in motion blur | A blurred foreground has crisp edges; the sky never smears when the camera turns |
+| 112 | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
+| 113 | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
+| 114 | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
+| 115 | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
+| 116 | Light shafts from lamps (the brightest few in view, without volumetric fog) and from the sun through occluders off screen (its shadow map marched in the half-size pass) | Shafts come only from the sun, and only from what's on screen |
+| 117 | Sharper temporal AA: motion vectors dilated to the nearest depth, variance clipping of the history, a contrast-adaptive sharpening pass after it (and after the upscaler) | TAA softens the picture and ghosts behind thin moving things |
+| 118 | Night Drive's crossroads: traffic lights (red, amber, green on the poles, their glow on the wet road) that the traffic stops for, and cars yielding at the crossroads | The traffic drives through every crossroads without stopping |
+
+### Round 11 notes
 
