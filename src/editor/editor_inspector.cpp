@@ -215,6 +215,10 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
             ImGui::SliderFloat("Screen-space GI strength", &r.ssgiIntensity, 0.f, 1.f, "%.2f");
             track();
         }
+        ImGui::Checkbox("Contact shadows", &r.contactShadows);
+        track();
+        tooltip("A short ray towards the sun per pixel: the contact shadows the shadow maps are too coarse for (needs no "
+                "MSAA)");
         ImGui::SliderFloat("Shadow softness", &r.shadowSoftness, 0.f, 2.f, "%.2f");
         track();
         tooltip("How soft the sun's shadows are: 1 is about the real sun's (sharp where they touch, softer further from "

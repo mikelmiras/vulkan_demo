@@ -506,6 +506,12 @@ dropping on the right.
   motion vectors, dropped where the depth changed), and the lit pass brings them up to full size with a depth-aware
   filter. With MSAA, a render scale under 1, and on see-through surfaces and water they're traced per pixel in
   the lit pass (the rays turning every frame with temporal AA; a fine, steady dither with MSAA). Off at low quality.
+  Where GI is traced at half size, its rays also give **specular occlusion**: in a crevice, where they find things
+  close all round, the surroundings' reflection is hidden too (more for rough surfaces).
+- **Contact shadows** (Scene look > Contact shadows): a short ray towards the sun through the view's depth for
+  each pixel (with the half-size traces: no MSAA, full render scale), catching the contact the shadow maps are too
+  coarse for: a tyre on the road, a box against a wall, the gaps between stacked crates. Its reach grows with
+  distance (the same few pixels); about 3% of Night Drive's frame on lavapipe.
 - **HDR output** (View > HDR output, `VKWORLD_HDR=1`, or a game's `settings.hdr`): on a display (and driver) that
   takes it, the picture goes out as HDR10 (PQ, Rec.2020 primaries; else scRGB): highlights keep their brightness up
   to the display's peak instead of rolling off at white, and the UI sits at paper white (`VKWORLD_HDR_PAPER_WHITE`,

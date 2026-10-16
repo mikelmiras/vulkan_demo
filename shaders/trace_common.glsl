@@ -33,6 +33,33 @@ TracePoint tracePoint() {
     t.z = dot(t.pos - frame.camPos.xyz, frame.camForward.xyz);
     return t;
 }
+// Contact shadow: a short march towards the sun through this frame's depth; 0 where something just in front of the
+// depth the ray passes behind covers it (a little thickness assumed), fading out with the distance marched
+float contactShadow(TracePoint t) {
+    vec3 L = normalize(-frame.sunDir.xyz);
+    float reach = clamp(t.z * 0.02, 0.15, 1.0);   // (further away, a longer reach: the same few pixels)
+    vec2 full = vec2(textureSize(sceneDepth, 0));
+    float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy + frame.trace.z * 7.0, vec2(0.06711056, 0.00583715))));
+    vec3 start = t.pos + t.n * 0.02;
+    const int kSteps = 10;
+    for (int i = 0; i < kSteps; ++i) {
+        float s = (float(i) + noise) / float(kSteps);
+        vec3 p = start + L * (reach * s);
+        vec4 c = frame.viewProj * vec4(p, 1.0);
+        if (c.w <= 1e-4) break;
+        vec2 uv = c.xy / c.w * 0.5 + 0.5;
+        if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) break;
+        float d = texelFetch(sceneDepth, ivec2(uv * full), 0).r;
+        if (d >= 1.0) continue;
+        vec4 w = frame.invViewProj * vec4(c.xy / c.w, d, 1.0);
+        float sceneZ = dot(w.xyz / w.w - frame.camPos.xyz, frame.camForward.xyz);
+        float rayZ = dot(p - frame.camPos.xyz, frame.camForward.xyz);
+        float behind = rayZ - sceneZ;
+        if (behind > 0.01 && behind < 0.15 + reach * 0.3) return mix(0.0, 1.0, s * s);   // (near: dark; far: softer)
+    }
+    return 1.0;
+}
+
 // Where this point was in last frame's half-size history (uv), and whether it was what's there: last frame's
 // picture's distance at that place matches this point's distance from last frame's camera
 bool historyAt(TracePoint t, out vec2 uv) {

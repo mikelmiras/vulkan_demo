@@ -77,9 +77,11 @@ vec2 gUV;   // the texture coordinates the material is read at (vUV, moved by pa
 // upsample: no bleeding across edges)
 layout(set = 0, binding = 31) uniform sampler2D tracedReflections;   // rgb, a = how much to trust it
 layout(set = 0, binding = 32) uniform sampler2D tracedLight;         // rgb = what the GI rays met, a = how much
-layout(set = 0, binding = 35) uniform sampler2D tracedDepth;         // r = the traced pixel's distance along the view
+layout(set = 0, binding = 35) uniform sampler2D tracedDepth;         // r = the traced pixel's distance along the view,
+                                                                     // g = its contact shadow (1: lit)
 bool halfTraced = false;
 vec4 tracedReflection = vec4(0.0), tracedIrradiance = vec4(0.0);
+float tracedContact = 1.0;
 void readTraced() {
     vec2 size = vec2(textureSize(tracedDepth, 0));
     vec2 hp = gl_FragCoord.xy * 0.5 - 0.5;
@@ -87,23 +89,26 @@ void readTraced() {
     vec2 f = hp - vec2(b);
     float myZ = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
     vec4 r = vec4(0.0), g = vec4(0.0);
-    float total = 0.0, nearest = 1e9;
+    float total = 0.0, nearest = 1e9, contact = 0.0, nearC = 1.0;
     vec4 nearR = vec4(0.0), nearG = vec4(0.0);
     for (int i = 0; i < 4; ++i) {
         ivec2 o = ivec2(i & 1, i >> 1);
         ivec2 c = clamp(b + o, ivec2(0), ivec2(size) - 1);
-        float z = texelFetch(tracedDepth, c, 0).r;
+        vec2 zc = texelFetch(tracedDepth, c, 0).rg;
+        float z = zc.x;
         float off = abs(z - myZ) / max(myZ, 0.1);
         float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y) / (1.0 + off * off * 2500.0);
         vec4 tr = texelFetch(tracedReflections, c, 0), tg = texelFetch(tracedLight, c, 0);
         r += tr * w;
         g += tg * w;
+        contact += zc.y * w;
         total += w;
-        if (off < nearest) { nearest = off; nearR = tr; nearG = tg; }
+        if (off < nearest) { nearest = off; nearR = tr; nearG = tg; nearC = zc.y; }
     }
     // (none near this depth, a thin thing: the nearest in depth)
     tracedReflection = total > 1e-3 ? r / total : nearR;
     tracedIrradiance = total > 1e-3 ? g / total : nearG;
+    tracedContact = total > 1e-3 ? contact / total : nearC;
 }
 
 layout(location = 0) out vec4 outColor;
@@ -827,7 +832,15 @@ void main() {
         vec4 g = halfTraced ? tracedIrradiance : traceIrradiance(vWorldPos, N, gl_FragCoord.xy, fine ? 2 : 1, fine ? 8 : 6, spin);
         diffuseLight = mix(diffuseLight, g.rgb, g.a * frame.prevCamForward.w);
     }
-    vec3 color = base * (1.0 - metallic) * diffuseLight + (f0 * dfg.x + dfg.y) * s.energy * environment(R, rough);
+    // Specular occlusion (Lagarde): where the GI rays found things close all round (a crevice), the reflection of
+    // the surroundings is mostly hidden too, more so for rougher surfaces and head-on views
+    float specularOcclusion = 1.0;
+    if (halfTraced && frame.prevCamForward.w > 0.0) {
+        float ao = 1.0 - clamp(tracedIrradiance.a, 0.0, 1.0) * 0.8;
+        specularOcclusion = clamp(pow(NdotV + ao, exp2(-16.0 * rough - 1.0)) - 1.0 + ao, 0.0, 1.0);
+    }
+    vec3 color = base * (1.0 - metallic) * diffuseLight +
+                 (f0 * dfg.x + dfg.y) * s.energy * environment(R, rough) * specularOcclusion;
     if (s.sheen > 0.0)   // (cloth's rim of light from all around)
         color = color * (1.0 - 0.25 * s.sheen) + s.sheenColor * irradiance(N) * (0.05 + 0.6 * pow(1.0 - NdotV, 4.0));
     if (s.coat > 0.0) {   // (the coat's own reflection over the rest)
@@ -840,6 +853,7 @@ void main() {
     vec3 L = normalize(-frame.sunDir.xyz);
     float vis = dot(N, L) > 0.0 || (s.coat > 0.0 && dot(s.coatN, L) > 0.0) ? sunVisibility(N, L) : 0.0;
     if (!water && frame.waterInfo.y > 0.5) vis *= caustics(vWorldPos);   // (under water: the waves focus it)
+    if (halfTraced && frame.trace.w > 0.5) vis *= tracedContact;   // (the contact the shadow maps miss)
     color += shade(s, L, frame.sunColor.rgb) * vis;
 
     // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone. The main view

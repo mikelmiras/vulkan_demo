@@ -301,6 +301,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.giIntensity = r.giIntensity;
     info.reflections = r.reflections;
     info.ssgi = r.ssgi;
+    info.contactShadows = r.contactShadows;
     info.ssgiIntensity = r.ssgiIntensity;
     info.shadowSoftness = r.shadowSoftness;
     info.volumetricFog = r.volumetricFog;

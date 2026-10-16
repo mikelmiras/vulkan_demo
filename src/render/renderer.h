@@ -146,6 +146,7 @@ struct SceneRenderInfo {
     bool ssgi = false;          // screen-space global illumination (the same picture), and its strength
     float ssgiIntensity = 1.f;
     float shadowSoftness = 1.f;   // the sun's shadows (RenderSettings::shadowSoftness)
+    bool contactShadows = false;  // (RenderSettings'; the half-size traces')
     float waterTime = 0.f;        // the waves' clock (Physics::time() while playing: what's drawn matches what floats)
     bool volumetricFog = false;   // RenderSettings::volumetricFog and its settings
     float fogLight = 1.f, fogAnisotropy = 0.5f, fogHeightFalloff = 0.f;

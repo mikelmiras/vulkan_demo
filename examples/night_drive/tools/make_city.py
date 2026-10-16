@@ -323,6 +323,8 @@ scene = {
             # Rain: everything facing up wet (darker, glossy: the lamps and the neon in it), standing water in the
             # hollows and the gutters' puddles, rings on it
             "wetness": 0.85, "puddles": 0.4, "rain": 0.7,
+            # Contact shadows: tyres on the road, kerbs, the lamp posts' feet (the shadow maps are coarse from up there)
+            "contactShadows": True,
         }
     },
 }

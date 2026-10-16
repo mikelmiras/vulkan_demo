@@ -814,7 +814,7 @@ void Renderer::createPipelines() {
     lumPipeline_ = createPostPipeline("luminance.frag.spv", VK_FORMAT_R16_SFLOAT, false);
     // (the half-size traces: the scene's frame data, set 0; renderer_trace.cpp)
     ssrTracePipeline_ = createPostPipeline("ssr_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_,
-                                           VK_FORMAT_R32_SFLOAT);
+                                           VK_FORMAT_R32G32_SFLOAT);
     giTracePipeline_ = createPostPipeline("gi_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
     adaptPipeline_ = createPostPipeline("adapt.frag.spv", VK_FORMAT_R32_SFLOAT, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
@@ -1878,13 +1878,17 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     }
     if (shadows) {   // motion vectors: the camera now and last frame, unjittered (the prepass writes them with temporal AA)
         // (half-size traces: no MSAA, the prepass, a depth to read, last frame's picture, full size)
-        const bool traceWanted = captureOn(info) && aoSupported_ && ssrTracePipeline_ && ssrValid_ && scaleNow_ >= 0.999f;
+        // (and contact shadows, which need only this frame's depth)
+        const bool contact = info.contactShadows && quality_ != Quality::Low;
+        const bool traceWanted = ((captureOn(info) && ssrValid_) || contact) && aoSupported_ && ssrTracePipeline_ &&
+                                 scaleNow_ >= 0.999f;
         velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted) && prepass_ && info.items && prepassVelocityPipeline_ &&
                       velocity_.image;
         traceOn_ = traceWanted && velocityOn_;
         u.trace[0] = traceOn_ ? 1.f : 0.f;
         u.trace[1] = traceOn_ && traceHistory_ ? 1.f : 0.f;
         u.trace[2] = (float)(traceIndex_++ % 4);
+        u.trace[3] = traceOn_ && contact ? 1.f : 0.f;
         traceHistory_ = traceOn_;
         u.motionViewProj = info.viewProj;
         u.motionPrevViewProj = motionPrevValid_ ? motionPrevViewProj_ : info.viewProj;

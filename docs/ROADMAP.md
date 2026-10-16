@@ -1575,7 +1575,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | 89 (done) | Motion vectors: a velocity per pixel from each object's last-frame transform (and skinning, and the waves), for temporal AA and the temporal effects (SSGI, fog's history, upscaling) instead of reprojecting by depth alone | Moving things (the taxi, animated characters, water) smear and ghost under temporal AA: their history is looked up where the static world was |
 | 90 (done) | Clustered decals: decals binned into the light clusters (each pixel tests only the decals of its cluster), decal normal maps (cracks, tyre tracks, manhole covers), more than 64 | Every pixel tests every decal drawn; flat decals look painted on |
 | 91 (done) | Half-resolution effects: screen-space reflections, SSGI and ambient occlusion traced at half size and brought up with a depth-aware (bilateral) upsample, temporally accumulated | Round 8's screen-space effects run per pixel in the lit shader; on a 1050 Ti at 1080p they're most of the frame |
-| 92 | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
+| 92 (done) | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
 | 93 | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
 | 94 | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
 | 95 | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
@@ -1627,4 +1627,14 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   pass 375 -> 254 ms plus 74 for the traces; Night Drive's frame 1293 -> 1180 (lit pass 870 -> 647, prepass 35 ->
   64, traces 73). Not done: ambient occlusion's history (it's half size already, without one), the traces with
   MSAA (a multisampled G-buffer) or under a render scale, rough reflections sampled by GGX rather than blurred.
+- **92, contact shadows, specular occlusion**: RenderSettings::contactShadows (scene format 52, module API 61). The
+  half-size reflection pass (which runs for them alone too: frame.trace.w) marches 10 steps towards the sun from the
+  traced point over 2% of its distance (0.15 to 1 m), unprojecting this frame's depth at each (invViewProj): shadowed
+  where the ray is 1 cm to 15 cm + 30% of the reach behind it, darker the nearer; stored in tracedDepth_'s g (now
+  R32G32) and brought up with the same bilateral weights, multiplying the sun's visibility. Specular occlusion:
+  Lagarde's formula with ao = 1 - 0.8 * the GI rays' hit fraction, on the environment reflection. Night Drive turns
+  contact shadows on. Checked: the crates' gaps darken, nothing on open ground; saved and loaded; under validation
+  with sync checks (the demo with GI, Night Drive). Lavapipe, Night Drive: the traces 73 -> 106 ms of about 1250.
+  Not done: contact shadows from point and spot lights, with MSAA or under a render scale, specular occlusion by a
+  bent normal or without screen-space GI.
 

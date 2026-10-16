@@ -752,6 +752,9 @@ struct RenderSettings {
     // Shadows: how soft the sun's are (its size in the sky: 1 a slightly hazy sun's, sharp where they touch and
     // softer further from what casts them; 0: as sharp as the shadow maps allow)
     float shadowSoftness = 1.f;
+    // Contact shadows: a short ray towards the sun through the view's depth for each pixel, catching the contact the
+    // shadow maps are too coarse for (a tyre on the road, a cup on a table). Without MSAA, at full render scale.
+    bool contactShadows = false;
     // Volumetric fog: the fog lit by the sun (with its shadows: light shafts) and the lights (halos, beams), in a grid
     // of cells through the view (render/volumetric_fog.h); else the fog is a plain colour by distance
     bool volumetricFog = false;

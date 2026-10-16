@@ -787,6 +787,7 @@ int main(int argc, char** argv) {
         info.giIntensity = scene.render.giIntensity;
         info.reflections = scene.render.reflections;
         info.ssgi = scene.render.ssgi;
+        info.contactShadows = scene.render.contactShadows;
         info.ssgiIntensity = scene.render.ssgiIntensity;
         info.shadowSoftness = scene.render.shadowSoftness;
         info.volumetricFog = scene.render.volumetricFog;

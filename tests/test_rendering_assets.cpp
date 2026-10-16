@@ -209,6 +209,7 @@ TEST(materials_and_render_settings_saved) {
     s.render.adaptationSpeed = 2.5f;
     s.render.localToneMapping = 0.6f;
     s.render.ssgi = true;
+    s.render.contactShadows = true;
     s.render.ssgiIntensity = 0.7f;
     std::string error;
     auto path = test::tempPath("materials.vkw").string();
@@ -247,14 +248,14 @@ TEST(materials_and_render_settings_saved) {
     CHECK_NEAR(loaded.render.exposureMax, 3.0, 1e-6);
     CHECK_NEAR(loaded.render.adaptationSpeed, 2.5, 1e-6);
     CHECK_NEAR(loaded.render.localToneMapping, 0.6, 1e-6);
-    CHECK(loaded.render.ssgi);
+    CHECK(loaded.render.ssgi && loaded.render.contactShadows);
     CHECK_NEAR(loaded.render.ssgiIntensity, 0.7, 1e-6);
     CHECK(sameRenderSettings(loaded.render, s.render));
     Scene off;
     CHECK(!off.render.volumetricFog && off.render.tonemapper == 0 && off.render.shadowSoftness == 1.f);
     CHECK(!off.render.gi && !off.render.reflections);   // (off unless asked for)
     CHECK(!off.render.autoExposure && off.render.localToneMapping == 0.f);
-    CHECK(!off.render.ssgi);
+    CHECK(!off.render.ssgi && !off.render.contactShadows);
     CHECK(!sameRenderSettings(off.render, s.render));
     // A plain one keeps the defaults (and doesn't write them)
     MeshRenderer plain;
