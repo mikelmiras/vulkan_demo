@@ -2,8 +2,10 @@
 // Particles on the GPU (renderer_particles.cpp): one thread per slot of every GPU emitter's ring. Slots the emitter's
 // head passes this frame spawn a particle (a direction in its cone, a point in its sphere, a speed and a life, from a
 // hash); the rest age, fall, slow down and move. A drop that passes behind what the last frame's picture shows there
-// has hit it: it splashes (a short-lived spreading dot, where it hit). Each live one is written to the draw list
-// after the CPU's particles, counted by the indirect draw's instance count.
+// has hit it: it splashes (a short-lived spreading dot, where it hit). Each live additive one is written to the draw
+// list after the CPU's particles, counted by its indirect draw's instance count; each see-through one to a scratch
+// list with its distance as a key, sorted back to front (particle_sort.comp) and gathered into the draw list after
+// (particle_gather.comp).
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
 layout(local_size_x = 64) in;
@@ -20,7 +22,7 @@ struct Emitter {
     vec4 up;        // xyz, w = cos of the cone's half-angle
     vec4 a;         // lifetime, its randomness, speed, its randomness
     vec4 b;         // radius, gravity, drag, stretch
-    vec4 size;      // start, end, x = 1: lit
+    vec4 size;      // start, end, z = 1: lit, w = 1: additive (else see-through: sorted)
     vec4 colour0;   // rgb (linear, times brightness), alpha: at birth
     vec4 colour1;   // ... at death
     uvec4 range;    // first slot, slots, head (the next to spawn), seed
@@ -31,7 +33,11 @@ struct Draw {
 layout(std430, set = 1, binding = 0) buffer States { State states[]; };
 layout(std430, set = 1, binding = 1) readonly buffer Emitters { Emitter emitters[]; };
 layout(std430, set = 1, binding = 2) writeonly buffer Draws { Draw draws[]; };
-layout(std430, set = 1, binding = 3) buffer Indirect { uint vertexCount, instanceCount, firstVertex, firstInstance; } indirect;
+// (two indirect draws: [0] see-through, [1] additive)
+struct DrawCommand { uint vertexCount, instanceCount, firstVertex, firstInstance; };
+layout(std430, set = 1, binding = 3) buffer Indirect { DrawCommand commands[2]; } indirect;
+layout(std430, set = 1, binding = 4) writeonly buffer Unsorted { Draw unsorted[]; };
+layout(std430, set = 1, binding = 5) writeonly buffer Keys { uvec2 keys[]; };   // (distance key, scratch index)
 layout(push_constant) uniform Push {
     uint emitterCount, total;
     float dt;
@@ -105,6 +111,13 @@ void main() {
         colour.a *= 1.0 - k;
         streak = vec3(0.0);
     }
-    uint n = atomicAdd(indirect.instanceCount, 1u);
-    draws[indirect.firstInstance + n] = Draw(vec4(s.posAge.xyz, size), colour, vec4(streak, em.size.z));
+    Draw d = Draw(vec4(s.posAge.xyz, size), colour, vec4(streak, em.size.z));
+    if (em.size.w > 0.5) {
+        uint n = atomicAdd(indirect.commands[1].instanceCount, 1u);
+        draws[indirect.commands[1].firstInstance + n] = d;
+    } else {   // (see-through: to the scratch list, keyed by distance: further first after the sort)
+        uint n = atomicAdd(indirect.commands[0].instanceCount, 1u);
+        unsorted[n] = d;
+        keys[n] = uvec2(~floatBitsToUint(max(length(s.posAge.xyz - frame.camPos.xyz), 0.0)), n);
+    }
 }

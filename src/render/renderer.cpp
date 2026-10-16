@@ -1551,17 +1551,17 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
         }
 
         // Particles: see-through ones (sorted back to front), then the additive ones
-        if (particleAlpha_) {
+        if (particleAlpha_ || gpuAnySeeThrough_) {   // (the CPU's see-through ones, then the GPU's: as many as it counted)
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAlphaPipeline_);
-            vkCmdDraw(cb, 6, particleAlpha_, 0, 0);
+            if (particleAlpha_) vkCmdDraw(cb, 6, particleAlpha_, 0, 0);
+            if (gpuParticleSlots_ && gpuAnySeeThrough_)
+                vkCmdDrawIndirect(cb, gpuIndirect_[frame_].buffer, 0, 1, sizeof(VkDrawIndirectCommand));
         }
-        if (particleAdditive_) {
+        if (particleAdditive_ || gpuParticleSlots_) {
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAdditivePipeline_);
-            vkCmdDraw(cb, 6, particleAdditive_, 0, particleAlpha_);
-        }
-        if (gpuParticleSlots_) {   // (the GPU's: as many as its pass counted, after the CPU's)
-            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, particleAdditivePipeline_);
-            vkCmdDrawIndirect(cb, gpuIndirect_[frame_].buffer, 0, 1, sizeof(VkDrawIndirectCommand));
+            if (particleAdditive_) vkCmdDraw(cb, 6, particleAdditive_, 0, particleAlpha_);
+            if (gpuParticleSlots_)
+                vkCmdDrawIndirect(cb, gpuIndirect_[frame_].buffer, sizeof(VkDrawIndirectCommand), 1, sizeof(VkDrawIndirectCommand));
         }
 
         for (const Batch& b : outlineBatches_) {

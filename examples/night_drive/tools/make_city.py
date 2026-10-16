@@ -228,7 +228,7 @@ for _ in range(7):
         "rate": 14, "burst": 0, "playOnStart": True, "duration": 0, "lifetime": 3.2, "lifetimeRandom": 0.4,
         "speed": 1.3, "speedRandom": 0.4, "spread": 18, "radius": 0.4, "gravity": -0.25, "drag": 0.6,
         "startSize": 0.7, "endSize": 3.4, "startColor": [0.5, 0.5, 0.55], "endColor": [0.35, 0.35, 0.4],
-        "startAlpha": 0.22, "endAlpha": 0.0, "intensity": 1.0, "additive": False, "maxParticles": 120})
+        "startAlpha": 0.22, "endAlpha": 0.0, "intensity": 1.0, "additive": False, "maxParticles": 120, "gpu": True})
 
 # ---- Parked cars along the kerbs ---------------------------------------------------------------------------------
 PAINT = [(0.35, 0.03, 0.03), (0.05, 0.08, 0.2), (0.2, 0.2, 0.22), (0.02, 0.02, 0.02), (0.25, 0.18, 0.08)]

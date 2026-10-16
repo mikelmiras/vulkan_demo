@@ -89,6 +89,7 @@ struct GpuEmitterInfo {
     Vec3 startColor{1, 1, 1}, endColor{1, 1, 1};   // linear, times the brightness
     float startAlpha = 1.f, endAlpha = 0.f;
     bool lit = false;
+    bool additive = true;   // (else see-through: sorted back to front on the GPU)
     int maxParticles = 500;
 };
 
@@ -712,6 +713,10 @@ private:
     bool gpuClearState_ = false, gpuSplash_ = false;
     float gpuDt_ = 0.f;
     Buffer gpuParticleState_, gpuEmitterBuffers_[MAX_FRAMES], gpuIndirect_[MAX_FRAMES];
+    Buffer gpuUnsorted_, gpuKeys_;   // (the see-through ones before their sort, and their keys)
+    uint32_t gpuSortSize_ = 0;       // (the keys: a power of two)
+    bool gpuAnySeeThrough_ = false;
+    VkPipeline gpuSortPipeline_ = VK_NULL_HANDLE, gpuGatherPipeline_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout gpuParticleSetLayout_ = VK_NULL_HANDLE;
     VkPipelineLayout gpuParticleLayout_ = VK_NULL_HANDLE;
     VkPipeline gpuParticlePipeline_ = VK_NULL_HANDLE;

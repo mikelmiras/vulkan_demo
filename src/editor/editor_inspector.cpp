@@ -815,8 +815,8 @@ void Editor::drawComponents(Entity& e) {
                     "glowing on their own");
             ImGui::Checkbox("On the GPU", &p.gpu);
             track();
-            tooltip("Simulated on the GPU: thousands cost little, and drops splash where they hit something; additive only "
-                    "(not sorted)");
+            tooltip("Simulated on the GPU: thousands cost little, drops splash where they hit something, see-through ones "
+                    "are sorted there too");
             ImGui::DragFloat("Duration", &p.duration, 0.05f, 0.f, 1000.f, p.duration > 0.f ? "%.2f s" : "for ever");
             track();
             ImGui::DragFloat("Lifetime", &p.lifetime, 0.01f, 0.05f, 60.f, "%.2f s");

@@ -40,7 +40,7 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/fog_inject.comp shaders/fog_integrate.comp shaders/fog_surface.comp shaders/luminance.frag
                    shaders/adapt.frag shaders/sky_transmittance.frag shaders/sky_view.frag shaders/sky_multiple.frag
                    shaders/ssr_trace.frag shaders/gi_trace.frag
-                   shaders/particles.comp)
+                   shaders/particles.comp shaders/particle_sort.comp shaders/particle_gather.comp)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)

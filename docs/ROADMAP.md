@@ -1720,7 +1720,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | # | Task | Why |
 |---|------|-----|
 | 99 (done) | Ambient occlusion before lighting: computed after the depth prepass (with a history, at half size) and applied to the ambient, probe and GI light only (and to reflections as specular occlusion), not multiplied over the finished picture | The composite darkens everything AO finds, sunlit and lamp-lit surfaces too: contact areas in direct light look dirty, and specular occlusion needs screen-space GI |
-| 100 | See-through GPU particles: sorted back to front on the GPU (bitonic), so smoke, steam and dust can move to the GPU; Night Drive's steam on it | Round 9's GPU particles are additive only |
+| 100 (done) | See-through GPU particles: sorted back to front on the GPU (bitonic), so smoke, steam and dust can move to the GPU; Night Drive's steam on it | Round 9's GPU particles are additive only |
 | 101 | The half-size traces with MSAA and under a render scale: the prepass's surface from sample 0 of a multisampled G-buffer, the traces mapped to the drawn area | With MSAA or a render scale under 1, reflections and GI fall back to per-pixel tracing, contact shadows to none |
 | 102 | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
 | 103 | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
@@ -1741,4 +1741,13 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   there. VKWORLD_AO_LIT=0 for the old way. Checked: an overhead sunny scene (the pillars' sunlit feet no longer
   darkened), TAA, MSAA, render scale 0.7, the editor, Night Drive under validation with sync checks. Not done: a
   history (temporal AO), bent normals, AO before lighting in split-screen views.
+- **100, sorted GPU particles**: particles.comp writes additive particles straight into the draw list (the second of
+  two indirect commands) and see-through ones into a scratch list with a key (the distance's float bits inverted:
+  ascending is furthest first; unused keys all ones, last); particle_sort.comp does each step of a bitonic sort
+  (k = 2..n, j = k/2..1, a barrier between) over a power of two sized to the see-through emitters' slots alone,
+  particle_gather.comp copies them into the draw list in order. The draw list: the CPU's, then the GPU's
+  see-through, then its additive; drawn after the CPU's of the same kind. Night Drive's steam moved to the GPU.
+  Sorting every slot (rain's too) cost 11 ms a frame on lavapipe; only the see-through ones', 2.9 ms (the pass with
+  rain and steam). Checked: Night Drive under validation with sync checks. Not done: the CPU's and the GPU's
+  see-through particles sorted together, sorting by tiles (one big sort a frame).
 

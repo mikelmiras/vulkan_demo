@@ -27538,7 +27538,8 @@
     "endAlpha": 0.0,
     "intensity": 1.0,
     "additive": false,
-    "maxParticles": 120
+    "maxParticles": 120,
+    "gpu": true
    }
   },
   {
@@ -27621,7 +27622,8 @@
     "endAlpha": 0.0,
     "intensity": 1.0,
     "additive": false,
-    "maxParticles": 120
+    "maxParticles": 120,
+    "gpu": true
    }
   },
   {
@@ -27704,7 +27706,8 @@
     "endAlpha": 0.0,
     "intensity": 1.0,
     "additive": false,
-    "maxParticles": 120
+    "maxParticles": 120,
+    "gpu": true
    }
   },
   {
@@ -27787,7 +27790,8 @@
     "endAlpha": 0.0,
     "intensity": 1.0,
     "additive": false,
-    "maxParticles": 120
+    "maxParticles": 120,
+    "gpu": true
    }
   },
   {
@@ -27870,7 +27874,8 @@
     "endAlpha": 0.0,
     "intensity": 1.0,
     "additive": false,
-    "maxParticles": 120
+    "maxParticles": 120,
+    "gpu": true
    }
   },
   {
@@ -27953,7 +27958,8 @@
     "endAlpha": 0.0,
     "intensity": 1.0,
     "additive": false,
-    "maxParticles": 120
+    "maxParticles": 120,
+    "gpu": true
    }
   },
   {
@@ -28036,7 +28042,8 @@
     "endAlpha": 0.0,
     "intensity": 1.0,
     "additive": false,
-    "maxParticles": 120
+    "maxParticles": 120,
+    "gpu": true
    }
   },
   {

@@ -195,7 +195,7 @@ std::vector<GpuEmitterInfo> collectGpuEmitters(const Scene& scene, const std::ve
         g.startSize = p.startSize, g.endSize = p.endSize, g.stretch = p.stretch;
         g.startColor = srgbToLinear(p.startColor) * p.intensity;
         g.endColor = srgbToLinear(p.endColor) * p.intensity;
-        g.startAlpha = p.startAlpha, g.endAlpha = p.endAlpha, g.lit = p.lit;
+        g.startAlpha = p.startAlpha, g.endAlpha = p.endAlpha, g.lit = p.lit, g.additive = p.additive;
         g.maxParticles = std::clamp(p.maxParticles, 1, 65536);
         out.push_back(g);
     }

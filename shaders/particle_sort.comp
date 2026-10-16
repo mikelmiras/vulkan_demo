@@ -1,0 +1,25 @@
+#version 450
+// GPU particles sorted back to front (renderer_particles.cpp): one step of a bitonic sort of the see-through ones'
+// keys (their distance's bits inverted, so ascending is furthest first; unused keys all ones, last). The renderer
+// runs every step (k = 2, 4 .. n; j = k / 2 .. 1) with a barrier between.
+layout(local_size_x = 256) in;
+layout(std430, set = 1, binding = 5) buffer Keys { uvec2 keys[]; };
+layout(push_constant) uniform Push {
+    uint emitterCount, total;   // (particles.comp's: unused here)
+    float dt;
+    uint flags;
+    uint j, k, n, pad;
+} pc;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.n) return;
+    uint l = i ^ pc.j;
+    if (l <= i) return;
+    uvec2 a = keys[i], b = keys[l];
+    bool ascending = (i & pc.k) == 0u;
+    if ((a.x > b.x) == ascending) {
+        keys[i] = b;
+        keys[l] = a;
+    }
+}
