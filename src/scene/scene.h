@@ -452,6 +452,8 @@ struct ParticleEmitter {
     float intensity = 1.f;          // brightness: above 1 glows (bloom)
     bool additive = true;           // light adds up (fire, sparks); else see-through (smoke, dust)
     int maxParticles = 500;
+    float stretch = 0.f;            // streaks along their motion, as long as this many seconds of it (rain); 0: dots
+    bool lit = false;               // lit by the scene's lights (rain in the headlights) instead of glowing on its own
 };
 
 // Marks an entity as part of a copy ("instance") of a prefab

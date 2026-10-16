@@ -3,6 +3,7 @@
 #include "test.h"
 
 #include "render/decals.h"
+#include "render/renderer_internal.h"
 #include "render/scene_draw.h"
 #include "scene/serialization.h"
 
@@ -117,4 +118,16 @@ TEST(surfaces_saved) {
     MeshRenderer plain;
     CHECK(plain.heightTexture < 0 && plain.parallaxDepth == 0.f && plain.detailTexture < 0 && !plain.sheltered);
     CHECK(Scene{}.render.wetness == 0.f && Scene{}.render.rain == 0.f);
+}
+
+TEST(decals_culled_to_the_view) {
+    // A camera at the origin looking down -z: a sphere ahead is in view, one behind or far off to the side isn't,
+    // one just off the edge but reaching in is
+    Mat4 vp = perspective(60.f * DEG2RAD, 1.f, 0.1f, 100.f, true) * lookAt({0, 0, 0}, {0, 0, -1}, {0, 1, 0});
+    render_detail::Frustum f(vp);
+    CHECK(f.visible(Vec3{0, 0, -10}, 1.f));
+    CHECK(!f.visible(Vec3{0, 0, 10}, 1.f));
+    CHECK(!f.visible(Vec3{40, 0, -10}, 1.f));
+    CHECK(f.visible(Vec3{7, 0, -10}, 2.f));    // (the edge at x = 5.77 there: 7 - 2 reaches in)
+    CHECK(!f.visible(Vec3{0, 0, -150}, 1.f));  // (past the far plane)
 }

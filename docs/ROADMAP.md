@@ -1384,7 +1384,7 @@ notes' "Not done"), plus the editor catching up with the game's text and input.
   HRTFs (SOFA), early reflections and per-direction reverb (one reverb for everything), occlusion by thickness or
   material, sound propagation round corners (portals), music transitions on bars between scenes.
 
-## Round 8 (planned)
+## Round 8 (done)
 
 Visuals and performance (asked for after round 7: better graphics, shadows, lighting models and shaders), with Night
 Drive as the showcase on the machines it's tried on (a GTX 1050 Ti, a MacBook Air M4, Intel graphics on Linux).
@@ -1401,9 +1401,22 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 85 (done) | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
 | 86 (done) | Materials and surfaces: parallax occlusion mapping, detail maps, decals (projected: road markings, puddles, dirt), wetness (darker, glossier, rain ripples) driven by a weather setting | Surfaces are flat textures; a wet night street, the look Night Drive wants, can't be made |
 | 87 (done) | Water, finished: refraction and absorption by depth, caustics on the bottom, shoreline foam where it meets geometry, screen-space reflections on it | Task 71's water is a coloured surface: no depth, no sense of what's beneath |
-| 88 | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
+| 88 (done) | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
 
 ### Round 8 notes
+- **88, Night Drive**: particle emitters gain stretch (streaks: the quad from the particle back along its velocity
+  times stretch, facing the camera across it, soft across and fading towards the tail) and lit (particle.frag
+  lights the colour with the sun, the sky's hemisphere and its cluster's point and spot lights, Henyey-Greenstein
+  g = 0.6, window falloff as the lit shader's; no shadows or cookies), scene format 50, module API 58. make_city.py:
+  wetness 0.85, puddles 0.4, rain 0.7; puddle decals in the gutters under about 45% of the lamps (their own random
+  numbers: the rest of the city is as it was); rain round the taxi (a sphere of 20 m, 9 m above it, 2600 a second,
+  streaks 8 cm wide and a metre long: from the camera's 115 m a pixel is about 4.5 cm). Decals cost most of the
+  new look at first (every pixel testing 64): they are now culled to the view on the CPU and tested against a
+  sphere before their box in the shader. Lavapipe, the moving-camera copy at high quality: the lit pass 836 ms
+  before, 873 after (the GPU's whole frame 1237 -> about 1275); the puddle decals cost nothing measurable after the
+  culling (873 with or without them). Checked under validation with sync checks: still and moving cameras, MSAA, the
+  editor. Not done: measured on the GTX 1050 Ti (no GPU here; the increase over what it ran before is about 4% on
+  lavapipe), splashes where drops land, rain streaks on the windscreen, wet tyre spray.
 - **87, water**: with water in the main view (and depth readable), the scene pass ends after the opaque things
   and the sky, the reflections' capture pass (ssr_capture, pixel for pixel) copies the picture and its view
   distances into refraction_ (set 0, binding 26), and the pass begins again with its attachments loaded (MSAA's

@@ -31,11 +31,17 @@ void Renderer::writeDecals(const SceneRenderInfo& info, FrameUBO& u) {
     u.weather[1] = std::clamp(info.puddles, 0.f, 1.f);
     u.weather[2] = std::clamp(info.rain, 0.f, 1.f);
     const int textureCount = (int)gpuTextures_.size();
-    DecalPick pick;
-    if (info.decals) pick = pickDecals(*info.decals, info.camPos, kMaxDecals, kDecalTextures);
+    // (those in view: every pixel tests every decal it's given)
+    std::vector<DecalInfo> inView;
+    if (info.decals) {
+        Frustum frustum(info.viewProj);
+        for (const DecalInfo& d : *info.decals)
+            if (frustum.visible(d.center, d.radius)) inView.push_back(d);
+    }
+    DecalPick pick = pickDecals(inView, info.camPos, kMaxDecals, kDecalTextures);
     auto* out = static_cast<GpuDecal*>(decalBuffers_[frame_].mapped);
     for (size_t k = 0; k < pick.decals.size(); ++k) {
-        const DecalInfo& d = (*info.decals)[(size_t)pick.decals[k]];
+        const DecalInfo& d = inView[(size_t)pick.decals[k]];
         GpuDecal g{};
         g.toBox = d.toBox;
         g.color[0] = d.color.x, g.color[1] = d.color.y, g.color[2] = d.color.z, g.color[3] = std::clamp(d.opacity, 0.f, 1.f);
@@ -46,6 +52,7 @@ void Renderer::writeDecals(const SceneRenderInfo& info, FrameUBO& u) {
         g.params[2] = std::clamp(d.wetness, 0.f, 1.f);
         g.params[3] = std::clamp(d.angleFade, 0.f, 1.f);
         g.down[0] = d.down.x, g.down[1] = d.down.y, g.down[2] = d.down.z;
+        g.sphere[0] = d.center.x, g.sphere[1] = d.center.y, g.sphere[2] = d.center.z, g.sphere[3] = d.radius * d.radius;
         out[k] = g;
     }
     u.weather[3] = (float)pick.decals.size();

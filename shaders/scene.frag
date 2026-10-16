@@ -47,6 +47,7 @@ struct GpuDecal {
     vec4 color;     // rgb linear, a = opacity
     vec4 params;    // x = texture slot (-1: none), y = roughness (-1: as it is), z = wetness, w = angle fade
     vec4 down;      // xyz: its direction in the world
+    vec4 sphere;    // round its box: centre, radius squared
 };
 layout(std430, set = 0, binding = 24) readonly buffer Decals { GpuDecal decals[]; };
 layout(set = 0, binding = 25) uniform sampler2D decalTextures[16];
@@ -730,6 +731,8 @@ void main() {
         vec3 dpdx = dFdx(vWorldPos), dpdy = dFdy(vWorldPos);   // (before any branch: for the textures' levels)
         int count = int(frame.weather.w + 0.5);
         for (int i = 0; i < count; ++i) {
+            vec3 off = vWorldPos - decals[i].sphere.xyz;   // (most are nowhere near: a sphere's test first)
+            if (dot(off, off) > decals[i].sphere.w) continue;
             vec3 q = (decals[i].toBox * vec4(vWorldPos, 1.0)).xyz;
             if (any(greaterThan(abs(q), vec3(0.5)))) continue;
             vec4 p = decals[i].params;

@@ -13,7 +13,9 @@ a fixed angle (the way GTA: Chinatown Wars or The Precinct look), the camera eas
 Run it with `vkgame examples/night_drive`, or open the folder in the editor and press Play. The streets, buildings and lamp posts are Kenney's City Kit
 models (see below); everything else is built-in: a Jolt vehicle with the VehicleDriver behaviour, point and spot lights (street lamps, neon signs,
 headlights), emissive materials (windows, signs), screen-space reflections on the wet asphalt, bloom, fog and steam
-particles from the manholes.
+particles from the manholes. It's raining: the weather settings (Scene look: wetness, puddles, rain) make the
+streets wet and glossy, with standing water in the hollows and rings on it. Puddle decals in the gutters under
+about half the lamps mirror them. Rain falls round the taxi as lit, streaked particles that show where there's light.
 
 ## Models
 

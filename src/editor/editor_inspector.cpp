@@ -791,6 +791,13 @@ void Editor::drawComponents(Entity& e) {
             ImGui::Checkbox("Additive", &p.additive);
             track();
             tooltip("Light adds up (fire, sparks, magic); off: see-through (smoke, dust)");
+            ImGui::DragFloat("Stretch", &p.stretch, 0.002f, 0.f, 1.f, p.stretch > 0.f ? "%.3f s" : "dots");
+            track();
+            tooltip("Streaks along their motion, as long as this much of it (rain: 0.02 or so); 0: round dots");
+            ImGui::Checkbox("Lit", &p.lit);
+            track();
+            tooltip("Lit by the scene's lights and sun (rain shows in the headlights and under lamps) instead of "
+                    "glowing on their own");
             ImGui::DragFloat("Duration", &p.duration, 0.05f, 0.f, 1000.f, p.duration > 0.f ? "%.2f s" : "for ever");
             track();
             ImGui::DragFloat("Lifetime", &p.lifetime, 0.01f, 0.05f, 60.f, "%.2f s");

@@ -88,6 +88,7 @@ struct GpuDecal {
     float color[4];      // rgb linear, a = opacity
     float params[4];     // x = texture slot (binding 25; -1: none), y = roughness (-1: as it is), z = wetness, w = angle fade
     float down[4];       // its direction in the world
+    float sphere[4];     // round its box: centre, radius squared (a quick test before the box's)
 };
 
 // A point or spot light (set 0, binding 14)
@@ -125,6 +126,13 @@ struct Frustum {
             p[4][k] = r2[k];
             p[5][k] = r3[k] - r2[k];
         }
+    }
+    bool visible(Vec3 centre, float radius) const {   // (a sphere: at least partly inside?)
+        for (const auto& pl : p) {
+            float len = std::sqrt(pl[0] * pl[0] + pl[1] * pl[1] + pl[2] * pl[2]);
+            if (pl[0] * centre.x + pl[1] * centre.y + pl[2] * centre.z + pl[3] < -radius * len) return false;
+        }
+        return true;
     }
     // Is the mesh's bounding box, placed by `model`, at least partly inside?
     bool visible(const Mat4& model, Vec3 lo, Vec3 hi) const {

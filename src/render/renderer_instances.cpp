@@ -428,6 +428,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
 void Renderer::uploadParticles(const SceneRenderInfo& info) {
     struct Gpu {
         float posSize[4], color[4];
+        float streak[4];   // xyz: back to its tail (0: a dot), w = 1: lit
     };
     std::vector<const ParticleDraw*> alpha, additive;
     if (info.particles)
@@ -459,7 +460,9 @@ void Renderer::uploadParticles(const SceneRenderInfo& info) {
     size_t n = 0;
     for (const auto* list : {&alpha, &additive})
         for (const ParticleDraw* p : *list) {
-            out[n++] = {{p->position.x, p->position.y, p->position.z, p->size}, {p->color[0], p->color[1], p->color[2], p->color[3]}};
+            out[n++] = {{p->position.x, p->position.y, p->position.z, p->size},
+                        {p->color[0], p->color[1], p->color[2], p->color[3]},
+                        {p->streak.x, p->streak.y, p->streak.z, p->lit ? 1.f : 0.f}};
         }
     particleAlpha_ = (uint32_t)alpha.size();
     particleAdditive_ = (uint32_t)additive.size();

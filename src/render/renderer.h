@@ -60,6 +60,8 @@ struct ParticleDraw {
     float size = 0.1f;      // metres across
     float color[4];         // rgb linear (times its brightness), alpha
     bool additive = true;   // light adds up; else blended over what's behind
+    Vec3 streak;            // a streak back from position to position - streak (0: a round dot)
+    bool lit = false;       // its colour times the light reaching it (else its own glow)
 };
 
 struct LightInfo {

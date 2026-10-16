@@ -783,7 +783,10 @@ something, and otherwise patrols (set its waypoints: entity names, comma separat
 A **Particle Emitter** component sends out camera-facing dots: a rate per second and/or bursts, lifetime, speed,
 a cone around the entity's +Y, an emitting sphere, gravity, drag, size, colour and opacity over life, brightness
 (above 1 they glow through the bloom), and **additive** (fire, sparks, magic) or see-through (smoke, dust)
-blending. Particles stay where they were emitted and outlive their entity. The editor previews emitters outside
+blending. **Stretch** draws them as streaks along their motion (as long as that many seconds of it: rain, sparks
+flying) instead of dots; **Lit** makes them take the scene's light (the sun, the sky's, and the point and spot
+lights of their part of the view, scattered mostly forwards; no shadows) instead of glowing: rain that shows in the
+headlights and under the lamps and is dark elsewhere. Particles stay where they were emitted and outlive their entity. The editor previews emitters outside
 Play (View > Preview particles; Inspector > Preview burst). Game code bursts an entity's emitter or emits any look
 anywhere:
 

@@ -115,6 +115,8 @@ void ParticleSystem::collect(std::vector<ParticleDraw>& out) const {
             d.color[2] = c.z;
             d.color[3] = std::clamp(e.startAlpha + (e.endAlpha - e.startAlpha) * t, 0.f, 1.f);
             d.additive = e.additive;
+            d.streak = p.velocity * std::max(e.stretch, 0.f);
+            d.lit = e.lit;
             out.push_back(d);
         }
     };

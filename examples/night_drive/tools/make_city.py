@@ -20,6 +20,7 @@ SIDEWALK = 3.5
 LAMP_EVERY = 22.0     # street lamps along each street (m)
 
 rng = random.Random(SEED)
+puddle_rng = random.Random(SEED + 1)   # (its own: the rest of the city stays as it was without puddles)
 entities = []
 next_id = [1]
 
@@ -208,6 +209,11 @@ for k in range(BLOCKS + 1):
                        meshRenderer=look("Cube", (0.3, 0.2, 0.1), emissive=(1.0, 0.55, 0.18), strength=4.0))
                 entity("Lamp light", (px + arm[0] * 1.9, 5.8, pz + arm[1] * 1.9),
                        light=point_light((1.0, 0.58, 0.25), 2.4, 14.0))
+                if puddle_rng.random() < 0.45:   # a puddle in the gutter under it: the lamp mirrored in the wet road
+                    gx, gz = px + arm[0] * 2.6, pz + arm[1] * 2.6
+                    size = (puddle_rng.uniform(2.5, 4.0), 1.0, puddle_rng.uniform(1.5, 2.5))
+                    entity("Puddle", (gx, 0.1, gz), (0, puddle_rng.uniform(0, 180), 0), size,
+                           decal={"color": [1, 1, 1], "opacity": 0.0, "roughness": -1, "wetness": 1.0, "angleFade": 0.5})
                 lamp_count += 1
             a += LAMP_EVERY
 
@@ -275,6 +281,15 @@ entity("Headlights", (0, 0.2, -2.4), rot=(-14, 0, 0), parent=taxi,
        light={"type": "spot", "color": [1.0, 0.93, 0.78], "intensity": 5.0, "range": 28.0, "spotAngle": 50.0,
               "spotSoftness": 0.8, "castShadows": True})
 entity("Tail glow", (0, 0.3, 2.6), parent=taxi, light=point_light((1.0, 0.08, 0.04), 0.6, 4.0))
+# Rain round the taxi (so wherever the camera follows it): streaks falling from a sphere above it, slanting a little
+# in the wind, lit by the lamps, the neon and the headlights (dark elsewhere: they show where there's light)
+# (seen from 100 m up: drops drawn a few centimetres wide, streaks a metre long, or they'd be under a pixel)
+entity("Rain", (0, 9, 0), rot=(172, 0, 0), parent=taxi, particles={
+    "rate": 2600, "burst": 0, "playOnStart": True, "duration": 0, "lifetime": 0.95, "lifetimeRandom": 0.15,
+    "speed": 11.0, "speedRandom": 0.15, "spread": 3, "radius": 20, "gravity": 0.0, "drag": 0.0,
+    "startSize": 0.08, "endSize": 0.08, "startColor": [0.75, 0.8, 0.9], "endColor": [0.75, 0.8, 0.9],
+    "startAlpha": 0.45, "endAlpha": 0.45, "intensity": 2.5, "additive": True, "maxParticles": 3000,
+    "stretch": 0.09, "lit": True})
 for name, (x, z) in (("Wheel FL", (-0.85, -1.45)), ("Wheel FR", (0.85, -1.45)), ("Wheel BL", (-0.85, 1.45)), ("Wheel BR", (0.85, 1.45))):
     entity(name, (x, -0.25, z), parent=taxi)
     wheel = next_id[0] - 1
@@ -305,6 +320,9 @@ scene = {
             # neon and the headlights; a filmic tone mapper and a little grading for the night look
             "volumetricFog": True, "fogDensity": 0.03, "fogHeightFalloff": 0.15, "fogLight": 3.0, "fogAnisotropy": 0.4,
             "tonemapper": "filmic", "contrast": 1.15, "saturation": 1.1, "vignette": 0.3, "shadowSoftness": 1.0,
+            # Rain: everything facing up wet (darker, glossy: the lamps and the neon in it), standing water in the
+            # hollows and the gutters' puddles, rings on it
+            "wetness": 0.85, "puddles": 0.4, "rain": 0.7,
         }
     },
 }
