@@ -354,7 +354,8 @@ TEST(net_lag_compensation) {
         sn.setLagCompensation(compensate);
         sn.simulateNetwork(0.1f, 0.f);
         cn.simulateNetwork(0.1f, 0.f);
-        for (int i = 0; i < 40; ++i) pump(server, sn, client, cn);   // (the round trip measured)
+        // (the round trip measured: until it shows the latency, whenever the first ping went out)
+        for (int i = 0; i < 40 || (i < 600 && cn.roundTrip() < 0.18f); ++i) pump(server, sn, client, cn);
         EntityId mine = cn.localPlayer();
         Vec3 me = client.context().worldPosition(mine);
         // Fire when the client sees the target right in front (its view lags the server's)
