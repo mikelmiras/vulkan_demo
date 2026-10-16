@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
 #include "fog.glsl"
+#include "screen_trace.glsl"
 #ifdef EARLY_DEPTH
 // (scene_early.frag.spv: after the depth prepass, only the pixel in front is shaded; the depth test before the
 // shader, which its texture-streaming writes would otherwise put after it)
@@ -31,8 +32,6 @@ layout(set = 0, binding = 11) uniform sampler2D probe2;
 layout(set = 0, binding = 12) uniform sampler2D probe3;
 // Dynamic GI probes (renderer_gi.cpp): per slot, position (w = 1: drawn), then nine spherical harmonics
 layout(std430, set = 0, binding = 17) readonly buffer GiProbes { vec4 giProbes[]; };
-// Screen-space reflections: the last frame's picture (rgb) and each pixel's distance along its view (a)
-layout(set = 0, binding = 18) uniform sampler2D lastFrame;
 // Texture streaming: the finest mip level each texture was wanted at this frame (texture_streaming.h)
 layout(std430, set = 0, binding = 19) buffer TextureFeedback { uint wantedLevel[]; };
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (white if none)
@@ -72,6 +71,40 @@ layout(location = 10) flat in vec4 vLayers;   // clear coat, its roughness, shee
 layout(location = 11) flat in vec4 vSurface;  // parallax depth, detail tiling, detail strength, w = 1: sheltered
 
 vec2 gUV;   // the texture coordinates the material is read at (vUV, moved by parallax occlusion)
+
+// Reflections and GI traced at half size beforehand (renderer_trace.cpp; frame.trace.x = 1): this pixel's, brought
+// up from the four half-size pixels round it, each weighed by how near its depth is to this one's (a bilateral
+// upsample: no bleeding across edges)
+layout(set = 0, binding = 31) uniform sampler2D tracedReflections;   // rgb, a = how much to trust it
+layout(set = 0, binding = 32) uniform sampler2D tracedLight;         // rgb = what the GI rays met, a = how much
+layout(set = 0, binding = 35) uniform sampler2D tracedDepth;         // r = the traced pixel's distance along the view
+bool halfTraced = false;
+vec4 tracedReflection = vec4(0.0), tracedIrradiance = vec4(0.0);
+void readTraced() {
+    vec2 size = vec2(textureSize(tracedDepth, 0));
+    vec2 hp = gl_FragCoord.xy * 0.5 - 0.5;
+    ivec2 b = ivec2(floor(hp));
+    vec2 f = hp - vec2(b);
+    float myZ = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
+    vec4 r = vec4(0.0), g = vec4(0.0);
+    float total = 0.0, nearest = 1e9;
+    vec4 nearR = vec4(0.0), nearG = vec4(0.0);
+    for (int i = 0; i < 4; ++i) {
+        ivec2 o = ivec2(i & 1, i >> 1);
+        ivec2 c = clamp(b + o, ivec2(0), ivec2(size) - 1);
+        float z = texelFetch(tracedDepth, c, 0).r;
+        float off = abs(z - myZ) / max(myZ, 0.1);
+        float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y) / (1.0 + off * off * 2500.0);
+        vec4 tr = texelFetch(tracedReflections, c, 0), tg = texelFetch(tracedLight, c, 0);
+        r += tr * w;
+        g += tg * w;
+        total += w;
+        if (off < nearest) { nearest = off; nearR = tr; nearG = tg; }
+    }
+    // (none near this depth, a thin thing: the nearest in depth)
+    tracedReflection = total > 1e-3 ? r / total : nearR;
+    tracedIrradiance = total > 1e-3 ? g / total : nearG;
+}
 
 layout(location = 0) out vec4 outColor;
 
@@ -411,117 +444,18 @@ vec3 skyEnvironment(vec3 r, float rough) {
     vec3 sharp = skyColor(r, false) * frame.ambient.rgb;
     return mix(sharp, skyIrradianceAt(r), clamp(rough * rough * 1.5, 0.0, 1.0));
 }
-// The last frame's picture's level (it's mipped) as blurred as a cone `width` metres across, `dist` metres away
-float pictureLevel(float width, float dist) {
-    float pixels = width / max(dist * 2.0 * frame.camForward.w, 1e-3) * frame.prevViewport.w;
-    return clamp(log2(max(pixels, 1.0)), 0.0, float(textureQueryLevels(lastFrame) - 1));
-}
-// Screen-space reflection: marches along r through the last frame's picture (each point placed with its camera)
-// until it passes just behind what was drawn there; rgb = what it hit (as blurred as a surface this rough spreads
-// it over the distance), a = how much to trust it (0: nothing)
-vec4 screenReflection(vec3 r, float rough) {
-    vec2 size = vec2(textureSize(lastFrame, 0));
-    vec3 start = vWorldPos + r * 0.05;
-    // A point t along the ray, in the last frame's clip space and along its view: both straight lines in t, so
-    // projected once here and stepped with additions below
-    vec4 clip0 = frame.prevViewProj * vec4(start, 1.0), clipDir = frame.prevViewProj * vec4(r, 0.0);
-    float z0 = dot(start - frame.prevCamPos.xyz, frame.prevCamForward.xyz), zDir = dot(r, frame.prevCamForward.xyz);
-    vec2 scale = frame.prevViewport.zw * 0.5 / size, offset = (frame.prevViewport.xy + frame.prevViewport.zw * 0.5) / size;
-    float t = 0.1, step = 0.12, last = 0.0;
-    const float maxDistance = 40.0;
-    // (medium quality: fewer, longer steps over the same distance, fewer to refine the hit)
-    bool fine = frame.shadowParams.z > 1.5;
-    int steps = fine ? 40 : 24, refine = fine ? 5 : 3;
-    float grow = fine ? 1.12 : 1.21;
-    for (int i = 0; i < steps && t < maxDistance; ++i) {
-        vec4 clip = clip0 + clipDir * t;
-        if (clip.w <= 1e-4) break;
-        vec2 ndc = clip.xy / clip.w;
-        if (abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0) break;   // (off the picture)
-        vec2 uv = ndc * scale + offset;
-        float sceneZ = textureLod(lastFrame, uv, 0.0).a;
-        float rayZ = z0 + zDir * t;
-        // (behind it by less than a step, or a little more: thin things aren't missed between two samples)
-        if (rayZ > sceneZ && rayZ < sceneZ + max(0.25 + t * 0.04, step * 1.5)) {
-            float lo = last, hi = t;   // (the crossing, closer)
-            for (int k = 0; k < refine; ++k) {
-                float mid = 0.5 * (lo + hi);
-                vec4 c = clip0 + clipDir * mid;
-                if (c.w <= 1e-4) break;   // (behind the last frame's camera: no point on its picture)
-                vec2 u = c.xy / c.w * scale + offset;
-                if (z0 + zDir * mid > textureLod(lastFrame, u, 0.0).a) hi = mid;
-                else lo = mid;
-                uv = u;
-            }
-            vec2 edge = smoothstep(vec2(1.0), vec2(0.85), abs(ndc));   // (fades out at the picture's edges)
-            vec3 seen = textureLod(lastFrame, uv, pictureLevel(t * rough * rough * 1.6, max(rayZ, 0.1))).rgb;
-            if (any(isnan(seen)) || any(isinf(seen))) return vec4(0.0);
-            return vec4(min(seen, vec3(64.0)), edge.x * edge.y * (1.0 - t / maxDistance));
-        }
-        last = t;
-        t += step;
-        step *= grow;
-    }
-    return vec4(0.0);
-}
-
 vec3 environment(vec3 r, float rough) {
     float w;
     int p = probeAt(w);
     vec3 sky = skyEnvironment(r, rough);
     vec3 env = p < 0 ? sky : mix(sky, probeReflection(p, r, rough) * frame.ambient.rgb, w);
     if (frame.prevCamPos.w > 0.5 && rough < 0.8) {   // smooth enough: what's on screen, where the ray finds it
-        vec4 s = screenReflection(normalize(r), rough);   // (rougher: blurrier, and handing over to the probes)
+        // (traced at half size beforehand for opaque surfaces, else here; rougher: blurrier, handing over to the
+        // probes)
+        vec4 s = halfTraced ? tracedReflection : traceReflection(vWorldPos, normalize(r), rough, gl_FragCoord.xy);
         env = mix(env, s.rgb, s.a * smoothstep(0.8, 0.3, rough));
     }
     return env;
-}
-
-// Screen-space global illumination: a few short rays over the hemisphere around n (cosine-weighted, turned per
-// pixel and, with temporal AA, every frame: it averages them), marched through the last frame's picture. What they
-// meet lights this point (read two levels down: blurred, less noise); where they meet nothing, `fallback` (the
-// probes' and the sky's light) does. The picture holds last frame's bounces too: light bounces again each frame.
-vec3 screenIrradiance(vec3 n, vec3 fallback) {
-    bool fine = frame.shadowParams.z > 1.5;
-    int rays = fine ? 2 : 1, steps = fine ? 8 : 6;   // (few: temporal AA turns them every frame and averages)
-    float grow = fine ? 1.4 : 1.55;
-    const float maxDistance = 4.0;
-    vec2 size = vec2(textureSize(lastFrame, 0));
-    vec2 scale = frame.prevViewport.zw * 0.5 / size, offset = (frame.prevViewport.xy + frame.prevViewport.zw * 0.5) / size;
-    float spin = frame.shadowParams.y > 0.5 ? mod(frame.time.y, 64.0) * 5.588 : 0.0;
-    float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy + spin, vec2(0.06711056, 0.00583715))));
-    vec3 t1 = normalize(cross(n, abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))), t2 = cross(n, t1);
-    vec3 start = vWorldPos + n * 0.05;
-    vec4 clip0 = frame.prevViewProj * vec4(start, 1.0);
-    float z0 = dot(start - frame.prevCamPos.xyz, frame.prevCamForward.xyz);
-    vec3 sum = vec3(0.0);
-    for (int i = 0; i < rays; ++i) {
-        float u = fract(noise + float(i) / float(rays)), phi = (float(i) + noise) * 2.39996 * 2.0 + noise * 6.2832;
-        vec3 d = normalize(t1 * (cos(phi) * sqrt(u)) + t2 * (sin(phi) * sqrt(u)) + n * sqrt(1.0 - u));
-        vec4 clipDir = frame.prevViewProj * vec4(d, 0.0);
-        float zDir = dot(d, frame.prevCamForward.xyz);
-        float t = 0.08 + 0.1 * noise, step = 0.12;
-        vec4 hit = vec4(0.0);
-        for (int k = 0; k < steps && t < maxDistance; ++k) {
-            vec4 clip = clip0 + clipDir * t;
-            if (clip.w <= 1e-4) break;
-            vec2 ndc = clip.xy / clip.w;
-            if (abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0) break;
-            vec2 uv = ndc * scale + offset;
-            float sceneZ = textureLod(lastFrame, uv, 1.0).a, rayZ = z0 + zDir * t;   // (half size: enough, and quicker)
-            if (rayZ > sceneZ && rayZ < sceneZ + 0.3 + t * 0.15) {
-                vec2 edge = smoothstep(vec2(1.0), vec2(0.8), abs(ndc));
-                vec3 seen = textureLod(lastFrame, uv, 2.0).rgb;
-                if (!any(isnan(seen)) && !any(isinf(seen)))
-                    hit = vec4(min(seen, vec3(16.0)), edge.x * edge.y * (1.0 - t / maxDistance));
-                break;
-            }
-            t += step;
-            step *= grow;
-        }
-        sum += mix(fallback, hit.rgb, hit.a * frame.prevCamForward.w);
-    }
-    return sum / float(rays);
 }
 
 // The volumetric fog in front of a point at `depth` along the view: the four cell columns around it, bilinearly, each
@@ -848,6 +782,8 @@ void main() {
     }
     vec3 V = normalize(frame.camPos.xyz - vWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
+    halfTraced = frame.trace.x > 0.5 && alphaMode != 2 && !water;   // (see-through things and water: traced here)
+    if (halfTraced) readTraced();
 
     // The surface: its layers (Instance.layers), and the energy the single-bounce specular misses (Fdez-Aguera's
     // multiple-scattering compensation: rough metals keep their brightness)
@@ -885,8 +821,12 @@ void main() {
     // Ambient: hemisphere light, diffuse plus a reflection of it (so metals aren't black in the shade)
     vec3 f0 = s.f0;
     vec3 diffuseLight = irradiance(N);
-    if (frame.prevCamForward.w > 0.0 && alphaMode != 2 && !water)   // (light bounced off what's on screen nearby)
-        diffuseLight = screenIrradiance(N, diffuseLight);
+    if (frame.prevCamForward.w > 0.0 && alphaMode != 2 && !water) {   // (light bounced off what's on screen nearby)
+        bool fine = frame.shadowParams.z > 1.5;
+        float spin = frame.shadowParams.y > 0.5 ? mod(frame.time.y, 64.0) * 5.588 : 0.0;
+        vec4 g = halfTraced ? tracedIrradiance : traceIrradiance(vWorldPos, N, gl_FragCoord.xy, fine ? 2 : 1, fine ? 8 : 6, spin);
+        diffuseLight = mix(diffuseLight, g.rgb, g.a * frame.prevCamForward.w);
+    }
     vec3 color = base * (1.0 - metallic) * diffuseLight + (f0 * dfg.x + dfg.y) * s.energy * environment(R, rough);
     if (s.sheen > 0.0)   // (cloth's rim of light from all around)
         color = color * (1.0 - 0.25 * s.sheen) + s.sheenColor * irradiance(N) * (0.05 + 0.6 * pow(1.0 - NdotV, 4.0));

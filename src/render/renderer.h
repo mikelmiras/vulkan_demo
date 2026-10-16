@@ -282,6 +282,7 @@ private:
         uint32_t attributeMask = 0;      // which of position / normal / uv (bits 0-2) instead (0: vertexAttributes)
         bool noColor = false;            // the scene's depth (and stencil) only: the depth prepass's own rendering
         VkFormat colorFormat = VK_FORMAT_UNDEFINED;   // (the colour attachment's, if not the HDR image's)
+        VkFormat colorFormat2 = VK_FORMAT_UNDEFINED;  // a second one's (the prepass's outputs)
     };
 
     void createInstance();
@@ -805,6 +806,19 @@ private:
     uint64_t motionFrame_ = 0;
     bool velocityDrawn_ = false;     // this frame's prepass wrote them (the temporal pass reads them)
     void prepareMotion(const SceneRenderInfo& info);
+    // Reflections and GI traced at half size (renderer_trace.cpp): without MSAA the prepass also writes each pixel's
+    // surface (gbuffer_: normal, roughness), and before the lit pass ssr_trace.frag / gi_trace.frag trace one pixel
+    // of each 2 x 2 block (a different one each frame) into traced_ / tracedLight_ (two each: this frame's, set 0
+    // bindings 31 / 32, and last frame's, its history, 33 / 34, by frame_), with the traced pixel's distance
+    // (tracedDepth_, 35) for scene.frag's upsample; set 0 binding 29 the depth, 30 the surface, 36 the motion
+    Image gbuffer_, traced_[2], tracedLight_[2], tracedDepth_;
+    VkPipeline ssrTracePipeline_ = VK_NULL_HANDLE, giTracePipeline_ = VK_NULL_HANDLE;
+    bool traceOn_ = false;           // this frame's main view traces at half size
+    bool traceHistory_ = false;      // last frame did (its results are this frame's history)
+    uint32_t traceIndex_ = 0;
+    void createTraceImages();
+    void writeTraceBindings();
+    void recordTrace(VkCommandBuffer cb, const SceneRenderInfo& scene);
     bool refractionFresh_ = false;
     bool refractOn_ = false;        // this frame's main view does it
     void writeRefractionBinding();
@@ -871,6 +885,8 @@ private:
     VkDescriptorSet prefilterSet_ = VK_NULL_HANDLE, compositeSet_ = VK_NULL_HANDLE;
     VkDescriptorSet downSets_[kMaxBloomMips] = {}, upSets_[kMaxBloomMips] = {};
     VkPipeline bloomDownPipeline_ = VK_NULL_HANDLE, bloomUpPipeline_ = VK_NULL_HANDLE, compositePipeline_ = VK_NULL_HANDLE;
+    VkPipeline createPostPipeline(const char* fragShader, VkFormat format, bool additive, VkPipelineLayout layout,
+                                  VkFormat format2);
     VkPipeline createPostPipeline(const char* fragShader, VkFormat format, bool additive,
                                   VkPipelineLayout layout = VK_NULL_HANDLE);   // (null: postLayout_)
     void createPostImages();    // window-sized: made again when the swapchain is

@@ -38,7 +38,8 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/hiz_depth.comp shaders/hiz_depth_ms.comp shaders/hiz_reduce.comp shaders/foliage.vert
                    shaders/gi_project.comp shaders/ssr_capture.frag shaders/ssr_capture_ms.frag shaders/depth_prepass.frag
                    shaders/fog_inject.comp shaders/fog_integrate.comp shaders/fog_surface.comp shaders/luminance.frag
-                   shaders/adapt.frag shaders/sky_transmittance.frag shaders/sky_view.frag)
+                   shaders/adapt.frag shaders/sky_transmittance.frag shaders/sky_view.frag
+                   shaders/ssr_trace.frag shaders/gi_trace.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -50,6 +51,7 @@ foreach(src ${SHADER_SOURCES})
     DEPENDS ${CMAKE_SOURCE_DIR}/${src} ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/ssao.glsl ${CMAKE_SOURCE_DIR}/shaders/ssr_capture.glsl
             ${CMAKE_SOURCE_DIR}/shaders/hiz.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
             ${CMAKE_SOURCE_DIR}/shaders/water.glsl ${CMAKE_SOURCE_DIR}/shaders/atmosphere.glsl
+            ${CMAKE_SOURCE_DIR}/shaders/screen_trace.glsl ${CMAKE_SOURCE_DIR}/shaders/trace_common.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
@@ -69,6 +71,7 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
   COMMAND ${GLSLC} -DEARLY_DEPTH ${CMAKE_SOURCE_DIR}/shaders/scene.frag -o ${out}
   DEPENDS ${CMAKE_SOURCE_DIR}/shaders/scene.frag ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
+          ${CMAKE_SOURCE_DIR}/shaders/screen_trace.glsl ${CMAKE_SOURCE_DIR}/shaders/water.glsl
   COMMENT "Compiling scene_early.frag")
 list(APPEND SPIRV_OUTPUTS ${out})
 # The depth prepass writing motion vectors too (temporal AA)
@@ -224,6 +227,7 @@ set(ENGINE_SOURCES
   src/render/decals.cpp
   src/render/renderer_sky.cpp
   src/render/renderer_decals.cpp
+  src/render/renderer_trace.cpp
   src/assets/mesh_lod.cpp
   src/assets/retarget.cpp
   src/render/renderer_lights.cpp

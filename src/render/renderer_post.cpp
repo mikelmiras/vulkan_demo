@@ -10,6 +10,12 @@
 using namespace render_detail;
 
 VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format, bool additive, VkPipelineLayout layout) {
+    return createPostPipeline(fragShader, format, additive, layout, VK_FORMAT_UNDEFINED);
+}
+
+// (format2: a second colour attachment, written alike)
+VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format, bool additive, VkPipelineLayout layout,
+                                        VkFormat format2) {
     VkShaderModule vs = loadShader("post.vert.spv"), fs = loadShader(fragShader);
     VkPipelineShaderStageCreateInfo stages[2] = {
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
@@ -38,16 +44,19 @@ VkPipeline Renderer::createPostPipeline(const char* fragShader, VkFormat format,
         cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         cba.alphaBlendOp = VK_BLEND_OP_ADD;
     }
+    const uint32_t colours = format2 != VK_FORMAT_UNDEFINED ? 2 : 1;
+    VkPipelineColorBlendAttachmentState cbas[2] = {cba, cba};
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
-    cb.pAttachments = &cba;
+    cb.attachmentCount = colours;
+    cb.pAttachments = cbas;
     VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dy.dynamicStateCount = 2;
     dy.pDynamicStates = dyn;
     VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rci.colorAttachmentCount = 1;
-    rci.pColorAttachmentFormats = &format;
+    const VkFormat formats[2] = {format, format2};
+    rci.colorAttachmentCount = colours;
+    rci.pColorAttachmentFormats = formats;
     VkGraphicsPipelineCreateInfo ci{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     ci.pNext = &rci;
     ci.stageCount = 2;
@@ -130,6 +139,7 @@ void Renderer::createPostImages() {
     velocity_ = createImage(VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                             VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
     velocityFresh_ = true;
+    createTraceImages();
     if (aa_ == Antialiasing::Temporal || upscaling()) createTaaImages(taa_);   // (temporal AA's, or the upscaler's)
     // Auto-exposure: the luminance (its mips: blits) and the exposure, now and last frame's; the composite reads
     // them (bindings 4, 5: something valid even without, the formats the shaders expect)
@@ -272,6 +282,8 @@ void Renderer::writeSsrBinding() {
 void Renderer::destroyPostImages() {
     if (refraction_.image) destroyImage(refraction_);
     if (velocity_.image) destroyImage(velocity_);
+    for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_})
+        if (img->image) destroyImage(*img);
     if (prevMip0_) vkDestroyImageView(device_, prevMip0_, nullptr);
     prevMip0_ = VK_NULL_HANDLE;
     if (prevColor_.image) destroyImage(prevColor_);

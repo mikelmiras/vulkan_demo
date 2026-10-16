@@ -1574,7 +1574,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 |---|------|-----|
 | 89 (done) | Motion vectors: a velocity per pixel from each object's last-frame transform (and skinning, and the waves), for temporal AA and the temporal effects (SSGI, fog's history, upscaling) instead of reprojecting by depth alone | Moving things (the taxi, animated characters, water) smear and ghost under temporal AA: their history is looked up where the static world was |
 | 90 (done) | Clustered decals: decals binned into the light clusters (each pixel tests only the decals of its cluster), decal normal maps (cracks, tyre tracks, manhole covers), more than 64 | Every pixel tests every decal drawn; flat decals look painted on |
-| 91 | Half-resolution effects: screen-space reflections, SSGI and ambient occlusion traced at half size and brought up with a depth-aware (bilateral) upsample, temporally accumulated | Round 8's screen-space effects run per pixel in the lit shader; on a 1050 Ti at 1080p they're most of the frame |
+| 91 (done) | Half-resolution effects: screen-space reflections, SSGI and ambient occlusion traced at half size and brought up with a depth-aware (bilateral) upsample, temporally accumulated | Round 8's screen-space effects run per pixel in the lit shader; on a 1050 Ti at 1080p they're most of the frame |
 | 92 | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
 | 93 | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
 | 94 | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
@@ -1610,4 +1610,21 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   with 300 dirt decals, a normal-only crack patch and a textured plate with a normal map under validation with sync
   checks (TAA, MSAA, the editor, Night Drive). Lavapipe: that scene's lit pass 222 ms without its decals, 237 with
   256 of them. Not done: decals on see-through things, decal angle fade by the bent normal, emissive decals.
+- **91, half-size traces**: the rays moved into shaders/screen_trace.glsl (traceReflection, traceIrradiance: the
+  latter now returns what the rays met and how much, the fallback mixed in by the caller), shared by scene.frag
+  and two new passes. Without MSAA the prepass's velocity variant also writes gbuffer_ (RGBA16F: octahedral
+  geometric normal, roughness from the metal / rough map, w = 1 drawn; PipelineDesc::colorFormat2 for the second
+  attachment). renderer_trace.cpp, after the prepass and fog: ssr_trace.frag (into traced_[frame_] and the traced
+  pixel's distance, tracedDepth_, two attachments) and gi_trace.frag (tracedLight_[frame_]; 4 rays of 10 steps at
+  high, 2 of 7 at medium), each half-size pixel taking one of its 2 x 2 pixels by frame (trace.z), the point
+  rebuilt from the depth with invViewProj, blended with last frame's results (the other image of each pair: frames
+  take turns, set 0 bindings 31-34 by frame_) found by the motion vectors, kept where last frame's picture's distance
+  there matches the point's from last frame's camera (75% reflections, 85% GI). scene.frag reads them with a
+  4-tap bilateral upsample (bilinear weights times 1 / (1 + 2500 * relative depth difference^2), the nearest by
+  depth when none is close) for opaque surfaces; MSAA, a render scale under 1, see-through things and water trace
+  per pixel as before. Set 0 bindings 29-36. Checked under validation with sync checks: TAA, no AA, MSAA, render
+  scale 0.7, the editor, Night Drive, the water pool. Lavapipe, the demo scene with both on (TAA, high): the lit
+  pass 375 -> 254 ms plus 74 for the traces; Night Drive's frame 1293 -> 1180 (lit pass 870 -> 647, prepass 35 ->
+  64, traces 73). Not done: ambient occlusion's history (it's half size already, without one), the traces with
+  MSAA (a multisampled G-buffer) or under a render scale, rough reflections sampled by GGX rather than blurred.
 

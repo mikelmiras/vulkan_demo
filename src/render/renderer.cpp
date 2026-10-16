@@ -673,9 +673,11 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
         cba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         cba.alphaBlendOp = VK_BLEND_OP_ADD;
     }
+    const uint32_t colours = colorless ? 0 : d.colorFormat2 != VK_FORMAT_UNDEFINED ? 2 : 1;
+    VkPipelineColorBlendAttachmentState cbas[2] = {cba, cba};
     VkPipelineColorBlendStateCreateInfo cb{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = colorless ? 0 : 1;
-    cb.pAttachments = &cba;
+    cb.attachmentCount = colours;
+    cb.pAttachments = cbas;
 
     VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dy{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
@@ -683,8 +685,9 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
     dy.pDynamicStates = dyn;
 
     VkPipelineRenderingCreateInfo rci{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    rci.colorAttachmentCount = colorless ? 0 : 1;
-    rci.pColorAttachmentFormats = d.colorFormat != VK_FORMAT_UNDEFINED ? &d.colorFormat : &hdrFormat_;   // (the scene: HDR)
+    const VkFormat formats[2] = {d.colorFormat != VK_FORMAT_UNDEFINED ? d.colorFormat : hdrFormat_, d.colorFormat2};
+    rci.colorAttachmentCount = colours;
+    rci.pColorAttachmentFormats = formats;   // (the scene: the HDR image)
     rci.depthAttachmentFormat = depthOnly ? shadowFormat_ : depthFormat_;
     rci.stencilAttachmentFormat = depthOnly ? VK_FORMAT_UNDEFINED : depthFormat_;
 
@@ -712,7 +715,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[29] = {
+    VkDescriptorSetLayoutBinding frameBindings[37] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -742,9 +745,19 @@ void Renderer::createPipelines() {
         {26, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // water's refraction
         {27, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // decals' clusters
         {28, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kDecalNormals, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... normal maps
+        // The half-size traces (renderer_trace.cpp): the depth, the surface, this frame's results, last frame's, the
+        // traced pixels' distances, the motion
+        {29, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {30, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {31, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {32, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {33, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {34, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {35, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+        {36, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 29;
+    dslci.bindingCount = 37;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
@@ -799,6 +812,10 @@ void Renderer::createPipelines() {
     taaUpscalePipeline_ = createPostPipeline("taa_upscale.frag.spv", hdrFormat_, false, taaLayout_);
     bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
     lumPipeline_ = createPostPipeline("luminance.frag.spv", VK_FORMAT_R16_SFLOAT, false);
+    // (the half-size traces: the scene's frame data, set 0; renderer_trace.cpp)
+    ssrTracePipeline_ = createPostPipeline("ssr_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_,
+                                           VK_FORMAT_R32_SFLOAT);
+    giTracePipeline_ = createPostPipeline("gi_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
     adaptPipeline_ = createPostPipeline("adapt.frag.spv", VK_FORMAT_R32_SFLOAT, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
@@ -830,6 +847,7 @@ void Renderer::createSampledPipelines() {
         depth.noColor = false;
         depth.colorWrite = true;
         depth.colorFormat = VK_FORMAT_R16G16_SFLOAT;
+        depth.colorFormat2 = VK_FORMAT_R16G16B16A16_SFLOAT;   // (and the surface, for the half-size traces)
         prepassFoliageVelocityPipeline_ = createPipeline(depth);
         depth.vertShader = "scene.vert.spv";
         depth.cull = VK_CULL_MODE_BACK_BIT;
@@ -1101,7 +1119,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (16 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (24 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1239,6 +1257,7 @@ void Renderer::createResources(const MeshLibrary&) {
     createGi();
     writeSsrBinding();
     writeRefractionBinding();
+    writeTraceBindings();
     // Texture streaming: on unless VKWORLD_TEXTURE_STREAMING=0; the budget from VKWORLD_TEXTURE_BUDGET (MB)
     if (const char* v = std::getenv("VKWORLD_TEXTURE_STREAMING"); v && std::strcmp(v, "0") == 0) streaming_ = false;
     if (!streamingSupported_) streaming_ = false;
@@ -1333,9 +1352,11 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         lumFresh_ = false;
     }
-    if (velocityFresh_ && velocity_.image) {   // (motion vectors' image, just made: readable from now)
-        mipBarrier(cb, velocity_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    if (velocityFresh_ && velocity_.image) {   // (the prepass's outputs and the traces', just made: readable from now)
+        for (VkImage image : {velocity_.image, gbuffer_.image, traced_[0].image, traced_[1].image, tracedLight_[0].image,
+                              tracedLight_[1].image, tracedDepth_.image})
+            mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                       VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         velocityFresh_ = false;
     }
     if (refractionFresh_ && refraction_.image) {   // (water's refraction picture, just made: readable from now)
@@ -1431,6 +1452,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
         timestamp(cb, "Volumetric fog");
     }
+    if (prepassed) recordTrace(cb, scene);   // (reflections and GI at half size: renderer_trace.cpp)
 
     // ---- Pass 1: 3D scene (MSAA, resolved into the HDR image)
     Vec3 sky = srgbToLinear(info.sky);
@@ -1723,7 +1745,7 @@ void Renderer::recordPrepass(VkCommandBuffer cb, const SceneRenderInfo& info, co
     ri.pStencilAttachment = &depthAtt;
     // With temporal AA, each pixel's motion too (where nothing's drawn: kNoVelocity, so the history is found by
     // the depth: the sky)
-    VkRenderingAttachmentInfo velocity{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    VkRenderingAttachmentInfo velocity{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}, outputs[2];
     const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     if (velocityOn_) {
         mipBarrier(cb, velocity_.image, 0, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -1733,8 +1755,14 @@ void Renderer::recordPrepass(VkCommandBuffer cb, const SceneRenderInfo& info, co
         velocity.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         velocity.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         velocity.clearValue.color = {{kNoVelocity, 0.f, 0.f, 0.f}};
-        ri.colorAttachmentCount = 1;
-        ri.pColorAttachments = &velocity;
+        mipBarrier(cb, gbuffer_.image, 0, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        outputs[0] = velocity;
+        outputs[1] = velocity;
+        outputs[1].imageView = gbuffer_.view;
+        outputs[1].clearValue.color = {{0.f, 0.f, 0.f, 0.f}};   // (w = 0: nothing drawn)
+        ri.colorAttachmentCount = 2;
+        ri.pColorAttachments = outputs;
     }
     vkCmdBeginRendering(cb, &ri);
     VkViewport viewport{(float)area.offset.x, (float)area.offset.y, (float)area.extent.width, (float)area.extent.height, 0.f, 1.f};
@@ -1743,9 +1771,10 @@ void Renderer::recordPrepass(VkCommandBuffer cb, const SceneRenderInfo& info, co
     drawOpaque(cb, info, batches, culled, true);
     vkCmdEndRendering(cb);
     if (velocityOn_)
-        mipBarrier(cb, velocity_.image, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                   colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                   VK_ACCESS_SHADER_READ_BIT);
+        for (VkImage image : {velocity_.image, gbuffer_.image})
+            mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                       colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                       VK_ACCESS_SHADER_READ_BIT);
 }
 
 
@@ -1848,7 +1877,15 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         u.waterInfo[1] = (float)boxes;
     }
     if (shadows) {   // motion vectors: the camera now and last frame, unjittered (the prepass writes them with temporal AA)
-        velocityOn_ = aa_ == Antialiasing::Temporal && prepass_ && info.items && prepassVelocityPipeline_ && velocity_.image;
+        // (half-size traces: no MSAA, the prepass, a depth to read, last frame's picture, full size)
+        const bool traceWanted = captureOn(info) && aoSupported_ && ssrTracePipeline_ && ssrValid_ && scaleNow_ >= 0.999f;
+        velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted) && prepass_ && info.items && prepassVelocityPipeline_ &&
+                      velocity_.image;
+        traceOn_ = traceWanted && velocityOn_;
+        u.trace[0] = traceOn_ ? 1.f : 0.f;
+        u.trace[1] = traceOn_ && traceHistory_ ? 1.f : 0.f;
+        u.trace[2] = (float)(traceIndex_++ % 4);
+        traceHistory_ = traceOn_;
         u.motionViewProj = info.viewProj;
         u.motionPrevViewProj = motionPrevValid_ ? motionPrevViewProj_ : info.viewProj;
         u.motion[0] = std::clamp(info.frameSeconds, 0.f, 0.25f);
@@ -2061,6 +2098,7 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
             std::memcpy(static_cast<uint8_t*>(ubo_[frame_].mapped) + uboStride_ * (1 + v), &viewUbos[v], sizeof(FrameUBO));
         }
     }
+    u.invViewProj = inverse(u.viewProj);   // (jittered, as drawn: the half-size traces find points by the depth)
     std::memcpy(ubo_[frame_].mapped, &u, sizeof(u));
     {
         PROFILE_SCOPE("Instances");
@@ -2119,7 +2157,7 @@ void Renderer::shutdown() {
     destroySampledPipelines();
     for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
                          compositeViewPipeline_,
-                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_})
+                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, taaLayout_, nullptr);
     destroyPostImages();

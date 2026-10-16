@@ -85,6 +85,9 @@ struct FrameUBO {
     Mat4 motionViewProj;
     Mat4 motionPrevViewProj;
     float motion[4];
+    // Reflections and GI traced at half size (renderer_trace.cpp)
+    Mat4 invViewProj;         // this frame's clip space (jittered) back to the world
+    float trace[4];           // x = 1: traced this frame, y = 1: their history is good, z = the 2 x 2 block's pixel
 };
 
 // A decal (set 0, binding 24): render/decals.h picks them

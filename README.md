@@ -500,8 +500,12 @@ dropping on the right.
   and an emissive sign lights its surroundings. Each pixel marches one or two short rays (up to 4 m) over its
   hemisphere through the last frame's picture; what they meet (blurred) lights it, and where they meet nothing the
   probes' and the sky's light does. The picture holds last frame's bounces, so light keeps bouncing frame after
-  frame. The rays turn every frame with temporal AA, which averages them; with MSAA or no AA they stay put (a fine,
-  steady dither). About 40% on top of the lit pass at high quality, less at medium (one ray), off at low.
+  frame. Without MSAA (temporal AA or none) reflections and GI are traced at **half size** before the lit pass: the
+  depth prepass also writes each pixel's normal and roughness, each half-size pixel traces one of its four pixels
+  (a different one each frame, more GI rays than per pixel) and keeps a history of the others (followed by the
+  motion vectors, dropped where the depth changed), and the lit pass brings them up to full size with a depth-aware
+  filter. With MSAA, a render scale under 1, and on see-through surfaces and water they're traced per pixel in
+  the lit pass (the rays turning every frame with temporal AA; a fine, steady dither with MSAA). Off at low quality.
 - **HDR output** (View > HDR output, `VKWORLD_HDR=1`, or a game's `settings.hdr`): on a display (and driver) that
   takes it, the picture goes out as HDR10 (PQ, Rec.2020 primaries; else scRGB): highlights keep their brightness up
   to the display's peak instead of rolling off at white, and the UI sits at paper white (`VKWORLD_HDR_PAPER_WHITE`,
