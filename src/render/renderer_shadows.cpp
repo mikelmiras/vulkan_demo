@@ -74,6 +74,7 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
     uint64_t layers = 0;
     shadowLayer.assign(lights.size(), -1);
     shadowSunDir_ = sunDir;
+    for (auto& lamp : shadowLamp_) lamp[3] = 0.f;   // (set below for the layers lamps get)
     // ---- The sun (render/shadow_cascades.h)
     float extent[kCascades][2] = {};
     auto cascades = [&](const SceneRenderInfo& v, float texels, Mat4* vps, float* splits) {
@@ -169,6 +170,8 @@ uint64_t Renderer::computeShadows(const SceneRenderInfo& info, Vec3 sunDir, bool
         const LightInfo* l = lights[w.light];
         shadowLayer[w.light] = (int)next;
         for (uint32_t f = 0; f < w.faces; ++f, ++next) {
+            shadowLamp_[next][0] = l->position.x, shadowLamp_[next][1] = l->position.y, shadowLamp_[next][2] = l->position.z;
+            shadowLamp_[next][3] = std::max(l->range, 0.2f);
             const AtlasTile& t = tiles[w.first + f];
             shadowTiles_[next] = {(uint32_t)t.x, (uint32_t)t.y, (uint32_t)t.size};
             u.shadowRect[next][0] = (float)t.x * inv;

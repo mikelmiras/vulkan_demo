@@ -101,3 +101,23 @@ TEST(shadow_casters_culled_by_the_view) {
     // A big caster reaching into view from outside it
     CHECK(casts(overhead, 0.f, side, 6.f));
 }
+
+TEST(shadow_casters_culled_by_the_view_for_lamps) {
+    // The same camera (origin, looking down -z); a lamp up high in front of it reaching 20 m
+    shadows::Camera cam{{0, 0, 0}, {0, 0, -1}, 60.f * DEG2RAD, 16.f / 9.f};
+    const Vec3 lamp{0, 6, -10};
+    auto casts = [&](Vec3 c, float r = 0.5f) { return shadows::castsIntoViewFrom(cam, 0.1f, 100.f, 0.05f, lamp, 20.f, c, r); };
+    CHECK(casts({0, 2, -10}));            // under it, in view: its shadow on the ground there
+    CHECK(!casts({0, 3, 12}));            // behind the camera: its shadow thrown further back
+    CHECK(!casts({0, 6, -40}));           // past the lamp's reach: unlit, no shadow
+    CHECK(casts({0, 6, -10.2f}, 0.5f));   // round the lamp itself
+    // Out of view to the side but its shadow thrown into it (the lamp off to the side, the caster between)
+    shadows::Camera side{{0, 0, 0}, {0, 0, -1}, 60.f * DEG2RAD, 16.f / 9.f};
+    CHECK(shadows::castsIntoViewFrom(side, 0.1f, 100.f, 0.05f, {30, 2, -15}, 40.f, {22, 2, -15}, 0.5f));
+    // The receivers' box: a shadow landing beside what's visible (off the box) doesn't count
+    shadows::Box seen{{-5, -1, -15}, {5, 3, -5}};
+    CHECK(shadows::castsIntoViewFrom(cam, 0.1f, 100.f, 0.05f, lamp, 20.f, {0, 2, -10}, 0.5f, seen));
+    CHECK(!shadows::castsIntoViewFrom(cam, 0.1f, 100.f, 0.05f, {30, 6, -60}, 20.f, {30, 2, -60}, 0.5f, seen));
+    CHECK(!shadows::castsIntoView(cam, 0.1f, 100.f, 0.05f, {0, -1, 0}, 0.f, {40, 1, -50}, 0.5f, seen));
+    CHECK(shadows::castsIntoView(cam, 0.1f, 100.f, 0.05f, {0, -1, 0}, 0.f, {0, 1, -10}, 0.5f, seen));
+}

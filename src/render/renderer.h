@@ -623,6 +623,8 @@ private:
     bool leanShading_ = true;                    // materials without layers drawn with the lean lit pass (VKWORLD_LEAN_SHADING=0: all layered)
     bool casterCulling_ = true;                  // the sun's casters only if their shadows reach the view (VKWORLD_SHADOW_CULL=0: all)
     float viewFloor_ = -1e9f;                    // the lowest thing in the scene (fitViewDepth; shadows below land on nothing)
+    Vec3 viewLo_{-1e9f, -1e9f, -1e9f}, viewHi_{1e9f, 1e9f, 1e9f};   // round what's visible (fitViewDepth: the receivers)
+    float shadowLamp_[kShadowLayers][4] = {};    // each atlas layer's light: where, w = its range (0: not a lamp's)
     Vec3 shadowSunDir_{0, -1, 0};                // this frame's sun, as it shines (computeShadows)
     void fitViewDepth(const SceneRenderInfo& info);
     // Decals (renderer_decals.cpp): the nearest, a buffer per frame (binding 24), their textures (binding 25)

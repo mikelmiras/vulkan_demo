@@ -480,9 +480,11 @@ dropping on the right.
   rather than at the camera (`VKWORLD_SHADOW_FIT=0`: from the camera), so an overhead camera's four cascades all
   fall on the ground it sees, and the shadow distance counts from there. Their **casters are culled by the view**:
   a caster is drawn into the sun's maps only if its shadow (its bounds swept along the sunlight, down to the lowest
-  thing in the scene) can land in view; the far cascades, drawn every few frames, use a wider view for what the
-  camera turns to meanwhile, and draw their casters a level of detail coarser (`VKWORLD_SHADOW_CULL=0`: every caster
-  in a cascade's box, at the camera's level). The editor's stats count the casters skipped. In **volumetric fog**, spot and point lights' shadows cut their beams and halos too
+  thing in the scene) can land in view, and on the box round what's visible; the far cascades, drawn every few
+  frames, use a wider view for what the camera turns to meanwhile, and draw their casters a level of detail coarser.
+  A spot or point light that moved (a headlight) culls its casters the same way (their shadows, cones away from it,
+  must reach the view); a still one's map is cached with all of them (`VKWORLD_SHADOW_CULL=0`: every caster in a
+  shadow camera's view, at the camera's level). The editor's stats count the casters skipped. In **volumetric fog**, spot and point lights' shadows cut their beams and halos too
   (headlights stop at the wall they light).
   Cut-outs cast shadows with their holes. **Coloured shadows**: in the sun, see-through materials under 75% opaque
   (glass, a stained window) and thin translucent ones (translucency 0.5 and over: paper, a curtain) don't block its

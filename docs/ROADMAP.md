@@ -1865,7 +1865,7 @@ traffic lights.
 | 111 (done) | Depth of field's near field and the sky's motion: a pre-pass of each tile's largest near circle so a blurred foreground spreads over a sharp background; the camera's own motion for the sky in motion blur | A blurred foreground has crisp edges; the sky never smears when the camera turns |
 | 112 (done) | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
 | 113 (done) | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
-| 114 | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
+| 114 (done) | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
 | 115 | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
 | 116 | Light shafts from lamps (the brightest few in view, without volumetric fog) and from the sun through occluders off screen (its shadow map marched in the half-size pass) | Shafts come only from the sun, and only from what's on screen |
 | 117 | Sharper temporal AA: motion vectors dilated to the nearest depth, variance clipping of the history, a contrast-adaptive sharpening pass after it (and after the upscaler) | TAA softens the picture and ghosts behind thin moving things |
@@ -1941,4 +1941,16 @@ traffic lights.
   at 8, again 9-15, ...; under validation with sync checks, MSAA too; Night Drive, the editor. Not done: the faces
   in the frame's own command buffer (each still waits for its own one-time submission: a short wait a frame, not
   the whole bake), first bakes spread the same way.
+- **114, lamps' casters culled by the view, the sun's receivers' bounds**: shadow_cascades.cpp's capsuleInView (the
+  capsule's radius may grow along it; a box test first) under castsIntoView (the sun's, as task 105's) and a new
+  castsIntoViewFrom (tested): a caster's shadow from a spot or point light is a cone from it away from the light to
+  the light's range (its width there: radius * (range) / (distance - radius)); out of reach, none; round the light,
+  always. Both take an optional receivers' box: fitViewDepth now also keeps the box round the visible items
+  (viewLo_ / viewHi_, a metre wider). computeShadows records each atlas layer's lamp (shadowLamp_); prepareInstances
+  culls a lamp layer's casters only when its camera moved since it was drawn (lampMoved: it's redrawn anyway; a
+  still lamp's cached map keeps every caster, so moving the camera doesn't redraw it). Checked: Night Drive's shadow
+  pass 127 ms against 143 without (the receivers' box adds little there: the visible street is big); a spinning
+  shadowed spot in the demo the same picture with and without (0.024% of pixels); Night Drive and the demo the same
+  within run-to-run noise; under validation with sync checks. Not done: the spot's cone direction in the test
+  (it's treated as a point light: conservative), split-screen views' cascades.
 

@@ -200,6 +200,14 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     const bool cullCasters = casterCulling_ && !shadowViews.empty();
     const shadows::Camera viewCam{info.camPos, info.camForward, info.fovY, info.aspect};
     const float castNear = std::max(viewNear_ * 0.9f - 1.f, 0.f), castFar = std::min(viewFar_ * 1.05f + 1.f, shadowDistance() + 50.f);
+    const shadows::Box seen{viewLo_ - Vec3{1.f, 1.f, 1.f}, viewHi_ + Vec3{1.f, 1.f, 1.f}};   // (round what's visible)
+    // The lamps' layers whose camera moved since drawn (a headlight): culled like the sun's, being redrawn anyway
+    bool lampMoved[kShadowLayers] = {};
+    for (uint32_t l : shadowLayers) {
+        if (l < kCascades || shadowLamp_[l][3] <= 0.f) continue;
+        const ShadowCache& k = shadowCache_[l];
+        lampMoved[l] = !shadowCacheOn_ || !k.valid || std::memcmp(k.viewProj.m, shadowViewProj_[l].m, sizeof(k.viewProj.m)) != 0;
+    }
     // Visible items, sorted so that equal (texture, mesh) pairs sit together and can be drawn as one batch
     std::vector<uint32_t> visible, transparent;
     visible.reserve(items.size());
@@ -214,17 +222,28 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         // Its shadow in view (shadows::castsIntoView): for the sun's two cascades drawn every frame, the view's own
         // volume; for the two drawn every few frames, a wider one (what the camera may turn to before they're redrawn)
         bool shadowNear = true, shadowFar = true;
+        Vec3 c;
+        float radius = 0.f;
         if (!skinned && cullCasters && !o.water) {
-            Vec3 c = transformPoint(o.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
+            c = transformPoint(o.model, (mesh.boundsMin + mesh.boundsMax) * 0.5f);
             float scale = std::max({length(transformDir(o.model, {1, 0, 0})), length(transformDir(o.model, {0, 1, 0})),
                                     length(transformDir(o.model, {0, 0, 1}))});
-            float radius = length(mesh.boundsMax - mesh.boundsMin) * 0.5f * scale;
-            shadowFar = shadows::castsIntoView(viewCam, castNear, castFar, 0.35f, shadowSunDir_, viewFloor_, c, radius);
-            shadowNear = shadowFar && shadows::castsIntoView(viewCam, castNear, castFar, 0.05f, shadowSunDir_, viewFloor_, c, radius);
+            radius = length(mesh.boundsMax - mesh.boundsMin) * 0.5f * scale;
+            shadowFar = shadows::castsIntoView(viewCam, castNear, castFar, 0.35f, shadowSunDir_, viewFloor_, c, radius, seen);
+            shadowNear = shadowFar && shadows::castsIntoView(viewCam, castNear, castFar, 0.05f, shadowSunDir_, viewFloor_, c, radius, seen);
         }
         for (size_t k = 0; k < shadowViews.size() && !o.water; ++k) {   // each shadow camera: what it sees (water casts none)
             const uint32_t layer = shadowLayers[k];
             if (layer < kCascades && !(layer < 2 ? shadowNear : shadowFar)) {
+                stats_.shadowCulled++;
+                continue;
+            }
+            // (a lamp's that moved: redrawn anyway, so with only the casters whose shadows reach the view; a still
+            // one's kept as cached, all its casters in it)
+            if (layer >= kCascades && radius > 0.f && lampMoved[layer] &&
+                !shadows::castsIntoViewFrom(viewCam, castNear, castFar, 0.1f,
+                                            {shadowLamp_[layer][0], shadowLamp_[layer][1], shadowLamp_[layer][2]},
+                                            shadowLamp_[layer][3], c, radius, seen)) {
                 stats_.shadowCulled++;
                 continue;
             }

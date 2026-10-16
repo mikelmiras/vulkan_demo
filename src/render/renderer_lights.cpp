@@ -135,6 +135,8 @@ void Renderer::fitViewDepth(const SceneRenderInfo& info) {
     viewNear_ = 0.1f;
     viewFar_ = 1000.f;
     viewFloor_ = -1e9f;
+    viewLo_ = {-1e9f, -1e9f, -1e9f};
+    viewHi_ = {1e9f, 1e9f, 1e9f};
     if (!info.items) return;
     std::vector<std::pair<Vec3, Vec3>> boxes;
     boxes.reserve(info.items->size());
@@ -151,6 +153,15 @@ void Renderer::fitViewDepth(const SceneRenderInfo& info) {
     if (!boxes.empty()) {
         viewFloor_ = 1e9f;
         for (const auto& b : boxes) viewFloor_ = std::min(viewFloor_, b.first.y);
+        // (round the visible ones: where shadows can be seen landing)
+        Frustum frustum(info.viewProj);
+        Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+        for (const auto& b : boxes)
+            if (frustum.visible(Mat4{}, b.first, b.second)) {
+                lo = {std::min(lo.x, b.first.x), std::min(lo.y, b.first.y), std::min(lo.z, b.first.z)};
+                hi = {std::max(hi.x, b.second.x), std::max(hi.y, b.second.y), std::max(hi.z, b.second.z)};
+            }
+        if (lo.x <= hi.x) viewLo_ = lo, viewHi_ = hi;
     }
     fitDepthRange(info.viewProj, info.camPos, info.camForward, boxes, viewNear_, viewFar_);
 }

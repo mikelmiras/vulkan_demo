@@ -50,25 +50,51 @@ void sunCascades(const Camera& camera, Vec3 sunDir, float nearest, float distanc
     }
 }
 
-bool castsIntoView(const Camera& camera, float near, float far, float widen, Vec3 sunDir, float floor, Vec3 centre,
-                   float radius) {
-    const Vec3 fwd = normalize(camera.forward), sun = normalize(sunDir);
+namespace {
+// A capsule (a to b, its radius growing from ra to rb) against the view's volume, plane by plane, and the box
+bool capsuleInView(const Camera& camera, float near, float far, float widen, Vec3 aWorld, float ra, Vec3 bWorld, float rb,
+                   const Box& receivers) {
+    Vec3 lo{std::min(aWorld.x - ra, bWorld.x - rb), std::min(aWorld.y - ra, bWorld.y - rb), std::min(aWorld.z - ra, bWorld.z - rb)};
+    Vec3 hi{std::max(aWorld.x + ra, bWorld.x + rb), std::max(aWorld.y + ra, bWorld.y + rb), std::max(aWorld.z + ra, bWorld.z + rb)};
+    if (hi.x < receivers.lo.x || hi.y < receivers.lo.y || hi.z < receivers.lo.z || lo.x > receivers.hi.x ||
+        lo.y > receivers.hi.y || lo.z > receivers.hi.z)
+        return false;
+    const Vec3 fwd = normalize(camera.forward);
     const Vec3 right = normalize(cross(fwd, std::fabs(fwd.y) > 0.999f ? Vec3{0, 0, 1} : Vec3{0, 1, 0}));
     const Vec3 up = cross(right, fwd);
-    // The shadow's reach: down to the floor (a sun near the horizon: far, but not past the view's far end)
-    float reach = far + radius;
-    if (sun.y < -1e-3f) reach = std::min(reach, std::max(centre.y + radius - floor, 0.f) / -sun.y);
-    const Vec3 a = centre - camera.position, b = a + sun * reach;
+    const Vec3 a = aWorld - camera.position, b = bWorld - camera.position;
     // Inward normals (through the camera) of the sides, then the near and far ends
     const float tanY = std::tan(camera.fovY * 0.5f);
     const float hy = std::min(camera.fovY * 0.5f + widen, 1.55f), hx = std::min(std::atan(tanY * camera.aspect) + widen, 1.55f);
     const Vec3 sides[4] = {right * std::cos(hx) + fwd * std::sin(hx), right * -std::cos(hx) + fwd * std::sin(hx),
                            up * std::cos(hy) + fwd * std::sin(hy), up * -std::cos(hy) + fwd * std::sin(hy)};
     for (const Vec3& n : sides)
-        if (dot(a, n) < -radius && dot(b, n) < -radius) return false;
-    if (dot(a, fwd) - near < -radius && dot(b, fwd) - near < -radius) return false;
-    if (far - dot(a, fwd) < -radius && far - dot(b, fwd) < -radius) return false;
+        if (dot(a, n) < -ra && dot(b, n) < -rb) return false;
+    if (dot(a, fwd) - near < -ra && dot(b, fwd) - near < -rb) return false;
+    if (far - dot(a, fwd) < -ra && far - dot(b, fwd) < -rb) return false;
     return true;
+}
+}  // namespace
+
+bool castsIntoView(const Camera& camera, float near, float far, float widen, Vec3 sunDir, float floor, Vec3 centre,
+                   float radius, const Box& receivers) {
+    const Vec3 sun = normalize(sunDir);
+    // The shadow's reach: down to the floor (a sun near the horizon: far, but not past the view's far end)
+    float reach = far + radius;
+    if (sun.y < -1e-3f) reach = std::min(reach, std::max(centre.y + radius - floor, 0.f) / -sun.y);
+    return capsuleInView(camera, near, far, widen, centre, radius, centre + sun * reach, radius, receivers);
+}
+
+bool castsIntoViewFrom(const Camera& camera, float near, float far, float widen, Vec3 light, float range, Vec3 centre,
+                       float radius, const Box& receivers) {
+    Vec3 away = centre - light;
+    float dist = length(away);
+    if (dist <= radius + 1e-3f) return true;   // (round the light itself: its shadow is everywhere)
+    if (dist - radius > range) return false;   // (out of its reach: lit by it nowhere, so no shadow)
+    away = away * (1.f / dist);
+    float reach = std::max(range - dist, 0.f);
+    float far_ = radius * (dist + reach) / std::max(dist - radius, 1e-3f);   // (the cone's width at the range)
+    return capsuleInView(camera, near, far, widen, centre, radius, centre + away * reach, far_, receivers);
 }
 
 }  // namespace shadows
