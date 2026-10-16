@@ -221,6 +221,39 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::SliderFloat("Local tone mapping", &r.localToneMapping, 0.f, 1.f, "%.2f");
         track();
         tooltip("Dark and bright parts of the view pulled towards the middle: detail in the shadows and round the lights");
+        ImGui::Checkbox("Physical sky", &r.physicalSky);
+        track();
+        tooltip("The sky, the sun's colour and the light from the sky worked out from the air (blue by day, red at "
+                "sunset); far things fade into the air");
+        if (r.physicalSky) {
+            bool timed = r.timeOfDay >= 0.f;
+            if (ImGui::Checkbox("##timed", &timed)) {
+                pushUndo();
+                r.timeOfDay = timed ? 12.f : -1.f;
+            }
+            tooltip("Place the sun by the time of day (else where the scene's sun points)");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!timed);
+            float hours = timed ? r.timeOfDay : 12.f;
+            if (ImGui::SliderFloat("Time of day", &hours, 0.f, 24.f, "%.2f h") && timed) r.timeOfDay = std::fmod(hours, 24.f);
+            track();
+            ImGui::SliderFloat("Latitude", &r.latitude, -90.f, 90.f, "%.0f deg");
+            track();
+            ImGui::EndDisabled();
+            ImGui::SliderFloat("Haze", &r.haze, 0.f, 10.f, "%.2f", ImGuiSliderFlags_Logarithmic);
+            track();
+            tooltip("A whiter sky, a wider glow round the sun, distance fading faster");
+            ImGui::SliderFloat("Aerial perspective", &r.aerialPerspective, 0.f, 100.f, "%.1f", ImGuiSliderFlags_Logarithmic);
+            track();
+            tooltip("How thick the air looks over distance (1: as real; small scenes want more)");
+            if (r.skyImage.empty()) {
+                ImGui::SliderFloat("Sky brightness##phys", &r.skyIntensity, 0.f, 4.f, "%.2f");
+                track();
+                ImGui::SliderFloat("Sky turn##phys", &r.skyRotation, -180.f, 180.f, "%.0f deg");
+                track();
+                tooltip("Turns the compass: where the sun rises (with a time of day)");
+            }
+        }
         // The sky image: a panorama that's the sky, the ambient light and what shiny things reflect
         ImGui::InputText("Sky image", &r.skyImage);
         track();

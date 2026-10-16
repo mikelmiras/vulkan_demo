@@ -242,7 +242,9 @@ bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
            a.fogLight == b.fogLight && a.fogAnisotropy == b.fogAnisotropy && a.fogHeightFalloff == b.fogHeightFalloff &&
            a.tonemapper == b.tonemapper && a.contrast == b.contrast && a.saturation == b.saturation && a.vignette == b.vignette &&
            a.autoExposure == b.autoExposure && a.exposureMin == b.exposureMin && a.exposureMax == b.exposureMax &&
-           a.adaptationSpeed == b.adaptationSpeed && a.localToneMapping == b.localToneMapping;
+           a.adaptationSpeed == b.adaptationSpeed && a.localToneMapping == b.localToneMapping &&
+           a.physicalSky == b.physicalSky && a.timeOfDay == b.timeOfDay && a.latitude == b.latitude && a.haze == b.haze &&
+           a.aerialPerspective == b.aerialPerspective;
 }
 
 bool sameLayerSettings(const LayerSettings& a, const LayerSettings& b) {

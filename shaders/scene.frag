@@ -626,6 +626,13 @@ void main() {
 
     if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, vUV).rgb;   // (water: its waves there)
 
+    if (frame.atmosphere.x > 0.5 && frame.air.g > 0.0) {   // aerial perspective: the air between, lit like the sky
+        vec3 v = vWorldPos - frame.camPos.xyz;
+        float dist = length(v);
+        vec3 through = exp(-frame.air.rgb * dist);
+        vec3 d = normalize(vec3(v.x, max(v.y, 0.0), v.z) + vec3(0.0, 1e-3, 0.0));   // (looking down: the horizon's air)
+        color = color * through + physicalSky(d) * (1.0 - through);
+    }
     if (frame.fogParams.x > 0.5) {   // volumetric: what the fog in front lets through, and the light it adds
         vec4 c = frame.viewProj * vec4(vWorldPos, 1.0);
         float depth = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);

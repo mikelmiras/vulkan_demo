@@ -38,7 +38,7 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/hiz_depth.comp shaders/hiz_depth_ms.comp shaders/hiz_reduce.comp shaders/foliage.vert
                    shaders/gi_project.comp shaders/ssr_capture.frag shaders/ssr_capture_ms.frag shaders/depth_prepass.frag
                    shaders/fog_inject.comp shaders/fog_integrate.comp shaders/fog_surface.comp shaders/luminance.frag
-                   shaders/adapt.frag)
+                   shaders/adapt.frag shaders/sky_transmittance.frag shaders/sky_view.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -49,7 +49,7 @@ foreach(src ${SHADER_SOURCES})
     COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/${src} -o ${out}
     DEPENDS ${CMAKE_SOURCE_DIR}/${src} ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/ssao.glsl ${CMAKE_SOURCE_DIR}/shaders/ssr_capture.glsl
             ${CMAKE_SOURCE_DIR}/shaders/hiz.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
-            ${CMAKE_SOURCE_DIR}/shaders/water.glsl
+            ${CMAKE_SOURCE_DIR}/shaders/water.glsl ${CMAKE_SOURCE_DIR}/shaders/atmosphere.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
@@ -211,6 +211,8 @@ set(ENGINE_SOURCES
   src/render/scene_draw.cpp
   src/render/environment.cpp
   src/render/light_clusters.cpp
+  src/render/atmosphere.cpp
+  src/render/renderer_sky.cpp
   src/assets/mesh_lod.cpp
   src/assets/retarget.cpp
   src/render/renderer_lights.cpp
@@ -431,6 +433,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_relay.cpp
     tests/test_crypto.cpp
     tests/test_render_scale.cpp
+    tests/test_atmosphere.cpp
     tests/test_gamepads.cpp
     tests/test_text_shaping.cpp
     tests/test_shipping.cpp

@@ -70,6 +70,10 @@ struct FrameUBO {
     float prevCamPos[4];      // w = 1: reflections on (only this view's: the picture is its own)
     float prevCamForward[4];
     float prevViewport[4];    // the last frame's scene rectangle in its picture (pixels)
+    // The physically based sky (renderer_sky.cpp)
+    float atmosphere[4];      // x = 1: on (the sky table at binding 23)
+    float skySun[4];          // the sun's light above the air (rgb: the sky table is for one of it)
+    float air[4];             // the air's extinction per metre (rgb: aerial perspective; 0: none)
 };
 
 // A point or spot light (set 0, binding 14)

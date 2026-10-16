@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "assets/meshes.h"
+#include "render/atmosphere.h"
 #include "render/environment.h"
 #include "render/display.h"
 #include "render/texture_streaming.h"
@@ -130,6 +131,10 @@ struct SceneRenderInfo {
     bool autoExposure = false;        // (RenderSettings': the exposure follows the view's brightness)
     float exposureMin = -4.f, exposureMax = 4.f, adaptationSpeed = 1.f, localToneMapping = 0.f;
     float frameSeconds = 1.f / 60.f;  // (auto-exposure's easing: the time since the last frame)
+    // The physically based sky (RenderSettings'; render/atmosphere.h): the sky colours above, the sun's colour (and
+    // with a time of day, its direction) from the air instead
+    bool physicalSky = false;
+    float timeOfDay = -1.f, latitude = 40.f, haze = 1.f, aerialPerspective = 10.f;
     // A colour-blindness filter over the picture (the player's settings.colorBlind, Game::colorFilter()): 0 none,
     // 1 protanopia, 2 deuteranopia, 3 tritanopia. Daltonized: what that eye can't tell apart is moved into
     // differences it can see.
@@ -748,6 +753,24 @@ private:
     VkSampler lumSampler_ = VK_NULL_HANDLE;   // (bilinear, every mip)
     bool lumFresh_ = false;         // (made: readable before anything samples it)
     bool exposureHistory_ = false;  // last frame adapted (else: start at the target)
+    // The physically based sky (renderer_sky.cpp): its transmittance and sky tables (the latter: set 0, binding 23),
+    // and the CPU's sums for the frame's colours, kept while the sun and haze stay
+    static constexpr uint32_t kSkyTransmittanceW = 256, kSkyTransmittanceH = 64, kSkyViewW = 192, kSkyViewH = 108;
+    Image skyTransmittance_, skyView_;
+    VkPipeline skyTransmittancePipeline_ = VK_NULL_HANDLE, skyViewPipeline_ = VK_NULL_HANDLE;
+    VkDescriptorSet skyViewSet_ = VK_NULL_HANDLE;   // (the sky pass's: the transmittance table)
+    bool skyFresh_ = false;     // (made: readable before anything samples them)
+    bool skyOn_ = false;        // this frame's main view has it
+    bool skyViewMade_ = false;
+    float skyHaze_ = -1.f;      // the transmittance table's (-1: not drawn)
+    float skyHazeNow_ = 1.f, skyLightHaze_ = -1.f;
+    Vec3 skyToSun_{0, 1, 0}, skyViewSun_{0, 1, 0}, skyLightSun_{0, 0, 0}, skySunHere_{1, 1, 1};
+    atmosphere::SkyLight skyLight_;
+    void createSky();
+    void destroySky();
+    void recordSky(VkCommandBuffer cb);
+    void applyAtmosphere(const SceneRenderInfo& info, LightInfo& sun, Vec3& horizon, Vec3& zenith, Vec3& ground,
+                         render_detail::FrameUBO& u);
     VkPipeline compositeViewPipeline_ = VK_NULL_HANDLE;   // (into the extra views' images: sdrFormat_)
     uint32_t bloomMips_ = 0;
     VkImageView bloomViews_[kMaxBloomMips] = {};

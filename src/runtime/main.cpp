@@ -798,6 +798,11 @@ int main(int argc, char** argv) {
         info.exposureMax = scene.render.exposureMax;
         info.adaptationSpeed = scene.render.adaptationSpeed;
         info.localToneMapping = scene.render.localToneMapping;
+        info.physicalSky = scene.render.physicalSky;
+        info.timeOfDay = scene.render.timeOfDay;
+        info.latitude = scene.render.latitude;
+        info.haze = scene.render.haze;
+        info.aerialPerspective = scene.render.aerialPerspective;
         info.frameSeconds = std::clamp(dt, 0.f, 0.25f);
         info.waterTime = game.physics().time();   // (the waves as the physics has them: what floats rides them)
         info.colorFilter = game.colorFilter();

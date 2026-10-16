@@ -43,6 +43,9 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 prevCamPos;      // w = 1: reflections on
     vec4 prevCamForward;
     vec4 prevViewport;    // the last frame's scene rectangle in its picture (pixels)
+    vec4 atmosphere;      // the physically based sky (renderer_sky.cpp): x = 1 if on
+    vec4 skySun;          // the sun's light above the air (the sky table is for one of it)
+    vec4 air;             // the air's extinction per metre (aerial perspective; 0: none)
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness
@@ -55,6 +58,23 @@ vec3 skyImageDir(vec3 d) {   // (turned with the sky)
     float c = cos(frame.envParams.z), s = sin(frame.envParams.z);
     return vec3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z);
 }
+// The physically based sky's table (sky_view.frag): the sky around the viewer for a sun of irradiance 1. x: the angle
+// from the sun around the vertical, y: the elevation, both squeezed where the sky changes most (the sun, the horizon)
+layout(set = 0, binding = 23) uniform sampler2D skyTable;
+vec2 skyTableUv(vec3 d, vec3 toSun) {
+    float elev = asin(clamp(d.y, -1.0, 1.0));
+    float coord = sqrt(abs(elev) / (0.5 * kPi));
+    float v = elev >= 0.0 ? 0.5 * (1.0 - coord) : 0.5 * (1.0 + coord);
+    float a = length(d.xz), b = length(toSun.xz);
+    float cosAz = a > 1e-4 && b > 1e-4 ? dot(d.xz / a, toSun.xz / b) : 1.0;
+    return vec2(sqrt(clamp(0.5 - 0.5 * cosAz, 0.0, 1.0)), v);
+}
+// The air's own colour looking along d (no sun disc): the table times the sun's light, starlight at night
+vec3 physicalSky(vec3 d) {
+    vec3 c = textureLod(skyTable, skyTableUv(d, -frame.sunDir.xyz), 0.0).rgb * frame.skySun.rgb;
+    return c + vec3(0.0004, 0.0006, 0.0012) * frame.envParams.y;
+}
+
 vec2 equirect(vec3 d) { return vec2(atan(d.x, -d.z) / (2.0 * kPi) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / kPi); }
 
 // Light a matte surface facing `n` gets from the sky image (divided by pi: times the albedo, it's what it reflects)
@@ -75,6 +95,13 @@ vec3 skyReflection(vec3 r, float rough) {
 // below, with the sun's disc and glow if asked
 vec3 skyColor(vec3 dir, bool withSun) {
     if (frame.envParams.x > 0.5) return textureLod(skyImage, equirect(skyImageDir(normalize(dir))), 0.0).rgb * frame.envParams.y;
+    if (frame.atmosphere.x > 0.5) {   // the air's (below the horizon: towards the ground's colour)
+        vec3 d = normalize(dir);
+        vec3 c = physicalSky(vec3(d.x, max(d.y, 0.0), d.z));
+        if (d.y < 0.0) c = mix(c, frame.ground.rgb, smoothstep(0.0, 0.15, -d.y));
+        if (withSun) c += frame.sunColor.rgb * (smoothstep(0.9995, 0.9998, max(dot(d, -frame.sunDir.xyz), 0.0)) * 8.0);
+        return c;
+    }
     vec3 horizon = frame.fogColor.rgb;
     vec3 c = dir.y >= 0.0 ? mix(horizon, frame.zenith.rgb, pow(clamp(dir.y, 0.0, 1.0), 0.6))
                           : mix(horizon, frame.ground.rgb, pow(clamp(-dir.y * 4.0, 0.0, 1.0), 0.5));

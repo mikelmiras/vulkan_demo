@@ -712,7 +712,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[23] = {
+    VkDescriptorSetLayoutBinding frameBindings[24] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -736,9 +736,10 @@ void Renderer::createPipelines() {
         {20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // the sun's cascades' depths
         {21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // volumetric fog
         {22, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... its columns' surfaces
+        {23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the physical sky's table
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 23;
+    dslci.bindingCount = 24;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive)
@@ -1084,7 +1085,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 14 * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 15 * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9 * MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
@@ -1099,8 +1100,8 @@ void Renderer::createResources(const MeshLibrary&) {
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &materialPool_));
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
-    // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation)
-    const uint32_t postSetCount = 2 * kMaxBloomMips + 8 + 2 * kMaxViews;
+    // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation; +1: the sky's)
+    const uint32_t postSetCount = 2 * kMaxBloomMips + 9 + 2 * kMaxViews;
     VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
@@ -1123,6 +1124,7 @@ void Renderer::createResources(const MeshLibrary&) {
     ssrSet_ = postSets[5 + 2 * kMaxBloomMips + 2 * kMaxViews];
     lumSet_ = postSets[6 + 2 * kMaxBloomMips + 2 * kMaxViews];
     adaptSet_ = postSets[7 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    skyViewSet_ = postSets[8 + 2 * kMaxBloomMips + 2 * kMaxViews];
     {   // (the luminance image is mipped by blits: its format must allow filtered ones)
         VkFormatProperties fp;
         vkGetPhysicalDeviceFormatProperties(gpu_, VK_FORMAT_R16_SFLOAT, &fp);
@@ -1152,6 +1154,7 @@ void Renderer::createResources(const MeshLibrary&) {
     fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     createFog();   // (its volumes: in the frame sets below)
+    createSky();   // (its table too)
     for (int i = 0; i < MAX_FRAMES; ++i) {
         if (!uboStride_) {   // (slots: this view's, then the extra views'; each at an offset the device allows)
             VkPhysicalDeviceProperties props;
@@ -1189,7 +1192,7 @@ void Renderer::createResources(const MeshLibrary&) {
         w[3] = w[1];
         w[3].dstBinding = 6;
         w[3].pImageInfo = &pointInfo;
-        VkWriteDescriptorSet more[3] = {w[1], w[1], w[1]};
+        VkWriteDescriptorSet more[4] = {w[1], w[1], w[1], w[1]};
         more[0].dstBinding = 20;
         more[0].pImageInfo = &cascadeDepthInfo;
         VkDescriptorImageInfo fogInfo{fogSampler_, fog_[i].volume.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
@@ -1199,7 +1202,10 @@ void Renderer::createResources(const MeshLibrary&) {
         more[2].dstBinding = 22;
         more[2].pImageInfo = &surfaceInfo;
         vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
-        vkUpdateDescriptorSets(device_, 3, more, 0, nullptr);
+        VkDescriptorImageInfo skyInfo{postSampler_, skyView_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        more[3].dstBinding = 23;
+        more[3].pImageInfo = &skyInfo;
+        vkUpdateDescriptorSets(device_, 4, more, 0, nullptr);
 
         VK_CHECK(vkCreateSemaphore(device_, &sci, nullptr, &imageAvailable_[i]));
         VK_CHECK(vkCreateFence(device_, &fci, nullptr, &inFlight_[i]));
@@ -1301,6 +1307,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
                      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
     uiLayerFresh_ = false;
+    recordSky(cb);   // (the physical sky's tables: before anything this frame reads them)
     if (lumFresh_) {   // (auto-exposure's images, just made: readable before anything samples them)
         for (VkImage image : {lum_.image, exposure_[0].image, exposure_[1].image})
             mipBarrier(cb, image, 0, image == lum_.image ? kLumMips : 1, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1702,9 +1709,14 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         return length(a->position - info.camPos) < length(b->position - info.camPos);
     });
     if (points.size() > (size_t)kMaxLights) points.resize(kMaxLights);
-    if (shadows) frameShadows_ = sun.castShadows && sun.intensity > 0.f;
+    // The sky's colours: the scene's, or the air's (the sun turned and coloured by it: before its shadows)
+    Vec3 fog = srgbToLinear(info.sky), zenith = srgbToLinear(info.zenith), ground = srgbToLinear(info.ground);
+    if (info.physicalSky) applyAtmosphere(info, sun, fog, zenith, ground, u);
+    if (shadows) {
+        frameShadows_ = sun.castShadows && sun.intensity > 0.f;
+        skyOn_ = info.physicalSky;
+    }
 
-    Vec3 fog = srgbToLinear(info.sky);
     u.viewProj = info.viewProj;
     std::vector<int> lightShadow(points.size(), -1);
     if (shadows) {
@@ -1717,11 +1729,11 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     u.viewport[1] = info.viewportH;
     u.viewport[2] = 2.5f;
     set4(u.sunDir, normalize(sun.direction), shadows && frameShadows_ ? 1.f : 0.f);
-    set4(u.sunColor, srgbToLinear(sun.color) * sun.intensity, 0.f);
+    set4(u.sunColor, info.physicalSky ? skySunHere_ * sun.intensity : srgbToLinear(sun.color) * sun.intensity, 0.f);
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
     writeLights(info, points, lightShadow, u, shadows);
-    set4(u.zenith, srgbToLinear(info.zenith), 0.f);
-    set4(u.ground, srgbToLinear(info.ground), 0.f);
+    set4(u.zenith, zenith, 0.f);
+    set4(u.ground, ground, 0.f);
     set4(u.envParams, {envId_ != 0 ? 1.f : 0.f, info.skyIntensity, info.skyRotation}, 0.f);
     for (int k = 0; k < 9; ++k) set4(u.sh[k], {envSh_[k][0], envSh_[k][1], envSh_[k][2]}, 0.f);
     {   // the camera's axes, for billboards and the sky (no roll: up is as close to the world's up as possible)
@@ -1954,6 +1966,7 @@ void Renderer::shutdown() {
     for (ViewImage& v : viewImages_) destroyViewImage(v);   // (their textures: before the ImGui backend goes)
     destroyGi();
     destroyFog();
+    destroySky();
     if (imguiInitialized_) ImGui_ImplVulkan_Shutdown();
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);

@@ -549,6 +549,18 @@ dropping on the right.
   result (compensation). **Local tone mapping** (0..1) lifts dark regions and holds back bright ones relative to the
   mean (by the coarse brightness around each pixel), keeping detail in shadows and around lights. The main view
   meters; split-screen views use its exposure, without local tone mapping.
+- **Physical sky and time of day** (Scene look > Physical sky, off by default): the sky worked out from the air,
+  Rayleigh scattering (blue), Mie scattering (haze, the glow round the sun) and ozone, after Hillaire's 2020
+  technique. Two small tables are made on the GPU, the light getting through the air and the sky around the viewer
+  (redrawn only when the sun moves or the haze changes). The sun's light is coloured by the air it crosses (white at
+  noon, red at sunset, gone below the horizon), and the sky's colours light the scene (the ambient's hemisphere, the
+  fog) in place of the Sky / Horizon colours; the Ground colour stays (it's what the ground reflects). **Time of
+  day** (hours) turns the scene's sun along an equinox's path at a **Latitude**, rising in the east (+x); **Sky
+  turn** turns the compass, **Sky brightness** scales the sky. **Haze** whitens the sky and widens the sun's glow.
+  **Aerial perspective** fades distant things into the air's colour in their direction (1: as thick as real air,
+  barely visible over a small scene; 10 to 30 suit most). The sky is calibrated so a sun of intensity 1 lights the
+  scene about as the default colours do. Real light makes for strong contrast: raise Ambient towards 1, or use
+  auto-exposure. A sky image, if set, is drawn in place of the physical sky (the sun is still coloured by the air).
 - **Specular anti-aliasing**: where the normal changes within a pixel (small curved things, distant bumpy ground),
   highlights are widened to match, so they don't sparkle and crawl.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
@@ -1465,5 +1477,6 @@ Includes are relative to `src/`.
 | `shaders/scene.*`          | Lit, textured, shadowed objects; checker ground; fog            |
 | `shaders/shadow.vert`      | Shadow map (depth only)                                         |
 | `shaders/post.vert`, `bloom_*.frag`, `composite.frag` | Bloom down / up passes; tonemapping and gamma onto the swapchain |
+| `shaders/atmosphere.glsl`, `sky_transmittance.frag`, `sky_view.frag` | The physical sky's model and its two tables (`render/atmosphere.*`: the same on the CPU, `renderer_sky.cpp`) |
 | `shaders/luminance.frag`, `adapt.frag` | Auto-exposure: the view's log luminance (mipped down to its mean), the exposure eased towards its target |
 | `shaders/outline.*`        | Selection outline (screen-space extruded hull + stencil)        |

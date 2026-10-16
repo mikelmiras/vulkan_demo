@@ -1397,13 +1397,33 @@ Performance first: rendering fewer pixels and less often pays for everything aft
 | 81 (done) | Shadows cached: each shadow map drawn again only when its camera, its atlas tile or its casters change, the sun's far cascades on a schedule; spot and point lights' shadows in the volumetric fog (contact shadows and tighter cascades: left, see the notes) | Every shadow map is redrawn every frame; headlights' beams in the fog have no shadows |
 | 82 (done) | Lighting model: multiple-scattering energy compensation for GGX, a clear-coat layer (car paint), sheen (cloth), anisotropic highlights (brushed metal), material presets (specular occlusion: left, see the notes) | Rough surfaces lose energy; car paint and fabric look like plain plastic |
 | 83 (done) | Exposure and the image: auto-exposure from a luminance histogram (eye adaptation, its speed and limits), physically based bloom (a mip chain, energy-conserving, lens dirt), a local tone-mapping pass so night scenes keep detail in the dark and the lights | The exposure is fixed: walking from a lit street into an alley is too dark or too bright; bloom is a single blur |
-| 84 | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
+| 84 (done) | Sky and atmosphere: a physically based sky (Rayleigh and Mie scattering, look-up tables), aerial perspective on distant objects, time of day driving the sun, sky light and fog colour; the sky's light in the reflection probes | The sky is two colours; distance only fades to a flat fog colour |
 | 85 | Indirect light: screen-space global illumination (a temporal, denoised diffuse bounce from what's on screen) on top of the probe GI, and screen-space reflections that fall back to the probes smoothly with roughness | Light doesn't bounce off nearby surfaces that change (a lit wall beside a car); rough reflections cut off at the screen's edge |
 | 86 | Materials and surfaces: parallax occlusion mapping, detail maps, decals (projected: road markings, puddles, dirt), wetness (darker, glossier, rain ripples) driven by a weather setting | Surfaces are flat textures; a wet night street, the look Night Drive wants, can't be made |
 | 87 | Water, finished: refraction and absorption by depth, caustics on the bottom, shoreline foam where it meets geometry, screen-space reflections on it | Task 71's water is a coloured surface: no depth, no sense of what's beneath |
 | 88 | Night Drive's look: rain (particles, streaks in the headlights, ripples in puddles), wet roads with reflections of the street lights, light pools on the ground, emissive signs blooming, all within budget on the 1050 Ti | The showcase should show the round's work, and be the measure of its cost |
 
 ### Round 8 notes
+- **84, sky**: RenderSettings gains physicalSky, timeOfDay (-1: the sun as placed), latitude, haze and
+  aerialPerspective (scene format 47, module API 54); skyIntensity / skyRotation brighten it and turn its compass
+  (saved with it when there's no sky image). Hillaire's model (Rayleigh, Mie with Cornette-Shanks, an ozone tent;
+  Bruneton's transmittance mapping) twice: shaders/atmosphere.glsl for two R16G16B16A16 tables drawn by fragment
+  passes in renderer_sky.cpp (transmittance 256x64, redrawn when the haze changes; the sky around a viewer 200 m up,
+  192x108, azimuth from the sun by Hillaire's mapping, elevation squeezed towards the horizon, redrawn when the sun
+  moves), and render/atmosphere.cpp on the CPU (the sun's transmittance, the zenith and the horizon's average,
+  cached while the sun stays). fillFrameUBO turns the sun to sunDirection(hours, latitude, turn) (an equinox: rises
+  at +x at 6), colours it by the transmittance (no light or shadows below the horizon), and sets the fog / zenith
+  colours from the sky and the ground colour from what reaches it; skyColor reads the table (set 0, binding 23) times
+  the sun above the air, plus starlight; scene.frag adds aerial perspective (exp(-air * distance) towards the sky's
+  colour in that direction, the air the sea-level extinction times the setting). The sky is the tables times 5
+  (kSkyGain): single scattering with an isotropic extra term for the rest is darker than real skies, and the
+  engine's sun of intensity 1 is dim besides. A gain of 5 gives about the brightness of the default colours. Checked: the
+  CPU model's colours and the sun's path (tests), saved and loaded, noon / evening / night / as placed under
+  validation with sync checks, MSAA, render scale 0.7 with TAA, the editor. Not done: Hillaire's multiple-scattering
+  table (an isotropic term stands in), aerial perspective in a froxel volume (a uniform air with the sky's colour is
+  used: no light shafts of its own, nothing for particles or the outline), the viewer's height (fixed at 200 m), the
+  sky's light as spherical harmonics (the ambient's two-colour hemisphere is fed instead), seasons, a moon and stars,
+  clouds, reflection probes rebaked as the time of day changes (they keep the sky they were baked with).
 - **83, exposure**: RenderSettings gains autoExposure, exposureMin / exposureMax (stops), adaptationSpeed and
   localToneMapping (scene format 46, module API 53 for SceneRenderInfo's new fields, frameSeconds among them). Before
   the composite, the main view's HDR is drawn into a 256x144 R16F image as log2 luminance (luminance.frag), mipped
