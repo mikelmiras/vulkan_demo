@@ -21,6 +21,9 @@ std::vector<PlantSet> collectPlants(const Scene& scene, const std::vector<Mat4>&
 std::vector<ProbeInfo> collectProbes(const Scene& scene, const std::vector<Mat4>& worlds, uint32_t bakeCount = 0);
 // Every visible particle emitter simulated on the GPU (ParticleEmitter::gpu)
 std::vector<GpuEmitterInfo> collectGpuEmitters(const Scene& scene, const std::vector<Mat4>& worlds);
+// Whether a draw item's material has layers (a coat, sheen, anisotropy, translucency, subsurface): drawn with the
+// lit pass's layered variant, the rest with the lean one (scene.frag's kLayers)
+bool hasMaterialLayers(const DrawItem& item);
 // The distance depth of field keeps sharp (RenderSettings): its focus target's along the view, if it has one (at
 // least 0.1 m), else its focus distance
 float focusDistance(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 camPos, Vec3 camForward);

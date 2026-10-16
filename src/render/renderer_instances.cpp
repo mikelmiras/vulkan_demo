@@ -6,6 +6,7 @@
 
 #include "assets/mesh_lod.h"
 #include "render/renderer_internal.h"
+#include "render/scene_draw.h"
 #include "render/shadow_cascades.h"
 
 using namespace render_detail;
@@ -230,6 +231,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         }
     }
     std::stable_sort(visible.begin(), visible.end(), [&](uint32_t a, uint32_t b) {
+        const bool la = !leanShading_ || hasMaterialLayers(items[a]), lb = !leanShading_ || hasMaterialLayers(items[b]);   // (lean materials first: one pipeline switch)
+        if (la != lb) return lb;
         VkDescriptorSet ta = textureSet(items[a]), tb = textureSet(items[b]);
         if (ta != tb) return ta < tb;
         if (items[a].mesh != items[b].mesh) return items[a].mesh < items[b].mesh;
@@ -470,12 +473,12 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     uint32_t n = 0;
     auto append = [&](std::vector<Batch>& batches, uint32_t instance, int mesh, int lod, VkDescriptorSet set) {
         index[n] = instance;
-        const bool water = items[instance].water;
+        const bool water = items[instance].water, layered = !leanShading_ || hasMaterialLayers(items[instance]);
         if (!batches.empty() && batches.back().mesh == mesh && batches.back().texture == set && batches.back().lod == lod &&
-            batches.back().water == water && batches.back().first + batches.back().count == n)
+            batches.back().water == water && batches.back().layered == layered && batches.back().first + batches.back().count == n)
             batches.back().count++;
         else
-            batches.push_back({mesh, set, n, 1, lod, water});
+            batches.push_back({mesh, set, n, 1, lod, water, layered});
         ++n;
     };
     for (uint32_t i : visible) append(sceneBatches_, i, items[i].mesh, gpu ? 0 : lods[i], textureSet(items[i]));

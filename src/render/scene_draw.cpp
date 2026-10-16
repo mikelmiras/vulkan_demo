@@ -205,6 +205,10 @@ std::vector<GpuEmitterInfo> collectGpuEmitters(const Scene& scene, const std::ve
     return out;
 }
 
+bool hasMaterialLayers(const DrawItem& o) {
+    return o.clearcoat > 0.f || o.sheen > 0.f || std::fabs(o.anisotropy) > 0.01f || o.translucency > 0.f || o.subsurface > 0.f;
+}
+
 float focusDistance(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 camPos, Vec3 camForward) {
     const RenderSettings& r = scene.render;
     if (r.focusTarget != kNoEntity)

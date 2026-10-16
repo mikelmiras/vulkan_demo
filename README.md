@@ -432,7 +432,10 @@ dropping on the right.
   behind lights them too; terrain foliage is translucent (0.5), so grass against a low sun glows. **Subsurface** for
   thick, soft things (skin, wax, marble, jade): the light reaches past the shadow's edge (wrapped diffuse), tinted
   by the *Subsurface colour* there (red for skin), and their shadows are softer. Both are approximations, not a
-  diffusion of light through the volume: thickness isn't taken into account. The inspector's *Preset* sets a kind
+  diffusion of light through the volume: thickness isn't taken into account. Materials with none of these layers
+  (coat, sheen, anisotropy, translucency, subsurface) are drawn with a lean variant of the lit shader that leaves
+  their code out (a specialization constant); the rest with the full one, after them (`VKWORLD_LEAN_SHADING=0`:
+  everything with the full one, to compare). The inspector's *Preset* sets a kind
   of material at once (plastic, rubber, polished, rough or brushed metal, car paint, lacquered wood, cloth, velvet,
   stone, leaf, paper, skin, wax, marble).
   Surface detail: a **height map** with a **parallax depth** gives **parallax occlusion mapping**. The view ray is

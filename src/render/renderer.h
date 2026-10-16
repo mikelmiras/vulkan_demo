@@ -307,6 +307,7 @@ private:
         bool noColor = false;            // the scene's depth (and stencil) only: the depth prepass's own rendering
         VkFormat colorFormat = VK_FORMAT_UNDEFINED;   // (the colour attachment's, if not the HDR image's)
         VkFormat colorFormat2 = VK_FORMAT_UNDEFINED;  // a second one's (the prepass's outputs)
+        bool lean = false;               // scene.frag without material layers (its kLayers specialization: false)
     };
 
     void createInstance();
@@ -589,6 +590,7 @@ private:
     void createLightBuffers();
     float viewNear_ = 0.1f, viewFar_ = 1000.f;   // what's in view, along it (fitViewDepth)
     bool fittedCascades_ = true;                 // the sun's cascades from the nearest thing in view (VKWORLD_SHADOW_FIT=0: from the camera)
+    bool leanShading_ = true;                    // materials without layers drawn with the lean lit pass (VKWORLD_LEAN_SHADING=0: all layered)
     bool casterCulling_ = true;                  // the sun's casters only if their shadows reach the view (VKWORLD_SHADOW_CULL=0: all)
     float viewFloor_ = -1e9f;                    // the lowest thing in the scene (fitViewDepth; shadows below land on nothing)
     Vec3 shadowSunDir_{0, -1, 0};                // this frame's sun, as it shines (computeShadows)
@@ -656,6 +658,7 @@ private:
     // (early depth tests, no depth writes); VKWORLD_PREPASS=0 turns it off
     VkPipeline prepassPipeline_ = VK_NULL_HANDLE, prepassFoliagePipeline_ = VK_NULL_HANDLE;
     VkPipeline sceneEarlyPipeline_ = VK_NULL_HANDLE, foliageEarlyPipeline_ = VK_NULL_HANDLE;
+    VkPipeline sceneLayeredPipeline_ = VK_NULL_HANDLE, sceneEarlyLayeredPipeline_ = VK_NULL_HANDLE;   // (with layers)
     bool prepass_ = true;
     // Volumetric fog (renderer_fog.cpp): per frame in flight, the cells' in-scattered light and the volume summed
     // from the camera out (scene.frag / sky.frag's binding 21)
@@ -753,6 +756,7 @@ private:
         uint32_t first = 0, count = 0;   // its entries in the instance index list
         int lod = 0;                     // which level of the mesh (assets/mesh_lod.h; 0: the mesh itself)
         bool water = false;              // (see-through: water, drawn from both sides: waterPipeline_)
+        bool layered = false;            // its material has layers: the lit pass's full variant (sceneLayeredPipeline_)
     };
     // Opaque batches (and plants) (`culled`: the GPU culling's indirect draws for the main view's batches): their
     // depth (the prepass, in a rendering of its own), or lit (after it; or depth tested and written, without it)

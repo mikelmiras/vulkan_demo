@@ -1860,7 +1860,7 @@ traffic lights.
 
 | # | Task | Why |
 |---|------|-----|
-| 109 | The lit pass's cost: each feature's share of scene.frag measured (the GPU benchmark, features on and off), the rarely used ones (translucency, subsurface, glowing decals, layers) behind specialization constants or per-material variants so the common path stays lean | The stress scene's opaque pass grew about 20% over round 10 (3412 ms against 2788 on lavapipe) |
+| 109 (done) | The lit pass's cost: each feature's share of scene.frag measured (the GPU benchmark, features on and off), the rarely used ones (translucency, subsurface, glowing decals, layers) behind specialization constants or per-material variants so the common path stays lean | The stress scene's opaque pass grew about 20% over round 10 (3412 ms against 2788 on lavapipe) |
 | 110 | Temporal ambient occlusion: a history (reprojected with the motion vectors, dropped where the depth changed), more samples over time, bent normals for the indirect light's direction | AO before lighting is a fresh half-size estimate each frame: noisy at medium quality, and the ambient's direction ignores what's hidden |
 | 111 | Depth of field's near field and the sky's motion: a pre-pass of each tile's largest near circle so a blurred foreground spreads over a sharp background; the camera's own motion for the sky in motion blur | A blurred foreground has crisp edges; the sky never smears when the camera turns |
 | 112 | Coloured shadows: see-through and translucent casters tint the light through them (a colour channel in the shadow maps): stained glass, leaves' green dappled light, a lampshade's glow | Glass and leaves cast grey shadows or none |
@@ -1872,4 +1872,18 @@ traffic lights.
 | 118 | Night Drive's crossroads: traffic lights (red, amber, green on the poles, their glow on the wet road) that the traffic stops for, and cars yielding at the crossroads | The traffic drives through every crossroads without stopping |
 
 ### Round 11 notes
+- **109, the lit pass's cost**: measured against a build of the commit before round 10 (a worktree, the GPU benchmark
+  at high, 40 frames, the stress scene on lavapipe): the opaque pass 2095 ms then, 2689 after round 10; with
+  VKWORLD_AO_LIT=0 2509 (AO before lighting's four filtered taps: about 180 ms), the rest the material layers'
+  code (tasks 103's translucency and subsurface on top of 45's coat, sheen and anisotropy), which lavapipe runs for
+  every pixel whether a material uses it or not. scene.frag's kLayers (specialization constant 0, true by default)
+  zeroes the layers when false so their code folds away; PipelineDesc::lean specializes it. scenePipeline_ /
+  sceneEarlyPipeline_ are lean, sceneLayeredPipeline_ / sceneEarlyLayeredPipeline_ full; Batch::layered
+  (hasMaterialLayers, scene_draw.h, tested), the visible items sorted lean first, so drawOpaque switches once.
+  Foliage (translucent), see-through things and water keep the full shader; probes and GI's views draw everything
+  lean (an approximation in their pictures). After: the opaque pass 2157 ms and the frame 2604 against 2635 before
+  round 10; the demo the same picture lean or all layered (0.21% of pixels against 0.36% between two runs).
+  VKWORLD_LEAN_SHADING=0 for comparison. Checked: the subsurface spheres (layered), Night Drive (TAA, MSAA), the
+  editor, under validation with sync checks. Not done: AO before lighting in one tap (temporal AO, task 110, will
+  smooth it instead), variants per feature (one lean and one full only).
 

@@ -4,6 +4,7 @@
 #include "assets/gltf.h"
 #include "core/json.h"
 #include "core/png.h"
+#include "render/scene_draw.h"
 #include "scene/scene_diff.h"
 #include "scene/serialization.h"
 
@@ -355,4 +356,21 @@ TEST(materials_light_inside_undone) {
     after.findByName("Leaf")->meshRenderer->subsurfaceColor.y = 0.9f;
     CHECK(!diffScenes(before, after).empty());
     CHECK(diffScenes(before, before).empty());
+}
+
+TEST(materials_with_layers_drawn_layered) {
+    // Plain, metal, glowing, see-through: the lean lit pass; any layer: the layered one
+    DrawItem plain;
+    plain.metallic = 1.f;
+    plain.emissive = {1.f, 1.f, 1.f};
+    plain.alphaMode = 2;
+    CHECK(!hasMaterialLayers(plain));
+    for (int k = 0; k < 5; ++k) {
+        DrawItem d;
+        (k == 0 ? d.clearcoat : k == 1 ? d.sheen : k == 2 ? d.anisotropy : k == 3 ? d.translucency : d.subsurface) = 0.5f;
+        CHECK(hasMaterialLayers(d));
+    }
+    DrawItem barely;
+    barely.anisotropy = 0.005f;   // (too little to show)
+    CHECK(!hasMaterialLayers(barely));
 }

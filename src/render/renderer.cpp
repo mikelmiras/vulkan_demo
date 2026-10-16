@@ -62,6 +62,7 @@ void Renderer::init(uint32_t width, uint32_t height, const MeshLibrary& meshes, 
     if (const char* v = std::getenv("VKWORLD_PREPASS"); v && !std::strcmp(v, "0")) prepass_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_FIT"); v && !std::strcmp(v, "0")) fittedCascades_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_CULL"); v && !std::strcmp(v, "0")) casterCulling_ = false;
+    if (const char* v = std::getenv("VKWORLD_LEAN_SHADING"); v && !std::strcmp(v, "0")) leanShading_ = false;
     if (const char* v = std::getenv("VKWORLD_AO_LIT"); v && !std::strcmp(v, "0")) aoLitWanted_ = false;
     if (const char* v = std::getenv("VKWORLD_SHADOW_CACHE"); v && !std::strcmp(v, "0")) shadowCacheOn_ = false;
     if (const char* v = std::getenv("VKWORLD_RENDER_SCALE"))   // (before the post images: the upscaler's are made with them)
@@ -606,6 +607,10 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vs, "main", nullptr},
         {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fs, "main", nullptr},
     };
+    const VkBool32 layers = VK_FALSE;   // (the lean variant: scene.frag's kLayers)
+    const VkSpecializationMapEntry layersEntry{0, 0, sizeof(VkBool32)};
+    const VkSpecializationInfo leanInfo{1, &layersEntry, sizeof(VkBool32), &layers};
+    if (d.lean) stages[1].pSpecializationInfo = &leanInfo;
 
     // Binding 0: the vertices; binding 1: their skinning data (every vertex shader skins)
     VkVertexInputBindingDescription vib[2] = {{0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX},
@@ -835,8 +840,12 @@ void Renderer::createPipelines() {
 // The pipelines drawing into the scene's (maybe multisampled) targets, and the AO pass reading its depth
 void Renderer::createSampledPipelines() {
     // Lit scene objects: depth tested, no stencil
-    scenePipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_BACK_BIT,
-                                     false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    // (lean: materials without layers, most; layered: coat, sheen, anisotropy, translucency or subsurface)
+    PipelineDesc lit{"scene.vert.spv", "scene.frag.spv", true, true, true, VK_CULL_MODE_BACK_BIT,
+                     false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0};
+    sceneLayeredPipeline_ = createPipeline(lit);
+    lit.lean = true;
+    scenePipeline_ = createPipeline(lit);
     // See-through objects: depth-tested, but not hiding what's drawn after them
     transparentPipeline_ = createPipeline({"scene.vert.spv", "scene.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
                                            false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, true});
@@ -864,8 +873,11 @@ void Renderer::createSampledPipelines() {
         depth.cull = VK_CULL_MODE_BACK_BIT;
         prepassVelocityPipeline_ = createPipeline(depth);
     }
-    sceneEarlyPipeline_ = createPipeline({"scene.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
-                                          false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
+    PipelineDesc early{"scene.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_BACK_BIT,
+                       false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0};
+    sceneEarlyLayeredPipeline_ = createPipeline(early);
+    early.lean = true;
+    sceneEarlyPipeline_ = createPipeline(early);
     foliageEarlyPipeline_ = createPipeline({"foliage.vert.spv", "scene_early.frag.spv", true, false, true, VK_CULL_MODE_NONE,
                                             false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0});
     // Selected object's full silhouette into stencil (ignores depth so occluded parts are marked too)
@@ -893,6 +905,7 @@ void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &ssrCapturePipeline_,
                           &shaftsPipeline_, &cameraFxPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
                           &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
+                          &sceneLayeredPipeline_, &sceneEarlyLayeredPipeline_,
                           &prepassVelocityPipeline_, &prepassFoliageVelocityPipeline_}) {
         if (*p) vkDestroyPipeline(device_, *p, nullptr);
         *p = VK_NULL_HANDLE;
@@ -1755,12 +1768,18 @@ void Renderer::drawOpaque(VkCommandBuffer cb, const SceneRenderInfo& info, const
                           bool depthOnly) {
     VkPipeline pipeline = depthOnly ? (velocityOn_ ? prepassVelocityPipeline_ : prepassPipeline_)
                                     : prepass_ ? sceneEarlyPipeline_ : scenePipeline_;
+    VkPipeline layered = depthOnly ? pipeline : prepass_ ? sceneEarlyLayeredPipeline_ : sceneLayeredPipeline_;
     VkPipeline plants = depthOnly ? (velocityOn_ ? prepassFoliageVelocityPipeline_ : prepassFoliagePipeline_)
                                   : prepass_ ? foliageEarlyPipeline_ : foliagePipeline_;
     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    VkPipeline current = pipeline;
     VkDescriptorSet bound = VK_NULL_HANDLE;
     for (size_t i = 0; i < batches.size(); ++i) {
         const Batch& b = batches[i];
+        if (VkPipeline want = b.layered ? layered : pipeline; want != current) {   // (layered ones come last: one switch)
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, want);
+            current = want;
+        }
         if (b.texture != bound) {
             vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 1, 1, &b.texture, 0, nullptr);
             bound = b.texture;

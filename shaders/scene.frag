@@ -117,6 +117,10 @@ void readTraced() {
 
 layout(location = 0) out vec4 outColor;
 
+// (false: the lean variant, for materials without layers: coat, sheen, anisotropy, translucency, subsurface are
+// none, and their code folds away; the renderer draws each batch with the one it needs)
+layout(constant_id = 0) const bool kLayers = true;
+
 const float PI = 3.14159265;
 
 // Soft shadows: taps on a Poisson disk, turned by a per-pixel angle (interleaved gradient noise, moving each frame
@@ -835,16 +839,17 @@ void main() {
     s.f0 = mix(vec3(0.04), base, metallic);
     vec2 dfg = envDFG(rough, NdotV);
     s.energy = 1.0 + s.f0 * (1.0 / max(dfg.x + dfg.y, 1e-3) - 1.0);
-    s.coat = water || terrain ? 0.0 : clamp(vLayers.x, 0.0, 1.0);
+    const bool layered = kLayers && !water && !terrain;
+    s.coat = layered ? clamp(vLayers.x, 0.0, 1.0) : 0.0;
     s.coatRough = clamp(vLayers.y, 0.02, 1.0);
     s.coatN = surfaceN;
-    s.sheen = water || terrain ? 0.0 : clamp(vLayers.z, 0.0, 1.0);
+    s.sheen = layered ? clamp(vLayers.z, 0.0, 1.0) : 0.0;
     s.sheenColor = s.sheen * mix(base, vec3(1.0), 0.5);
-    s.aniso = water || terrain ? 0.0 : clamp(vLayers.w, -0.95, 0.95);
+    s.aniso = layered ? clamp(vLayers.w, -0.95, 0.95) : 0.0;
     s.T = vec3(1.0, 0.0, 0.0);
     s.B = vec3(0.0, 0.0, 1.0);
-    s.translucency = water || terrain ? 0.0 : clamp(vScatter.x, 0.0, 1.0);
-    s.subsurface = water || terrain ? 0.0 : clamp(vScatter.y, 0.0, 1.0);
+    s.translucency = layered ? clamp(vScatter.x, 0.0, 1.0) : 0.0;
+    s.subsurface = layered ? clamp(vScatter.y, 0.0, 1.0) : 0.0;
     s.scatterColor = unpackColor(vScatter.z);
     vec3 R = reflect(-V, N);
     if (abs(s.aniso) > 0.01) {   // the texture's u and v across the surface (screen-space derivatives), and the
