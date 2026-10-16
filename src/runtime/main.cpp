@@ -832,6 +832,8 @@ int main(int argc, char** argv) {
         info.localToneMapping = scene.render.localToneMapping;
         info.lensDirt = scene.render.lensDirt;
         info.lightShafts = scene.render.lightShafts;
+        info.depthOfField = scene.render.depthOfField;
+        info.motionBlur = scene.render.motionBlur;
         info.wetness = scene.render.wetness;
         info.puddles = scene.render.puddles;
         info.rain = scene.render.rain;
@@ -855,6 +857,7 @@ int main(int argc, char** argv) {
         info.camForward = normalize(transformDir(inverseAffine(cam.view), {0, 0, -1}));
         info.viewProj = perspective(cam.fovY, aspect, cam.zNear, cam.zFar, true) * cam.view;
         info.camPos = cam.position;
+        info.focusDistance = focusDistance(scene, worlds, info.camPos, info.camForward);
         info.viewportX = rect[0];
         info.viewportY = rect[1];
         info.viewportW = rect[2];

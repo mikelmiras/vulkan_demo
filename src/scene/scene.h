@@ -784,6 +784,11 @@ struct RenderSettings {
     float localToneMapping = 0.f;
     float lensDirt = 0.f;             // 0..1: smudges on the lens lit up by the bloom round bright lights
     float lightShafts = 0.f;          // 0..2: the sun's rays through gaps on screen (god rays; without volumetric fog)
+    // Camera effects (off at 0)
+    float depthOfField = 0.f;         // 0..1: how blurred what's out of focus gets (1: about 1% of the view's height)
+    float focusDistance = 10.f;       // metres from the camera that are sharp ...
+    EntityId focusTarget = kNoEntity; // ... or this entity's distance, when there is one
+    float motionBlur = 0.f;           // 0..1: smears along what moves on screen (1: over the whole frame's motion)
     // The physically based sky (render/atmosphere.h): the sky, the sun's colour and the light from the sky worked out
     // from the air (blue by day, red at sunset, dark at night) instead of the colours above (the ground's stays: what
     // the ground reflects); distant things fade into the air's colour (aerial perspective). A sky image wins over it.

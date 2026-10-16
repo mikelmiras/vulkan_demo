@@ -881,6 +881,8 @@ void Renderer::createSampledPipelines() {
                                                  hdrFormat_, false);
         shaftsPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "shafts_ms.frag.spv" : "shafts.frag.spv",
                                              VK_FORMAT_R16G16B16A16_SFLOAT, false);
+        cameraFxPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "camera_fx_ms.frag.spv" : "camera_fx.frag.spv",
+                                               hdrFormat_, false);
     }
     particleAlphaPipeline_ = createParticlePipeline(false);
     particleAdditivePipeline_ = createParticlePipeline(true);
@@ -889,7 +891,7 @@ void Renderer::createSampledPipelines() {
 
 void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &ssrCapturePipeline_,
-                          &shaftsPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
+                          &shaftsPipeline_, &cameraFxPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
                           &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
                           &prepassVelocityPipeline_, &prepassFoliageVelocityPipeline_}) {
         if (*p) vkDestroyPipeline(device_, *p, nullptr);
@@ -1148,7 +1150,7 @@ void Renderer::createResources(const MeshLibrary&) {
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
     // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation; +1: the sky's)
-    const uint32_t postSetCount = 2 * kMaxBloomMips + 9 + 2 * kMaxViews;
+    const uint32_t postSetCount = 2 * kMaxBloomMips + 10 + 2 * kMaxViews;   // (+1: the camera effects')
     VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
@@ -1172,6 +1174,7 @@ void Renderer::createResources(const MeshLibrary&) {
     lumSet_ = postSets[6 + 2 * kMaxBloomMips + 2 * kMaxViews];
     adaptSet_ = postSets[7 + 2 * kMaxBloomMips + 2 * kMaxViews];
     skyViewSet_ = postSets[8 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    fxSet_ = postSets[9 + 2 * kMaxBloomMips + 2 * kMaxViews];
     {   // (the luminance image is mipped by blits: its format must allow filtered ones)
         VkFormatProperties fp;
         vkGetPhysicalDeviceFormatProperties(gpu_, VK_FORMAT_R16_SFLOAT, &fp);
@@ -1955,7 +1958,7 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         // (and contact shadows, which need only this frame's depth)
         const bool contact = info.contactShadows && quality_ != Quality::Low;
         const bool traceWanted = ((captureOn(info) && ssrValid_) || contact) && aoSupported_ && ssrTracePipeline_;
-        velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted) && prepass_ && info.items && prepassVelocityPipeline_ &&
+        velocityOn_ = (aa_ == Antialiasing::Temporal || traceWanted || info.motionBlur > 0.f) && prepass_ && info.items && prepassVelocityPipeline_ &&
                       velocity_.image;
         traceOn_ = traceWanted && velocityOn_;
         // (ambient occlusion before lighting: with the prepass and a depth to read; else the composite's, as before)

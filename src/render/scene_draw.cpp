@@ -205,6 +205,17 @@ std::vector<GpuEmitterInfo> collectGpuEmitters(const Scene& scene, const std::ve
     return out;
 }
 
+float focusDistance(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 camPos, Vec3 camForward) {
+    const RenderSettings& r = scene.render;
+    if (r.focusTarget != kNoEntity)
+        for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i)
+            if (scene.entities[i].id == r.focusTarget) {
+                const Mat4& m = worlds[i];
+                return std::max(dot(Vec3{m.m[12], m.m[13], m.m[14]} - camPos, normalize(camForward)), 0.1f);
+            }
+    return std::max(r.focusDistance, 0.1f);
+}
+
 std::vector<DecalInfo> collectDecals(const Scene& scene, const std::vector<Mat4>& worlds) {
     std::vector<DecalInfo> decals;
     for (size_t i = 0; i < scene.entities.size() && i < worlds.size(); ++i) {

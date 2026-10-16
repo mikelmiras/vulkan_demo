@@ -41,7 +41,7 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/adapt.frag shaders/sky_transmittance.frag shaders/sky_view.frag shaders/sky_multiple.frag
                    shaders/ssr_trace.frag shaders/gi_trace.frag
                    shaders/particles.comp shaders/particle_sort.comp shaders/particle_gather.comp
-                   shaders/shafts.frag shaders/shafts_ms.frag)
+                   shaders/shafts.frag shaders/shafts_ms.frag shaders/camera_fx.frag shaders/camera_fx_ms.frag)
 set(SPIRV_OUTPUTS)
 foreach(src ${SHADER_SOURCES})
   get_filename_component(name ${src} NAME)
@@ -54,7 +54,7 @@ foreach(src ${SHADER_SOURCES})
             ${CMAKE_SOURCE_DIR}/shaders/hiz.glsl ${CMAKE_SOURCE_DIR}/shaders/fog.glsl
             ${CMAKE_SOURCE_DIR}/shaders/water.glsl ${CMAKE_SOURCE_DIR}/shaders/atmosphere.glsl
             ${CMAKE_SOURCE_DIR}/shaders/screen_trace.glsl ${CMAKE_SOURCE_DIR}/shaders/trace_common.glsl
-            ${CMAKE_SOURCE_DIR}/shaders/shafts.glsl
+            ${CMAKE_SOURCE_DIR}/shaders/shafts.glsl ${CMAKE_SOURCE_DIR}/shaders/camera_fx.glsl
     COMMENT "Compiling ${name}")
   list(APPEND SPIRV_OUTPUTS ${out})
 endforeach()
@@ -488,6 +488,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_cooking.cpp
     tests/test_shadow_cascades.cpp
     tests/test_light_shafts.cpp
+    tests/test_camera_effects.cpp
     tests/test_hdr_image.cpp
     tests/test_color_glyphs.cpp
     tests/test_line_break.cpp

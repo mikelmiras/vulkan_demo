@@ -252,7 +252,8 @@ bool sameRenderSettings(const RenderSettings& a, const RenderSettings& b) {
            a.tonemapper == b.tonemapper && a.contrast == b.contrast && a.saturation == b.saturation && a.vignette == b.vignette &&
            a.autoExposure == b.autoExposure && a.exposureMin == b.exposureMin && a.exposureMax == b.exposureMax &&
            a.adaptationSpeed == b.adaptationSpeed && a.localToneMapping == b.localToneMapping && a.lensDirt == b.lensDirt &&
-           a.lightShafts == b.lightShafts &&
+           a.lightShafts == b.lightShafts && a.depthOfField == b.depthOfField && a.focusDistance == b.focusDistance &&
+           a.focusTarget == b.focusTarget && a.motionBlur == b.motionBlur &&
            a.physicalSky == b.physicalSky && a.timeOfDay == b.timeOfDay && a.latitude == b.latitude && a.haze == b.haze &&
            a.aerialPerspective == b.aerialPerspective && a.cloudCover == b.cloudCover && a.ssgi == b.ssgi && a.ssgiIntensity == b.ssgiIntensity &&
            a.wetness == b.wetness && a.puddles == b.puddles && a.rain == b.rain && a.contactShadows == b.contactShadows;

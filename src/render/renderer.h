@@ -172,6 +172,7 @@ struct SceneRenderInfo {
     float exposureMin = -4.f, exposureMax = 4.f, adaptationSpeed = 1.f, localToneMapping = 0.f;
     float lensDirt = 0.f;             // (RenderSettings': how much the bloom lights up the lens's dirt)
     float lightShafts = 0.f;          // (RenderSettings': the sun's rays on screen, without volumetric fog)
+    float depthOfField = 0.f, focusDistance = 10.f, motionBlur = 0.f;   // (RenderSettings'; the focus: its target's)
     float frameSeconds = 1.f / 60.f;  // (auto-exposure's easing: the time since the last frame)
     // The physically based sky (RenderSettings'; render/atmosphere.h): the sky colours above, the sun's colour (and
     // with a time of day, its direction) from the air instead
@@ -540,6 +541,8 @@ private:
     VkSampler sampler_ = VK_NULL_HANDLE;
     VkSampler nearestSampler_ = VK_NULL_HANDLE;
     Image envSky_, envRadiance_;
+    Image fx_;         // the picture with the camera effects, copied back over hdr_ (camera_fx.glsl)
+    VkDescriptorSet fxSet_ = VK_NULL_HANDLE;   // (the picture, the depth, the motion vectors)
     Image shafts_;     // the sun's light shafts this frame, half size (shafts.glsl); the composite's binding 7
     Vec3 shaftsSunDir_{0, -1, 0}, shaftsSunColor_{0, 0, 0};   // (the main view's sun this frame: fillFrameUBO)
     Image lensDirt_;   // smudges, specks and streaks on the lens, made once (renderer_post.cpp); the composite's binding 6
@@ -836,6 +839,7 @@ private:
     bool aoSupported_ = false;                       // the depth format can be sampled
     VkDescriptorSet aoSet_ = VK_NULL_HANDLE;
     VkPipeline aoPipeline_ = VK_NULL_HANDLE;
+    VkPipeline cameraFxPipeline_ = VK_NULL_HANDLE;   // depth of field and motion blur (camera_fx.glsl): fxSet_
     VkPipeline shaftsPipeline_ = VK_NULL_HANDLE;   // light shafts (shafts.glsl): half size, over the depth (aoSet_)
     // Screen-space reflections: this frame's picture and distances captured after the post passes (prevColor_, set
     // 0 binding 18), for scene.frag's rays next frame; the camera it was taken with

@@ -21,5 +21,8 @@ std::vector<PlantSet> collectPlants(const Scene& scene, const std::vector<Mat4>&
 std::vector<ProbeInfo> collectProbes(const Scene& scene, const std::vector<Mat4>& worlds, uint32_t bakeCount = 0);
 // Every visible particle emitter simulated on the GPU (ParticleEmitter::gpu)
 std::vector<GpuEmitterInfo> collectGpuEmitters(const Scene& scene, const std::vector<Mat4>& worlds);
+// The distance depth of field keeps sharp (RenderSettings): its focus target's along the view, if it has one (at
+// least 0.1 m), else its focus distance
+float focusDistance(const Scene& scene, const std::vector<Mat4>& worlds, Vec3 camPos, Vec3 camForward);
 // Every visible decal (its box: the entity's transform on a unit cube)
 std::vector<DecalInfo> collectDecals(const Scene& scene, const std::vector<Mat4>& worlds);

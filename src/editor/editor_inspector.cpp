@@ -268,6 +268,32 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         track();
         tooltip("The sun's rays streaming through gaps (trees, windows, between buildings) when it's in view; with "
                 "volumetric fog on, the fog makes its own instead");
+        ImGui::SliderFloat("Depth of field", &r.depthOfField, 0.f, 1.f, "%.2f");
+        track();
+        tooltip("What's nearer or further than the focus is blurred, as by a camera's lens (bright spots into discs)");
+        if (r.depthOfField > 0.f) {
+            const Entity* target = scene_.find(r.focusTarget);
+            if (ImGui::BeginCombo("Focus on", target ? target->name.c_str() : "(a distance)")) {
+                if (ImGui::Selectable("(a distance)", !target)) {
+                    pushUndo();
+                    r.focusTarget = kNoEntity;
+                }
+                for (const Entity& e : scene_.entities)
+                    if (ImGui::Selectable((e.name + "##focus" + std::to_string(e.id)).c_str(), target && target->id == e.id)) {
+                        pushUndo();
+                        r.focusTarget = e.id;
+                    }
+                ImGui::EndCombo();
+            }
+            tooltip("An entity to keep in focus wherever it is (a player, a car), or a distance");
+            if (!target) {
+                ImGui::SliderFloat("Focus distance", &r.focusDistance, 0.1f, 500.f, "%.1f m", ImGuiSliderFlags_Logarithmic);
+                track();
+            }
+        }
+        ImGui::SliderFloat("Motion blur", &r.motionBlur, 0.f, 1.f, "%.2f");
+        track();
+        tooltip("Things moving across the view (or the view turning) smear along their motion; at 1, over the whole frame's");
         ImGui::Checkbox("Physical sky", &r.physicalSky);
         track();
         tooltip("The sky, the sun's colour and the light from the sky worked out from the air (blue by day, red at "

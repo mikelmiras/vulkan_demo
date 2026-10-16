@@ -624,7 +624,15 @@ dropping on the right.
   gaps between things in front of it (trees, pillars, windows) and dark streaks fan out from what blocks it. Each
   half-size pixel marches towards the sun's place on screen and gathers how much of the way is sky, brightest near
   the sun; it fades as the sun leaves the view. Screen-space: a sun hidden by something off screen still shines.
-  Off at low quality; the main view's alone. The main view
+  Off at low quality; the main view's alone.
+  **Depth of field** (0..1, off by default): what's nearer or further than the focus blurs as through a lens, by
+  its circle of confusion (a thin lens's: |distance - focus| / distance, at 1 up to about 1% of the view's height),
+  bright spots opening into discs (bokeh); the focus is a distance (*Focus distance*) or an entity kept sharp
+  wherever it goes (*Focus on*: a player, a car). The background doesn't spill over a sharp foreground, but a
+  blurred foreground doesn't spread over a sharp background either (its edges stay crisp). **Motion blur** (0..1,
+  off by default): the picture smears along each pixel's motion on screen (the depth prepass's motion vectors,
+  turned on by it), at 1 over the whole frame's motion, at most a twentieth of the view; the sky doesn't smear.
+  Both run once after temporal AA, before bloom; off at low quality, the main view's alone. The main view
   meters; split-screen views use its exposure, without local tone mapping.
 - **Physical sky and time of day** (Scene look > Physical sky, off by default): the sky worked out from the air,
   Rayleigh scattering (blue), Mie scattering (haze, the glow round the sun) and ozone, after Hillaire's 2020

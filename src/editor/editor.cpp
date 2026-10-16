@@ -323,6 +323,8 @@ SceneRenderInfo Editor::renderInfo() const {
     info.localToneMapping = r.localToneMapping;
     info.lensDirt = r.lensDirt;
     info.lightShafts = r.lightShafts;
+    info.depthOfField = r.depthOfField;
+    info.motionBlur = r.motionBlur;
     info.wetness = r.wetness;
     info.puddles = r.puddles;
     info.rain = r.rain;
@@ -347,6 +349,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.viewProj = viewProj_;
     info.camPos = viewPos_;
     info.camForward = viewForward_;
+    info.focusDistance = focusDistance(scene_, worlds_, info.camPos, info.camForward);
     info.viewportX = vx_;
     info.viewportY = vy_;
     info.viewportW = vw_;

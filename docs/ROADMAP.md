@@ -1727,7 +1727,7 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
 | 104 (done) | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
 | 105 (done) | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
 | 106 (done) | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
-| 107 | Camera effects: depth of field (bokeh, from the depth, focus by distance or on a target) and motion blur along the motion vectors; both settings, off by default | No way to soften the background or show speed |
+| 107 (done) | Camera effects: depth of field (bokeh, from the depth, focus by distance or on a target) and motion blur along the motion vectors; both settings, off by default | No way to soften the background or show speed |
 | 108 | Night Drive's traffic: a few AI cars driving the grid with their headlights and tail lights, spray from wet tyres (GPU particles), all within the benchmark's budget | The showcase's streets are empty: a city at night needs traffic to show the lights, reflections and rain |
 
 ### Round 10 notes
@@ -1824,4 +1824,17 @@ light through thin things, and camera effects; Night Drive gets traffic to show 
   same); a lamp beside boxes (the contact at their bases, seen in the channel alone); Night Drive (TAA, MSAA), the
   sample game, the editor, under validation with sync checks. Not done: shafts from lamps, occluders off screen,
   several lamps' contact shadows.
+- **107, depth of field and motion blur**: RenderSettings::depthOfField, focusDistance, focusTarget (an entity id,
+  saved as one) and motionBlur (format 59, module API 68); focusDistance() (scene_draw.h, tested: the target's
+  distance along the view, at least 0.1 m). camera_fx.glsl (plain and multisampled) runs at full size at the start
+  of recordPost, after temporal AA, into fx_, copied back over hdr_ (so bloom and the composite are as before; fxSet_:
+  the picture, the depth, the motion vectors). Motion blur: 8 taps across the pixel's motion times the strength,
+  capped at 5% of the view's height, skipped under 0.75 px; the prepass's motion vectors are made whenever it's on
+  (velocityOn_). Depth of field: 24 taps over a golden-angle spiral as wide as the circle (0.012 * strength * the
+  view's height), each tap counting by clamp(its circle - its distance + 1) with what's further than the pixel
+  counting at most the pixel's circle, bright taps weighed up to 5x (bokeh). Checked: the demo focused at 8 m and on
+  the centre sphere (TAA, MSAA, no AA, render scale 0.7), the moving-camera Night Drive copy with motion blur (TAA,
+  MSAA), Night Drive and the editor as before, under validation with sync checks. Not done: the near field's blur
+  spreading over a sharp background (a pre-pass of the largest near circle), the sky's motion (the camera's turn),
+  per-object shutter (all of the frame's motion).
 
