@@ -1577,7 +1577,7 @@ per pixel; then the image's stability in motion, which every effect relies on (t
 | 91 (done) | Half-resolution effects: screen-space reflections, SSGI and ambient occlusion traced at half size and brought up with a depth-aware (bilateral) upsample, temporally accumulated | Round 8's screen-space effects run per pixel in the lit shader; on a 1050 Ti at 1080p they're most of the frame |
 | 92 (done) | Contact shadows and specular occlusion: a short screen-space ray towards the sun (and the nearest lights) for the shadow maps' missing detail, and occlusion of reflections from the AO and the bent normal | Small things (kerbs, tyres on the road, a cup on a table) float: the shadow maps are too coarse for their contact, and reflections show in crevices |
 | 93 (done) | Sky, finished: Hillaire's multiple-scattering table, the sky's light as spherical harmonics for the ambient, a moon and stars at night, clouds (a 2D layer lit by the atmosphere, their shadows on the ground) | Round 8's sky stands in for multiple scattering and lights the scene with two colours; nights are empty |
-| 94 | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
+| 94 (done) | Exposure and bloom, finished: a luminance histogram (percentiles, centre-weighted metering), physically based bloom with a lens-dirt texture, local tone mapping by a bilateral grid (no halos) | The log-average reacts to a few lights; the coarse local tone mapping halos at hard edges at full strength |
 | 95 | GPU particles: simulation, emission and sorting in compute (the CPU's only for game-driven bursts), soft particles (fading where they meet geometry), splashes where rain lands | Rain at Night Drive's density is thousands of particles simulated on the CPU every frame; particles cut hard lines into the ground |
 | 96 | Water, finished: the view from under the surface (fog, the surface's underside, refraction up), caustics shadowed by what's above, refraction for split-screen views and probes | Round 8's water is only seen from above, and its caustics shine through bridges |
 | 97 | Shadows: tighter cascades (fitted to the visible depth range), cached shadows for static point lights' cubes, shadow-map space culled by the Hi-Z pyramid | Shadows still take a large share at medium and high; many cascades cover empty space |
@@ -1653,4 +1653,13 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   Checked: the tables' values and the harmonics (tests), noon with clouds, evening, a starry night under validation
   with sync checks (also MSAA, the editor). Not done: clouds in the ambient's harmonics and the reflection probes,
   volumetric clouds, the moon's phases and its own path, seasons.
+- **94, exposure and bloom**: adapt.frag meters a 64-bin histogram (log2 -16..16) of the luminance's third level
+  (64 x 36), each texel weighted 1 + 2 exp(-12 r^2) from the middle, and takes the weighted log-average between its
+  50th and 95th percentiles (the parts of bins inside the band). Local tone mapping: 3 x 3 taps of the third level
+  weighted by exp(-(their log2 - this pixel's)^2 / 2), the centre twice: a bilateral filter on the coarse grid.
+  Bloom was already the mip chain with a Karis-weighted first pass; lens dirt (RenderSettings::lensDirt, scene format
+  54, module API 63) multiplies it by 1 + dirt * 6 * strength from a 256 x 256 texture made once (40 smudges, 160
+  specks, 3 streaks, a fixed seed; the composite's binding 6, post sets now 7 bindings). Checked: saved and loaded,
+  Night Drive with auto-exposure, local tone mapping and dirt under validation with sync checks. Not done: a lens
+  dirt image of the scene's choosing, bloom shaped by an aperture (a kernel image).
 

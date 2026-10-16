@@ -261,6 +261,9 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::SliderFloat("Local tone mapping", &r.localToneMapping, 0.f, 1.f, "%.2f");
         track();
         tooltip("Dark and bright parts of the view pulled towards the middle: detail in the shadows and round the lights");
+        ImGui::SliderFloat("Lens dirt", &r.lensDirt, 0.f, 1.f, "%.2f");
+        track();
+        tooltip("Smudges on the lens that the bloom lights up round bright lights");
         ImGui::Checkbox("Physical sky", &r.physicalSky);
         track();
         tooltip("The sky, the sun's colour and the light from the sky worked out from the air (blue by day, red at "

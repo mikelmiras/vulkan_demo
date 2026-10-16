@@ -786,15 +786,16 @@ void Renderer::createPipelines() {
                                             false, VK_COMPARE_OP_ALWAYS, VK_STENCIL_OP_KEEP, 0, 3, false, true, 0b101});
 
     // Post-processing: one or two images to read, parameters in push constants
-    VkDescriptorSetLayoutBinding postBindings[6] = {
+    VkDescriptorSetLayoutBinding postBindings[7] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: AO)
         {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: the UI layer)
         {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: auto-exposure)
         {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: luminance)
+        {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: lens dirt)
     };
-    dslci.bindingCount = 6;
+    dslci.bindingCount = 7;
     dslci.pBindings = postBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &postSetLayout_));
     VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 96};
@@ -1136,7 +1137,7 @@ void Renderer::createResources(const MeshLibrary&) {
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
     // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation; +1: the sky's)
     const uint32_t postSetCount = 2 * kMaxBloomMips + 9 + 2 * kMaxViews;
-    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6 * postSetCount};
+    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 7 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &postSize;
@@ -1274,6 +1275,7 @@ void Renderer::createResources(const MeshLibrary&) {
     frame_ = 0;
 
     createEnvironmentResources();
+    createLensDirt();   // (the composite's binding 6: from now, in place of what stood in)
     const uint8_t white[4] = {255, 255, 255, 255};
     whiteTexture_ = createTexture(white, 1, 1);
     const uint8_t flat[4] = {128, 128, 255, 255};
@@ -2172,6 +2174,7 @@ void Renderer::shutdown() {
     vkDestroyDescriptorPool(device_, postPool_, nullptr);
     vkDestroySampler(device_, postSampler_, nullptr);
     vkDestroySampler(device_, lumSampler_, nullptr);
+    if (lensDirt_.image) destroyImage(lensDirt_);
     vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     vkDestroyDescriptorSetLayout(device_, setLayout_, nullptr);
     vkDestroyDescriptorPool(device_, descPool_, nullptr);

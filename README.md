@@ -582,12 +582,16 @@ dropping on the right.
 - **Tone mapping and grading**: PBR Neutral (colours as they are) or **filmic** (AgX: richer contrast, highlights
   bleaching towards white as film's do), then contrast, saturation and a vignette (Scene look).
 - **Auto-exposure and local tone mapping** (Scene look, off by default): with **Auto-exposure** the exposure follows
-  the view's mean brightness (its log-average, measured each frame on a 256x144 copy of the view), easing towards it
+  the view's brightness (metered each frame on a 256x144 copy of the view: a histogram weighted towards the middle,
+  averaged between its 50th and 95th percentiles, so a few street lights or a black corner don't swing it), easing towards it
   like an eye adjusting: three times quicker into a brighter view than into a darker one, at **Adaptation speed**,
   within an **Exposure range** (stops either side). The brightness aimed for falls with the view's own (an automatic
   key), so a night street stays a night street rather than lifted to grey; the scene's Exposure multiplies the
   result (compensation). **Local tone mapping** (0..1) lifts dark regions and holds back bright ones relative to the
-  mean (by the coarse brightness around each pixel), keeping detail in shadows and around lights. The main view
+  mean (by the coarse brightness around each pixel, edge-aware: neighbours of a very different brightness count
+  less, so there's no halo along a dark wall against a bright sky), keeping detail in shadows and around lights.
+  **Lens dirt** (0..1): smudges, specks and wipe marks on the lens that the bloom lights up round bright lights.
+  The main view
   meters; split-screen views use its exposure, without local tone mapping.
 - **Physical sky and time of day** (Scene look > Physical sky, off by default): the sky worked out from the air,
   Rayleigh scattering (blue), Mie scattering (haze, the glow round the sun) and ozone, after Hillaire's 2020

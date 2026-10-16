@@ -803,6 +803,7 @@ int main(int argc, char** argv) {
         info.exposureMax = scene.render.exposureMax;
         info.adaptationSpeed = scene.render.adaptationSpeed;
         info.localToneMapping = scene.render.localToneMapping;
+        info.lensDirt = scene.render.lensDirt;
         info.wetness = scene.render.wetness;
         info.puddles = scene.render.puddles;
         info.rain = scene.render.rain;

@@ -154,6 +154,7 @@ struct SceneRenderInfo {
     float contrast = 1.f, saturation = 1.f, vignette = 0.f;
     bool autoExposure = false;        // (RenderSettings': the exposure follows the view's brightness)
     float exposureMin = -4.f, exposureMax = 4.f, adaptationSpeed = 1.f, localToneMapping = 0.f;
+    float lensDirt = 0.f;             // (RenderSettings': how much the bloom lights up the lens's dirt)
     float frameSeconds = 1.f / 60.f;  // (auto-exposure's easing: the time since the last frame)
     // The physically based sky (RenderSettings'; render/atmosphere.h): the sky colours above, the sun's colour (and
     // with a time of day, its direction) from the air instead
@@ -518,6 +519,9 @@ private:
     VkSampler sampler_ = VK_NULL_HANDLE;
     VkSampler nearestSampler_ = VK_NULL_HANDLE;
     Image envSky_, envRadiance_;
+    Image lensDirt_;   // smudges, specks and streaks on the lens, made once (renderer_post.cpp); the composite's binding 6
+    void createLensDirt();
+    void writeLensDirtBinding();
     VkSampler envSampler_ = VK_NULL_HANDLE;
     uint32_t envId_ = 0;
     float envSh_[9][3] = {};   // textures imported with "filter": "nearest"

@@ -317,6 +317,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.exposureMax = r.exposureMax;
     info.adaptationSpeed = r.adaptationSpeed;
     info.localToneMapping = r.localToneMapping;
+    info.lensDirt = r.lensDirt;
     info.wetness = r.wetness;
     info.puddles = r.puddles;
     info.rain = r.rain;

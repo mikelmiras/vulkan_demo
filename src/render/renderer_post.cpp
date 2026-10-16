@@ -189,6 +189,7 @@ void Renderer::createPostImages() {
         }
         vkUpdateDescriptorSets(device_, 2, w, 0, nullptr);
     }
+    writeLensDirtBinding();
     // Reflections' picture of the last frame, and the capture's inputs (the depth, this frame's picture)
     {
         VkFormatProperties fp;
@@ -245,6 +246,55 @@ void Renderer::createPostImages() {
         w3.pImageInfo = &layer;
         vkUpdateDescriptorSets(device_, 1, &w3, 0, nullptr);
     }
+}
+
+// A dirty lens: soft smudges of a few sizes, specks and a streak or two, a little coloured, on a faint film (the same
+// every time: a fixed seed); lit only where the bloom is
+void Renderer::createLensDirt() {
+    Environment::Level level;
+    level.width = level.height = 256;
+    level.rgb.assign((size_t)256 * 256 * 3, 0.03f);
+    uint32_t seed = 0x5eed1e55u;
+    auto random = [&]() {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        return (seed & 0xFFFFFF) / float(0x1000000);
+    };
+    auto splat = [&](float cx, float cy, float radius, float strength, Vec3 tint, float stretch) {
+        int r = (int)std::ceil(radius * 3.f);
+        for (int y = -r; y <= r; ++y)
+            for (int x = -r; x <= r; ++x) {
+                int px = (int)cx + x, py = (int)cy + y;
+                if (px < 0 || py < 0 || px >= 256 || py >= 256) continue;
+                float dx = (float)x / stretch, d2 = (dx * dx + (float)(y * y)) / (radius * radius);
+                float w = strength * std::exp(-d2 * 2.f);
+                float* p = &level.rgb[((size_t)py * 256 + px) * 3];
+                p[0] += w * tint.x, p[1] += w * tint.y, p[2] += w * tint.z;
+            }
+    };
+    for (int i = 0; i < 40; ++i)   // (smudges)
+        splat(random() * 256.f, random() * 256.f, 6.f + random() * 22.f, 0.15f + random() * 0.35f,
+              Vec3{0.9f + random() * 0.1f, 0.85f + random() * 0.15f, 0.75f + random() * 0.25f}, 1.f);
+    for (int i = 0; i < 160; ++i)   // (specks)
+        splat(random() * 256.f, random() * 256.f, 0.6f + random() * 1.4f, 0.4f + random() * 0.6f, Vec3{1, 1, 1}, 1.f);
+    for (int i = 0; i < 3; ++i)   // (streaks: wiped)
+        splat(random() * 256.f, random() * 256.f, 3.f + random() * 3.f, 0.25f, Vec3{0.9f, 0.9f, 1.f}, 8.f + random() * 8.f);
+    for (float& v : level.rgb) v = std::min(v, 1.f);
+    lensDirt_ = createFloatImage({&level});
+    writeLensDirtBinding();
+}
+
+void Renderer::writeLensDirtBinding() {   // (until it's made, the HDR image stands in: never read with no dirt)
+    if (!compositeSet_ || !hdr_.view) return;
+    VkDescriptorImageInfo info{postSampler_, lensDirt_.image ? lensDirt_.view : hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkWriteDescriptorSet w{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+    w.dstSet = compositeSet_;
+    w.dstBinding = 6;
+    w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    w.pImageInfo = &info;
+    vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
 }
 
 // Water's view of the opaque picture behind it (set 0, binding 26), in every frame's set
@@ -466,7 +516,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, layered ? 1.f : 0.f},
                {(float)info.colorFilter, output, hdrPeak_, hdrPaperWhite_}, {vx, vy, vw, vh},
                {(float)info.tonemapper, info.contrast, info.saturation, info.vignette},
-               {autoExposed ? 1.f : 0.f, localTone, (float)(kLumMips - 1), 0.f}};
+               {autoExposed ? 1.f : 0.f, localTone, (float)(kLumMips - 1), lensDirt_.image ? std::clamp(info.lensDirt, 0.f, 1.f) : 0.f}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
     }

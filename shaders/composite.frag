@@ -9,6 +9,7 @@ layout(set = 0, binding = 2) uniform sampler2D ao;   // ambient occlusion, half 
 layout(set = 0, binding = 3) uniform sampler2D uiLayer;   // the UI, drawn apart (when b.w = 1): premultiplied, sRGB
 layout(set = 0, binding = 4) uniform sampler2D exposureMap;   // auto-exposure: log2 of its factor (one texel)
 layout(set = 0, binding = 5) uniform sampler2D luminance;     // the view's log2 luminance, mipped (local tone mapping)
+layout(set = 0, binding = 6) uniform sampler2D lensDirt;      // smudges and specks the bloom catches (renderer_post.cpp)
 layout(push_constant) uniform Post {
     vec4 a;   // x = exposure, y = bloom strength, z = 1: apply ambient occlusion
     vec4 b;   // rgb = outline colour (sRGB), w = 1: blend the UI layer in
@@ -17,7 +18,7 @@ layout(push_constant) uniform Post {
               // z = the display's peak, w = paper white (nits; HDR)
     vec4 d;   // with the UI layer (drawn over the whole picture): the scene's rectangle (x, y, w, h pixels)
     vec4 e;   // x = tone mapper (0 PBR Neutral, 1 filmic), y = contrast, z = saturation, w = vignette
-    vec4 f;   // x = 1: auto-exposure, y = local tone mapping (0..1), z = the luminance's last mip
+    vec4 f;   // x = 1: auto-exposure, y = local tone mapping (0..1), z = the luminance's last mip, w = lens dirt
 } pc;
 
 layout(location = 0) out vec4 outColor;
@@ -101,12 +102,28 @@ void main() {
                     texture(ao, uv + vec2(-0.5, 0.5) * t).r + texture(ao, uv + vec2(0.5, 0.5) * t).r;
         scene *= occ * 0.25;
     }
-    vec3 c = max(scene, vec3(0.0)) + texture(bloom, uv).rgb * pc.a.y;
+    // (the glow, and where the lens is dirty, more of it: smudges lit up by bright lights)
+    vec3 glow = texture(bloom, uv).rgb * pc.a.y;
+    if (pc.f.w > 0.0) glow *= 1.0 + texture(lensDirt, uv).rgb * (pc.f.w * 6.0);
+    vec3 c = max(scene, vec3(0.0)) + glow;
     float exposure = pc.a.x;
     if (pc.f.x > 0.5) exposure *= exp2(texelFetch(exposureMap, ivec2(0), 0).r);   // (auto: times the compensation)
     if (pc.f.y > 0.0) {   // local tone mapping: this part of the view's brightness (coarse) pulled towards the mean
+        // (the brightness around it from the coarse level, 3 x 3 texels each weighed by how near its brightness is to
+        // this pixel's: an edge-aware average, so a dark wall beside a bright sky isn't lit up along the edge)
         vec2 at = clamp((gl_FragCoord.xy - pc.d.xy) / max(pc.d.zw, vec2(1.0)), 0.0, 1.0);
-        float local = textureLod(luminance, at, 3.0).r, mean = textureLod(luminance, vec2(0.5), pc.f.z).r;
+        float mine = log2(max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-6));
+        vec2 texel = 1.0 / vec2(textureSize(luminance, 3));
+        float local = 0.0, weights = 0.0;
+        for (int y = -1; y <= 1; ++y)
+            for (int x = -1; x <= 1; ++x) {
+                float l = textureLod(luminance, at + vec2(x, y) * texel, 3.0).r;
+                float w = exp(-(l - mine) * (l - mine) * 0.5) * (x == 0 && y == 0 ? 2.0 : 1.0);
+                local += l * w;
+                weights += w;
+            }
+        local /= max(weights, 1e-4);
+        float mean = textureLod(luminance, vec2(0.5), pc.f.z).r;
         c *= exp2(clamp(mean - local, -6.0, 6.0) * pc.f.y * 0.5);
     }
     c *= exposure;
