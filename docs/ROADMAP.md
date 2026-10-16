@@ -2014,7 +2014,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | 119 (done) | Frame-level features out of the lit shader when unused: coloured shadows, glowing decals, water's refraction and the shafts' extras behind specialization constants chosen per frame (a small cache of specialized pipelines) | Each feature's lookups cost every pixel on lavapipe even when the frame has none of it (coloured shadows: about 5%) |
 | 120 (done) | Screen-space reflections traced over the Hi-Z pyramid (hierarchical: long rays in few steps, exact hits), widening with roughness (a cone over the blurred levels) | Reflections march fixed steps: short, and they miss thin things; Night Drive's wet streets want the whole street mirrored |
 | 121 (done) | Coloured shadows from spot and point lights too (tint tiles in the atlas), and in the volumetric fog | Only the sun's shadows are tinted; a lamp behind stained glass casts grey |
-| 122 | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
+| 122 (done) | Skin's light done properly: the diffusion over the diffuse light alone (specular kept sharp: a second target in the lit pass for subsurface pixels), each material's subsurface colour as its profile, light through thin parts (ears, fingers) by thickness | The diffusion blurs highlights too and uses one fixed skin profile |
 | 123 | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
 | 124 | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
 | 125 | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
@@ -2064,4 +2064,20 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   MSAA; the sun's coloured shadows unchanged (the frame-time text alone differs); Night Drive, the editor, under
   validation with sync checks. Not done: tints for split-screen views' cascades, coloured light through
   see-through things in the GI.
+- **122, skin's light**: a second colour target would have meant every lit-pass pipeline declaring it; instead
+  scene.frag stores subsurface pixels' specular (shade() leaves its part in shadeSpecular; the environment's and
+  the coat's added; through the aerial perspective and fog like the colour) into a storage image (sssSpecular_,
+  RGBA16UI: three half floats and the profile 5:6:5, full size, GENERAL; set 0 binding 41), only in the main view
+  with the diffusion on (frame.occlusion.y), not under water. sss.glsl reads it (binding 3, unfiltered), takes it
+  off every tap and adds the centre's back after the blur, so the highlight keeps its shape (before, red spread
+  furthest out of it and left a cyan ring). The profile is the subsurface colour normalised to its brightest
+  channel, 0.15 + 0.85 sqrt of it (skin's default: 1, 0.42, 0.30, near the fixed one it replaces). Thickness:
+  sunTransmission reads the sun's cascade depth where the light went in, four taps three quarters of a texel apart,
+  each the four gathered depths interpolated (one depth per texel striped a slab) with depths behind the point
+  (past an edge) replaced by the nearest; light through is 0.6 exp(-thickness / (4 mm x subsurface x profile)),
+  by Jimenez's facing term (0.3 - N.L), with the clouds. Checked: a 1.2 cm slab and 30 cm balls, sun behind
+  (the slab glows red-orange; the balls only at their rim) and to the side (glossy balls: highlights as with
+  VKWORLD_SSS=0, no fringe; a blue profile spreads no red); MSAA, AA off, render scale 0.7, CPU culling,
+  Night Drive, the editor, under validation with sync checks. Not done: lamps' light through (the atlas tiles),
+  a transmission without the diffusion's cost, low-poly meshes' facets showing at the sun's edge without it.
 

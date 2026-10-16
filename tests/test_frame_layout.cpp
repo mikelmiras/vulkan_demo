@@ -1,7 +1,8 @@
 // The frame's uniforms, the objects' and the decals' data: FrameUBO, InstanceData and GpuDecal
 // (render/renderer_internal.h) must match shaders/common.glsl's Frame block and Instance struct, and scene.frag's
 // GpuDecal, field for field (names, order, sizes); both files are read
-// and their declarations compared, so a field added to one alone fails. And packColor's colours.
+// and their declarations compared, so a field added to one alone fails. And packColor's colours, and the kept
+// specular's format and packing (scene.frag, sss.glsl, the renderer).
 #include "test.h"
 
 #include <cmath>
@@ -138,4 +139,19 @@ TEST(packed_colours) {
     float p = packColor({1.f, 0.35f, 0.2f});
     float r = std::floor(p / 65536.f), g = std::fmod(std::floor(p / 256.f), 256.f), b = std::fmod(p, 256.f);
     CHECK(r == 255.f && g == 89.f && b == 51.f);
+}
+
+// Subsurface pixels' kept specular: scene.frag stores it (binding 41, integers), sss.glsl reads it (binding 3) and the
+// renderer declares it, all with the same format and the same 5:6:5 packing of the profile
+TEST(kept_specular_agrees) {
+    std::string root = std::string(VKWORLD_TEST_ASSETS) + "/../../";
+    std::string scene = readFile(root + "shaders/scene.frag"), sss = readFile(root + "shaders/sss.glsl");
+    std::string renderer = readFile(root + "src/render/renderer.cpp");
+    CHECK(scene.find("binding = 41, rgba16ui) uniform writeonly uimage2D skinSpecular") != std::string::npos);
+    CHECK(scene.find("vec3(31.0, 63.0, 31.0)") != std::string::npos);
+    CHECK(scene.find("(p.r << 11) | (p.g << 5) | p.b") != std::string::npos);
+    CHECK(sss.find("binding = 3) uniform usampler2D kept") != std::string::npos);
+    CHECK(sss.find("vec3(packed >> 11, (packed >> 5) & 63u, packed & 31u) / vec3(31.0, 63.0, 31.0)") != std::string::npos);
+    CHECK(renderer.find("{41, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE") != std::string::npos);
+    CHECK(readFile(root + "src/render/renderer_trace.cpp").find("VK_FORMAT_R16G16B16A16_UINT") != std::string::npos);
 }

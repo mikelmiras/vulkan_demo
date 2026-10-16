@@ -735,7 +735,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[41] = {
+    VkDescriptorSetLayoutBinding frameBindings[42] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -779,9 +779,10 @@ void Renderer::createPipelines() {
         {38, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // the sun's shadow tint (the fog's too)
         {39, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // reflections' near pyramid
         {40, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fragFog, nullptr},   // the lamps' shadow tint (their atlas's tiles)
+        {41, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // subsurface pixels' specular
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 41;
+    dslci.bindingCount = 42;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
@@ -1201,12 +1202,13 @@ void Renderer::uploadMeshes() {
 void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
-    VkDescriptorPoolSize poolSizes[3] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
+    VkDescriptorPoolSize poolSizes[4] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (28 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * MAX_FRAMES}};
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpci.maxSets = MAX_FRAMES;
-    dpci.poolSizeCount = 3;
+    dpci.poolSizeCount = 4;
     dpci.pPoolSizes = poolSizes;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &descPool_));
     // Material sets (four maps each), made as materials are first drawn
@@ -1460,6 +1462,11 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
             mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         velocityFresh_ = false;
+    }
+    if (sssSpecularFresh_ && sssSpecular_.image) {   // (the kept specular: in GENERAL from now on, written and read there)
+        mipBarrier(cb, sssSpecular_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                   0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
+        sssSpecularFresh_ = false;
     }
     if (shadowTintFresh_ && shadowTint_.image)   // (the tint layers, the sun's and the lamps': white until drawn into)
         for (VkImage tintImage : {shadowTint_.image, lampTint_.image}) {
@@ -2086,6 +2093,7 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
                    aoLit_[0].image && aoTemporalPipeline_ && aoLitWanted_;
         if (!aoLitOn_) aoHistory_ = false;   // (when it's back on: from fresh)
         u.occlusion[0] = aoLitOn_ ? 1.f : 0.f;
+        u.occlusion[1] = sssOn_ && sssSpecular_.image ? 1.f : 0.f;   // (subsurface pixels' specular kept apart)
         u.drawnViewport[0] = info.viewportX, u.drawnViewport[1] = info.viewportY;   // (the scaled info: as drawn)
         u.drawnViewport[2] = std::max(info.viewportW, 1.f), u.drawnViewport[3] = std::max(info.viewportH, 1.f);
         u.trace[0] = traceOn_ ? 1.f : 0.f;

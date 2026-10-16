@@ -83,6 +83,10 @@ layout(set = 0, binding = 37) uniform sampler2D occlusionMap;       // ambient o
                                                                      // occlusion, g = distance (0: none), ba = bent normal
 layout(set = 0, binding = 35) uniform sampler2D tracedDepth;         // r = the traced pixel's distance along the view,
                                                                      // g = its contact shadow (1: lit), b = the lamp's
+// Subsurface pixels' specular light, kept apart (frame.occlusion.y = 1: the main view, diffusion on) so the diffusion
+// (sss.glsl) spreads their diffuse light alone: rgb = the specular as half floats, a = the material's profile (how
+// far each channel spreads, 5:6:5)
+layout(set = 0, binding = 41, rgba16ui) uniform writeonly uimage2D skinSpecular;
 bool halfTraced = false;
 vec4 tracedReflection = vec4(0.0), tracedIrradiance = vec4(0.0);
 float tracedContact = 1.0, tracedLampContact = 1.0;   // (the sun's, frame.contactLight's)
@@ -232,6 +236,34 @@ float sunVisibility(vec3 N, vec3 L) {
     return vis;
 }
 
+// The sun's light through a thin part to `p` (ears, fingers, from behind), each channel fading over `widths` (m): by
+// how far it went through, from where it went in (the sun's cascade's nearest depth there; a lit face: none), averaged
+// over four taps a texel apart (where that distance drops to nothing within a texel, at what the sun sees as the edge,
+// a gradient, not the texels' blocks). Beyond the cascades, or in a split-screen view: none.
+vec3 sunTransmission(vec3 p, vec3 widths) {
+    if (frame.sunDir.w < 0.5 || frame.viewport.w > 0.5) return vec3(0.0);
+    float d = dot(p - frame.camPos.xyz, frame.camForward.xyz);
+    int c = 0;
+    while (c < 4 && d > frame.cascadeSplits[c]) ++c;
+    if (c >= 4) return vec3(0.0);
+    vec3 proj = (frame.shadowViewProj[c] * vec4(p, 1.0)).xyz;
+    vec2 uv = proj.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0) return vec3(0.0);
+    vec2 size = vec2(textureSize(cascadeDepths, 0).xy);
+    vec3 sum = vec3(0.0);
+    for (int i = 0; i < 4; ++i) {
+        vec2 at = uv + vec2(i == 0 || i == 3 ? -0.75 : 0.75, i < 2 ? -0.75 : 0.75) / size;
+        // (the four depths round it interpolated: a plane's depth exactly, not a step per texel, which would stripe it;
+        // past an edge, what's behind isn't where it went in)
+        vec2 f = fract(at * size - 0.5);
+        vec4 g = textureGather(cascadeDepths, vec3(at, float(c)), 0);
+        g = mix(g, vec4(min(min(g.x, g.y), min(g.z, g.w))), greaterThan(g, vec4(proj.z)));
+        float entry = mix(mix(g.w, g.z, f.x), mix(g.x, g.y, f.x), f.y);
+        sum += exp(-max(proj.z - entry, 0.0) * frame.cascadeScale[c].y / widths);
+    }
+    return sum * 0.25;
+}
+
 // Normal mapping without stored tangents: the frame comes from screen-space derivatives (Schueler 2013)
 void tangentFrame(vec3 N, out vec3 T, out vec3 B) {
     vec3 dp1 = dFdx(vWorldPos), dp2 = dFdy(vWorldPos);
@@ -309,10 +341,12 @@ struct Surface {
 };
 
 // Light reflected towards V from a light of `radiance` along L. Intensities mean "how bright a white matte surface
-// facing the light looks", hence the PI.
+// facing the light looks", hence the PI. Its specular part (the highlights, the coat's) is left in shadeSpecular.
+vec3 shadeSpecular = vec3(0.0);
 vec3 shade(Surface s, vec3 L, vec3 radiance) {
     float ndl = dot(s.N, L), NdotL = max(ndl, 0.0);
     float coatNdotL = s.coat > 0.0 ? max(dot(s.coatN, L), 0.0) : 0.0;
+    shadeSpecular = vec3(0.0);
     if (NdotL <= 0.0 && coatNdotL <= 0.0 && s.translucency <= 0.0 && s.subsurface <= 0.0) return vec3(0.0);
     vec3 V = s.V, H = normalize(L + V);
     float NdotV = max(dot(s.N, V), 1e-4), NdotH = max(dot(s.N, H), 0.0), VdotH = clamp(dot(V, H), 0.0, 1.0);   // (pow of a negative is NaN)
@@ -338,7 +372,8 @@ vec3 shade(Surface s, vec3 L, vec3 radiance) {
         float wrapped = clamp((ndl + w) / (1.0 + w), 0.0, 1.0);
         lit = mix(lit, wrapped * mix(s.scatterColor, vec3(1.0), clamp(ndl * 2.0, 0.0, 1.0)), s.subsurface);
     }
-    vec3 result = diffuse * lit * (1.0 - 0.25 * s.translucency) + spec * NdotL;
+    vec3 specular = spec * NdotL;
+    vec3 result = diffuse * lit * (1.0 - 0.25 * s.translucency) + specular;
     if (s.translucency > 0.0) {   // thin: light from behind comes through (its colour), and looking towards the light
                                   // through it (grass, whose normals point up, against the sun) it glows
         float back = max(-ndl, 0.0), towards = pow(clamp(dot(-s.V, L), 0.0, 1.0), 4.0);
@@ -350,13 +385,16 @@ vec3 shade(Surface s, vec3 L, vec3 radiance) {
         float D = (2.0 + invA) * pow(sin2h, invA * 0.5) / (2.0 * PI);
         float vis = 1.0 / max(4.0 * (NdotL + NdotV - NdotL * NdotV), 1e-4);
         result = result * (1.0 - 0.25 * s.sheen) + s.sheenColor * (D * vis * NdotL);
+        specular *= 1.0 - 0.25 * s.sheen;
     }
     if (s.coat > 0.0) {   // a clear coat: its own sharp GGX lobe (f0 0.04, Kelemen's visibility), dimming what's under it
         float ca = max(s.coatRough * s.coatRough, 0.002);
         float Fc = (0.04 + 0.96 * pow(1.0 - VdotH, 5.0)) * s.coat;
         float lobe = distributionGGX(max(dot(s.coatN, H), 0.0), ca) * 0.25 / max(VdotH * VdotH, 1e-4);
         result = result * (1.0 - Fc) + vec3(lobe * Fc * coatNdotL);
+        specular = specular * (1.0 - Fc) + vec3(lobe * Fc * coatNdotL);
     }
+    shadeSpecular = specular * radiance * PI;
     return result * radiance * PI;
 }
 
@@ -903,15 +941,22 @@ void main() {
     float ao = ambientOcclusion;
     if (halfTraced && frame.prevCamForward.w > 0.0) ao = min(ao, 1.0 - clamp(tracedIrradiance.a, 0.0, 1.0) * 0.8);
     if (ao < 1.0) specularOcclusion = clamp(pow(NdotV + ao, exp2(-16.0 * rough - 1.0)) - 1.0 + ao, 0.0, 1.0);
-    vec3 color = base * (1.0 - metallic) * diffuseLight +
-                 (f0 * dfg.x + dfg.y) * s.energy * environment(R, rough) * specularOcclusion;
-    if (s.sheen > 0.0)   // (cloth's rim of light from all around)
+    vec3 specular = (f0 * dfg.x + dfg.y) * s.energy * environment(R, rough) * specularOcclusion;
+    vec3 color = base * (1.0 - metallic) * diffuseLight + specular;
+    if (s.sheen > 0.0) {   // (cloth's rim of light from all around)
         color = color * (1.0 - 0.25 * s.sheen) + s.sheenColor * irradiance(N) * ambientOcclusion * (0.05 + 0.6 * pow(1.0 - NdotV, 4.0));
+        specular *= 1.0 - 0.25 * s.sheen;
+    }
     if (s.coat > 0.0) {   // (the coat's own reflection over the rest)
         float cv = max(dot(s.coatN, V), 1e-4);
         vec3 coatEnv = envBRDF(vec3(0.04), s.coatRough, cv) * s.coat;
-        color = color * (1.0 - coatEnv.x) + coatEnv * environment(reflect(-V, s.coatN), s.coatRough);
+        vec3 coatLight = coatEnv * environment(reflect(-V, s.coatN), s.coatRough);
+        color = color * (1.0 - coatEnv.x) + coatLight;
+        specular = specular * (1.0 - coatEnv.x) + coatLight;
     }
+    // (a subsurface material's specular, all of it summed here, kept apart for the diffusion: just its diffuse spread)
+    const bool keepSpecular = kLayers && s.subsurface > 0.01 && alphaMode != 2 && frame.occlusion.y > 0.5 &&
+                              frame.clusterGrid.w > 0.5 && frame.waterInfo.z < 0.5;
 
     // Sun
     vec3 L = normalize(-frame.sunDir.xyz);
@@ -927,6 +972,19 @@ void main() {
     vec3 sunLight = frame.sunColor.rgb;
     if (kTint && sunTinted() && vis > 0.0) sunLight *= sunTint(vWorldPos, N);   // (through glass, a curtain: coloured)
     color += shade(s, L, sunLight) * vis;
+    specular += shadeSpecular * vis;
+    vec3 profile = vec3(1.0);   // (how far each channel spreads under the surface: the material's subsurface colour's)
+    if (s.subsurface > 0.0) {
+        vec3 c = s.scatterColor / max(max(s.scatterColor.r, s.scatterColor.g), max(s.scatterColor.b, 1e-3));
+        profile = 0.15 + 0.85 * sqrt(c);
+    }
+    if (s.subsurface > 0.0 && dot(N, L) < 0.3) {   // through thin parts (ears, fingers) from behind: by how far the
+                                                    // light went through (the sun's depth), each channel fading over its width
+        vec3 transmitted = 0.6 * sunTransmission(vWorldPos, 0.004 * s.subsurface * profile);
+        float facing = clamp(0.3 - dot(N, L), 0.0, 1.0);
+        float clouds = frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0 ? cloudShadow(vWorldPos) : 1.0;
+        color += s.base * (1.0 - metallic) * transmitted * (facing * s.subsurface * clouds) * frame.sunColor.rgb;
+    }
 
     // Point and spot lights: smooth falloff to zero at their range; spots only inside their cone. The main view
     // shades with its cluster's lights; probe views (clusterGrid.w = 0) with every light.
@@ -980,6 +1038,7 @@ void main() {
         vec3 lampLight = li.color.rgb * light;
         if (kTint && shadowView >= 0 && lampsTinted()) lampLight *= lampTint(shadowView, vWorldPos + lightSide * 0.04);
         color += shade(s, Lp, lampLight);
+        specular += shadeSpecular;
     }
 
     if (!terrain && !water) color += vEmissive.rgb * texture(emissiveMap, gUV).rgb;   // (water: its waves there)
@@ -993,16 +1052,25 @@ void main() {
         vec3 through = exp(-frame.air.rgb * dist);
         vec3 d = normalize(vec3(v.x, max(v.y, 0.0), v.z) + vec3(0.0, 1e-3, 0.0));   // (looking down: the horizon's air)
         color = color * through + physicalSky(d) * (1.0 - through);
+        specular *= through;
     }
     if (frame.fogParams.x > 0.5) {   // volumetric: what the fog in front lets through, and the light it adds
         vec4 c = frame.viewProj * vec4(vWorldPos, 1.0);
         float depth = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
         vec4 f = fogAt(c.xy / c.w * 0.5 + 0.5, depth);
         color = color * f.a + f.rgb;
+        specular *= f.a;
     } else {
         float dist = length(frame.camPos.xyz - vWorldPos);
         float fog = 1.0 - exp(-pow(dist * frame.fogColor.w, 2.0));
         color = mix(color, frame.fogColor.rgb, fog);
+        specular *= 1.0 - fog;
+    }
+    if (keepSpecular) {
+        uvec3 p = uvec3(round(clamp(profile, 0.0, 1.0) * vec3(31.0, 63.0, 31.0)));
+        imageStore(skinSpecular, ivec2(gl_FragCoord.xy),
+                   uvec4(packHalf2x16(vec2(specular.r, 0.0)), packHalf2x16(vec2(specular.g, 0.0)),
+                         packHalf2x16(vec2(specular.b, 0.0)), (p.r << 11) | (p.g << 5) | p.b));
     }
     // See-through: premultiplied (the blend adds what's behind, times 1 - alpha); alpha stays the outline marker
     outColor = alphaMode == 2 ? vec4(color * alpha, alpha) : vec4(color, 1.0);

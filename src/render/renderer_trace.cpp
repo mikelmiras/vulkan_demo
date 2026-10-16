@@ -31,6 +31,11 @@ void Renderer::createTraceImages() {
     }
     tracedDepth_ = createImage(VK_FORMAT_R32G32B32A32_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     traceHistory_ = false;
+    // (subsurface pixels' specular, stored by the lit pass, read by the diffusion: half floats as integers, and a
+    // profile; integer, so read unfiltered)
+    sssSpecular_ = createImage(VK_FORMAT_R16G16B16A16_UINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                               VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    sssSpecularFresh_ = true;
     writeTraceBindings();
 }
 
@@ -62,12 +67,22 @@ void Renderer::writeTraceBindings() {
             w[k].pImageInfo = &images[k].second;
         }
         vkUpdateDescriptorSets(device_, (uint32_t)w.size(), w.data(), 0, nullptr);
-        if (aoSupported_ && sssSets_[i] && sssTemp_.image) {   // (subsurface diffusion: the picture, the depth, the surface)
-            VkDescriptorImageInfo infos[3] = {{postSampler_, i == 0 ? hdr_.view : sssTemp_.view, readable},
+        VkDescriptorImageInfo keptInfo{VK_NULL_HANDLE, sssSpecular_.view, VK_IMAGE_LAYOUT_GENERAL};
+        VkWriteDescriptorSet kw{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        kw.dstSet = descSets_[i];
+        kw.dstBinding = 41;
+        kw.descriptorCount = 1;
+        kw.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        kw.pImageInfo = &keptInfo;
+        vkUpdateDescriptorSets(device_, 1, &kw, 0, nullptr);
+        if (aoSupported_ && sssSets_[i] && sssTemp_.image) {   // (subsurface diffusion: the picture, the depth, the surface,
+                                                               // the kept specular)
+            VkDescriptorImageInfo infos[4] = {{postSampler_, i == 0 ? hdr_.view : sssTemp_.view, readable},
                                               {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
-                                              {nearestSampler_, gbuffer_.view, readable}};
-            VkWriteDescriptorSet t[3];
-            for (uint32_t k = 0; k < 3; ++k) {
+                                              {nearestSampler_, gbuffer_.view, readable},
+                                              {nearestSampler_, sssSpecular_.view, VK_IMAGE_LAYOUT_GENERAL}};
+            VkWriteDescriptorSet t[4];
+            for (uint32_t k = 0; k < 4; ++k) {
                 t[k] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
                 t[k].dstSet = sssSets_[i];
                 t[k].dstBinding = k;
@@ -75,7 +90,7 @@ void Renderer::writeTraceBindings() {
                 t[k].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 t[k].pImageInfo = &infos[k];
             }
-            vkUpdateDescriptorSets(device_, 3, t, 0, nullptr);
+            vkUpdateDescriptorSets(device_, 4, t, 0, nullptr);
         }
         if (aoSupported_ && aoTemporalSets_[i]) {   // (AO before lighting: the depth, the motion, its history)
             VkDescriptorImageInfo infos[3] = {{shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},

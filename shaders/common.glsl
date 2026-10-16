@@ -58,7 +58,8 @@ layout(set = 0, binding = 0) uniform Frame {
     mat4 motionPrevViewProj;  // ... and last frame's
     vec4 motion;              // x = seconds since last frame, y = 1: the prepass writes them
     mat4 invViewProj;         // this frame's (jittered) clip space back to the world: the half-size traces' points
-    vec4 occlusion;           // x = 1: ambient occlusion before lighting (binding 37), on the indirect light alone
+    vec4 occlusion;           // x = 1: ambient occlusion before lighting (binding 37), on the indirect light alone;
+                              // y = 1: subsurface pixels' specular kept apart (binding 41) for the diffusion
     vec4 drawnViewport;       // the scene's rectangle as drawn (pixels; smaller with a render scale): the traces'
     vec4 trace;               // x = 1: reflections and GI traced at half size this frame, y = 1: their history is
                               // good, z = which of each 2 x 2 block's pixels they trace this frame (0..3), w = 1:

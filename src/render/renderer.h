@@ -887,6 +887,8 @@ private:
     // (sssSets_[1]); on while subsurface materials were in view last frame (sssSeen_: prepareInstances)
     VkPipeline sssPipeline_ = VK_NULL_HANDLE;
     Image sssTemp_;
+    Image sssSpecular_;   // (subsurface pixels' specular, kept apart by the lit pass: scene.frag's binding 41, in GENERAL)
+    bool sssSpecularFresh_ = false;
     VkDescriptorSet sssSets_[2] = {};
     bool sssSeen_ = false, sssOn_ = false;
     bool sssWanted_ = true;          // (VKWORLD_SSS=0: none, to compare)

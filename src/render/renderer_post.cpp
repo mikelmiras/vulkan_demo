@@ -370,7 +370,7 @@ void Renderer::destroyPostImages() {
     if (sssTemp_.image) destroyImage(sssTemp_);
     if (velocity_.image) destroyImage(velocity_);
     for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_[0], &aoLit_[1],
-                       &velocityMs_, &gbufferMs_})
+                       &velocityMs_, &gbufferMs_, &sssSpecular_})
         if (img->image) destroyImage(*img);
     if (prevMip0_) vkDestroyImageView(device_, prevMip0_, nullptr);
     prevMip0_ = VK_NULL_HANDLE;
@@ -390,8 +390,9 @@ void Renderer::destroyPostImages() {
     if (hdr_.image) destroyImage(hdr_);
 }
 
-// Subsurface diffusion (sss.glsl): after the lit pass (the picture a target, the depth readable), across into
-// sssTemp_ and down back into the picture, which is left a target for temporal AA as it was found
+// Subsurface diffusion (sss.glsl): after the lit pass (the picture a target, the depth readable, the specular it kept
+// apart written), across into sssTemp_ and down back into the picture, which is left a target for temporal AA as it
+// was found
 void Renderer::recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene) {
     const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
@@ -424,6 +425,8 @@ void Renderer::recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene
     };
     mipBarrier(cb, hdr_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                VK_ACCESS_SHADER_READ_BIT);
+    mipBarrier(cb, sssSpecular_.image, 0, 1, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, fragStage, VK_ACCESS_SHADER_WRITE_BIT,
+               fragStage, VK_ACCESS_SHADER_READ_BIT);
     mipBarrier(cb, sssTemp_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, target, fragStage, 0, colorStage,
                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     pass(sssTemp_.view, sssSets_[0]);   // (across)
@@ -433,6 +436,8 @@ void Renderer::recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene
                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     push[0] = 0.f, push[1] = 1.f;
     pass(hdr_.view, sssSets_[1]);   // (down, back into the picture)
+    mipBarrier(cb, sssSpecular_.image, 0, 1, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, fragStage, VK_ACCESS_SHADER_READ_BIT,
+               fragStage, VK_ACCESS_SHADER_WRITE_BIT);   // (the next frame's lit pass writes it again)
 }
 
 void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, int view) {

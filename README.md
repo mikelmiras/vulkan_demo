@@ -432,9 +432,12 @@ dropping on the right.
   behind lights them too; terrain foliage is translucent (0.5), so grass against a low sun glows. **Subsurface** for
   thick, soft things (skin, wax, marble, jade): the light reaches past the shadow's edge (wrapped diffuse), tinted
   by the *Subsurface colour* there (red for skin), and their shadows are softer; and the light under them spreads
-  on screen (screen-space diffusion: a blur of the lit picture across and down, up to 2 cm in the world at full
-  subsurface, red the widest, only over subsurface pixels at about the same depth), so lighting and shadow edges
-  on skin and wax melt rather than cut (`VKWORLD_SSS=0`: without). Thickness isn't taken into account. Materials with none of these layers
+  on screen (screen-space diffusion: a blur of their diffuse light across and down, up to 2 cm in the world at full
+  subsurface, each channel as far as the *Subsurface colour* says: skin's red the widest, a blue one's blue; only
+  over subsurface pixels at about the same depth), so lighting and shadow edges on skin and wax melt rather than
+  cut, while highlights stay sharp (the lit pass keeps their specular light apart). Thin parts lit from behind by
+  the sun (ears, fingers, a wax sheet) let light through by how thick they are, from the sun's shadow map
+  (`VKWORLD_SSS=0`: no diffusion, to compare). Lamps' light doesn't come through yet. Materials with none of these layers
   (coat, sheen, anisotropy, translucency, subsurface) are drawn with a lean variant of the lit shader that leaves
   their code out (a specialization constant); the rest with the full one, after them (`VKWORLD_LEAN_SHADING=0`:
   everything with the full one, to compare). The inspector's *Preset* sets a kind
