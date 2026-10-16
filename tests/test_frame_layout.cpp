@@ -115,7 +115,7 @@ TEST(frame_uniforms_match_the_shaders) {
 // The post passes' push constants (renderer.cpp's post layout: 96 bytes, six vec4s) hold every post shader's block
 TEST(post_push_constants_fit) {
     std::string root = std::string(VKWORLD_TEST_ASSETS) + "/../../shaders/";
-    for (const char* shader : {"ssao.glsl", "composite.frag", "shafts.glsl", "camera_fx.glsl", "bloom_down.frag", "bloom_up.frag",
+    for (const char* shader : {"ssao.glsl", "composite.frag", "camera_fx.glsl", "bloom_down.frag", "bloom_up.frag",
                                "luminance.frag", "adapt.frag", "ssr_capture.glsl", "sss.glsl"}) {
         std::string text = readFile(root + shader);
         size_t at = text.find("layout(push_constant) uniform ");

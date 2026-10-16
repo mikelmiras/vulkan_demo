@@ -4,6 +4,7 @@
 #include <chrono>
 
 #include "core/vfs.h"
+#include "render/light_shafts.h"
 #include "render/renderer_internal.h"
 
 #include "core/hdr_image.h"
@@ -913,7 +914,7 @@ void Renderer::createSampledPipelines() {
         ssrCapturePipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "ssr_capture_ms.frag.spv" : "ssr_capture.frag.spv",
                                                  hdrFormat_, false);
         shaftsPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "shafts_ms.frag.spv" : "shafts.frag.spv",
-                                             VK_FORMAT_R16G16B16A16_SFLOAT, false);
+                                             VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);   // (the frame's set)
         cameraFxPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "camera_fx_ms.frag.spv" : "camera_fx.frag.spv",
                                                hdrFormat_, false);
         sssPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "sss_ms.frag.spv" : "sss.frag.spv", hdrFormat_, false);
@@ -2083,9 +2084,17 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
     u.viewport[2] = 2.5f;
     set4(u.sunDir, normalize(sun.direction), shadows && frameShadows_ ? 1.f : 0.f);
     set4(u.sunColor, info.physicalSky ? skySunHere_ * sun.intensity : srgbToLinear(sun.color) * sun.intensity, 0.f);
-    if (shadows) {   // (the main view's: its light shafts)
-        shaftsSunDir_ = normalize(sun.direction);
-        shaftsSunColor_ = {u.sunColor[0], u.sunColor[1], u.sunColor[2]};
+    // Light shafts (the main view's): the march's density, its two nearest shadowed spot lights, its steps
+    set4(u.shafts, {0.f, -1.f, -1.f}, 0.f);
+    shaftsOn_ = false;
+    if (shadows && info.lightShafts > 0.f) {
+        std::vector<bool> spots(points.size(), false);
+        for (size_t i = 0; i < points.size() && i < lightShadow.size(); ++i) spots[i] = points[i]->spot && lightShadow[i] >= 0;
+        const bool fog = info.volumetricFog && info.items && fogInjectPipeline_ && info.fogDensity > 0.f;   // (as fogOn_ is)
+        const shafts::Params p = shafts::choose(info.lightShafts, fog,
+                                                quality_ == Quality::Low ? 0 : quality_ == Quality::Medium ? 1 : 2, spots);
+        u.shafts[0] = p.density, u.shafts[1] = (float)p.lamps[0], u.shafts[2] = (float)p.lamps[1], u.shafts[3] = (float)p.steps;
+        shaftsOn_ = p.density > 0.f;
     }
     set4(u.ambient, {info.ambient, info.ambient, info.ambient}, (float)points.size());
     writeLights(info, points, lightShadow, u, shadows);
@@ -2213,6 +2222,12 @@ void Renderer::render(const SceneRenderInfo& info, ImDrawData* ui) {
     planGi(info);   // (probes' faces: before this view too)
     FrameUBO u{};
     fillFrameUBO(scene, u, true);
+    {   // (the picture's own rectangle, not scaled down: the light shafts' half-size pixels are its)
+        const float vx = std::clamp(info.viewportX, 0.f, (float)extent_.width), vy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
+        u.shaftsViewport[0] = vx, u.shaftsViewport[1] = vy;
+        u.shaftsViewport[2] = std::max(std::min(info.viewportW, (float)extent_.width - vx), 1.f);
+        u.shaftsViewport[3] = std::max(std::min(info.viewportH, (float)extent_.height - vy), 1.f);
+    }
     setProbeData(u);
     finishGi(u);
     // Volumetric fog: the main view's (only with something to draw and its shadows worked out)

@@ -636,11 +636,11 @@ dropping on the right.
   mean (by the coarse brightness around each pixel, edge-aware: neighbours of a very different brightness count
   less, so there's no halo along a dark wall against a bright sky), keeping detail in shadows and around lights.
   **Lens dirt** (0..1): smudges, specks and wipe marks on the lens that the bloom lights up round bright lights.
-  **Light shafts** (0..2, off by default): with the sun in view and volumetric fog off, its rays stream through the
-  gaps between things in front of it (trees, pillars, windows) and dark streaks fan out from what blocks it. Each
-  half-size pixel marches towards the sun's place on screen and gathers how much of the way is sky, brightest near
-  the sun; it fades as the sun leaves the view. Screen-space: a sun hidden by something off screen still shines.
-  Off at low quality; the main view's alone.
+  **Light shafts** (0..2, off by default; without volumetric fog, which has its own): the clear air lit by the sun
+  and scattering it towards you, brightest looking towards the sun, with dark streaks where something blocks it:
+  each half-size pixel marches its view ray through the sun's shadow cascades, so what's in the way counts on screen
+  or off. The two nearest shadowed spot lights' beams show in it too (their cones and shadows: a lamp's beam in the
+  night air, headlights). Off at low quality; the main view's alone.
   **Depth of field** (0..1, off by default): what's nearer or further than the focus blurs as through a lens, by
   its circle of confusion (a thin lens's: |distance - focus| / distance, at 1 up to about 1% of the view's height),
   bright spots opening into discs (bokeh); the focus is a distance (*Focus distance*) or an entity kept sharp

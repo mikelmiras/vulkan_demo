@@ -6,7 +6,6 @@
 #include <cstring>
 
 #include "render/camera_fx.h"
-#include "render/light_shafts.h"
 #include "render/renderer_internal.h"
 
 using namespace render_detail;
@@ -553,21 +552,32 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                    VK_ACCESS_SHADER_READ_BIT);
     }
 
-    // Light shafts (the main view's; volumetric fog makes its own): the sun's light gathered from the sky towards it
-    shafts::SunOnScreen sunAt;
-    if (view < 0 && shaftsPipeline_ && info.lightShafts > 0.f && !fogOn_ && info.items && vw >= 1.f && vh >= 1.f &&
-        quality_ != Quality::Low)
-        sunAt = shafts::sunOnScreen(info.viewProj, info.camPos, shaftsSunDir_, vx, vy, vw, vh);
-    const bool shafted = sunAt.fade > 0.f && std::max({shaftsSunColor_.x, shaftsSunColor_.y, shaftsSunColor_.z}) > 0.f;
+    // Light shafts (the main view's; volumetric fog makes its own): the clear air's light marched along each view
+    // ray through the sun's cascades and the shadowed spots' beams (shafts.glsl: the frame's set, its shafts)
+    const bool shafted = view < 0 && shaftsPipeline_ && shaftsOn_ && info.items && vw >= 1.f && vh >= 1.f;
     mipBarrier(cb, shafts_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, shafted ? target : readable, colorStage | fragStage, 0,
                shafted ? colorStage : fragStage, shafted ? VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT : VK_ACCESS_SHADER_READ_BIT);
     if (shafted) {
-        // (how far each pixel's march goes: the whole way at 1, the shafts longer with the strength)
-        const float reach = std::clamp(0.6f + 0.2f * info.lightShafts, 0.f, 1.f);
-        Push p{{sunAt.x, sunAt.y, info.lightShafts * sunAt.fade * 0.35f, reach},
-               {shaftsSunColor_.x, shaftsSunColor_.y, shaftsSunColor_.z, (float)(frameCounter_ % 64)},
-               {vx, vy, vw, vh}, {view >= 0 ? 1.f : scaleNow_, 0.f, 0.f, 0.f}, {}};
-        pass(shafts_.view, aoSize_, shaftsPipeline_, aoSet_, p, false);
+        VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        att.imageView = shafts_.view;
+        att.imageLayout = target;
+        att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        ri.renderArea = {{0, 0}, aoSize_};
+        ri.layerCount = 1;
+        ri.colorAttachmentCount = 1;
+        ri.pColorAttachments = &att;
+        vkCmdBeginRendering(cb, &ri);
+        VkViewport sv{0.f, 0.f, (float)aoSize_.width, (float)aoSize_.height, 0.f, 1.f};
+        VkRect2D sc{{0, 0}, aoSize_};
+        vkCmdSetViewport(cb, 0, 1, &sv);
+        vkCmdSetScissor(cb, 0, 1, &sc);
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shaftsPipeline_);
+        const uint32_t slot = 0;   // (the main view's frame data)
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
+        vkCmdDraw(cb, 3, 1, 0, 0);
+        vkCmdEndRendering(cb);
         mipBarrier(cb, shafts_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                    VK_ACCESS_SHADER_READ_BIT);
     }

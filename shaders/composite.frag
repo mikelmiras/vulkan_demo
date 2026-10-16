@@ -107,7 +107,11 @@ void main() {
     vec3 glow = texture(bloom, uv).rgb * pc.a.y;
     if (pc.f.w > 0.0) glow *= 1.0 + texture(lensDirt, uv).rgb * (pc.f.w * 6.0);
     vec3 c = max(scene, vec3(0.0)) + glow;
-    if (pc.a.w > 0.5 && !outside) c += texture(shafts, uv).rgb;
+    if (pc.a.w > 0.5 && !outside) {   // (a little blur over the half-size shafts, as over the occlusion: their march's dither)
+        vec2 t = 1.0 / vec2(textureSize(shafts, 0));
+        c += 0.25 * (texture(shafts, uv + vec2(-0.75, -0.75) * t).rgb + texture(shafts, uv + vec2(0.75, -0.75) * t).rgb +
+                     texture(shafts, uv + vec2(-0.75, 0.75) * t).rgb + texture(shafts, uv + vec2(0.75, 0.75) * t).rgb);
+    }
     float exposure = pc.a.x;
     if (pc.f.x > 0.5) exposure *= exp2(texelFetch(exposureMap, ivec2(0), 0).r);   // (auto: times the compensation)
     if (pc.f.y > 0.0) {   // local tone mapping: this part of the view's brightness (coarse) pulled towards the mean

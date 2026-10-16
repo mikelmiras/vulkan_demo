@@ -1867,7 +1867,7 @@ traffic lights.
 | 113 (done) | Probes without stalls: rebakes spread over frames (a face at a time, the old picture kept until the new one's whole), in the frame's own command buffer | Every rebake waits for the GPU: a hitch whenever the time of day or the clouds move enough |
 | 114 (done) | Spot and point lights' shadows culled by the view (their casters, as the sun's in task 105), and the sun's receivers' own bounds (what's visible, not the whole view volume) | Lamps redraw casters whose shadows land off screen |
 | 115 (done) | Skin and wax: screen-space subsurface diffusion (a separable, depth-aware blur of the lit diffuse light for subsurface materials, by a scatter radius) | Subsurface is wrapped lighting alone: no light bleeding through small features (ears, fingers, thin wax) |
-| 116 | Light shafts from lamps (the brightest few in view, without volumetric fog) and from the sun through occluders off screen (its shadow map marched in the half-size pass) | Shafts come only from the sun, and only from what's on screen |
+| 116 (done) | Light shafts from lamps (the brightest few in view, without volumetric fog) and from the sun through occluders off screen (its shadow map marched in the half-size pass) | Shafts come only from the sun, and only from what's on screen |
 | 117 | Sharper temporal AA: motion vectors dilated to the nearest depth, variance clipping of the history, a contrast-adaptive sharpening pass after it (and after the upscaler) | TAA softens the picture and ghosts behind thin moving things |
 | 118 | Night Drive's crossroads: traffic lights (red, amber, green on the poles, their glow on the wet road) that the traffic stops for, and cars yielding at the crossroads | The traffic drives through every crossroads without stopping |
 
@@ -1965,4 +1965,17 @@ traffic lights.
   one changes: 5% of its pixels by more than 2 levels, up to 27), TAA, MSAA, no AA, render scale 0.7, Night Drive,
   the editor, under validation with sync checks. Not done: the diffuse light alone blurred (the specular is too: a
   little softer highlights), the subsurface colour's own profile (a fixed skin-like one), thickness.
+- **116, light shafts by ray march, from lamps too**: task 106's screen-space radial gathering (sky pixels towards
+  the sun's place on screen) is replaced by a march along each view ray (shafts.glsl, now on the scene's pipeline
+  layout with the frame's set: binding 29's depth, the cascades (binding 1, one compare tap), the atlas (5) and
+  the lights (14)): up to 120 m in 16 steps (24 at high), jittered; the sun's light where its cascade says lit, with
+  a Henyey-Greenstein phase (g 0.6), plus up to two spot lights with shadows (their window falloff capped at a metre,
+  cone, one atlas tap; g 0.4) at twenty times the air's scattering (a beam's metres against the sun's whole view).
+  shafts::choose (light_shafts.h, tested; its sunOnScreen and test gone) picks the scattering (0.004 per metre per
+  unit strength, capped at 2), the two nearest shadowed spots and the steps; FrameUBO::shafts and shaftsViewport (the
+  picture's rectangle, not scaled down: the half-size pixels are the picture's; the depth read through the drawn
+  area). The composite blurs the shafts over four taps (their dither isn't in temporal AA's history). Checked: the
+  low sun behind the pillar (the haze and its dark streak, MSAA, render scale 0.7), a spot lamp in the open (its
+  beam a haze near it and its pool), Night Drive, the editor, under validation with sync checks. Not done: point
+  lights' halos (cubes: six views to pick from), the air's extinction, shafts in split-screen views.
 

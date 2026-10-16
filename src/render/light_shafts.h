@@ -1,18 +1,21 @@
-// Light shafts (god rays) on screen (shaders/shafts.glsl): where the sun is in the picture and how much of its
-// shafts show (fading as it goes off screen, none behind the camera). A plain function, tested; the renderer's post
-// pass uses it (renderer_post.cpp).
+// Light shafts (shaders/shafts.glsl: the clear air's in-scattering marched along each view ray through the sun's
+// cascades and the shadowed spot lights' beams): what the march gets, from the scene's settings and the lights. A
+// plain function, tested; the renderer fills the frame's shafts from it (renderer.cpp).
 #pragma once
 
-#include "core/vecmath.h"
+#include <vector>
 
 namespace shafts {
 
-struct SunOnScreen {
-    float x = 0.f, y = 0.f;   // pixels (may be off the viewport's edge)
-    float fade = 0.f;         // 0..1: 1 with the sun in the viewport, down to 0 a third of it beyond, and behind
+struct Params {
+    float density = 0.f;           // scattering per metre (0: none)
+    int lamps[2] = {-1, -1};       // spot lights' indices in the frame's lights (-1: none)
+    int steps = 0;                 // along each ray
 };
 
-// For a view (viewProj; its viewport in pixels) and the sun shining along `sunDir` (normalized: from the sun)
-SunOnScreen sunOnScreen(const Mat4& viewProj, Vec3 camPos, Vec3 sunDir, float vx, float vy, float vw, float vh);
+// `strength`: RenderSettings::lightShafts (0..2); off with volumetric fog (it has its own) and at low quality
+// (0 low, 1 medium, 2 high: 16 steps, 24 at high). `spots[i]`: the frame's light i is a spot light with a shadow;
+// the first two (the nearest: the lights come nearest first) are marched.
+Params choose(float strength, bool volumetricFog, int quality, const std::vector<bool>& spots);
 
 }  // namespace shafts

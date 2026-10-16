@@ -569,7 +569,7 @@ private:
     Mat4 fxPrevViewProj_;   // (the main view's last frame: the sky's motion)
     VkDescriptorSet fxSet_ = VK_NULL_HANDLE;   // (the picture, the depth, the motion vectors)
     Image shafts_;     // the sun's light shafts this frame, half size (shafts.glsl); the composite's binding 7
-    Vec3 shaftsSunDir_{0, -1, 0}, shaftsSunColor_{0, 0, 0};   // (the main view's sun this frame: fillFrameUBO)
+    bool shaftsOn_ = false;   // (the main view's light shafts this frame: fillFrameUBO)
     Image lensDirt_;   // smudges, specks and streaks on the lens, made once (renderer_post.cpp); the composite's binding 6
     void createLensDirt();
     void writeLensDirtBinding();
