@@ -1711,3 +1711,22 @@ per pixel; then the image's stability in motion, which every effect relies on (t
   baselines (from those machines: `--write`), a camera path of the scene's own, render scale chosen along with the
   quality.
 
+## Round 10 (planned)
+
+Visuals and performance again (the standing request), from round 9's notes: ambient occlusion where it belongs
+(on indirect light, not the whole picture), the shortcuts left in the screen-space effects and GPU particles,
+light through thin things, and camera effects; Night Drive gets traffic to show it.
+
+| # | Task | Why |
+|---|------|-----|
+| 99 | Ambient occlusion before lighting: computed after the depth prepass (with a history, at half size) and applied to the ambient, probe and GI light only (and to reflections as specular occlusion), not multiplied over the finished picture | The composite darkens everything AO finds, sunlit and lamp-lit surfaces too: contact areas in direct light look dirty, and specular occlusion needs screen-space GI |
+| 100 | See-through GPU particles: sorted back to front on the GPU (bitonic), so smoke, steam and dust can move to the GPU; Night Drive's steam on it | Round 9's GPU particles are additive only |
+| 101 | The half-size traces with MSAA and under a render scale: the prepass's surface from sample 0 of a multisampled G-buffer, the traces mapped to the drawn area | With MSAA or a render scale under 1, reflections and GI fall back to per-pixel tracing, contact shadows to none |
+| 102 | The sky's light, finished: the clouds dimming the ambient's harmonics and the sun, reflection probes rebaked when the time of day or the clouds change enough | Clouds don't darken the ambient; probes keep the sky they were baked with |
+| 103 | Light through thin things: translucency for foliage and thin surfaces (light from behind, scattered through), a subsurface option for skin, wax and marble (wrapped diffuse, softened shadows) | Leaves and curtains look like painted card when lit from behind; skin looks like plastic |
+| 104 | Emissive decals: decals that glow (painted neon, lit signs, glowing runes), bloomed and lighting nearby surfaces through the screen-space GI | Decals can only colour, roughen and wet |
+| 105 | Shadow casters culled by what's in view: casters whose shadows can't land on anything visible skipped (the cascades' receivers from the Hi-Z pyramid), shadow-map LODs | Every caster in a cascade's box is drawn, wherever its shadow falls |
+| 106 | Light shafts and contact shadows for lamps: screen-space god rays from the sun through gaps (where volumetric fog is off), contact shadows from the nearest shadowed point and spot lights | Without volumetric fog the sun shows no shafts; only the sun has contact shadows |
+| 107 | Camera effects: depth of field (bokeh, from the depth, focus by distance or on a target) and motion blur along the motion vectors; both settings, off by default | No way to soften the background or show speed |
+| 108 | Night Drive's traffic: a few AI cars driving the grid with their headlights and tail lights, spray from wet tyres (GPU particles), all within the benchmark's budget | The showcase's streets are empty: a city at night needs traffic to show the lights, reflections and rain |
+
