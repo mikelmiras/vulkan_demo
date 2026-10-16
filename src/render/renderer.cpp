@@ -1467,6 +1467,11 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
         mipBarrier(cb, sssSpecular_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                    0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
         sssSpecularFresh_ = false;
+    } else if (sssSpecular_.image) {   // (every lit draw may write it, as far as the validation layer can tell: this
+                                       // frame's after the last's, and after its diffusion's reads)
+        mipBarrier(cb, sssSpecular_.image, 0, 1, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                   VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                   VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
     }
     if (shadowTintFresh_ && shadowTint_.image)   // (the tint layers, the sun's and the lamps': white until drawn into)
         for (VkImage tintImage : {shadowTint_.image, lampTint_.image}) {

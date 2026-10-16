@@ -436,8 +436,6 @@ void Renderer::recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene
                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     push[0] = 0.f, push[1] = 1.f;
     pass(hdr_.view, sssSets_[1]);   // (down, back into the picture)
-    mipBarrier(cb, sssSpecular_.image, 0, 1, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, fragStage, VK_ACCESS_SHADER_READ_BIT,
-               fragStage, VK_ACCESS_SHADER_WRITE_BIT);   // (the next frame's lit pass writes it again)
 }
 
 void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRenderInfo& info, int view) {
