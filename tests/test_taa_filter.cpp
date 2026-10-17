@@ -39,3 +39,18 @@ TEST(taa_sharpness_setting) {
         }
     CHECK(found);
 }
+
+// The clip box over the cross: a flat neighbourhood is a point; one bright outlier among five widens the range but
+// the variance keeps the box well short of it (a firefly in the history isn't let through)
+TEST(taa_neighbourhood_box) {
+    Vec3 lo, hi;
+    taa::neighbourhoodBox({Vec3{0.3f, 0.3f, 0.3f}, Vec3{0.3f, 0.3f, 0.3f}, Vec3{0.3f, 0.3f, 0.3f}, Vec3{0.3f, 0.3f, 0.3f},
+                           Vec3{0.3f, 0.3f, 0.3f}}, lo, hi);
+    CHECK_NEAR(lo.x, 0.3, 1e-6);
+    CHECK_NEAR(hi.x, 0.3, 1e-6);
+    taa::neighbourhoodBox({Vec3{0.2f, 0.2f, 0.2f}, Vec3{0.2f, 0.2f, 0.2f}, Vec3{0.2f, 0.2f, 0.2f}, Vec3{0.2f, 0.2f, 0.2f},
+                           Vec3{0.9f, 0.9f, 0.9f}}, lo, hi);
+    CHECK(lo.x >= 0.2f - 1e-6f);
+    CHECK(hi.x < 0.9f && hi.x > 0.2f);
+    CHECK(hi.x < 0.75f);
+}

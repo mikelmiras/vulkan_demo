@@ -2187,7 +2187,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 | 129 (done) | Area lights: rectangles and tubes (a Light shape and its size), lit with linearly transformed cosines (LTC: the diffuse and the GGX highlight of a polygon), their shadows from the point at their middle | A neon tube or a shop window lights the street as a point: a pinpoint highlight where a long streak should be |
 | 130 (done) | Specular anti-aliasing: each pixel's roughness widened by its normals' variance (the normal map's mips, Toksvig; the geometry's, from the screen-space derivatives) | Glossy, normal-mapped and wet surfaces sparkle and crawl under motion; temporal AA only partly hides it |
 | 131 (done) | Reflections, rough and far: more levels in the near pyramid (16 and 32 px tiles), and rough surfaces' reflections as a cone over a blurred chain of the captured picture rather than jittered rays | Rough reflections are noisy and smeared by the temporal pass; long rays still take many steps |
-| 132 | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
+| 132 (done) | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
 | 133 | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
 | 134 | Lamps' soft shadows cheaper: the blocker search at half size per tile, or kept from last frame where nothing moved; the lit pass's cost measured on Night Drive | PCSS for lamps costs Night Drive's lit pass 7 % |
 | 135 | Night Drive's neon as area lights: its signs' tubes lighting the wet street in streaks, a few flickering | The neon glows but lights the street like bare bulbs |
@@ -2233,3 +2233,13 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   ms against 26.7; Night Drive, the editor, the demo, under CI's validation layer. Not done: the GI rays over the
   pyramid (task 133), rough reflections from more than one ray (a cone over the mips only), a proper blur chain
   (the mips are box-filtered).
+- **132, the temporal pass cheaper**: counted, it fetched 26 texels a pixel: the picture's centre twice (once
+  filtered), a 3 x 3 neighbourhood for the box, the depth's centre twice and a 3 x 3 for the nearest motion, the
+  motion, five history taps. Now 16: the centres once (texelFetch, unfiltered, at full scale; the upscaling path
+  still filters), the box and the nearest-motion search over the cross (the pixel and its four neighbours: the
+  variance box from five), the history's Catmull-Rom as it was (taa::neighbourhoodBox repeats the box's sums,
+  tested: a flat cross is a point; one outlier among five stays well outside the box). Night Drive: the temporal
+  pass 107 ms against 135 (the shader before compiled into the same build), the frame 1264 against 1327; the
+  sliding camera over Night Drive looks the same (no new ghosting or crawl); render scale 0.7, the editor, the
+  demo, under CI's validation layer. Not done: back to the 70 ms before task 117 (the sharpening pass and the
+  history's five taps remain), a shared 2 x 2 gather for the cross.

@@ -5,6 +5,8 @@
 
 #include <array>
 
+#include "core/vecmath.h"
+
 namespace taa {
 
 // The four texels' weights round a sample a fraction `f` (0..1) past the second one, along one axis
@@ -16,5 +18,9 @@ std::array<float, 4> catmullRom(float f);
 // the less the history matched what's around the pixel now (`mismatch` 0..1: how far it lay outside their colours'
 // box, relative to the box's size)
 float historyWeight(float base, float movedPixels, float mismatch);
+
+// The box the history is clipped to, from the pixel and its four neighbours (the cross; colours compressed): their
+// range, narrowed to 1.25 standard deviations round their mean (variance clipping)
+void neighbourhoodBox(const std::array<Vec3, 5>& colours, Vec3& lo, Vec3& hi);
 
 }  // namespace taa

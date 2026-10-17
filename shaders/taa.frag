@@ -73,27 +73,30 @@ void main() {
     // Where this pixel is in the picture drawn (the same pixel at full scale; else smaller, un-jittered)
     vec2 drawn = scaled ? vp.xy + (px - vp.xy) * scale + pc.extra.xy : px;
     vec2 at = drawn * pc.params.yz;
-    vec4 cur = scaled ? texture(current, at) : texture(current, vUV);
+    vec4 cur = scaled ? texture(current, at) : texelFetch(current, ivec2(px), 0);
     if (pc.params.x <= 0.0 && !scaled) {
         outColor = cur;
         return;
     }
-    // The colours around this pixel now (in the picture drawn): their range, and their mean and spread (variance
-    // clipping: the history kept within 1.25 standard deviations of the mean, inside the range, so flickering
-    // and ghosting colours are pulled in harder than by the range alone), and the cross's mean for sharpening
-    vec3 lo = vec3(1e9), hi = vec3(-1e9), plus = vec3(0.0), m1 = vec3(0.0), m2 = vec3(0.0);
-    for (int y = -1; y <= 1; ++y)
-        for (int x = -1; x <= 1; ++x) {
-            vec3 c = compress(texture(current, at + vec2(x, y) * pc.params.yz).rgb);
-            lo = min(lo, c);
-            hi = max(hi, c);
-            m1 += c;
-            m2 += c * c;
-            if (abs(x) + abs(y) == 1) plus += c;
-        }
-    vec3 mean = m1 / 9.0, sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3(0.0)));
-    vec3 boxLo = max(lo, mean - 1.25 * sigma), boxHi = min(hi, mean + 1.25 * sigma);
+    // The colours round this pixel now (in the picture drawn: the cross of its four neighbours, enough for the box
+    // and much cheaper than all eight): their range, and their mean and spread (variance clipping: the history kept
+    // within 1.25 standard deviations of the mean, inside the range, so flickering and ghosting colours are pulled
+    // in harder than by the range alone), and the cross's mean for sharpening. Read unfiltered at full scale.
     vec3 now = compress(cur.rgb);
+    vec3 lo = now, hi = now, plus = vec3(0.0), m1 = now, m2 = now * now;
+    ivec2 texel = ivec2(drawn), last = textureSize(current, 0) - 1;
+    const ivec2 kCross[4] = ivec2[](ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1));
+    for (int k = 0; k < 4; ++k) {
+        vec3 c = compress(scaled ? texture(current, at + vec2(kCross[k]) * pc.params.yz).rgb
+                                 : texelFetch(current, clamp(texel + kCross[k], ivec2(0), last), 0).rgb);
+        lo = min(lo, c);
+        hi = max(hi, c);
+        m1 += c;
+        m2 += c * c;
+        plus += c;
+    }
+    vec3 mean = m1 / 5.0, sigma = sqrt(max(m2 / 5.0 - mean * mean, vec3(0.0)));
+    vec3 boxLo = max(lo, mean - 1.25 * sigma), boxHi = min(hi, mean + 1.25 * sigma);
     if (pc.extra.z > 0.0) now = clamp(now + (now - plus * 0.25) * pc.extra.z, lo, hi);   // (sharpened, no halos)
 #ifdef UPSCALE_ONLY
     outColor = vec4(expand(now), cur.a);   // (upscaling alone)
@@ -103,21 +106,21 @@ void main() {
         return;
     }
     // Where it was (the depth in the picture drawn)
-    float depth = scaled ? texelFetch(depthMap, ivec2(vp.xy + (px - vp.xy) * scale), 0).r : texture(depthMap, vUV).r;
+    ivec2 centre = ivec2(scaled ? vp.xy + (px - vp.xy) * scale : px);
+    float depth = texelFetch(depthMap, centre, 0).r;
     vec2 ndc = (px - vp.xy) / vp.zw * 2.0 - 1.0;
     vec4 prev = pc.reproject * vec4(ndc, depth, 1.0);
     vec2 prevPx = (prev.xy / prev.w * 0.5 + 0.5) * vp.zw + vp.xy;
     if (pc.extra.w > 0.5) {   // moving things: where they were, by their own motion (the sky's: by the depth)
-        // (the nearest thing's motion round this pixel: an edge moves with what's in front, not what's behind)
-        ivec2 centre = ivec2(scaled ? vp.xy + (px - vp.xy) * scale : px), size = textureSize(depthMap, 0);
-        ivec2 nearest = centre;
-        float nearestDepth = 2.0;
-        for (int y = -1; y <= 1; ++y)
-            for (int x = -1; x <= 1; ++x) {
-                ivec2 q = clamp(centre + ivec2(x, y), ivec2(0), size - 1);
-                float d = texelFetch(depthMap, q, 0).r;
-                if (d < nearestDepth) nearestDepth = d, nearest = q;
-            }
+        // (the nearest thing's motion round this pixel, over the cross: an edge moves with what's in front, not
+        // what's behind)
+        ivec2 size = textureSize(depthMap, 0), nearest = centre;
+        float nearestDepth = depth;
+        for (int k = 0; k < 4; ++k) {
+            ivec2 q = clamp(centre + kCross[k], ivec2(0), size - 1);
+            float d = texelFetch(depthMap, q, 0).r;
+            if (d < nearestDepth) nearestDepth = d, nearest = q;
+        }
         vec2 v = texelFetch(velocityMap, nearest, 0).rg;
         if (v.x < 10000.0) prevPx = px - v * vp.zw;
     }
