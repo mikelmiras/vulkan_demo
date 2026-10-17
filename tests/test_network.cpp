@@ -57,14 +57,18 @@ Scene netScene() {
     return s;
 }
 
-// One frame of both: the client reads the keyboard, the server doesn't
+// One frame of both: the client reads the keyboard, the server doesn't. (Real time between their turns, for the
+// loopback: on a slow machine (CI's macOS) a packet sent can take a moment to come in, and without it the server
+// reads the client's a frame late now and then, and the client the server's)
 void pump(Game& server, NetSession& sn, Game& client, NetSession& cn) {
     ImGui::GetIO().DeltaTime = 1.f / 60.f;
     ImGui::NewFrame();
     client.frame(1.f / 60.f, true, true);
     cn.update(1.f / 60.f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
     server.frame(1.f / 60.f, false, false);
     sn.update(1.f / 60.f);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
     ImGui::EndFrame();
 }
 

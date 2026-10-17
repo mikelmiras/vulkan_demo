@@ -178,8 +178,11 @@ TEST(relay_lobbies_joined_by_code) {
     lostGame.stop();
 
     cn.stop();
-    sn.stop();   // (unregisters: gone at once)
-    for (int i = 0; i < 5; ++i) w.relay.update(w.now);
+    sn.stop();   // (unregisters: gone as soon as the relay reads it; real time for the loopback)
+    for (int i = 0; i < 500 && w.relay.lobbyCount() != 0; ++i) {
+        w.relay.update(w.now);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
     CHECK(w.relay.lobbyCount() == 0);
     client.stop();
     server.stop();
