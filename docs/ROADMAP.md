@@ -2410,7 +2410,7 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
   validation layer; lavapipe's Night Drive frame 1294 ms against 1267 with the old cars. Not done: rounded shapes (they're still boxes: a
   car model would be the next step), the paint's flakes.
 
-## Round 15 (planned)
+## Round 15 (done)
 
 Visuals and performance (the standing request), from round 14's notes: the terrain's own bumps, the clouds cheaper
 and casting their shapes on the ground, the fog (the largest pass after the scene in Night Drive) cheaper, shop
@@ -2424,7 +2424,7 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
 | 148 (done) | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
 | 149 (done) | Rectangle lights with a picture (a texture across the rectangle: the light's colour by where on it the nearest point is) and their shadows (from the middle, as a spot's) | Shop windows light the street in one flat colour and through walls |
 | 150 (done) | A starburst on the brightest lights: streaks by the aperture's blades (a setting: blades, length), drawn with the lens flare in the composite | Bright lamps bloom round; a camera's iris draws them as stars |
-| 151 | Night Drive's cars as rounded models: a low-poly car mesh written by a tool (a bevelled body, wheel arches, a sloping windscreen), shared by every car and the taxi | The cars are still boxes |
+| 151 (done) | Night Drive's cars as rounded models: a low-poly car mesh written by a tool (a bevelled body, wheel arches, a sloping windscreen), shared by every car and the taxi | The cars are still boxes |
 
 ### Round 15 notes
 - **145, terrain layers' normal maps**: Terrain::Layer gains normalTexture and normalStrength (scene format 64,
@@ -2499,3 +2499,16 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
   against 107), thin six-pointed stars. Night Drive has it at 0.5. Checked: Night Drive (TAA, MSAA), the editor,
   the demo under CI's validation layer; the save / load test. Not done: the streaks' colours split (a diffraction
   rainbow), streaks in extra views (theirs: none).
+- **151, rounded cars**: examples/night_drive/tools/make_car.py writes models/car/car.glb (no textures or
+  materials: the scene's): mesh 0 the painted body, 28 rounded cross-sections (rounded rectangles: 0.14 m upper
+  corners, 0.05 m lower) lofted along 4.3 m with shared vertices (the importer's smooth normals), the plan rounding
+  off at the ends, the bonnet and the boot below the beltline, flat end caps, and the roof (a thin slab over the
+  glass); mesh 1 the glass, a band from the beltline (4.3 m long, 1.68 wide) to under the roof (shorter and
+  narrower: the windscreen and rear window slope); mesh 2 a unit tyre along x. Every triangle checked to face out
+  (a script over the file: 100 % of each mesh). make_city.py's car_body draws every car with it (chrome bumpers
+  and tyres beside; lamps moved onto the lower nose and tail), and the taxi with it fitted (1.9 x 4.4 m, raised
+  0.12 m: the sign and the chequers moved to its roof and sides; its wheels' tyres the same cylinder). 23 entities
+  fewer (2034). Checked: the game's camera (the taxi a rounded yellow car with sloping glass), close views from a
+  scratch copy without the rain (a parked saloon's silhouette, the taxi's shoulder catching the light), MSAA and
+  TAA under CI's validation layer, the Night Drive tests; lavapipe's frame 1285 ms (1294 with the boxes). Not done:
+  wheel arches cut into the body, lights moulded into it (still boxes on it), other models (a van, a bus).

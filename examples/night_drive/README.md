@@ -18,7 +18,9 @@ streets wet and glossy, with standing water in the hollows and rings on it. Pudd
 about half the lamps mirror them. Rain falls round the taxi as lit, streaked particles that show where there's light.
 The cars are painted metal: a metallic base under a clear coat (the lamps and neon run along their bonnets), glass all
 round the cabin under a painted roof, chrome bumpers and tyres (`car_body` in `tools/make_city.py`); the taxi is
-yellow with a chequered band along each side.
+yellow with a chequered band along each side. Their shape is one low-poly saloon, `models/car/car.glb`, made by
+`tools/make_car.py` (rounded sides, the bonnet and boot below the beltline, the windscreen and rear window sloping;
+run it again after changing its numbers), fitted to the taxi's size.
 Traffic drives the grid: a few cars (`scripts/TrafficCar.lua`) in the right-hand lanes, choosing at each crossroads
 to go on or turn (never out of the city), easing to a stop behind whatever's ahead (another car, the taxi: it can
 bump into them, they aren't pushed) and pulling away again, with headlights, tail lamps and their glow on the wet

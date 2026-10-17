@@ -249,26 +249,30 @@ for _ in range(7):
 PAINT = [(0.35, 0.03, 0.03), (0.05, 0.08, 0.2), (0.2, 0.2, 0.22), (0.02, 0.02, 0.02), (0.25, 0.18, 0.08)]
 
 
-def paint_look(colour):
-    return look("Cube", colour, roughness=0.4, metallic=0.6, clearcoat=1.0, coat_roughness=0.04)
+def paint_look(colour, mesh="Cube"):
+    return look(mesh, colour, roughness=0.4, metallic=0.6, clearcoat=1.0, coat_roughness=0.04)
 
 
-GLASS = look("Cube", (0.015, 0.018, 0.022), roughness=0.03)   # (dark: the reflection of the street is what shows)
+GLASS_COLOUR = (0.015, 0.018, 0.022)   # (dark: the reflection of the street is what shows)
 CHROME = look("Cube", (0.75, 0.75, 0.78), roughness=0.18, metallic=1.0)
+# The car model (tools/make_car.py: models/car/car.glb): its painted body, its glass, a tyre
+for part, index in (("car-body", 0), ("car-glass", 1), ("car-tyre", 2)):
+    meshes_used[part] = "models/car/car.glb#%d.0" % index
 
 
-def car_body(car, paint, body=(1.8, 0.7, 4.3), y=-0.15):
-    w, h, l = body
-    entity("Body", (0, y, 0), scale=body, parent=car, meshRenderer=paint_look(paint))
-    top = y + h / 2
-    entity("Glass", (0, top + 0.26, 0.2), scale=(w - 0.24, 0.52, l * 0.5), parent=car, meshRenderer=GLASS)
-    entity("Roof", (0, top + 0.54, 0.25), scale=(w - 0.2, 0.06, l * 0.4), parent=car, meshRenderer=paint_look(paint))
+def car_body(car, paint, scale=(1.0, 1.0, 1.0), y=0.0, tyres=True):
+    """A car's look on `car` (its middle 0.75 m up, facing -z): the model's body and glass, chrome bumpers, tyres;
+    `scale` and `y` fit it to another size and ride height (the taxi)"""
+    sx, sy, sz = scale
+    entity("Body", (0, y, 0), scale=scale, parent=car, meshRenderer=paint_look(paint, "car-body"))
+    entity("Glass", (0, y, 0), scale=scale, parent=car, meshRenderer=look("car-glass", GLASS_COLOUR, roughness=0.03))
     for z in (-1, 1):
-        entity("Bumper", (0, y - h / 2 + 0.12, z * (l / 2 + 0.05)), scale=(w + 0.04, 0.12, 0.1), parent=car, meshRenderer=CHROME)
-    for x in (-1, 1):
-        for z in (-1, 1):
-            entity("Tyre", (x * (w / 2 - 0.08), -0.75 + 0.34, z * l * 0.33), (0, 0, 90), scale=(0.68, 0.24, 0.68), parent=car,
-                   meshRenderer=look("Sphere", (0.02, 0.02, 0.02), roughness=0.9))
+        entity("Bumper", (0, y - 0.31 * sy, z * 2.17 * sz), scale=(1.66 * sx, 0.11, 0.1), parent=car, meshRenderer=CHROME)
+    if tyres:
+        for x in (-1, 1):
+            for z in (-1, 1):
+                entity("Tyre", (x * 0.82 * sx, -0.75 + 0.34, z * 1.42 * sz), scale=(0.24, 0.68, 0.68), parent=car,
+                       meshRenderer=look("car-tyre", (0.02, 0.02, 0.02), roughness=0.9))
 
 
 # ---- Parked cars along the kerbs ---------------------------------------------------------------------------------
@@ -331,9 +335,9 @@ for n in range(TRAFFIC):
                               "first": -HALF + STREET / 2, "pitch": PITCH, "streets": BLOCKS + 1, "seed": n + 1}])
     car_body(car, paint)
     for side in (-1, 1):
-        entity("Headlamp", (side * 0.6, 0.1, -2.16), scale=(0.35, 0.16, 0.04), parent=car,
+        entity("Headlamp", (side * 0.5, -0.18, -2.14), scale=(0.3, 0.14, 0.04), parent=car,
                meshRenderer=look("Cube", (1, 1, 1), emissive=(1.0, 0.95, 0.8), strength=5.0))
-        entity("Tail lamp", (side * 0.65, 0.12, 2.16), scale=(0.3, 0.14, 0.04), parent=car,
+        entity("Tail lamp", (side * 0.55, -0.1, 2.14), scale=(0.3, 0.12, 0.04), parent=car,
                meshRenderer=look("Cube", (0.5, 0.0, 0.0), emissive=(1.0, 0.05, 0.02), strength=6.0))
     entity("Headlights", (0, 0.2, -2.3), rot=(-14, 0, 0), parent=car,
            light={"type": "spot", "color": [1.0, 0.93, 0.78], "intensity": 3.5, "range": 22.0, "spotAngle": 48.0,
@@ -359,25 +363,25 @@ for e in entities:
     if e["id"] == taxi:
         del e["meshRenderer"]
 TAXI_YELLOW = (0.95, 0.66, 0.04)
-entity("Body", (0, 0, 0), scale=(1.9, 0.75, 4.4), parent=taxi,
-       meshRenderer=look("Cube", TAXI_YELLOW, roughness=0.35, metallic=0.3, clearcoat=1.0, coat_roughness=0.04))
-entity("Glass", (0, 0.62, 0.25), scale=(1.65, 0.5, 2.1), parent=taxi, meshRenderer=GLASS)
-entity("Roof", (0, 0.9, 0.3), scale=(1.7, 0.06, 1.75), parent=taxi,
-       meshRenderer=look("Cube", TAXI_YELLOW, roughness=0.35, metallic=0.3, clearcoat=1.0, coat_roughness=0.04))
-for z in (-1, 1):
-    entity("Bumper", (0, -0.27, z * 2.25), scale=(1.94, 0.12, 0.1), parent=taxi, meshRenderer=CHROME)
+# (the car model fitted to the taxi: 1.9 x 4.4 m, its underside where the box's was, its tyres on the wheels below)
+TAXI_FIT = (1.9 / 1.8, 1.0, 4.4 / 4.3)
+car_body(taxi, TAXI_YELLOW, TAXI_FIT, 0.12, tyres=False)
+for e in entities:
+    if e.get("parent") == taxi and e["name"] == "Body":   # (the taxi's paint: a little less metallic)
+        e["meshRenderer"]["metallic"] = 0.3
+        e["meshRenderer"]["roughness"] = 0.35
 # (the livery: a chequered band along each side, black squares on the yellow, two rows staggered)
 for x in (-1, 1):
     for row in range(2):
         for k in range(8):
-            entity("Chequer", (x * 0.955, 0.12 - row * 0.18, -1.5 + (2 * k + row) * 0.18 + 0.09), scale=(0.02, 0.18, 0.18),
+            entity("Chequer", (x * 0.96, 0.1 - row * 0.16, -1.5 + (2 * k + row) * 0.18 + 0.09), scale=(0.02, 0.16, 0.18),
                    parent=taxi, meshRenderer=look("Cube", (0.015, 0.015, 0.015), roughness=0.3, clearcoat=1.0))
-entity("Roof sign", (0, 1.05, 0.3), scale=(0.8, 0.22, 0.3), parent=taxi,
+entity("Roof sign", (0, 0.99, 0.4), scale=(0.8, 0.22, 0.3), parent=taxi,
        meshRenderer=look("Cube", (1, 1, 0.9), emissive=(1.0, 0.9, 0.6), strength=3.0))
 for side in (-1, 1):
-    entity("Headlamp", (side * 0.65, 0.05, -2.21), scale=(0.35, 0.18, 0.04), parent=taxi,
+    entity("Headlamp", (side * 0.52, -0.06, -2.19), scale=(0.3, 0.15, 0.04), parent=taxi,
            meshRenderer=look("Cube", (1, 1, 1), emissive=(1.0, 0.95, 0.8), strength=5.0))
-    entity("Tail lamp", (side * 0.7, 0.08, 2.21), scale=(0.3, 0.15, 0.04), parent=taxi,
+    entity("Tail lamp", (side * 0.58, 0.02, 2.19), scale=(0.3, 0.12, 0.04), parent=taxi,
            meshRenderer=look("Cube", (0.5, 0.0, 0.0), emissive=(1.0, 0.05, 0.02), strength=6.0))
 # (low beams: aimed down and wide with a soft edge, so the road is lit from just ahead of the bumper and the pool fades
 # out instead of starting a few metres ahead behind a sharp edge)
@@ -399,8 +403,8 @@ entity("Rain", (0, 9, 0), rot=(172, 0, 0), parent=taxi, particles={
 for name, (x, z) in (("Wheel FL", (-0.85, -1.45)), ("Wheel FR", (0.85, -1.45)), ("Wheel BL", (-0.85, 1.45)), ("Wheel BR", (0.85, 1.45))):
     entity(name, (x, -0.25, z), parent=taxi)
     wheel = next_id[0] - 1
-    entity("Tyre", (0, 0, 0), (0, 0, 90), scale=(0.76, 0.26, 0.76), parent=wheel,
-           meshRenderer=look("Sphere", (0.02, 0.02, 0.02), roughness=0.9))
+    entity("Tyre", (0, 0, 0), scale=(0.26, 0.76, 0.76), parent=wheel,
+           meshRenderer=look("car-tyre", (0.02, 0.02, 0.02), roughness=0.9))
 
 # ---- Light: a dim, cold moon over the haze; the camera, isometric-ish, following the taxi -------------------------
 entity("Moon", (0, 60, 0), rot=(-58, 32, 0),
