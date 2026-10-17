@@ -846,7 +846,6 @@ void Renderer::createPipelines() {
     VK_CHECK(vkCreatePipelineLayout(device_, &pl, nullptr, &taaLayout_));
     taaPipeline_ = createPostPipeline("taa.frag.spv", hdrFormat_, false, taaLayout_);
     taaUpscalePipeline_ = createPostPipeline("taa_upscale.frag.spv", hdrFormat_, false, taaLayout_);
-    sharpenPipeline_ = createPostPipeline("sharpen.frag.spv", hdrFormat_, false, taaLayout_);   // (after either)
     bloomDownPipeline_ = createPostPipeline("bloom_down.frag.spv", hdrFormat_, false);
     lumPipeline_ = createPostPipeline("luminance.frag.spv", VK_FORMAT_R16_SFLOAT, false);
     // (the half-size traces: the scene's frame data, set 0; renderer_trace.cpp)
@@ -2452,7 +2451,7 @@ void Renderer::shutdown() {
     destroySampledPipelines();
     for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, shadowTintPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
                          compositeViewPipeline_,
-                         taaPipeline_, taaUpscalePipeline_, sharpenPipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_,
+                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_,
                          ssrTraceMsPipeline_, giTraceMsPipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, taaLayout_, nullptr);

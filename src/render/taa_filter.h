@@ -23,4 +23,8 @@ float historyWeight(float base, float movedPixels, float mismatch);
 // range, narrowed to 1.25 standard deviations round their mean (variance clipping)
 void neighbourhoodBox(const std::array<Vec3, 5>& colours, Vec3& lo, Vec3& hi);
 
+// The composite's contrast-adaptive sharpening (after FidelityFX CAS) of one channel, compressed (0..1): the centre
+// pushed away from its four neighbours by as much as their contrast leaves room for; `amount` 0..1
+float casSharpen(float centre, float up, float left, float right, float down, float amount);
+
 }  // namespace taa

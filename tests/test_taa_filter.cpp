@@ -54,3 +54,14 @@ TEST(taa_neighbourhood_box) {
     CHECK(hi.x < 0.9f && hi.x > 0.2f);
     CHECK(hi.x < 0.75f);
 }
+
+// The composite's sharpening: a flat patch stays as it is; a pixel brighter than its neighbours gets brighter (and
+// more so the stronger), never past the range; at the range's ends (black, white) it holds back
+TEST(taa_cas_sharpen) {
+    CHECK_NEAR(taa::casSharpen(0.4f, 0.4f, 0.4f, 0.4f, 0.4f, 1.f), 0.4, 1e-5);
+    const float soft = taa::casSharpen(0.5f, 0.4f, 0.4f, 0.4f, 0.4f, 0.3f), strong = taa::casSharpen(0.5f, 0.4f, 0.4f, 0.4f, 0.4f, 1.f);
+    CHECK(soft > 0.5f && strong > soft && strong < 1.f);
+    CHECK(taa::casSharpen(0.3f, 0.4f, 0.4f, 0.4f, 0.4f, 1.f) < 0.3f);   // (darker than round it: darker)
+    CHECK_NEAR(taa::casSharpen(0.f, 0.3f, 0.3f, 0.3f, 0.3f, 1.f), 0.0, 1e-6);   // (black: no room)
+    CHECK(taa::casSharpen(0.99f, 0.5f, 0.5f, 0.5f, 0.5f, 1.f) <= 0.999f);
+}

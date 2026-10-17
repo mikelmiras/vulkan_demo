@@ -21,7 +21,8 @@ layout(push_constant) uniform Post {
     vec4 d;   // with the UI layer (drawn over the whole picture): the scene's rectangle (x, y, w, h pixels)
     vec4 e;   // x = tone mapper (0 PBR Neutral, 1 filmic), y = contrast, z = saturation, w = vignette
     vec4 f;   // x = 1: auto-exposure, y = local tone mapping (0..1), z = the luminance's last mip, w = lens dirt
-    vec4 g;   // x = lens flare (0..1), y = the glow's scale (more bloom levels: wider, not brighter)
+    vec4 g;   // x = lens flare (0..1), y = the glow's scale (more bloom levels: wider, not brighter), z = sharpening
+              // (0..1: temporal AA's or the upscaler's softness taken back)
 } pc;
 
 // A lens's flare (after Chapman's pseudo lens flare): the brightest spots (what's over 1 in the bloom's blurred
@@ -116,9 +117,31 @@ vec3 pq(vec3 nits) {
     return pow((c1 + c2 * y) / (1.0 + c3 * y), vec3(m2));
 }
 
+// Contrast-adaptive sharpening (after AMD's FidelityFX CAS) of the picture temporal AA made: each pixel pushed away
+// from its four neighbours by as much as their contrast leaves room for (less where it's already sharp or near the
+// range's ends, so no halos). Here rather than in a pass of its own (the history stays unsharpened, as before).
+vec3 casCompress(vec3 c) { return c / (1.0 + max(c.r, max(c.g, c.b))); }
+vec3 casExpand(vec3 c) { return c / max(1.0 - max(c.r, max(c.g, c.b)), 1e-4); }
+vec3 sharpened(ivec2 p, vec3 centre, float amount) {
+    ivec2 hi = textureSize(hdr, 0) - 1;
+    vec3 e = casCompress(centre);
+    vec3 b = casCompress(texelFetch(hdr, clamp(p + ivec2(0, -1), ivec2(0), hi), 0).rgb);
+    vec3 d = casCompress(texelFetch(hdr, clamp(p + ivec2(-1, 0), ivec2(0), hi), 0).rgb);
+    vec3 f = casCompress(texelFetch(hdr, clamp(p + ivec2(1, 0), ivec2(0), hi), 0).rgb);
+    vec3 h = casCompress(texelFetch(hdr, clamp(p + ivec2(0, 1), ivec2(0), hi), 0).rgb);
+    vec3 mn = min(e, min(min(b, d), min(f, h))), mx = max(e, max(max(b, d), max(f, h)));
+    vec3 room = sqrt(clamp(min(mn, 1.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0));
+    vec3 w = room * (-1.0 / mix(8.0, 5.0, clamp(amount, 0.0, 1.0)));
+    vec3 sharp = clamp((b + d + f + h) * w + e, 0.0, 1.0) / (1.0 + 4.0 * w);
+    return casExpand(clamp(sharp, 0.0, 0.999));
+}
+
 void main() {
     ivec2 px = ivec2(gl_FragCoord.xy);
     vec4 h = texelFetch(hdr, px, 0);
+    bool inScene = pc.b.w < 0.5 || (gl_FragCoord.x >= pc.d.x && gl_FragCoord.y >= pc.d.y && gl_FragCoord.x <= pc.d.x + pc.d.z &&
+                                    gl_FragCoord.y <= pc.d.y + pc.d.w);
+    if (pc.g.z > 0.0 && h.a <= 1.0 && inScene) h.rgb = sharpened(px, h.rgb, pc.g.z);   // (not the outline's marker)
     float outline = clamp(h.a - 1.0, 0.0, 1.0);   // (partly, on anti-aliased edges)
     vec3 scene = outline < 0.999 ? (h.rgb - outline * pc.b.rgb) / (1.0 - outline) : vec3(0.0);
     vec2 uv = (vec2(px) + 0.5) / vec2(textureSize(hdr, 0));

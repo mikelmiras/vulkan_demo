@@ -364,6 +364,12 @@ void Renderer::writeSsrBinding() {
     }
 }
 
+float Renderer::compositeSharpness(int view) const {
+    const bool upscaled = view < 0 && scaleNow_ < 0.999f;
+    if (aa_ != Antialiasing::Temporal && !upscaled) return 0.f;   // (only what temporal AA or the upscaler softened)
+    return sharpenOverride_ >= 0.f ? sharpenOverride_ : upscaled ? std::min(sharpness_ + 0.2f, 1.f) : sharpness_;
+}
+
 void Renderer::destroyPostImages() {
     if (refraction_.image) destroyImage(refraction_);
     if (shafts_.image) destroyImage(shafts_);
@@ -681,7 +687,8 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                {(float)info.tonemapper, info.contrast, info.saturation, info.vignette},
                {autoExposed ? 1.f : 0.f, localTone, (float)(kLumMips - 1), lensDirt_.image ? std::clamp(info.lensDirt, 0.f, 1.f) : 0.f},
                // (the glow's scale: the levels past the six it was tuned with widen it, not brighten it)
-               {bloom ? std::clamp(info.lensFlare, 0.f, 1.f) : 0.f, bloomMips_ > 6 ? 6.f / (float)bloomMips_ * 1.15f : 1.f, 0.f, 0.f}};
+               {bloom ? std::clamp(info.lensFlare, 0.f, 1.f) : 0.f, bloomMips_ > 6 ? 6.f / (float)bloomMips_ * 1.15f : 1.f,
+                compositeSharpness(view), 0.f}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
     }

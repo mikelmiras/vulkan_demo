@@ -30,4 +30,12 @@ void neighbourhoodBox(const std::array<Vec3, 5>& colours, Vec3& lo, Vec3& hi) {
     hi = {std::min(mx.x, mean.x + sd.x), std::min(mx.y, mean.y + sd.y), std::min(mx.z, mean.z + sd.z)};
 }
 
+float casSharpen(float centre, float up, float left, float right, float down, float amount) {
+    const float mn = std::min({centre, up, left, right, down}), mx = std::max({centre, up, left, right, down});
+    const float room = std::sqrt(std::clamp(std::min(mn, 1.f - mx) / std::max(mx, 1e-4f), 0.f, 1.f));
+    const float w = room * (-1.f / (8.f + (5.f - 8.f) * std::clamp(amount, 0.f, 1.f)));
+    return std::clamp(std::clamp((up + left + right + down) * w + centre, 0.f, 1.f) / (1.f + 4.f * w), 0.f, 0.999f);
+}
+
 }  // namespace taa
+

@@ -915,8 +915,9 @@ private:
     VkDescriptorSet sssSets_[2] = {};
     bool sssSeen_ = false, sssOn_ = false;
     bool sssWanted_ = true;          // (VKWORLD_SSS=0: none, to compare)
-    VkPipeline sharpenPipeline_ = VK_NULL_HANDLE;   // contrast-adaptive sharpening after temporal AA (sharpen.frag)
     float sharpenOverride_ = -1.f;   // (VKWORLD_SHARPEN=0..1; otherwise sharpness_, + 0.2 upscaling)
+    // The composite's contrast-adaptive sharpening of the picture temporal AA or the upscaler made (0: none)
+    float compositeSharpness(int view) const;
     float sharpness_ = 0.3f;         // (setSharpness: the player's settings.sharpness)
     void recordSubsurface(VkCommandBuffer cb, const SceneRenderInfo& scene);
     void createTintedLit();

@@ -2301,7 +2301,7 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
 | # | Task | Why |
 |---|------|-----|
 | 137 (done) | Rectangle lights (a Light shape: width and height, facing its -z), lit by representative points as the tubes are (the rectangle's point nearest the reflected ray; the diffuse from its nearest point and its facing), one-sided | Shop windows and light boxes light the street as bulbs or tubes |
-| 138 | The sharpening folded into the temporal pass's output (it writes the sharpened picture and keeps the history unsharpened in a second target), one full-screen pass fewer; measured | The sharpening is a whole pass of its own after the temporal one |
+| 138 (done) | The sharpening folded into the temporal pass's output (it writes the sharpened picture and keeps the history unsharpened in a second target), one full-screen pass fewer; measured | The sharpening is a whole pass of its own after the temporal one |
 | 139 | Screen-space GI's bounce denoised: an edge-aware blur (depth and normal weighted) of the half-size traced light before scene.frag brings it up | The longer bounce rays (task 133) left grain where they meet things sporadically |
 | 140 | Shaped lights in the fog and the shafts: tubes' and rectangles' nearest points for the volumetric fog's in-scattering and the light shafts' halos | A neon tube glows in the fog as a ball of light |
 | 141 | Contact shadows from the four nearest shadowed lamps, not only the nearest (their directions traced at half size together) | Only one lamp's shadows meet the ground; the others float a little |
@@ -2325,3 +2325,16 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
   floor against a point light (a clean rectangle mirrored where a dot was), temporal AA, Night Drive, the editor,
   the demo, under CI's validation layer. Not done: rectangles' own shadows (from the middle), textured rectangles
   (a screen's picture), LTC's exact irradiance.
+- **138, the sharpening in the composite**: folding it into the temporal pass as planned can't work: the pass reads
+  the picture it would have to write (the result goes to its own image and is copied back), and sharpening needs
+  the neighbours' results, which don't exist yet inside it. Measured first: the sharpening pass cost about 25 ms on
+  Night Drive over the copy it replaced (106 ms against 81). Now the temporal pass always ends with the copy, and
+  the composite, which reads every pixel of the picture anyway, sharpens it (sharpened(): CAS on the compressed
+  cross; Renderer::compositeSharpness: VKWORLD_SHARPEN, else the player's sharpness, + 0.2 upscaling, 0 without
+  temporal AA or the upscaler; the composite's g.z); sharpen.frag and its pipeline are gone. The history stays
+  unsharpened as before; bloom and the camera effects now see the unsharpened picture. Night Drive: the temporal
+  pass 85 ms (was 106), the composite 106 against 90 without sharpening (so 8 ms saved on lavapipe, and a full
+  screen's read and write on a GPU). taa::casSharpen repeats the sums, tested (flat stays flat; a bright pixel
+  brighter, more with more; black and white hold back). Checked: sharpening off and full on a moving scene (edges
+  crisper), render scale 0.7, MSAA (none), split screen with temporal AA, the editor, the demo, under CI's
+  validation layer.
