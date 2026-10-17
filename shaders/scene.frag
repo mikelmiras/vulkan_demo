@@ -216,6 +216,17 @@ float atlasShadow(int view, vec3 p, float bias) {
     return lit / float(taps);
 }
 
+// A blocker's fraction of the way from the light to the point, from its depth; the penumbra there (render/
+// lamp_shadow.cpp's, the same sums)
+float blockerFraction(float d, float clipZ, float clipW, float lightZ) {
+    float denom = d * clipW - clipZ + lightZ;
+    return abs(denom) > 1e-12 ? lightZ / denom : 1.0;
+}
+float penumbra(float size, float t) {
+    t = clamp(t, 0.02, 1.0);
+    return size * (1.0 - t) / t;
+}
+
 // A lamp's shadow in its tile (`view`) at `p`, softened by the lamp's size (PCSS, as the sun's): the blockers round
 // the point and how far from the light they are (each depth turned back into a fraction of the way from the light to
 // the point, exactly, through the tile's projection), the penumbra a light `size` m round leaves at the point, and
@@ -242,18 +253,22 @@ float lampShadow(int view, vec3 p, float bias, vec3 lightPos, float size) {
         float perMetre = length((c2.xy / c2.w - proj.xy) * 0.5 * rect.zw / texel) * 10.0;
         float search = clamp(size * perMetre, 1.5, 24.0);
         float b = (frame.shadowViewProj[view] * vec4(lightPos, 1.0)).z;   // (the light's own depth term)
-        int searches = quality >= 2 ? 8 : 5;
+        // (the search in 2 x 2 blocks: a gather reads four depths for the price of one; four blocks spread over the
+        // disk at high quality, three at medium: half the reads of single taps, twice the depths)
+        int searches = quality >= 2 ? 4 : 3;
         float sum = 0.0, n = 0.0;
         for (int i = 0; i < searches; ++i) {
-            float d = textureLod(atlasDepths, clamp(at + rot * kDisk[i * 2] * search * texel, lo, hi), 0.0).r;
-            if (d < proj.z - bias) {   // (a blocker: how far along from the light, as a fraction of the point's way)
-                sum += b / (d * clip.w - clip.z + b);
-                n += 1.0;
+            vec4 d4 = textureGather(atlasDepths, clamp(at + rot * kDisk[i * (quality >= 2 ? 4 : 5)] * search * texel, lo + texel * 0.5, hi - texel * 0.5), 0);   // (all four inside the tile)
+            for (int k = 0; k < 4; ++k) {
+                float d = d4[k];
+                if (d < proj.z - bias) {   // (a blocker: how far along from the light, as a fraction of the point's way)
+                    sum += blockerFraction(d, clip.z, clip.w, b);
+                    n += 1.0;
+                }
             }
         }
         if (n == 0.0) return 1.0;   // (nothing between it and the light)
-        float t = clamp(sum / n, 0.02, 1.0);
-        radius = clamp(size * (1.0 - t) / t * perMetre, 1.75, 24.0);
+        radius = clamp(penumbra(size, sum / n) * perMetre, 1.75, 24.0);
     }
     float lit = 0.0;
     for (int i = 0; i < taps; ++i)

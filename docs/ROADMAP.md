@@ -2189,7 +2189,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 | 131 (done) | Reflections, rough and far: more levels in the near pyramid (16 and 32 px tiles), and rough surfaces' reflections as a cone over a blurred chain of the captured picture rather than jittered rays | Rough reflections are noisy and smeared by the temporal pass; long rays still take many steps |
 | 132 (done) | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
 | 133 (done) | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
-| 134 | Lamps' soft shadows cheaper: the blocker search at half size per tile, or kept from last frame where nothing moved; the lit pass's cost measured on Night Drive | PCSS for lamps costs Night Drive's lit pass 7 % |
+| 134 (done) | Lamps' soft shadows cheaper: the blocker search at half size per tile, or kept from last frame where nothing moved; the lit pass's cost measured on Night Drive | PCSS for lamps costs Night Drive's lit pass 7 % |
 | 135 | Night Drive's neon as area lights: its signs' tubes lighting the wet street in streaks, a few flickering | The neon glows but lights the street like bare bulbs |
 | 136 | Bloom and lens: a wider, physically shaped glare (more levels, energy-preserving), and lens flare ghosts and halo from the brightest spots, as a scene setting | Bloom stops short round bright lights; night scenes want the street lamps to glow into the haze |
 
@@ -2256,3 +2256,15 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   bounce lights more of the block's face, grainier there (pixel contrast 2.45 against 1.68; the temporal history
   smooths it over more frames); the half-size traces 39.9 ms against 53.3; Night Drive, the editor, the demo, under
   CI's validation layer. Not done: more GI rays where it's grainy, the GI's own denoise.
+- **134, lamps' blocker search**: measured first, the premise didn't hold: Night Drive's opaque pass with the search
+  switched off (a temporary hack) took as long (481 ms; runs of one build vary by about 15 ms there, by up to 15 %
+  on a lamp-heavy test scene), so task 126's 476 against 444 was mostly noise and the bigger GPU light struct, not
+  the search. What's done: the search reads 2 x 2 blocks by textureGather (four spread over the disk at high quality,
+  three at medium: 16 depths for 4 fetches where it was 8 for 8; on real GPUs a gather is one fetch), each block
+  clamped a whole texel inside the tile (a first try at half a texel read the next tile's texels: a dotted line at a
+  point light's cube face edge; three blocks sampled the disk too sparsely: grainy, wider penumbrae; both seen and
+  fixed). The blocker's fraction of the way and the penumbra are lamp_shadow.{h,cpp}'s blockerFraction and
+  penumbra, tested against a real perspective projection (exact to 1e-3), the shader calling its copies. Checked:
+  three shadowed point lights by four pillars, the old search compiled into the same build (the same penumbrae, a
+  touch smoother), Night Drive, the editor, the demo, under CI's validation layer. Not done: a search kept from
+  last frame where nothing moved; a lamp-heavy GPU benchmark scene steadier than lavapipe allows.
