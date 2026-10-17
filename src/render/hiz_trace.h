@@ -23,4 +23,8 @@ Hit walk(const std::vector<std::vector<float>>& pyramid, int from, float z0, flo
 // The same, texel by texel
 Hit march(const std::vector<float>& row, int from, float z0, float dz);
 
+// The GI rays' walk (screen_trace.glsl's traceIrradiance): texel by texel, but three at once where the pyramid's
+// tiles at `level` (where the ray is and where it would land) hold nothing as near as the ray gets
+Hit jumpMarch(const std::vector<std::vector<float>>& pyramid, int from, float z0, float dz, int level);
+
 }  // namespace hiztrace

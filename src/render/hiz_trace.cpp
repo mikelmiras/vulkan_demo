@@ -55,4 +55,26 @@ Hit march(const std::vector<float>& row, int from, float z0, float dz) {
     return h;
 }
 
+Hit jumpMarch(const std::vector<std::vector<float>>& pyramid, int from, float z0, float dz, int level) {
+    Hit h;
+    const int n = (int)pyramid[0].size(), tile = 1 << level;
+    for (int x = from; x < n;) {
+        ++h.samples;
+        const int land = std::min(x + 3, n - 1);
+        const float deepest = z0 + dz * (float)(land - from);
+        const float nearest = std::min(pyramid[(size_t)level][(size_t)(x / tile)], pyramid[(size_t)level][(size_t)(land / tile)]);
+        if (land > x && deepest < nearest && land / tile - x / tile <= 1) {   // (clear: three on; the tiles between: these)
+            x += 3;
+            continue;
+        }
+        if (z0 + dz * (float)(x - from) > pyramid[0][(size_t)x]) {
+            h.at = x;
+            return h;
+        }
+        ++x;
+    }
+    return h;
+}
+
 }  // namespace hiztrace
+

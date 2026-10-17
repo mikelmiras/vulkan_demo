@@ -2188,7 +2188,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 | 130 (done) | Specular anti-aliasing: each pixel's roughness widened by its normals' variance (the normal map's mips, Toksvig; the geometry's, from the screen-space derivatives) | Glossy, normal-mapped and wet surfaces sparkle and crawl under motion; temporal AA only partly hides it |
 | 131 (done) | Reflections, rough and far: more levels in the near pyramid (16 and 32 px tiles), and rough surfaces' reflections as a cone over a blurred chain of the captured picture rather than jittered rays | Rough reflections are noisy and smeared by the temporal pass; long rays still take many steps |
 | 132 (done) | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
-| 133 | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
+| 133 (done) | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
 | 134 | Lamps' soft shadows cheaper: the blocker search at half size per tile, or kept from last frame where nothing moved; the lit pass's cost measured on Night Drive | PCSS for lamps costs Night Drive's lit pass 7 % |
 | 135 | Night Drive's neon as area lights: its signs' tubes lighting the wet street in streaks, a few flickering | The neon glows but lights the street like bare bulbs |
 | 136 | Bloom and lens: a wider, physically shaped glare (more levels, energy-preserving), and lens flare ghosts and halo from the brightest spots, as a scene setting | Bloom stops short round bright lights; night scenes want the street lamps to glow into the haze |
@@ -2243,3 +2243,16 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   sliding camera over Night Drive looks the same (no new ghosting or crawl); render scale 0.7, the editor, the
   demo, under CI's validation layer. Not done: back to the 70 ms before task 117 (the sharpening pass and the
   history's five taps remain), a shared 2 x 2 gather for the cross.
+- **133, longer bounces**: traceIrradiance's rays reach 10 m (was 4): at each step, if the near pyramid's 16 x 16
+  tiles where the ray is and where it would be three steps on hold nothing as near as the ray gets, it takes the
+  three steps at once (the step grown thrice). Rays end at 10 m sooner, so the pass is cheaper too. Far hits are
+  less sure: the hit's thickness grows with the distance only up to 4 m's, and hits fade as the square of
+  (1 - t / 10). A limit on the jump's length on screen (no tile crossed unlooked-at) was tried: jumps then rarely
+  happen (the steps grow geometrically) and every step pays the two lookups, 86 ms against 40; so a long jump
+  doesn't look at the tiles it crosses (a thin thing there may let a little light past). hiztrace::jumpMarch models
+  the rule in one dimension, tested against the march (the same hits on 200 rows, fewer samples). Checked: a sunlit
+  red wall by a white floor and block, the old trace compiled into the same build: the wall's red reaches further
+  across the floor (floor redness 11.3 / 2.4 at the second and third samples out, against 7.3 / -0.8), the floor's
+  bounce lights more of the block's face, grainier there (pixel contrast 2.45 against 1.68; the temporal history
+  smooths it over more frames); the half-size traces 39.9 ms against 53.3; Night Drive, the editor, the demo, under
+  CI's validation layer. Not done: more GI rays where it's grainy, the GI's own denoise.

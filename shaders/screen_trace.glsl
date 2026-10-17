@@ -90,13 +90,15 @@ vec4 traceReflection(vec3 pos, vec3 r, float rough, vec2 pixel) {
     return vec4(0.0);
 }
 
-// Screen-space global illumination at `pos`: `rays` short rays over the hemisphere around n (cosine-weighted, turned
+// Screen-space global illumination at `pos`: `rays` rays over the hemisphere around n (cosine-weighted, turned
 // per pixel and, with temporal AA or the half-size passes' history, every frame), marched through the last frame's
-// picture. rgb = the average of what they met (read two levels down: blurred, less noise), a = how much they met
+// picture, up to 10 m: where the near pyramid's 16 x 16 tiles where the ray is and where it would be three steps on
+// hold nothing as near as the ray gets, it takes those three steps at once (a long jump doesn't look at the tiles
+// it crosses between: a thin thing there may let a little light past, which a bounce's blur hides) (open space crossed quickly, the steps kept for near things). rgb = the average of what they met (read two levels down: blurred, less noise), a = how much they met
 // (0..1: the rest is the probes' and the sky's light). The picture holds last frame's bounces: light bounces again.
 vec4 traceIrradiance(vec3 pos, vec3 n, vec2 pixel, int rays, int steps, float spin) {
     float grow = steps >= 8 ? 1.4 : 1.55;
-    const float maxDistance = 4.0;
+    const float maxDistance = 10.0;
     vec2 size = vec2(textureSize(lastFrame, 0));
     vec2 scale = frame.prevViewport.zw * 0.5 / size, offset = (frame.prevViewport.xy + frame.prevViewport.zw * 0.5) / size;
     float noise = fract(52.9829189 * fract(dot(pixel + spin, vec2(0.06711056, 0.00583715))));
@@ -118,12 +120,25 @@ vec4 traceIrradiance(vec3 pos, vec3 n, vec2 pixel, int rays, int steps, float sp
             vec2 ndc = clip.xy / clip.w;
             if (abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0) break;
             vec2 uv = ndc * scale + offset;
-            float sceneZ = textureLod(lastFrame, uv, 1.0).a, rayZ = z0 + zDir * t;   // (half size: enough, and quicker)
-            if (rayZ > sceneZ && rayZ < sceneZ + 0.3 + t * 0.15) {
+            float rayZ = z0 + zDir * t;
+            float jump = step * (1.0 + grow + grow * grow);   // (three steps on: clear where it starts and where it lands)
+            vec4 landing = clip0 + clipDir * (t + jump);
+            vec2 landUv = landing.w > 1e-4 ? landing.xy / landing.w * scale + offset : uv;
+            float deepest = max(rayZ, z0 + zDir * (t + jump));
+            if (deepest < min(textureLod(lastFrameNear, uv, 3.0).r, textureLod(lastFrameNear, landUv, 3.0).r) - 0.1) {
+                t += jump;
+                step *= grow * grow * grow;
+                continue;
+            }
+            float sceneZ = textureLod(lastFrame, uv, 1.0).a;   // (half size: enough, and quicker)
+            // (behind it by no more than its thickness might be: growing with the distance, as the steps do, up to
+            // 4 m's; far hits fade out faster, being the less sure: a long ray's sporadic hits are grain)
+            if (rayZ > sceneZ && rayZ < sceneZ + 0.3 + min(t, 4.0) * 0.15) {
                 vec2 edge = smoothstep(vec2(1.0), vec2(0.8), abs(ndc));
                 vec3 seen = textureLod(lastFrame, uv, 2.0).rgb;
                 if (!any(isnan(seen)) && !any(isinf(seen))) {
-                    float w = edge.x * edge.y * (1.0 - t / maxDistance);
+                    float fade = 1.0 - t / maxDistance;
+                    float w = edge.x * edge.y * fade * fade;
                     sum += min(seen, vec3(16.0)) * w;
                     met += w;
                 }
