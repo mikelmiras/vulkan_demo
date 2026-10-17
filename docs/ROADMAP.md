@@ -2292,7 +2292,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   the editor, the demo, under CI's validation layer. Not done: a starburst (the aperture's blades), the flare
   from the sun's disc by its own (it comes through the bloom like any bright spot).
 
-## Round 14 (planned)
+## Round 14 (done)
 
 Visuals and performance (the standing request), from round 13's notes: rectangles of light (shop windows), lights
 with a shape in the fog, contact shadows from every near lamp, a sky with real clouds, less grain in the bounced
@@ -2409,3 +2409,21 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
   its chequers), closer views from a scratch copy without the rain, the traffic test, TAA and MSAA under CI's
   validation layer; lavapipe's Night Drive frame 1294 ms against 1267 with the old cars. Not done: rounded shapes (they're still boxes: a
   car model would be the next step), the paint's flakes.
+
+## Round 15 (planned)
+
+Visuals and performance (the standing request), from round 14's notes: the terrain's own bumps, the clouds cheaper
+and casting their shapes on the ground, the fog (the largest pass after the scene in Night Drive) cheaper, shop
+windows with pictures and shadows, a starburst on the brightest lamps, and Night Drive's cars with rounded bodies.
+
+| # | Task | Why |
+|---|------|-----|
+| 145 | Terrain layers' normal maps: one per layer (with a strength), blended by the layers' weights onto the terrain's normal, their mips as data (task 143), specular anti-aliasing reading them | Terrain layers are flat colours: the ground's bumps come only from its heights |
+| 146 | Volumetric clouds drawn at quarter size with temporal reprojection (the sky's history moved by the camera's turn), brought up with the sky | The clouds march every sky pixel every frame: ~75 ms of lavapipe's frame on a half-sky view |
+| 147 | Clouds' shadows from the volume: the same density marched along the sun's ray into a shadow texture over the view, for the ground's sunlight and the sky's ambient | The ground's cloud shadows still come from the flat layer's coverage, not from the clouds drawn |
+| 148 | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
+| 149 | Rectangle lights with a picture (a texture across the rectangle: the light's colour by where on it the nearest point is) and their shadows (from the middle, as a spot's) | Shop windows light the street in one flat colour and through walls |
+| 150 | A starburst on the brightest lights: streaks by the aperture's blades (a setting: blades, length), drawn with the lens flare in the composite | Bright lamps bloom round; a camera's iris draws them as stars |
+| 151 | Night Drive's cars as rounded models: a low-poly car mesh written by a tool (a bevelled body, wheel arches, a sloping windscreen), shared by every car and the taxi | The cars are still boxes |
+
+### Round 15 notes
