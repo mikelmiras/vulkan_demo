@@ -133,13 +133,23 @@ void main() {
     for (int k = 0; k < lampCount; ++k) {   // the point lights' halos, whole, shaded by what the march saw of their shadows
         Light li = lights[int(frame.shaftLamps[k])];
         if (li.color.w > 0.5) continue;
-        float tc;
-        float gathered = halo(li, frame.camPos.xyz, dir, len, 0.3, tc);
-        if (gathered <= 0.0) continue;
+        // (a tube's, or a rectangle's along its width: three halos spread along it, each a third of the light; a
+        // rectangle lights one side, half the air round it)
+        bool shaped = li.shape.y > 0.0;
+        float share = shaped ? (li.shape.w > 0.0 ? 1.0 / 6.0 : 1.0 / 3.0) : 1.0;
         float shadow = li.params.y >= 0.0 ? (weight[k] > 0.0 ? seen[k] / weight[k] : 1.0) : 1.0;
-        vec3 closest = frame.camPos.xyz + dir * clamp(tc, 0.0, len);
-        vec3 L = normalize(li.posRange.xyz - closest + vec3(0.0, 1e-4, 0.0));
-        lamps += li.color.rgb * (gathered / stepLength) * shadow * exp(-extinction * clamp(tc, 0.0, len)) * phase(dot(dir, L), 0.4);
+        for (int j = shaped ? -1 : 0; j <= (shaped ? 1 : 0); ++j) {
+            Light part = li;
+            part.posRange.xyz += li.dir.xyz * (li.shape.y * float(j) / 3.0);
+            if (li.shape.z > 0.0) part.posRange.w = li.shape.z;   // (its own range, not the clusters' grown one)
+            float tc;
+            float gathered = halo(part, frame.camPos.xyz, dir, len, 0.3, tc);
+            if (gathered <= 0.0) continue;
+            vec3 closest = frame.camPos.xyz + dir * clamp(tc, 0.0, len);
+            vec3 L = normalize(part.posRange.xyz - closest + vec3(0.0, 1e-4, 0.0));
+            lamps += li.color.rgb * (gathered / stepLength * share) * shadow * exp(-extinction * clamp(tc, 0.0, len)) *
+                     phase(dot(dir, L), 0.4);
+        }
     }
     vec3 toSun = normalize(-frame.sunDir.xyz);
     // (the lamps' light twenty times the sun's air: a beam crosses metres where the sun's light crosses the whole

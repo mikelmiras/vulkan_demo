@@ -105,8 +105,19 @@ void main() {
         uint first = headers + clusters[cluster * 2u], count = clusters[cluster * 2u + 1u];
         for (uint k = 0u; k < count; ++k) {
             Light li = lights[clusters[first + k]];
-            vec3 d = p - li.posRange.xyz;
-            float dist = length(d), range = li.posRange.w;
+            vec3 d = p - li.posRange.xyz, fromMiddle = d;
+            // (a tube or a rectangle, scene.frag's way: from its nearest point; a rectangle lights its front alone)
+            bool tube = li.color.w < 0.5 && li.shape.y > 0.0, rect = tube && li.shape.w > 0.0;
+            vec3 facing = vec3(li.params.x, li.params.z, li.params.w);
+            if (rect) {
+                if (dot(d, facing) <= 0.0) continue;
+                vec3 y = cross(li.dir.xyz, facing);
+                d -= li.dir.xyz * clamp(dot(d, li.dir.xyz), -0.5 * li.shape.y, 0.5 * li.shape.y) +
+                     y * clamp(dot(d, y), -0.5 * li.shape.w, 0.5 * li.shape.w);
+            } else if (tube) {
+                d -= li.dir.xyz * clamp(dot(d, li.dir.xyz), -0.5 * li.shape.y, 0.5 * li.shape.y);
+            }
+            float dist = length(d), range = li.shape.z > 0.0 ? li.shape.z : li.posRange.w;
             if (dist >= range) continue;
             vec3 travel = d / max(dist, 1e-4);
             float window = clamp(1.0 - (dist * dist) / (range * range), 0.0, 1.0);
@@ -115,11 +126,13 @@ void main() {
             float q = dist / (0.2 * range);
             float l = window * window / (1.0 + q * q);
             if (li.color.w > 0.5) l *= smoothstep(li.dir.w, li.params.x, dot(travel, li.dir.xyz));   // (a spot's cone)
+            if (rect) l *= max(dot(travel, facing), 0.0);   // (a lit panel's light falls off sideways)
             int shadowView = int(li.params.y);
             if (l > 0.0 && shadowView >= 0) {   // (what's in its way: beams cut off behind a car, a lamp's cone by a wall)
                 if (li.color.w <= 0.5) {   // a point light's cube: the face towards p
-                    vec3 m = abs(d);
-                    shadowView += m.x >= m.y && m.x >= m.z ? (d.x > 0.0 ? 0 : 1) : m.y >= m.z ? (d.y > 0.0 ? 2 : 3) : (d.z > 0.0 ? 4 : 5);
+                    vec3 m = abs(fromMiddle);   // (from its middle: a tube's shadows too)
+                    shadowView += m.x >= m.y && m.x >= m.z ? (fromMiddle.x > 0.0 ? 0 : 1) : m.y >= m.z ? (fromMiddle.y > 0.0 ? 2 : 3)
+                                                                                                : (fromMiddle.z > 0.0 ? 4 : 5);
                 }
                 l *= lightShadow(shadowView, p);
             }

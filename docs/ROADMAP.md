@@ -2303,7 +2303,7 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
 | 137 (done) | Rectangle lights (a Light shape: width and height, facing its -z), lit by representative points as the tubes are (the rectangle's point nearest the reflected ray; the diffuse from its nearest point and its facing), one-sided | Shop windows and light boxes light the street as bulbs or tubes |
 | 138 (done) | The sharpening folded into the temporal pass's output (it writes the sharpened picture and keeps the history unsharpened in a second target), one full-screen pass fewer; measured | The sharpening is a whole pass of its own after the temporal one |
 | 139 (done) | Screen-space GI's bounce denoised: an edge-aware blur (depth and normal weighted) of the half-size traced light before scene.frag brings it up | The longer bounce rays (task 133) left grain where they meet things sporadically |
-| 140 | Shaped lights in the fog and the shafts: tubes' and rectangles' nearest points for the volumetric fog's in-scattering and the light shafts' halos | A neon tube glows in the fog as a ball of light |
+| 140 (done) | Shaped lights in the fog and the shafts: tubes' and rectangles' nearest points for the volumetric fog's in-scattering and the light shafts' halos | A neon tube glows in the fog as a ball of light |
 | 141 | Contact shadows from the four nearest shadowed lamps, not only the nearest (their directions traced at half size together) | Only one lamp's shadows meet the ground; the others float a little |
 | 142 | Volumetric clouds: a ray-marched layer (the same noise, given height and density), lit by the sun through itself (a phase function, a shadow ray) and the sky, drawn at quarter size with temporal reprojection; the flat layer kept for low quality | The clouds are a flat texture across the sky: no depth, no light through their edges |
 | 143 | Normal maps' mips filtered in linear space (not through the sRGB view), keeping their normals' length for specular anti-aliasing; terrain layers' normal maps in it too | The mips of normal maps are averaged as colours; terrain glints unchecked |
@@ -2349,3 +2349,12 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
   kept (11.2 against 11.3); the half-size traces 58.7 ms against 39.9 (nine taps of three images per half-size
   pixel); MSAA, Night Drive, the editor, the demo, under CI's validation layer. Not done: the reflections' half
   denoised alike (they're blurred by roughness already), fewer taps by a separable pass.
+- **140, shaped lights in the air**: fog_inject.comp takes a tube's or a rectangle's nearest point to each cell
+  (scene.frag's way: area_light's sums, tested there), a rectangle lighting only cells in front, by its cosine; the
+  true range (shape.z); the point light's shadow face from its middle. shafts.glsl splits a tube's halo into three
+  along it (a rectangle's along its width), each a third of the light (a rectangle's a sixth: one side), with the
+  true range. Checked: a 3 m cyan tube and the shop window in volumetric fog (the tube's glow a long cloud, the
+  window's in front of it alone) and with light shafts at 2 (the tube's halo along it; the wall behind the tube
+  lit teal by it, as it should), Night Drive (the neon's glow in its fog a band along each sign), the editor, the
+  demo, under CI's validation layer. Not done: lit particles by the shapes, a halo integrated along the tube
+  exactly.
