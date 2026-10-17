@@ -387,15 +387,18 @@ struct Surface {
     vec3 scatterColor;
 };
 
-// Light reflected towards V from a light of `radiance` along L. Intensities mean "how bright a white matte surface
-// facing the light looks", hence the PI. Its specular part (the highlights, the coat's) is left in shadeSpecular.
+// Light reflected towards V from a light of `radiance`: its diffuse part from along L, its highlights from along Ls
+// (a light with a shape: the point of it nearest the reflected ray, render/area_light.h), scaled by `highlight` (so
+// a broader light's highlight spreads its energy rather than adding to it). Intensities mean "how bright a white
+// matte surface facing the light looks", hence the PI. Its specular part (the highlights, the coat's) is left in
+// shadeSpecular.
 vec3 shadeSpecular = vec3(0.0);
-vec3 shade(Surface s, vec3 L, vec3 radiance) {
-    float ndl = dot(s.N, L), NdotL = max(ndl, 0.0);
-    float coatNdotL = s.coat > 0.0 ? max(dot(s.coatN, L), 0.0) : 0.0;
+vec3 shadeArea(Surface s, vec3 L, vec3 Ls, vec3 radiance, float highlight) {
+    float ndl = dot(s.N, L), NdotL = max(ndl, 0.0), sNdotL = max(dot(s.N, Ls), 0.0);
+    float coatNdotL = s.coat > 0.0 ? max(dot(s.coatN, Ls), 0.0) : 0.0;
     shadeSpecular = vec3(0.0);
-    if (NdotL <= 0.0 && coatNdotL <= 0.0 && s.translucency <= 0.0 && s.subsurface <= 0.0) return vec3(0.0);
-    vec3 V = s.V, H = normalize(L + V);
+    if (NdotL <= 0.0 && sNdotL <= 0.0 && coatNdotL <= 0.0 && s.translucency <= 0.0 && s.subsurface <= 0.0) return vec3(0.0);
+    vec3 V = s.V, H = normalize(Ls + V);
     float NdotV = max(dot(s.N, V), 1e-4), NdotH = max(dot(s.N, H), 0.0), VdotH = clamp(dot(V, H), 0.0, 1.0);   // (pow of a negative is NaN)
     float a = max(s.rough * s.rough, 0.002);
     vec3 F = fresnelSchlick(VdotH, s.f0);
@@ -405,13 +408,13 @@ vec3 shade(Surface s, vec3 L, vec3 radiance) {
         vec3 d = vec3(ab * dot(s.T, H), at * dot(s.B, H), at * ab * NdotH);
         float w2 = at * ab / max(dot(d, d), 1e-12);
         float D = at * ab * w2 * w2 / PI;
-        float lv = NdotL * length(vec3(at * dot(s.T, V), ab * dot(s.B, V), NdotV));
-        float ll = NdotV * length(vec3(at * dot(s.T, L), ab * dot(s.B, L), NdotL));
+        float lv = sNdotL * length(vec3(at * dot(s.T, V), ab * dot(s.B, V), NdotV));
+        float ll = NdotV * length(vec3(at * dot(s.T, Ls), ab * dot(s.B, Ls), sNdotL));
         dv = D * 0.5 / max(lv + ll, 1e-5);
     } else {
-        dv = distributionGGX(NdotH, a) * visibilitySmith(NdotV, NdotL, a);
+        dv = distributionGGX(NdotH, a) * visibilitySmith(NdotV, sNdotL, a);
     }
-    vec3 spec = dv * F * s.energy;
+    vec3 spec = dv * F * s.energy * highlight;
     vec3 diffuse = (1.0 - F) * (1.0 - s.metallic) * s.base / PI;
     vec3 lit = vec3(NdotL);
     if (s.subsurface > 0.0) {   // wrapped diffuse: the light reaches past the terminator, reddened (skin's) there
@@ -419,7 +422,7 @@ vec3 shade(Surface s, vec3 L, vec3 radiance) {
         float wrapped = clamp((ndl + w) / (1.0 + w), 0.0, 1.0);
         lit = mix(lit, wrapped * mix(s.scatterColor, vec3(1.0), clamp(ndl * 2.0, 0.0, 1.0)), s.subsurface);
     }
-    vec3 specular = spec * NdotL;
+    vec3 specular = spec * sNdotL;
     vec3 result = diffuse * lit * (1.0 - 0.25 * s.translucency) + specular;
     if (s.translucency > 0.0) {   // thin: light from behind comes through (its colour), and looking towards the light
                                   // through it (grass, whose normals point up, against the sun) it glows
@@ -430,19 +433,44 @@ vec3 shade(Surface s, vec3 L, vec3 radiance) {
         const float invA = 4.0;   // (1 / 0.5 squared)
         float sin2h = max(1.0 - NdotH * NdotH, 0.0078125);
         float D = (2.0 + invA) * pow(sin2h, invA * 0.5) / (2.0 * PI);
-        float vis = 1.0 / max(4.0 * (NdotL + NdotV - NdotL * NdotV), 1e-4);
-        result = result * (1.0 - 0.25 * s.sheen) + s.sheenColor * (D * vis * NdotL);
+        float vis = 1.0 / max(4.0 * (sNdotL + NdotV - sNdotL * NdotV), 1e-4);
+        result = result * (1.0 - 0.25 * s.sheen) + s.sheenColor * (D * vis * sNdotL);
         specular *= 1.0 - 0.25 * s.sheen;
     }
     if (s.coat > 0.0) {   // a clear coat: its own sharp GGX lobe (f0 0.04, Kelemen's visibility), dimming what's under it
         float ca = max(s.coatRough * s.coatRough, 0.002);
         float Fc = (0.04 + 0.96 * pow(1.0 - VdotH, 5.0)) * s.coat;
-        float lobe = distributionGGX(max(dot(s.coatN, H), 0.0), ca) * 0.25 / max(VdotH * VdotH, 1e-4);
+        float lobe = distributionGGX(max(dot(s.coatN, H), 0.0), ca) * 0.25 / max(VdotH * VdotH, 1e-4) * highlight;
         result = result * (1.0 - Fc) + vec3(lobe * Fc * coatNdotL);
         specular = specular * (1.0 - Fc) + vec3(lobe * Fc * coatNdotL);
     }
     shadeSpecular = specular * radiance * PI;
     return result * radiance * PI;
+}
+vec3 shade(Surface s, vec3 L, vec3 radiance) { return shadeArea(s, L, L, radiance, 1.0); }
+
+// Lights with a shape (render/area_light.cpp's, the same sums): the point of a segment nearest p; of the segment
+// l0..l1 nearest the ray along r; of a sphere round c nearest it; the highlight's scale
+vec3 nearestOnSegment(vec3 a, vec3 b, vec3 p) {
+    vec3 d = b - a;
+    float dd = dot(d, d);
+    return a + d * (dd > 1e-12 ? clamp(dot(p - a, d) / dd, 0.0, 1.0) : 0.0);
+}
+vec3 segmentNearestRay(vec3 l0, vec3 l1, vec3 r) {
+    vec3 ld = l1 - l0;
+    float rld = dot(r, ld), denom = dot(ld, ld) - rld * rld;
+    return l0 + ld * (denom > 1e-8 ? clamp((dot(r, l0) * rld - dot(l0, ld)) / denom, 0.0, 1.0) : 0.5);
+}
+vec3 sphereNearestRay(vec3 c, vec3 r, float radius) {
+    vec3 toRay = r * dot(c, r) - c;
+    float len = length(toRay);
+    return len > 1e-6 ? c + toRay * min(radius / len, 1.0) : c;
+}
+float highlightScale(float alpha, float radius, float len, float dist) {
+    alpha = max(alpha, 1e-4);
+    dist = max(dist, 1e-4);
+    float sphere = alpha / min(alpha + radius / (2.0 * dist), 1.0), tube = alpha / min(alpha + len / (2.0 * dist), 1.0);
+    return sphere * sphere * tube;
 }
 
 // Split-sum environment BRDF, analytic fit (Karis, "Physically Based Shading on Mobile"): the specular's scale and
@@ -1053,7 +1081,10 @@ void main() {
         uint index = clustered ? clusters[first + k] : k;
         Light li = lights[index];
         vec3 d = li.posRange.xyz - vWorldPos;
-        float dist = length(d), range = li.posRange.w;
+        bool tube = li.color.w < 0.5 && li.shape.y > 0.0;   // (a tube along dir: lit from its nearest point)
+        vec3 tubeEnd = li.dir.xyz * (0.5 * li.shape.y);
+        if (tube) d = nearestOnSegment(li.posRange.xyz - tubeEnd, li.posRange.xyz + tubeEnd, vWorldPos) - vWorldPos;
+        float dist = length(d), range = li.shape.z > 0.0 ? li.shape.z : li.posRange.w;
         if (dist >= range) continue;
         vec3 Lp = d / max(dist, 1e-4);
         vec3 lightSide = dot(N, Lp) < 0.0 && s.translucency > 0.0 ? -N : N;   // (the shadow on the side it's lit from)
@@ -1075,7 +1106,7 @@ void main() {
             }
             if (shadowView >= 0) light *= lampShadow(shadowView, vWorldPos + lightSide * 0.04, 0.00015, li.posRange.xyz, li.shape.x);
         } else if (shadowView >= 0) {   // a point light's cube: the face towards this point (+x -x +y -y +z -z)
-            vec3 a = -d, m = abs(a);
+            vec3 a = vWorldPos - li.posRange.xyz, m = abs(a);   // (from its middle: a tube's shadows too)
             int face = m.x >= m.y && m.x >= m.z ? (a.x > 0.0 ? 0 : 1) : m.y >= m.z ? (a.y > 0.0 ? 2 : 3) : (a.z > 0.0 ? 4 : 5);
             light *= lampShadow(shadowView + face, vWorldPos + lightSide * (0.02 + 0.01 * dist), 0.0002, li.posRange.xyz, li.shape.x);
             shadowView += face;   // (its tint: that face's)
@@ -1084,7 +1115,18 @@ void main() {
         if (halfTraced && frame.trace.w > 0.5 && float(index) == frame.contactLight.w) light *= tracedLampContact;
         vec3 lampLight = li.color.rgb * light;
         if (kTint && shadowView >= 0 && lampsTinted()) lampLight *= lampTint(shadowView, vWorldPos + lightSide * 0.04);
-        color += shade(s, Lp, lampLight);
+        // (its highlight from its shape: the tube's point nearest the reflected ray, then its bulb's; the point's
+        // highlight scaled to keep the light's energy)
+        vec3 Ls = Lp;
+        float highlight = 1.0;
+        if (tube || li.shape.x > 0.0) {
+            vec3 R = reflect(-s.V, s.N), toLight = li.posRange.xyz - vWorldPos;
+            vec3 c = tube ? segmentNearestRay(toLight - tubeEnd, toLight + tubeEnd, R) : toLight;
+            vec3 p = sphereNearestRay(c, R, li.shape.x);
+            Ls = normalize(p);
+            highlight = highlightScale(max(s.rough * s.rough, 0.002), li.shape.x, tube ? li.shape.y : 0.0, length(c));
+        }
+        color += shadeArea(s, Lp, Ls, lampLight, highlight);
         specular += shadeSpecular;
     }
 

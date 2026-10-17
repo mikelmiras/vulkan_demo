@@ -78,7 +78,10 @@ struct Light {
     float spotAngle = 30.f;           // spot lights: half-angle of the cone, degrees (along the entity's -Z)
     float spotSoftness = 0.2f;        // spot lights: how much of the cone's edge fades out (0..1)
     float size = 0.05f;               // point and spot lights: the bulb's radius (m): their shadows sharp where
-                                      // things touch, softer the further from what casts them (0: sharp throughout)
+                                      // things touch, softer the further from what casts them (0: sharp throughout);
+                                      // and its highlights that much broader
+    float length = 0.f;               // point lights: a tube this long (m) along the entity's x axis (a neon or
+                                      // fluorescent tube: a streak of highlight); 0: a bulb
     bool castShadows = true;          // the sun (the first directional light), spot and point lights (the
                                       // most important get the biggest tiles of the shadow atlas)
     std::string cookie;               // spot lights: an image projected through the cone (its brightness)

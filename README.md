@@ -480,7 +480,10 @@ dropping on the right.
   allow), and cascades blend into each other over the last fifth of each, so where one takes over doesn't show.
   Lamps' are PCSS too, by each light's *Size* (Inspector > Light: its bulb's radius, 0.05 m by default; 0 for the
   old fixed edge): a lamp post's shadow sharp at its foot and spreading away from it, a big soft lamp's blurring
-  fast. (Their blocker search costs a few percent of the lit pass where they shine; low quality keeps the fixed edge.)
+  fast. The size broadens the lamp's highlights too, and a point light can be a **tube** (*Tube length*, along its
+  x axis: neon, fluorescent): lit from its nearest point, its highlight a streak as long as the tube on wet and
+  glossy surfaces (Karis's representative points, the highlight's energy kept). A tube's shadows come from its
+  middle; the fog, the light shafts and lit particles see it as a bulb. (Their blocker search costs a few percent of the lit pass where they shine; low quality keeps the fixed edge.)
   **Cached**: a shadow map is only drawn again when what it holds changes (its camera, its place in the atlas, or any
   caster in it moving, animating or changing): a still street lamp's shadows cost nothing frame after frame, and the
   sun's two far cascades catch up with a moving camera every second and fourth frame (`VKWORLD_SHADOW_CACHE=0`:

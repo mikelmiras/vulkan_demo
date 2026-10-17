@@ -1165,6 +1165,11 @@ void Editor::drawComponents(Entity& e) {
                 tooltip("The bulb's radius: its shadows stay sharp where things touch and soften away from them (0: sharp)");
                 track();
             }
+            if (l.type == Light::Type::Point) {
+                ImGui::DragFloat("Tube length", &l.length, 0.05f, 0.f, 50.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                tooltip("A tube this long along the light's x axis (neon, fluorescent): a streak of highlight (0: a bulb)");
+                track();
+            }
             if (l.type == Light::Type::Spot) {
                 ImGui::SliderFloat("Cone angle", &l.spotAngle, 1.f, 89.f, "%.0f deg");
                 track();

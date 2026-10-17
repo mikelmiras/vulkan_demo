@@ -313,12 +313,13 @@ TEST(spot_lights_and_sky_saved) {
     CHECK_VEC(loaded.render.ground, test::v3(0.3f, 0.2f, 0.1f), 1e-6f);
 }
 
-// A lamp's size (its bulb's radius: soft shadows), kept by a save; older scenes get the default
+// A lamp's size (its bulb's radius: soft shadows) and a tube's length, kept by a save; older scenes get the defaults
 TEST(light_sizes_saved) {
     MeshLibrary meshes = buildMeshLibrary();
     Scene s;
     Light point, spot;
     point.size = 0.3f;
+    point.length = 2.5f;   // (a tube)
     spot.type = Light::Type::Spot;
     spot.size = 0.f;
     s.create("Bulb").light = point;
@@ -329,6 +330,8 @@ TEST(light_sizes_saved) {
     Scene loaded;
     REQUIRE(loadScene(path, loaded, meshes, textures(), error));
     CHECK_NEAR(loaded.findByName("Bulb")->light->size, 0.3, 1e-6);
+    CHECK_NEAR(loaded.findByName("Bulb")->light->length, 2.5, 1e-6);
+    CHECK_NEAR(loaded.findByName("Spot")->light->length, 0.0, 1e-6);   // (bulbs and spots: none)
     CHECK_NEAR(loaded.findByName("Spot")->light->size, 0.0, 1e-6);
     CHECK_NEAR(Light{}.size, 0.05, 1e-6);   // (old scenes: a small bulb)
     Scene after = loaded;   // (undo sees the edit)

@@ -2184,7 +2184,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 
 | # | Task | Why |
 |---|------|-----|
-| 129 | Area lights: rectangles and tubes (a Light shape and its size), lit with linearly transformed cosines (LTC: the diffuse and the GGX highlight of a polygon), their shadows from the point at their middle | A neon tube or a shop window lights the street as a point: a pinpoint highlight where a long streak should be |
+| 129 (done) | Area lights: rectangles and tubes (a Light shape and its size), lit with linearly transformed cosines (LTC: the diffuse and the GGX highlight of a polygon), their shadows from the point at their middle | A neon tube or a shop window lights the street as a point: a pinpoint highlight where a long streak should be |
 | 130 | Specular anti-aliasing: each pixel's roughness widened by its normals' variance (the normal map's mips, Toksvig; the geometry's, from the screen-space derivatives) | Glossy, normal-mapped and wet surfaces sparkle and crawl under motion; temporal AA only partly hides it |
 | 131 | Reflections, rough and far: more levels in the near pyramid (16 and 32 px tiles), and rough surfaces' reflections as a cone over a blurred chain of the captured picture rather than jittered rays | Rough reflections are noisy and smeared by the temporal pass; long rays still take many steps |
 | 132 | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
@@ -2194,3 +2194,18 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 | 136 | Bloom and lens: a wider, physically shaped glare (more levels, energy-preserving), and lens flare ghosts and halo from the brightest spots, as a scene setting | Bloom stops short round bright lights; night scenes want the street lamps to glow into the haze |
 
 ### Round 13 notes
+- **129, lights with a shape**: not LTC in the end: its tables (Heitz's fitted 64 x 64 matrices) would have to be
+  fitted here or brought in, and the lights wanted (tubes, broad bulbs) are what Karis's representative points do
+  well without tables. Light::length (point lights: a tube along the entity's x axis, scaled with it; format 61,
+  module API 70, eq, inspector *Tube length*) goes through LightInfo (length, axis) to GpuLight: dir = the axis,
+  shape.y = the length, shape.z = the true range, posRange.w (and the CPU clusters' sphere) grown by half the
+  length. scene.frag's lamp loop takes the distance, falloff and diffuse direction from the tube's nearest point,
+  and the highlight's from the point of the light nearest the reflected ray (segmentNearestRay, then
+  sphereNearestRay by the size), scaled by highlightScale ((alpha / alpha')^2 for the sphere, alpha / alpha'' for
+  the tube); shade() became shadeArea(L, Ls, radiance, highlight) (diffuse, translucency and wrap from L; GGX,
+  sheen and coat from Ls). render/area_light.{h,cpp} hold the same sums, tested (nearest points on segment, ray,
+  sphere; the scale's limits). Every lamp's default 0.05 m size now broadens its highlight a little. Checked: a 4 m
+  neon tube and a 0.4 m bulb over a glossy floor against points (a streak the tube's length; a broader bulb),
+  temporal AA, CPU culling, the editor, Night Drive, the demo, under CI's validation layer. Not done: rectangles
+  (shop windows), LTC's exact diffuse for big lights, tubes in the fog and the shafts (bulbs there), a tube's own
+  shadows (from its middle).

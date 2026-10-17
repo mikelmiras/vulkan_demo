@@ -170,6 +170,11 @@ std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>
         l.spotAngle = e.light->spotAngle;
         l.spotSoftness = e.light->spotSoftness;
         l.size = e.light->size;
+        if (e.light->type == Light::Type::Point && e.light->length > 0.f) {   // (a tube: along x, scaled with it)
+            const Vec3 x = transformDir(m, {1, 0, 0});
+            l.length = e.light->length * length(x);
+            l.axis = normalize(x);
+        }
         l.position = {m.m[12], m.m[13], m.m[14]};
         l.direction = normalize(transformDir(m, {0, 0, -1}));
         l.color = e.light->color;

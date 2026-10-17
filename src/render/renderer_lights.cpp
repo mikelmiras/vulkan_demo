@@ -182,6 +182,12 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
         g.dir[0] = d.x; g.dir[1] = d.y; g.dir[2] = d.z;
         g.params[1] = i < shadowView.size() ? (float)shadowView[i] : -1.f;
         g.shape[0] = std::max(l.size, 0.f);
+        g.shape[2] = g.posRange[3];
+        if (!l.spot && l.length > 0.f) {   // a tube: along dir, its reach grown by half its length (the clusters' sphere)
+            g.dir[0] = l.axis.x; g.dir[1] = l.axis.y; g.dir[2] = l.axis.z;
+            g.shape[1] = l.length;
+            g.posRange[3] += l.length * 0.5f;
+        }
         g.params[2] = -1.f;
         if (l.spot) {
             float outer = std::clamp(l.spotAngle, 1.f, 89.f) * DEG2RAD;
@@ -223,7 +229,8 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
     clusterSetup_ = s;   // (the decals go into the same clusters)
     clusterSetupValid_ = true;
     std::vector<ClusterLight> bounds(count);
-    for (size_t i = 0; i < count; ++i) bounds[i] = {lights[i]->position, std::max(lights[i]->range, 0.01f)};
+    for (size_t i = 0; i < count; ++i)   // (a tube's reach: grown by half its length, as its GPU range)
+        bounds[i] = {lights[i]->position, std::max(lights[i]->range, 0.01f) + (lights[i]->spot ? 0.f : lights[i]->length * 0.5f)};
     std::vector<uint32_t> data;
     buildLightClusters(s, bounds, data, kMaxClusterIndices);
     std::memcpy(clusters_[frame_].mapped, data.data(), data.size() * sizeof(uint32_t));
