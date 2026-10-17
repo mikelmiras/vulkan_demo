@@ -155,7 +155,9 @@ vec3 skyReflection(vec3 r, float rough) {
 }
 
 // The sky in a direction: the sky image if there is one; else horizon (the fog colour) to zenith above, to ground
-// below, with the sun's disc and glow if asked
+// below, with the sun's disc and glow if asked; the physical sky's clouds as a flat layer unless skyFlatClouds is
+// cleared (sky.frag marches them instead: volumetricClouds)
+bool skyFlatClouds = true;
 vec3 skyColor(vec3 dir, bool withSun) {
     if (frame.envParams.x > 0.5) return textureLod(skyImage, equirect(skyImageDir(normalize(dir))), 0.0).rgb * frame.envParams.y;
     if (frame.atmosphere.x > 0.5) {   // the air's (below the horizon: towards the ground's colour)
@@ -168,7 +170,7 @@ vec3 skyColor(vec3 dir, bool withSun) {
             // (the light's disc: the sun's, or the moon's: pale, its own brightness)
             c += frame.atmosphere.z > 0.5 ? vec3(0.5, 0.52, 0.55) * disc * frame.envParams.y : frame.sunColor.rgb * disc * 8.0;
         }
-        if (frame.atmosphere.w > 0.0 && d.y > 0.0) {   // clouds: lit by the sun through the air, and by the sky
+        if (skyFlatClouds && frame.atmosphere.w > 0.0 && d.y > 0.0) {   // clouds: lit by the sun through the air, and by the sky
             float t = kCloudHeight / max(d.y, 0.03);
             float density = cloudDensity(frame.camPos.xz + d.xz * t);
             vec3 L = normalize(frame.skyToSun.xyz);

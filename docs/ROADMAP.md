@@ -2305,7 +2305,7 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
 | 139 (done) | Screen-space GI's bounce denoised: an edge-aware blur (depth and normal weighted) of the half-size traced light before scene.frag brings it up | The longer bounce rays (task 133) left grain where they meet things sporadically |
 | 140 (done) | Shaped lights in the fog and the shafts: tubes' and rectangles' nearest points for the volumetric fog's in-scattering and the light shafts' halos | A neon tube glows in the fog as a ball of light |
 | 141 (done) | Contact shadows from the four nearest shadowed lamps, not only the nearest (their directions traced at half size together) | Only one lamp's shadows meet the ground; the others float a little |
-| 142 | Volumetric clouds: a ray-marched layer (the same noise, given height and density), lit by the sun through itself (a phase function, a shadow ray) and the sky, drawn at quarter size with temporal reprojection; the flat layer kept for low quality | The clouds are a flat texture across the sky: no depth, no light through their edges |
+| 142 (done) | Volumetric clouds: a ray-marched layer (the same noise, given height and density), lit by the sun through itself (a phase function, a shadow ray) and the sky, drawn at quarter size with temporal reprojection; the flat layer kept for low quality | The clouds are a flat texture across the sky: no depth, no light through their edges |
 | 143 | Normal maps' mips filtered in linear space (not through the sRGB view), keeping their normals' length for specular anti-aliasing; terrain layers' normal maps in it too | The mips of normal maps are averaged as colours; terrain glints unchecked |
 | 144 | Night Drive's cars as painted metal: clear-coated paint with a metallic base, glass that reflects the street, the taxi's livery | The cars are flat-coloured boxes beside the reflective street |
 
@@ -2370,3 +2370,19 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
   the way within reach; in these scenes the shadow maps already catch most of it, so the visible difference is
   small (contact shadows reach 15 cm to 1 m); Night Drive, the editor, the demo, under CI's validation layer.
   Not done: more than four, a longer reach for lamps near the camera.
+- **142, volumetric clouds**: in sky.frag, not a quarter-size pass with reprojection as planned (the sky pass draws
+  only sky pixels and the temporal pass integrates the march's per-pixel jitter); at medium and high quality
+  (shadowParams.z), the physical sky and some cover: common.glsl's skyColor skips its flat layer there
+  (skyFlatClouds) and volumetricClouds marches a slab 1500 to 1900 m up, 16 steps at high, 10 at medium, over at
+  most 4 km of the ray (faded out over its second half, so the cut doesn't show). The density is cloud_shape's
+  (tested: flat bases, a dome as tall as cloudDensity's cover is dense) less a 3-D value noise at 350 m; the light
+  at each sample is the sun's through the cover above it (two taps towards the sun, Beer's law), a two-lobed
+  Henyey-Greenstein phase (0.6 forward, -0.2 back, 30 %), half a powder term, and the sky's colours by height.
+  The shape took several tries, each looked at: 1 km steps over 12 km smeared vertical streaks; a profile thinning
+  the bases hung stalactites; density rising linearly with height made tents; height by the square root of the
+  cover's excess makes domes, and a 400 m slab keeps them cumulus rather than spires. Checked: noon (puffy cumulus
+  with lit tops and darker bases against the flat streaks) and dusk, the old sky shader compiled into the same
+  build; MSAA, low quality (the flat layer), Night Drive, the editor, the demo, under CI's validation layer. Its
+  cost: about 75 ms of lavapipe's 450 on a half-sky view (the coverage noise at every step); cheap on a GPU. Not
+  done: the quarter-size pass, clouds in reflections and probes, their shadows from the volume (still the flat
+  coverage), a second, high layer.
