@@ -2003,7 +2003,7 @@ traffic lights.
   lights within 4%), the stress scene 2744 (2788). Not done: cars yielding to each other when turning (the lights
   keep the ways apart), pedestrians and crossings' signals.
 
-## Round 12 (planned)
+## Round 12 (done)
 
 Visuals and performance (the standing request), from round 11's notes: frame-level features out of the lit
 shader when unused, longer and sharper reflections, coloured and softer lamp shadows, skin's light done properly,
@@ -2176,3 +2176,21 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   AA, AA off, render scale 0.7, the editor, the demo, under CI's validation layer. Not done: the near field's own
   half-size gather, motion blur within an object's shutter by its acceleration (straight lines only).
 
+## Round 13 (planned)
+
+Visuals and performance (the standing request), from round 12's notes: light from shapes, not points (shop signs,
+neon tubes), less shimmer on glossy and wet surfaces, rough and longer reflections, the temporal pass and the lamps'
+soft shadows back down in cost, longer screen-space bounces, and Night Drive's neon lighting the wet street.
+
+| # | Task | Why |
+|---|------|-----|
+| 129 | Area lights: rectangles and tubes (a Light shape and its size), lit with linearly transformed cosines (LTC: the diffuse and the GGX highlight of a polygon), their shadows from the point at their middle | A neon tube or a shop window lights the street as a point: a pinpoint highlight where a long streak should be |
+| 130 | Specular anti-aliasing: each pixel's roughness widened by its normals' variance (the normal map's mips, Toksvig; the geometry's, from the screen-space derivatives) | Glossy, normal-mapped and wet surfaces sparkle and crawl under motion; temporal AA only partly hides it |
+| 131 | Reflections, rough and far: more levels in the near pyramid (16 and 32 px tiles), and rough surfaces' reflections as a cone over a blurred chain of the captured picture rather than jittered rays | Rough reflections are noisy and smeared by the temporal pass; long rays still take many steps |
+| 132 | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
+| 133 | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
+| 134 | Lamps' soft shadows cheaper: the blocker search at half size per tile, or kept from last frame where nothing moved; the lit pass's cost measured on Night Drive | PCSS for lamps costs Night Drive's lit pass 7 % |
+| 135 | Night Drive's neon as area lights: its signs' tubes lighting the wet street in streaks, a few flickering | The neon glows but lights the street like bare bulbs |
+| 136 | Bloom and lens: a wider, physically shaped glare (more levels, energy-preserving), and lens flare ghosts and halo from the brightest spots, as a scene setting | Bloom stops short round bright lights; night scenes want the street lamps to glow into the haze |
+
+### Round 13 notes
