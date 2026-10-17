@@ -479,7 +479,7 @@ TEST(night_drive_example_loads) {
     REQUIRE(fs::is_regular_file(dir / "project.json"));
     fs::path previous = project::root();
     project::setRoot(dir);
-    CHECK(scripting::loadProject(dir) == 4);
+    CHECK(scripting::loadProject(dir) == 5);
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary texs = buildTextureLibrary();
     Scene scene;
@@ -501,16 +501,17 @@ TEST(night_drive_example_loads) {
     project::setRoot(previous);
 }
 
-// Night Drive's traffic: every car drives (tens of metres in half a minute, waiting at red lights too), always on a
+// Night Drive's traffic: every car drives (tens of metres in forty seconds, waiting at red lights too), always on a
 // street (within a street's width of one's middle, one way or the other), never driving into a crossroads on red
-// (TrafficLight.lua's cycle, worked out the same here), its scripts, the lights' and the spray's without errors
+// (TrafficLight.lua's cycle, worked out the same here); its pedestrians walk, onto the road only over a zebra in its
+// crossroads' walk phase (some do cross), and no car runs into one; the scripts without errors
 TEST(night_drive_traffic) {
     namespace fs = std::filesystem;
     test::ImGuiContextGuard imgui;
     fs::path dir = fs::u8path(VKWORLD_SAMPLE_GAME).parent_path() / "night_drive";
     fs::path previous = project::root();
     project::setRoot(dir);
-    REQUIRE(scripting::loadProject(dir) == 4);
+    REQUIRE(scripting::loadProject(dir) == 5);
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary texs = buildTextureLibrary();
     Scene scene;
@@ -520,6 +521,10 @@ TEST(night_drive_traffic) {
     for (const Entity& e : scene.entities)
         if (e.name == "Traffic car") cars.push_back(e.id);
     REQUIRE(cars.size() >= 4);
+    std::vector<EntityId> walkers;
+    for (const Entity& e : scene.entities)
+        if (e.name == "Pedestrian") walkers.push_back(e.id);
+    REQUIRE(walkers.size() >= 9);
     // The grid (tools/make_city.py): streets 16 m wide every 60 m, the first's middle at -90
     const float first = -90.f, pitch = 60.f, half = 8.f;
     auto onStreet = [&](float c) {
@@ -532,10 +537,11 @@ TEST(night_drive_traffic) {
     std::vector<float> driven(cars.size(), 0.f);
     // (TrafficLight.lua's: 0 green, 1 amber, 2 red for the way along `alongX` through crossroads i, j at time t)
     auto signal = [](float t, int i, int j, bool alongX) {
-        float c = std::fmod(t + (float)(i + j) * 2.5f, 20.f);
-        if (!alongX) return c < 7.f ? 0 : c < 9.f ? 1 : 2;
-        return c >= 10.f && c < 17.f ? 0 : c >= 17.f && c < 19.f ? 1 : 2;
+        float c = std::fmod(t + (float)(i + j) * 2.5f, 36.f);
+        if (!alongX) return c < 7.f ? 0 : c < 10.f ? 1 : 2;
+        return c >= 11.f && c < 18.f ? 0 : c >= 18.f && c < 21.f ? 1 : 2;
     };
+    auto walkPhase = [](float t, int i, int j) { return std::fmod(t + (float)(i + j) * 2.5f, 36.f) >= 22.f; };
     auto crossroads = [&](Vec3 p, int& i, int& j) {   // (inside one: its indices)
         i = (int)std::round((p.x - first) / pitch);
         j = (int)std::round((p.z - first) / pitch);
@@ -544,8 +550,13 @@ TEST(night_drive_traffic) {
     };
     Game g;
     g.start(scene, meshes);
-    bool offStreet = false, ranRed = false;
-    for (int step = 0; step < 1800; ++step) {   // (half a minute)
+    bool offStreet = false, ranRed = false, jaywalked = false, runOver = false;
+    std::vector<Vec3> walkerLast;
+    for (EntityId id : walkers) walkerLast.push_back(scene.find(id)->transform.pos());
+    std::vector<float> walked(walkers.size(), 0.f);
+    int crossingSteps = 0;
+    const float zebra = half + 44.f / 6.f;   // (a crossing's middle, from its crossroads' middle)
+    for (int step = 0; step < 2400; ++step) {   // (forty seconds: every crossroads' walk phase at least once)
         ImGui::NewFrame();
         g.step();
         ImGui::EndFrame();
@@ -560,7 +571,29 @@ TEST(night_drive_traffic) {
             last[c] = p;
             if (!onStreet(p.x) && !onStreet(p.z)) offStreet = true;
         }
+        for (size_t w = 0; w < walkers.size(); ++w) {
+            Vec3 p = scene.find(walkers[w])->transform.pos();
+            walked[w] += length(p - walkerLast[w]);
+            walkerLast[w] = p;
+            // (on the road: within a street's half width of a street's middle, either way, off the sidewalks)
+            float ix = std::round((p.x - first) / pitch), iz = std::round((p.z - first) / pitch);
+            float dx = std::fabs(p.x - (first + ix * pitch)), dz = std::fabs(p.z - (first + iz * pitch));
+            if (dx < half - 0.3f || dz < half - 0.3f) {
+                ++crossingSteps;
+                // (over a zebra: a sixth of a block from the crossroads along the street, in its walk phase)
+                const bool overZ = dx < half ? std::fabs(dz - zebra) < 1.9f : std::fabs(dx - zebra) < 1.9f;
+                if (!overZ || !walkPhase(g.time(), (int)ix, (int)iz)) jaywalked = true;
+            }
+            for (EntityId id : cars) {
+                Vec3 c = scene.find(id)->transform.pos();
+                if (std::fabs(c.x - p.x) < 1.4f && std::fabs(c.z - p.z) < 1.4f) runOver = true;
+            }
+        }
     }
+    for (float d : walked) CHECK(d > 15.f);
+    CHECK(crossingSteps > 0);
+    CHECK(!jaywalked);
+    CHECK(!runOver);
     for (float d : driven) CHECK(d > 30.f);
     CHECK(!offStreet);
     CHECK(!ranRed);

@@ -1,6 +1,7 @@
 -- A car in the traffic: drives the street grid in the right-hand lane, choosing at each crossroads to go on or turn
 -- (never out of the city), slowing to a stop behind whatever's ahead (another car, the taxi) and pulling away again,
--- and stopping at the line on red (and on amber, unless too close to stop: TrafficLight.lua's cycle).
+-- and stopping at the line on red (and on amber, unless too close to stop: TrafficLight.lua's cycle; the line before
+-- the zebra crossing, which pedestrians walk while every way is red).
 -- Its collider moves with it (the physics makes it kinematic: the taxi bumps into it, it isn't pushed).
 local TrafficCar = {
     description = "Drives the street grid, turning at crossroads, stopping behind what's ahead",
@@ -17,11 +18,11 @@ local TrafficCar = {
 
 -- The crossroads' signal for a way through it (TrafficLight.lua's, the same sums): 0 green, 1 amber, 2 red
 local function signalState(t, i, j, axis)
-    local c = (t + (i + j) * 2.5) % 20
+    local c = (t + (i + j) * 2.5) % 36
     if axis == "z" then
-        if c < 7 then return 0 elseif c < 9 then return 1 end
+        if c < 7 then return 0 elseif c < 10 then return 1 end
     else
-        if c >= 10 and c < 17 then return 0 elseif c >= 17 and c < 19 then return 1 end
+        if c >= 11 and c < 18 then return 0 elseif c >= 18 and c < 21 then return 1 end
     end
     return 2
 end
@@ -102,11 +103,17 @@ function TrafficCar:update(dt)
         local pos0 = e.position
         local along0 = d.x ~= 0 and pos0.x or pos0.z
         local sign0 = d.x ~= 0 and d.x or d.z
-        local toLine = (sig.cross - sign0 * (self.street / 2 + 2.6) - along0) * sign0   -- (the front bumper to the line)
+        -- (the front bumper to the line: before the zebra, a sixth of a block on from the crossroads, 3.7 m wide)
+        local zebra = (self.pitch - self.street) / 6
+        local toLine = (sig.cross - sign0 * (self.street / 2 + zebra + 1.85 + 1.0 + 2.6) - along0) * sign0
         local state = signalState(game.time(), sig.i, sig.j, sig.axis)
-        if toLine > -0.5 and toLine < 30 and (state == 2 or (state == 1 and toLine > 6)) then
-            want = math.min(want, math.max(toLine, 0) * 0.8)
-        end
+        -- (once it's decided to stop it stops, a little over the line if need be, until green)
+        if state == 0 then self.stopping = false
+        elseif toLine > -0.5 and toLine < 30 and (state == 2 or toLine > 3) then self.stopping = true end
+        if self.stopping then want = math.min(want, math.max(toLine, 0) * 0.8) end
+        -- (past the line already on red, say starting out there: at the crossroads' edge at least)
+        local toEdge = (sig.cross - sign0 * (self.street / 2 + 2.6) - along0) * sign0
+        if state == 2 and toLine <= -0.5 and toEdge > -0.5 then want = math.min(want, math.max(toEdge, 0) * 0.8) end
     end
     local rate = want < self.v and 12 or 3.5   -- (brakes harder than it pulls away)
     self.v = self.v + math.max(-rate * dt, math.min(rate * dt, want - self.v))
@@ -123,6 +130,7 @@ function TrafficCar:update(dt)
         pos.x = pos.x + self.dir.x * left
         pos.z = pos.z + self.dir.z * left
         e.position = pos
+        self.stopping = false   -- (a new crossroads ahead)
         self:plan()
     else
         pos.x = pos.x + d.x * step

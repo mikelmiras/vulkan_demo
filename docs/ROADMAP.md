@@ -2019,7 +2019,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | 124 (done) | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
 | 125 (done) | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
 | 126 (done) | Soft shadows from lamps: a blocker search for spot and point lights (PCSS, by the light's size), so a lamp's shadows sharpen at contact and soften away from it | Lamp shadows have one fixed softness |
-| 127 | Night Drive's sidewalks: pedestrians walking them (navigation mesh), crossing at the zebra crossings on walk signals, the traffic waiting for them | The streets have cars but no one walking |
+| 127 (done) | Night Drive's sidewalks: pedestrians walking them (navigation mesh), crossing at the zebra crossings on walk signals, the traffic waiting for them | The streets have cars but no one walking |
 | 128 | Depth of field's near field weighed by coverage (no see-through edge) with tiles at quarter size, and motion blur by each object's own motion within a shutter | The near field's edge is a little transparent; the tiles' pass costs more than it needs |
 
 ### Round 12 notes
@@ -2141,4 +2141,21 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   split screen, the editor, Night Drive, the demo, under CI's validation layer. Night Drive's opaque pass 476 ms
   against 444 (its shadowed headlight over most of the view). Not done: the blocker search's own temporal reuse,
   contact hardening for the volumetric fog's beams, sizes for the sun per scene beyond Shadow softness.
+- **127, Night Drive's pedestrians**: no navigation mesh in the end: the sidewalks are rings, so Pedestrian.lua
+  walks its block's ring (a parameter round it, anticlockwise or not, 1.3 to 1.9 m in from the kerb) and knows the
+  ring's crossings (the road-crossing tiles' stripes are in their middles: a sixth of a block from each corner);
+  passing one, with a chance of 0.35 it waits at the kerb and crosses in the first second and a half of that
+  crossroads' walk phase (a little faster than it walks), then goes on round the block opposite, from the side
+  facing back. The light cycle (TrafficLight.lua, TrafficCar.lua, Pedestrian.lua, and the test, the same sums)
+  grew to 36 s: amber 3 s (the stop line is now before the zebra, 18 m further out than the crossroads' edge),
+  then a 14 s walk phase, all ways red (walk shown 22-32). TrafficCar's stop decision now sticks until green (it
+  may stop a little over the line rather than run on), and a car past the line on red (say, starting there) stops
+  at the crossroads' edge. TrafficLight has axis "walk" (lamps "Signal i,j walk<head> green/red"); make_city.py
+  puts a pole at both ends of each zebra (96) and 27 pedestrians (box colliders, so the cars' look-ahead stops for
+  them), from their own random stream after the rest, so the city's earlier entities keep their ids.
+  night_drive_traffic runs 40 s now and also checks every pedestrian walks, steps onto the road only over a zebra
+  in its walk phase (3000 pedestrian-frames on the road in the run), and no car comes within 1.4 m of one.
+  Checked: Night Drive under CI's validation layer (a pedestrian under an umbrella, the red hands), its GPU frame
+  1310 ms against 1300. Not done: pedestrians avoiding each other, the taxi giving way (it's yours), walking
+  animation beyond a bob, crossing diagonally at the crossroads.
 

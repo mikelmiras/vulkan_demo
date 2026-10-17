@@ -365,6 +365,63 @@ entity("Moon", (0, 60, 0), rot=(-58, 32, 0),
 entity("Camera", (start[0] + 20, 25, start[2] + 20), camera={"fov": 20, "near": 1.0, "far": 500},
        behaviours=[{"type": "ChaseCamera", "target": "Taxi", "distance": 115, "pitch": 66, "yaw": 45, "follow": 4, "lead": 0.5}])
 
+# ---- Walk signals: a pole at each end of every zebra crossing, its walking figure (white) or hand (red) shown by
+# scripts/TrafficLight.lua (axis "walk": every way red at the crossroads while the crossings are walked) ---------------
+walk_rng = random.Random(SEED + 3)   # (its own, and the pedestrians': the rest of the city stays as it was)
+ZEBRA = BLOCK / 6                    # a crossing's middle, from the block's corner (the road-crossing tile's middle)
+for i in range(BLOCKS + 1):
+    for j in range(BLOCKS + 1):
+        cx, cz = -HALF + STREET / 2 + i * PITCH, -HALF + STREET / 2 + j * PITCH
+        # (the four ways out of the crossroads that lead between blocks: a zebra on each, a pole at both its ends)
+        arms = [(1, 0, i < BLOCKS), (-1, 0, i > 0), (0, 1, j < BLOCKS), (0, -1, j > 0)]
+        for arm, (ax, az, inside) in enumerate(arms):
+            if not inside:
+                continue
+            along = STREET / 2 + ZEBRA + 2.4   # (beside the stripes, not in the way)
+            for end, side in enumerate((-1, 1)):
+                across = side * (STREET / 2 + 0.6)
+                px = cx + ax * along + (across if ax == 0 else 0)
+                pz = cz + az * along + (across if az == 0 else 0)
+                head = arm * 2 + end
+                entity("Walk pole", (px, 1.3, pz), scale=(0.1, 2.6, 0.1),
+                       meshRenderer=look("Cube", (0.06, 0.06, 0.065), roughness=0.5, metallic=0.6))
+                sig = entity("Walk signal", (px, 2.75, pz),
+                             behaviours=[{"type": "TrafficLight", "crossX": i, "crossZ": j, "axis": "walk", "head": head}])
+                entity("Housing", (0, 0, 0), scale=(0.3, 0.6, 0.3), parent=sig,
+                       meshRenderer=look("Cube", (0.02, 0.02, 0.022), roughness=0.4))
+                for name, colour, y in (("red", (1.0, 0.12, 0.04), 0.14), ("green", (0.85, 0.95, 1.0), -0.14)):
+                    entity("Signal %d,%d walk%d %s" % (i, j, head, name), (0, y, 0), scale=(0.34, 0.22, 0.34), parent=sig,
+                           meshRenderer=look("Cube", colour, emissive=colour, strength=5.0))
+
+# ---- Pedestrians: a few round each block's sidewalk, crossing at the zebras on the walk signal (scripts/
+# Pedestrian.lua), under umbrellas some of them; their colliders stop the traffic ------------------------------------
+COATS = [(0.25, 0.08, 0.06), (0.1, 0.12, 0.2), (0.3, 0.27, 0.2), (0.08, 0.08, 0.08), (0.4, 0.3, 0.1), (0.15, 0.2, 0.12)]
+UMBRELLAS = [(0.02, 0.02, 0.02), (0.5, 0.05, 0.05), (0.05, 0.1, 0.35), (0.6, 0.5, 0.05)]
+SKIN = [(0.85, 0.62, 0.5), (0.6, 0.42, 0.3), (0.38, 0.25, 0.18), (0.95, 0.75, 0.62)]
+n_walkers = 0
+for bx in range(BLOCKS):
+    for bz in range(BLOCKS):
+        for k in range(3):
+            n_walkers += 1
+            walker = entity("Pedestrian", (block_origin(bx) + 2, 0.15, block_origin(bz) + 2),
+                            collider={"shape": "box", "center": [0, 0.875, 0], "size": [0.5, 1.75, 0.5]},
+                            behaviours=[{"type": "Pedestrian", "blockX": bx, "blockZ": bz, "blocks": BLOCKS,
+                                         "first": -HALF + STREET / 2, "pitch": PITCH, "street": STREET,
+                                         "inset": round(walk_rng.uniform(1.3, 1.9), 2),
+                                         "speed": round(walk_rng.uniform(1.15, 1.45), 2),
+                                         "at": round(walk_rng.random(), 3), "clockwise": walk_rng.random() < 0.5,
+                                         "seed": n_walkers}])
+            coat = walk_rng.choice(COATS)
+            entity("Legs", (0, 0.43, 0), scale=(0.34, 0.86, 0.2), parent=walker,
+                   meshRenderer=look("Cube", (0.04, 0.04, 0.05), roughness=0.7))
+            entity("Coat", (0, 1.16, 0), scale=(0.44, 0.64, 0.26), parent=walker,
+                   meshRenderer=look("Cube", coat, roughness=0.6))
+            entity("Head", (0, 1.62, 0), scale=(0.23, 0.26, 0.23), parent=walker,
+                   meshRenderer=look("Sphere", walk_rng.choice(SKIN), roughness=0.55))
+            if walk_rng.random() < 0.6:
+                entity("Umbrella", (0, 2.05, 0), scale=(1.05, 0.14, 1.05), parent=walker,
+                       meshRenderer=look("Sphere", walk_rng.choice(UMBRELLAS), roughness=0.25))
+
 scene = {
     "format": "vkworld-scene",
     "version": 41,
@@ -396,4 +453,4 @@ here = os.path.dirname(os.path.abspath(__file__))
 out = os.path.join(here, "..", "scenes", "city.vkw")
 with open(out, "w") as f:
     json.dump(scene, f, indent=1)
-print("wrote %s: %d entities, %d street lamps" % (os.path.normpath(out), len(entities), lamp_count))
+print("wrote %s: %d entities, %d street lamps, %d pedestrians" % (os.path.normpath(out), len(entities), lamp_count, n_walkers))

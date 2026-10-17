@@ -23,8 +23,12 @@ road. Wet tyres throw spray behind them, the taxi's too: GPU particles whose rat
 (`scripts/SprayBySpeed.lua`). `TRAFFIC` and `LANE` in `tools/make_city.py` set how many and where. Every crossroads
 has traffic lights (`scripts/TrafficLight.lua`): two poles, one for each way through, cycling green, amber and red
 (each lamp's glow on the wet road), the crossroads' cycles offset from their neighbours'; the traffic stops at the
-line on red, and on amber unless it's too close to stop. The cycle is worked out from the clock the same way by
-the lights and the cars, so nothing is shared between them.
+line before the zebra on red, and on amber unless it's too close to stop. Each cycle (36 seconds) ends with a walk
+phase, every way held on red: pedestrians (`scripts/Pedestrian.lua`, three round each block, some under umbrellas)
+walk the sidewalks and now and then cross at a zebra to the next block, waiting at the kerb for the walk signal
+(poles at both ends of every crossing: a white figure, or the red hand). Their colliders stop the traffic too.
+The cycle is worked out from the clock the same way by the lights, the cars and the pedestrians, so nothing is
+shared between them.
 
 ## Models
 
