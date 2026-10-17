@@ -327,10 +327,19 @@ vec3 bend(vec3 N, vec3 T, vec3 B, vec3 n, float strength) {   // (n: a tangent-s
     n.y = -n.y;   // texture v runs down the image; the map's +Y points up it
     return normalize(T * n.x + B * n.y + N * n.z);
 }
+// The spread of the normals a normal map's filtered sample averages (render/specular_aa.cpp's, the same sums): its
+// mips' normals shorten the more their bumps vary (Toksvig); summed over the maps for specular anti-aliasing
+float normalMapVariance(float filteredLength, float strength) {
+    float len = clamp(filteredLength, 1e-3, 1.0);
+    return (1.0 - len) / len * strength * strength;
+}
+float mapVariance = 0.0;
 vec3 perturbNormal(vec3 N, float strength) {
     vec3 T, B;
     tangentFrame(N, T, B);
-    return bend(N, T, B, texture(normalMap, gUV).xyz * 2.0 - 1.0, strength);
+    vec3 n = texture(normalMap, gUV).xyz * 2.0 - 1.0;
+    mapVariance += normalMapVariance(length(n), strength);
+    return bend(N, T, B, n, strength);
 }
 
 // Parallax occlusion mapping: the view ray stepped down into the height map (white: the surface; black: `depth`
@@ -811,7 +820,9 @@ void main() {
     if (vSurface.z > 0.0 && !terrain && !water) {   // the detail map: finer bumps over the normal map's
         vec3 T, B;
         tangentFrame(surfaceN, T, B);
-        N = bend(N, T, B, texture(detailMap, gUV * vSurface.y).xyz * 2.0 - 1.0, vSurface.z);
+        vec3 n = texture(detailMap, gUV * vSurface.y).xyz * 2.0 - 1.0;
+        mapVariance += normalMapVariance(length(n), vSurface.z);
+        N = bend(N, T, B, n, vSurface.z);
     }
     vec3 waterRefracted = vec3(0.0);   // (water with refraction: what shows through, added after lighting)
     float waterFresnel = 1.0;
@@ -932,13 +943,14 @@ void main() {
             N = normalize(mix(N, flatN, puddle));
         }
     }
-    // Specular anti-aliasing (Tokuyoshi & Kaplanyan): where the normal changes within a pixel, the highlight is
-    // widened to match, so small shiny bumps and distant wet ground don't sparkle and crawl
+    // Specular anti-aliasing (render/specular_aa.cpp's widenedRoughness): where the normal changes from pixel to pixel
+    // (Tokuyoshi & Kaplanyan) or its maps' bumps are smaller than a pixel (Toksvig: their mips' shortened normals),
+    // the highlight is widened to match, so small shiny bumps and distant wet ground don't sparkle and crawl
     {
         vec3 du = dFdx(N), dv = dFdy(N);
         float variance = 0.25 * (dot(du, du) + dot(dv, dv));
         float a = rough * rough;
-        rough = sqrt(sqrt(clamp(a * a + min(2.0 * variance, 0.18), 0.0, 1.0)));
+        rough = sqrt(sqrt(clamp(a * a + min(2.0 * variance, 0.18) + min(mapVariance, 0.18), 0.0, 1.0)));
     }
     vec3 V = normalize(frame.camPos.xyz - vWorldPos);
     float NdotV = max(dot(N, V), 1e-4);

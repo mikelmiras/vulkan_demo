@@ -698,7 +698,9 @@ dropping on the right.
   colour, so an overcast day's shade is grey and even rather than blue, and the ground's light is dimmed by their
   shadows on average.
 - **Specular anti-aliasing**: where the normal changes within a pixel (small curved things, distant bumpy ground),
-  highlights are widened to match, so they don't sparkle and crawl.
+  highlights are widened to match, so they don't sparkle and crawl; and where a normal map's (or a detail map's)
+  bumps are smaller than a pixel, by how much they vary (Toksvig: their mip levels' shorter normals), so a glossy
+  brick or cobbled floor glows evenly in the distance instead of glinting along every edge.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
   (joint matrices in a storage buffer, up to 4 joints per vertex) in every pass, shadows and outline included.
 - **Batching and culling**: objects are drawn instanced, one draw call per mesh + material. Each object's data

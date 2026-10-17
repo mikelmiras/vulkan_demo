@@ -2185,7 +2185,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 | # | Task | Why |
 |---|------|-----|
 | 129 (done) | Area lights: rectangles and tubes (a Light shape and its size), lit with linearly transformed cosines (LTC: the diffuse and the GGX highlight of a polygon), their shadows from the point at their middle | A neon tube or a shop window lights the street as a point: a pinpoint highlight where a long streak should be |
-| 130 | Specular anti-aliasing: each pixel's roughness widened by its normals' variance (the normal map's mips, Toksvig; the geometry's, from the screen-space derivatives) | Glossy, normal-mapped and wet surfaces sparkle and crawl under motion; temporal AA only partly hides it |
+| 130 (done) | Specular anti-aliasing: each pixel's roughness widened by its normals' variance (the normal map's mips, Toksvig; the geometry's, from the screen-space derivatives) | Glossy, normal-mapped and wet surfaces sparkle and crawl under motion; temporal AA only partly hides it |
 | 131 | Reflections, rough and far: more levels in the near pyramid (16 and 32 px tiles), and rough surfaces' reflections as a cone over a blurred chain of the captured picture rather than jittered rays | Rough reflections are noisy and smeared by the temporal pass; long rays still take many steps |
 | 132 | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
 | 133 | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
@@ -2209,3 +2209,15 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   temporal AA, CPU culling, the editor, Night Drive, the demo, under CI's validation layer. Not done: rectangles
   (shop windows), LTC's exact diffuse for big lights, tubes in the fog and the shafts (bulbs there), a tube's own
   shadows (from its middle).
+- **130, specular anti-aliasing from the normal maps**: the geometric half (Tokuyoshi & Kaplanyan, from the
+  normal's screen-space derivatives) was already in scene.frag; the maps' half wasn't: their bumps under a pixel
+  are averaged by the mips into a shorter normal, which the derivatives can't see. perturbNormal and the detail map
+  now add normalMapVariance ((1 - |n|) / |n| times the strength squared, Toksvig) to mapVariance, and the
+  roughness widening takes min(2 var_screen, 0.18) + min(mapVariance, 0.18) on alpha squared
+  (render/specular_aa.{h,cpp}: the same sums, tested). Checked: a glossy (0.15) brick floor (Bricks Normal, tiled)
+  under a lamp, the old scene.frag compiled into the same build (both scene.frag.spv and scene_early.frag.spv: the
+  lit pass after the prepass uses the latter) against the new, AA off: the distant lit bricks glow evenly where
+  they glinted along every bevel (pixel-to-pixel contrast in the far band 8.09 to 7.72, the near band's bevels a
+  little broader), temporal AA, Night Drive, the editor, the demo, under CI's validation layer. Not done: the
+  terrain layers' normal maps, normal maps' mips made in linear space (the blits average sRGB-decoded values for
+  the colour view; the normals read through the linear view of the same mips).
