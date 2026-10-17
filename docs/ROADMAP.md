@@ -2512,3 +2512,22 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
   scratch copy without the rain (a parked saloon's silhouette, the taxi's shoulder catching the light), MSAA and
   TAA under CI's validation layer, the Night Drive tests; lavapipe's frame 1285 ms (1294 with the boxes). Not done:
   wheel arches cut into the body, lights moulded into it (still boxes on it), other models (a van, a bus).
+
+## Round 16 (planned)
+
+Visuals and performance (the standing request), from round 15's notes and Night Drive's profile on lavapipe (1285 ms:
+the opaque pass 520, the shadows 150, the fog 161): measure the opaque pass and cut its largest part, a moving
+lamp's shadows cheaper, the reflections' grain evened out, the sky's light under the clouds, and for Night Drive's
+street: neon lettering, cars with arches and moulded lights, rain on glass.
+
+| # | Task | Why |
+|---|------|-----|
+| 152 | The opaque pass measured part by part (lamps, decals, the half-size upsamples, reflections, fog lookups: each switched off in turn on Night Drive), its largest cost cut | It's 40 % of Night Drive's frame and nobody knows which part |
+| 153 | Moving shadowed lamps cheaper: their atlas tiles sized by how much of the screen they light (smaller far off), and only the casters inside their range drawn | The taxi's headlights redraw their shadow every frame: most of the shadow pass |
+| 154 | Screen-space reflections' half-size trace denoised as the GI's is (an edge-aware blur weighted by roughness), the history kept raw | Rough wet asphalt's reflections are grainy |
+| 155 | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
+| 156 | Night Drive's neon signs as lettering: each sign's word built from short tube lights (a stroke font of segments), their light from every stroke | The signs are single bars of light |
+| 157 | Night Drive's car model with wheel arches cut into the body and its lamps moulded into it (emissive faces of the mesh), and a second model (a van) in the traffic | The cars' tyres sit under a box-like sill; every car is the same |
+| 158 | Rain on glass: drops and short streaks running down glass surfaces facing the sky or the camera (a material's *rain on it*, procedural, by the weather's rain) | Night Drive's car windows are dry in the rain |
+
+### Round 16 notes
