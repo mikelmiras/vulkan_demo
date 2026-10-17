@@ -30,6 +30,7 @@ void Renderer::createTraceImages() {
                                  VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, samples_, 1);
     }
     tracedDepth_ = createImage(VK_FORMAT_R32G32B32A32_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
+    tracedLightBlur_ = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     traceHistory_ = false;
     // (subsurface pixels' specular, stored by the lit pass, read by the diffusion: half floats as integers, and a
     // profile; integer, so read unfiltered)
@@ -50,7 +51,8 @@ void Renderer::writeTraceBindings() {
         std::vector<std::pair<uint32_t, VkDescriptorImageInfo>> images = {
             {30, {nearestSampler_, gbuffer_.view, readable}},
             {31, {postSampler_, traced_[i].view, readable}},
-            {32, {postSampler_, tracedLight_[i].view, readable}},
+            {32, {postSampler_, tracedLightBlur_.view, readable}},   // (the bounce denoised)
+            {43, {nearestSampler_, tracedLight_[i].view, readable}},   // (this frame's raw: the denoise reads it)
             {33, {postSampler_, traced_[1 - i].view, readable}},
             {34, {postSampler_, tracedLight_[1 - i].view, readable}},
             {35, {nearestSampler_, tracedDepth_.view, readable}},
@@ -218,7 +220,10 @@ void Renderer::recordTrace(VkCommandBuffer cb, const SceneRenderInfo& scene) {
     };
     const bool ms = samples_ != VK_SAMPLE_COUNT_1_BIT;   // (the depth multisampled: its first sample)
     pass(ms ? ssrTraceMsPipeline_ : ssrTracePipeline_, {&traced_[frame_], &tracedDepth_});
-    if (ssgiOn(scene)) pass(ms ? giTraceMsPipeline_ : giTracePipeline_, {&tracedLight_[frame_]});
+    if (ssgiOn(scene)) {
+        pass(ms ? giTraceMsPipeline_ : giTracePipeline_, {&tracedLight_[frame_]});
+        if (giDenoisePipeline_) pass(giDenoisePipeline_, {&tracedLightBlur_});   // (its grain evened out, edges kept)
+    }
     imageBarrier(cb, depth_.image, dsAspect, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, fragStage, 0, depthStages,
                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);

@@ -551,7 +551,7 @@ dropping on the right.
   bounced off what's on screen nearby, so a lit wall brightens the ground beside it, a red sphere tints the floor
   and an emissive sign lights its surroundings. Each pixel marches one or two rays (up to 10 m: over open space,
   three steps at a time where the picture's nearest distances say nothing's in the way) over its hemisphere through
-  the last frame's picture; what they meet (blurred) lights it, and where they meet nothing the
+  the last frame's picture (at half size, then evened out by an edge-aware blur that keeps to each surface); what they meet (blurred) lights it, and where they meet nothing the
   probes' and the sky's light does. The picture holds last frame's bounces, so light keeps bouncing frame after
   frame. Reflections and GI are traced at **half size** before the lit pass (with MSAA and under a render scale
   too): the depth prepass also writes each pixel's normal and roughness, each half-size pixel traces one of its four pixels

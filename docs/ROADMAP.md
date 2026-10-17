@@ -2302,7 +2302,7 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
 |---|------|-----|
 | 137 (done) | Rectangle lights (a Light shape: width and height, facing its -z), lit by representative points as the tubes are (the rectangle's point nearest the reflected ray; the diffuse from its nearest point and its facing), one-sided | Shop windows and light boxes light the street as bulbs or tubes |
 | 138 (done) | The sharpening folded into the temporal pass's output (it writes the sharpened picture and keeps the history unsharpened in a second target), one full-screen pass fewer; measured | The sharpening is a whole pass of its own after the temporal one |
-| 139 | Screen-space GI's bounce denoised: an edge-aware blur (depth and normal weighted) of the half-size traced light before scene.frag brings it up | The longer bounce rays (task 133) left grain where they meet things sporadically |
+| 139 (done) | Screen-space GI's bounce denoised: an edge-aware blur (depth and normal weighted) of the half-size traced light before scene.frag brings it up | The longer bounce rays (task 133) left grain where they meet things sporadically |
 | 140 | Shaped lights in the fog and the shafts: tubes' and rectangles' nearest points for the volumetric fog's in-scattering and the light shafts' halos | A neon tube glows in the fog as a ball of light |
 | 141 | Contact shadows from the four nearest shadowed lamps, not only the nearest (their directions traced at half size together) | Only one lamp's shadows meet the ground; the others float a little |
 | 142 | Volumetric clouds: a ray-marched layer (the same noise, given height and density), lit by the sun through itself (a phase function, a shadow ray) and the sky, drawn at quarter size with temporal reprojection; the flat layer kept for low quality | The clouds are a flat texture across the sky: no depth, no light through their edges |
@@ -2338,3 +2338,14 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
   brighter, more with more; black and white hold back). Checked: sharpening off and full on a moving scene (edges
   crisper), render scale 0.7, MSAA (none), split screen with temporal AA, the editor, the demo, under CI's
   validation layer.
+- **139, the bounce denoised**: gi_denoise.frag (half size, after gi_trace in recordTrace, on the frame's set):
+  3 x 3 taps two texels apart, weighed by a Gaussian, by how near each tap's distance is to the centre's
+  (tracedDepth.r; exp(-dz / (0.03 z + 0.02))) and by its normal's likeness (the gbuffer's normal at the full-size
+  pixel each half-size one traced this frame; dot^8), into tracedLightBlur_. scene.frag's binding 32 reads it; the
+  raw trace is binding 43 for the denoise, and stays the history (binding 34), so the blur doesn't compound over
+  frames. Set 0 has 44 bindings now (the pool 30 samplers a set). gidenoise::tapWeight repeats the weights, tested
+  (a step in depth or a turn of the surface stops the blur; a slope doesn't). Checked: the red wall scene of task
+  133: the grain on the block's face 1.28 (2.45 before; 1.68 with the old 4 m trace), the wall's red on the floor
+  kept (11.2 against 11.3); the half-size traces 58.7 ms against 39.9 (nine taps of three images per half-size
+  pixel); MSAA, Night Drive, the editor, the demo, under CI's validation layer. Not done: the reflections' half
+  denoised alike (they're blurred by roughness already), fewer taps by a separable pass.
