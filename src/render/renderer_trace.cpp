@@ -32,6 +32,9 @@ void Renderer::createTraceImages() {
     tracedDepth_ = createImage(VK_FORMAT_R32G32B32A32_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     tracedLightBlur_ = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     traceHistory_ = false;
+    for (Image& c : clouds_)
+        c = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
+    cloudsHistory_ = false;
     // (subsurface pixels' specular, stored by the lit pass, read by the diffusion: half floats as integers, and a
     // profile; integer, so read unfiltered)
     sssSpecular_ = createImage(VK_FORMAT_R16G16B16A16_UINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -57,7 +60,9 @@ void Renderer::writeTraceBindings() {
             {34, {postSampler_, tracedLight_[1 - i].view, readable}},
             {35, {nearestSampler_, tracedDepth_.view, readable}},
             {36, {nearestSampler_, velocity_.view, readable}},
-            {37, {postSampler_, aoLit_[i].view, readable}}};
+            {37, {postSampler_, aoLit_[i].view, readable}},
+            {44, {postSampler_, clouds_[i].view, readable}},
+            {45, {postSampler_, clouds_[1 - i].view, readable}}};
         if (aoSupported_)
             images.push_back({29, {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL}});
         std::vector<VkWriteDescriptorSet> w(images.size(), {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET});
@@ -174,6 +179,41 @@ void Renderer::recordAoLit(VkCommandBuffer cb, const SceneRenderInfo& scene) {
     const uint32_t slot = 0;   // (the scene's frame data bound again: the post layout's set disturbed it)
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
     timestamp(cb, "Ambient occlusion");
+}
+
+// Before the scene pass: the main view's volumetric clouds at half size (clouds.frag), over the drawn picture's half
+// (fillFrameUBO decides: the physical sky's clouds at medium quality and up), with last frame's as their history
+void Renderer::recordClouds(VkCommandBuffer cb) {
+    if (!cloudsOn_ || !cloudsPipeline_ || !clouds_[0].image) return;
+    const VkPipelineStageFlags colorStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkPipelineStageFlags fragStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    const Image& out = clouds_[frame_];
+    const VkExtent2D half{std::max((extent_.width + 1) / 2, 1u), std::max((extent_.height + 1) / 2, 1u)};
+    mipBarrier(cb, out.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+    VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    att.imageView = out.view;
+    att.imageLayout = target;
+    att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    ri.renderArea = {{0, 0}, half};
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &att;
+    vkCmdBeginRendering(cb, &ri);
+    VkViewport vp{0.f, 0.f, (float)half.width, (float)half.height, 0.f, 1.f};
+    VkRect2D sc{{0, 0}, half};
+    vkCmdSetViewport(cb, 0, 1, &vp);
+    vkCmdSetScissor(cb, 0, 1, &sc);
+    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, cloudsPipeline_);
+    const uint32_t slot = 0;   // (the main view's frame data)
+    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
+    vkCmdDraw(cb, 3, 1, 0, 0);
+    vkCmdEndRendering(cb);
+    mipBarrier(cb, out.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+               VK_ACCESS_SHADER_READ_BIT);
+    timestamp(cb, "Clouds");
 }
 
 // After the prepass (its depth, surface and motion written), before the lit pass: the two half-size passes

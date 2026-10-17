@@ -2419,7 +2419,7 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
 | # | Task | Why |
 |---|------|-----|
 | 145 (done) | Terrain layers' normal maps: one per layer (with a strength), blended by the layers' weights onto the terrain's normal, their mips as data (task 143), specular anti-aliasing reading them | Terrain layers are flat colours: the ground's bumps come only from its heights |
-| 146 | Volumetric clouds drawn at quarter size with temporal reprojection (the sky's history moved by the camera's turn), brought up with the sky | The clouds march every sky pixel every frame: ~75 ms of lavapipe's frame on a half-sky view |
+| 146 (done) | Volumetric clouds drawn at quarter size with temporal reprojection (the sky's history moved by the camera's turn), brought up with the sky | The clouds march every sky pixel every frame: ~75 ms of lavapipe's frame on a half-sky view |
 | 147 | Clouds' shadows from the volume: the same density marched along the sun's ray into a shadow texture over the view, for the ground's sunlight and the sky's ambient | The ground's cloud shadows still come from the flat layer's coverage, not from the clouds drawn |
 | 148 | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
 | 149 | Rectangle lights with a picture (a texture across the rectangle: the light's colour by where on it the nearest point is) and their shadows (from the middle, as a spot's) | Shop windows light the street in one flat colour and through walls |
@@ -2439,3 +2439,15 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
   the same map on a plane's material), MSAA, the editor, Night Drive under CI's validation layer; the save / load
   test with a layer's map and strength, undo seeing a strength change. Not done: triplanar mapping on steep slopes
   (the maps stretch down cliffs as the colours do), height-blended layers (by the maps' heights).
+- **146, clouds at quarter size**: sky.frag's march moves into clouds.glsl; clouds.frag runs it at half size each
+  way (a quarter of the pixels) over the drawn picture, before the scene pass (recordClouds, after the traces), into
+  clouds_[frame_] (set 0 binding 44, which sky.frag brings up bilinearly), blended 1:4 with clouds_[1 - frame_]
+  (binding 45) at the direction's place through last frame's unjittered camera as a direction (w = 0:
+  clouds::historyUv, the same sums, tested: a moved camera finds them where they were, a turned one beside); off
+  the last picture or behind it, this frame's alone. fillFrameUBO decides (sky.frag's test: the physical sky, no sky
+  image, some cover, medium quality and up) and says so in skyToSun.w (1: drawn, 2: with a history); extra views and
+  probe faces keep the inline march. Checked: noon and dusk from 142 (the same clouds, smoother: the march's grain
+  averaged), MSAA, AA off, the editor, Night Drive under CI's validation layer; lavapipe's noon frame 747 ms against
+  801 (the clouds 23 ms at half size, the scene pass 544 against 618). Not done: a neighbourhood clamp on the
+  history (the clouds' drift is slow: no ghosts seen), the march's own temporal split (a quarter of the half-size
+  pixels each frame), clouds in probes and reflections still marched whole.

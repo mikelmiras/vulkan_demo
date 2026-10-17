@@ -1,6 +1,8 @@
 // Volumetric clouds' shape (render/cloud_shape.h): flat bases, domes as tall as the cover is dense
 #include "test.h"
 
+#include <cmath>
+
 #include "render/cloud_shape.h"
 
 TEST(cloud_shape_domes) {
@@ -18,4 +20,31 @@ TEST(cloud_shape_domes) {
     auto topOf = [](float cover) { float h = 0.05f;   // (from above the base's ramp)
         while (h < 1.f && clouds::density(cover, h + 0.01f) > 0.5f) h += 0.01f; return h; };
     CHECK(topOf(0.5f) < topOf(0.8f) && topOf(0.8f) < topOf(1.f));
+}
+
+// The clouds' history found by direction: what's straight ahead now was off to the side before a turn; a camera that
+// only moved sees it where it was; behind the last camera: none
+TEST(cloud_history_by_direction) {
+    const float kDeg = 3.14159265f / 180.f;
+    Mat4 proj = perspective(60.f * kDeg, 16.f / 9.f, 0.1f, 2000.f, true);
+    Vec3 ahead = normalize(Vec3{0.f, 0.3f, -1.f});
+    float u = 0.f, v = 0.f, u2 = 0.f, v2 = 0.f;
+    Mat4 still = proj * lookAt({0, 2, 0}, Vec3{0, 2, 0} + ahead, {0, 1, 0});
+    REQUIRE(clouds::historyUv(still, ahead, u, v));
+    CHECK_NEAR(u, 0.5f, 1e-4);
+    CHECK_NEAR(v, 0.5f, 1e-4);
+    Mat4 moved = proj * lookAt({300, 2, -40}, Vec3{300, 2, -40} + ahead, {0, 1, 0});   // (moved, not turned)
+    REQUIRE(clouds::historyUv(moved, ahead, u2, v2));
+    CHECK_NEAR(u2, u, 1e-4);
+    CHECK_NEAR(v2, v, 1e-4);
+    // Turned 10 degrees left last frame: what's ahead now was right of the middle then
+    Vec3 left = normalize(Vec3{-std::sin(10.f * kDeg), 0.3f, -std::cos(10.f * kDeg)});
+    Mat4 turned = proj * lookAt({0, 2, 0}, Vec3{0, 2, 0} + left, {0, 1, 0});
+    REQUIRE(clouds::historyUv(turned, ahead, u, v));
+    CHECK(u > 0.55f && u < 0.75f);
+    // Above the middle (clip y points down: v below 0.5) when the last camera looked lower
+    Mat4 lower = proj * lookAt({0, 2, 0}, Vec3{0, 2, 0} + Vec3{0, 0, -1}, {0, 1, 0});
+    REQUIRE(clouds::historyUv(lower, ahead, u, v));
+    CHECK(v < 0.5f);
+    CHECK(!clouds::historyUv(still, Vec3{0, 0, 1}, u, v));   // (behind)
 }

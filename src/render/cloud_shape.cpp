@@ -16,4 +16,13 @@ float density(float cover, float h) {
     return smoothstep(0.f, 0.15f, cover - 0.2f - 0.8f * h * h) * smoothstep(0.f, 0.03f, h);
 }
 
+bool historyUv(const Mat4& p, Vec3 d, float& u, float& v) {
+    const float x = p.m[0] * d.x + p.m[4] * d.y + p.m[8] * d.z, y = p.m[1] * d.x + p.m[5] * d.y + p.m[9] * d.z;
+    const float w = p.m[3] * d.x + p.m[7] * d.y + p.m[11] * d.z;
+    if (w <= 1e-6f) return false;
+    u = x / w * 0.5f + 0.5f;
+    v = y / w * 0.5f + 0.5f;
+    return u >= 0.f && u <= 1.f && v >= 0.f && v <= 1.f;
+}
+
 }  // namespace clouds

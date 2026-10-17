@@ -705,7 +705,9 @@ dropping on the right.
   sun) takes over as the light, dim and blue, its shadows too. **Clouds** (0..1 of the sky) drift with the wind,
   their shadows moving over the ground; at medium and high quality the sky marches them as volumes (1500 to 1900 m
   up: flat bases, domes as tall as the cover is dense, their edges eroded), each point lit by the sun through the
-  cloud above it (silver edges looking towards the sun, darker bases) and by the sky; at low quality, in
+  cloud above it (silver edges looking towards the sun, darker bases) and by the sky. The main view marches them at
+  half size, before the scene, blending each frame's march with the last's (found by direction: only the camera's
+  turn moves them), so they cost a quarter as much and their grain averages out; at low quality, in
   reflections and in the sky's light they're a flat layer, lit by the sun through the air (red at sunset). They're in the sky's light too: as much of the ambient's harmonics as they cover (on average) takes their
   colour, so an overcast day's shade is grey and even rather than blue, and the ground's light is dimmed by their
   shadows on average.

@@ -988,6 +988,12 @@ private:
     Image tracedLightBlur_;                           // (the bounce denoised: scene.frag's binding 32)
     VkPipeline ssrTraceMsPipeline_ = VK_NULL_HANDLE, giTraceMsPipeline_ = VK_NULL_HANDLE;
     Image velocityMs_, gbufferMs_;   // (with MSAA: the prepass's outputs, multisampled, resolved into velocity_, gbuffer_)
+    // The main view's volumetric clouds at half size (clouds.frag, recordClouds): this frame's (set 0 binding 44,
+    // what sky.frag brings up) and last frame's (45, the history), by frame_
+    Image clouds_[2];
+    VkPipeline cloudsPipeline_ = VK_NULL_HANDLE;
+    bool cloudsOn_ = false, cloudsHistory_ = false;
+    void recordClouds(VkCommandBuffer cb);
     bool traceOn_ = false;           // this frame's main view traces at half size
     bool traceHistory_ = false;      // last frame did (its results are this frame's history)
     uint32_t traceIndex_ = 0;

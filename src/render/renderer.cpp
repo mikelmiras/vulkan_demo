@@ -736,7 +736,7 @@ VkPipeline Renderer::createPipeline(const PipelineDesc& d) {
 void Renderer::createPipelines() {
     // Set 0, per frame: the frame data, the shadow map and the instances
     const VkShaderStageFlags fragFog = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;   // (the fog's passes)
-    VkDescriptorSetLayoutBinding frameBindings[44] = {
+    VkDescriptorSetLayoutBinding frameBindings[46] = {
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1, VK_SHADER_STAGE_VERTEX_BIT | fragFog, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
@@ -783,9 +783,11 @@ void Renderer::createPipelines() {
         {41, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // subsurface pixels' specular
         {42, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the atlas's depths
         {43, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // this frame's raw bounce
+        {44, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // the clouds at half size
+        {45, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // ... last frame's
     };
     VkDescriptorSetLayoutCreateInfo dslci{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    dslci.bindingCount = 44;
+    dslci.bindingCount = 46;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
     // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal), then a
@@ -856,6 +858,7 @@ void Renderer::createPipelines() {
                                            VK_FORMAT_R32G32B32A32_SFLOAT);
     giTracePipeline_ = createPostPipeline("gi_trace.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
     giDenoisePipeline_ = createPostPipeline("gi_denoise.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
+    cloudsPipeline_ = createPostPipeline("clouds.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
     ssrTraceMsPipeline_ = createPostPipeline("ssr_trace_ms.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_,
                                              VK_FORMAT_R32G32B32A32_SFLOAT);   // (MSAA: over its depth's first sample)
     giTraceMsPipeline_ = createPostPipeline("gi_trace_ms.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
@@ -1208,7 +1211,7 @@ void Renderer::createResources(const MeshLibrary&) {
     uploadMeshes();
 
     VkDescriptorPoolSize poolSizes[4] = {{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, MAX_FRAMES},
-                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (30 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
+                                         {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (32 + kDecalTextures + kDecalNormals) * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 11 * MAX_FRAMES},
                                          {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_FRAMES}};
     VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -1467,7 +1470,8 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
     }
     if (velocityFresh_ && velocity_.image) {   // (the prepass's outputs and the traces', just made: readable from now)
         for (VkImage image : {velocity_.image, gbuffer_.image, traced_[0].image, traced_[1].image, tracedLight_[0].image,
-                              tracedLight_[1].image, tracedDepth_.image, aoLit_[0].image, aoLit_[1].image, tracedLightBlur_.image})
+                              tracedLight_[1].image, tracedDepth_.image, aoLit_[0].image, aoLit_[1].image, tracedLightBlur_.image,
+                              clouds_[0].image, clouds_[1].image})
             mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         velocityFresh_ = false;
@@ -1614,6 +1618,7 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     }
     if (prepassed) recordAoLit(cb, scene);   // (ambient occlusion, for the indirect light: renderer_trace.cpp)
     if (prepassed) recordTrace(cb, scene);   // (reflections and GI at half size: renderer_trace.cpp)
+    recordClouds(cb);                        // (the sky's clouds at half size: renderer_trace.cpp)
     recordGpuParticles(cb);
 
     // ---- Pass 1: 3D scene (MSAA, resolved into the HDR image)
@@ -2117,6 +2122,11 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         u.trace[2] = (float)(traceIndex_++ % 4);
         u.trace[3] = traceOn_ && contact ? 1.f : 0.f;
         traceHistory_ = traceOn_;
+        // (the physical sky's volumetric clouds, as sky.frag decides, marched at half size beforehand)
+        cloudsOn_ = u.atmosphere[0] > 0.5f && u.envParams[0] < 0.5f && u.atmosphere[3] > 0.f && quality_ != Quality::Low &&
+                    cloudsPipeline_ && clouds_[0].image && velocity_.image;
+        u.skyToSun[3] = cloudsOn_ ? (cloudsHistory_ && motionPrevValid_ ? 2.f : 1.f) : 0.f;
+        cloudsHistory_ = cloudsOn_;
         u.motionViewProj = info.viewProj;
         u.motionPrevViewProj = motionPrevValid_ ? motionPrevViewProj_ : info.viewProj;
         fxPrevViewProj_ = u.motionPrevViewProj;   // (the camera effects' sky motion)
@@ -2460,7 +2470,7 @@ void Renderer::shutdown() {
     destroySampledPipelines();
     for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, shadowTintPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
                          compositeViewPipeline_,
-                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_, giDenoisePipeline_,
+                         taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_, giDenoisePipeline_, cloudsPipeline_,
                          ssrTraceMsPipeline_, giTraceMsPipeline_})
         vkDestroyPipeline(device_, p, nullptr);
     vkDestroyPipelineLayout(device_, taaLayout_, nullptr);
