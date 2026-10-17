@@ -135,8 +135,9 @@ void Renderer::createPostImages() {
                       extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
     sssTemp_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
                            extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
-    fxTiles_ = createImage(VK_FORMAT_R16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                           VK_IMAGE_ASPECT_COLOR_BIT, (extent_.width + 7) / 8, (extent_.height + 7) / 8, VK_SAMPLE_COUNT_1_BIT, 1);
+    for (Image* tiles : {&fxTiles_, &fxTilesMax_})   // (r: the near field's circle, gb: the motion)
+        *tiles = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                             VK_IMAGE_ASPECT_COLOR_BIT, (extent_.width + 7) / 8, (extent_.height + 7) / 8, VK_SAMPLE_COUNT_1_BIT, 1);
     fxTilesFresh_ = true;
     // Light shafts: half size, read by the composite (binding 7), made from the depth (aoSet_'s)
     shafts_ = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -156,13 +157,14 @@ void Renderer::createPostImages() {
     velocity_ = createImage(VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                             VK_IMAGE_ASPECT_COLOR_BIT, extent_.width, extent_.height, VK_SAMPLE_COUNT_1_BIT, 1);
     velocityFresh_ = true;
-    if (aoSupported_) {   // (the camera effects' set: the picture, the depth, the motion)
-        VkDescriptorImageInfo infos[4] = {{postSampler_, hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+    if (aoSupported_) {   // (the camera effects' set: the picture, the depth, the motion, the tiles)
+        VkDescriptorImageInfo infos[5] = {{postSampler_, hdr_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
                                           {shadowSampler_, depthSampleView_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL},
                                           {postSampler_, velocity_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-                                          {nearestSampler_, fxTiles_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
-        VkWriteDescriptorSet w[4];
-        for (uint32_t i = 0; i < 4; ++i) {
+                                          {nearestSampler_, fxTiles_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+                                          {nearestSampler_, fxTilesMax_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+        VkWriteDescriptorSet w[5];
+        for (uint32_t i = 0; i < 5; ++i) {
             w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
             w[i].dstSet = fxSet_;
             w[i].dstBinding = i;
@@ -170,7 +172,7 @@ void Renderer::createPostImages() {
             w[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             w[i].pImageInfo = &infos[i];
         }
-        vkUpdateDescriptorSets(device_, 4, w, 0, nullptr);
+        vkUpdateDescriptorSets(device_, 5, w, 0, nullptr);
     }
     createTraceImages();
     if (aa_ == Antialiasing::Temporal || upscaling()) createTaaImages(taa_);   // (temporal AA's, or the upscaler's)
@@ -367,6 +369,7 @@ void Renderer::destroyPostImages() {
     if (shafts_.image) destroyImage(shafts_);
     if (fx_.image) destroyImage(fx_);
     if (fxTiles_.image) destroyImage(fxTiles_);
+    if (fxTilesMax_.image) destroyImage(fxTilesMax_);
     if (sssTemp_.image) destroyImage(sssTemp_);
     if (velocity_.image) destroyImage(velocity_);
     for (Image* img : {&gbuffer_, &traced_[0], &traced_[1], &tracedLight_[0], &tracedLight_[1], &tracedDepth_, &aoLit_[0], &aoLit_[1],
@@ -477,7 +480,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     // (what follows reads the picture as it was: bloom, the composite)
     const bool blurred = view < 0 && info.motionBlur > 0.f && velocityOn_;
     const bool focused = view < 0 && info.depthOfField > 0.f && aoSupported_;
-    if (cameraFxPipeline_ && fxTilesPipeline_ && fx_.image && info.items && (blurred || focused) && quality_ != Quality::Low) {
+    if (cameraFxPipeline_ && fxTilesPipeline_ && fxDilatePipeline_ && fx_.image && info.items && (blurred || focused) && quality_ != Quality::Low) {
         float fx = std::clamp(info.viewportX, 0.f, (float)extent_.width), fy = std::clamp(info.viewportY, 0.f, (float)extent_.height);
         float fw = std::min(info.viewportW, (float)extent_.width - fx), fh = std::min(info.viewportH, (float)extent_.height - fy);
         mipBarrier(cb, fx_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, target, fragStage | VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
@@ -491,10 +494,12 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
         Push p{{info.zNear, info.zFar, std::max(info.focusDistance, 0.1f), circle}, {fx, fy, fw, fh},
                {scaleNow_, blurred ? std::clamp(info.motionBlur, 0.f, 1.f) : 0.f, (float)(frameCounter_ % 64), 0.f},
                {sky[0], sky[1], sky[2], blurred && turned ? 1.f : 0.f}, {sky[3], sky[4], sky[5], 0.f}, {sky[6], sky[7], sky[8], 0.f}};
-        if (focused) {   // (the near field's tiles first)
-            mipBarrier(cb, fxTiles_.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
-            pass(fxTiles_.view, {(extent_.width + 7) / 8, (extent_.height + 7) / 8}, fxTilesPipeline_, fxSet_, p, false);
-            mipBarrier(cb, fxTiles_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+        // (the tiles first: each one's near circle and motion, then the largest round each)
+        const VkExtent2D tileSize{(extent_.width + 7) / 8, (extent_.height + 7) / 8};
+        for (Image* tiles : {&fxTiles_, &fxTilesMax_}) {
+            mipBarrier(cb, tiles->image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+            pass(tiles->view, tileSize, tiles == &fxTiles_ ? fxTilesPipeline_ : fxDilatePipeline_, fxSet_, p, false);
+            mipBarrier(cb, tiles->image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                        VK_ACCESS_SHADER_READ_BIT);
         }
         pass(fx_.view, extent_, cameraFxPipeline_, fxSet_, p, false);

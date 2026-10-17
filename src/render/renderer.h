@@ -581,7 +581,8 @@ private:
     VkSampler nearestSampler_ = VK_NULL_HANDLE;
     Image envSky_, envRadiance_;
     Image fx_;         // the picture with the camera effects, copied back over hdr_ (camera_fx.glsl)
-    Image fxTiles_;    // each 8 x 8 tile's largest near circle of confusion (fxSet_'s binding 3)
+    Image fxTiles_;    // each 8 x 8 tile's largest near circle of confusion and longest motion (fxSet_'s binding 3)
+    Image fxTilesMax_; // ... the largest of the 3 x 3 tiles round each (binding 4: the camera effects' main pass)
     bool fxTilesFresh_ = false;
     Mat4 fxPrevViewProj_;   // (the main view's last frame: the sky's motion)
     VkDescriptorSet fxSet_ = VK_NULL_HANDLE;   // (the picture, the depth, the motion vectors)
@@ -925,7 +926,8 @@ private:
     VkImageView nearSource_ = VK_NULL_HANDLE;
     void ensureNear();   // (made for the picture's size; the frames' sets pointed at it: waits for the GPU if remade)
     void recordNear(VkCommandBuffer cb);
-    VkPipeline fxTilesPipeline_ = VK_NULL_HANDLE;    // (its near field's tiles: fxTiles_)
+    VkPipeline fxTilesPipeline_ = VK_NULL_HANDLE;    // (its tiles: fxTiles_)
+    VkPipeline fxDilatePipeline_ = VK_NULL_HANDLE;   // (... round each: fxTilesMax_)
     VkPipeline shaftsPipeline_ = VK_NULL_HANDLE;   // light shafts (shafts.glsl): half size, over the depth (aoSet_)
     // Screen-space reflections: this frame's picture and distances captured after the post passes (prevColor_, set
     // 0 binding 18), for scene.frag's rays next frame; the camera it was taken with

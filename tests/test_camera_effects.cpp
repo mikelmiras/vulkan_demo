@@ -70,3 +70,29 @@ TEST(camera_effects_sky_motion) {
     CHECK_NEAR(x, std::tan(a) / tanX, 1e-3);
     CHECK_NEAR(y, 0.0, 1e-4);
 }
+
+// Motion blur's taps (camera_fx.glsl's weights): a moving thing smears over a still background beside it (its tap,
+// in front, reaches a still pixel within its motion), not further; a still thing in front of a moving one isn't
+// smeared over by it
+TEST(camera_effects_motion_weights) {
+    // A still background pixel (here 0), a car's tap 6 px away moving 10 px a frame, in front: counts
+    CHECK(camerafx::motionTapWeight(6.f, 0.f, 10.f, 1.f) > 0.3f);
+    // ... 14 px away: beyond its smear
+    CHECK_NEAR(camerafx::motionTapWeight(14.f, 0.f, 10.f, 1.f), 0.0, 1e-6);
+    // A still post in front of a moving pixel's tap: the tap behind, outside this (still) pixel's reach: nothing
+    CHECK_NEAR(camerafx::motionTapWeight(6.f, 0.f, 10.f, 0.f), 0.0, 1e-6);
+    // A moving pixel and its own moving neighbour (both spanning the gap): more than either alone
+    CHECK(camerafx::motionTapWeight(3.f, 10.f, 10.f, 0.5f) > camerafx::motionTapWeight(3.f, 10.f, 10.f, 1.f) - 1e-6f);
+    CHECK(camerafx::motionTapWeight(3.f, 10.f, 10.f, 0.5f) > 1.f);
+    // Nearer taps count more along a smear
+    CHECK(camerafx::motionTapWeight(2.f, 0.f, 10.f, 1.f) > camerafx::motionTapWeight(8.f, 0.f, 10.f, 1.f));
+}
+
+// Depth of field's near field: covering half the disc, half over the background; all of it, all; none, none
+TEST(camera_effects_near_coverage) {
+    CHECK_NEAR(camerafx::nearCoverage(12.f, 24), 0.5, 1e-6);
+    CHECK_NEAR(camerafx::nearCoverage(24.f, 24), 1.0, 1e-6);
+    CHECK_NEAR(camerafx::nearCoverage(30.f, 24), 1.0, 1e-6);
+    CHECK_NEAR(camerafx::nearCoverage(0.f, 24), 0.0, 1e-6);
+    CHECK_NEAR(camerafx::nearCoverage(5.f, 0), 0.0, 1e-6);
+}

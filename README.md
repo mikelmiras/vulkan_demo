@@ -667,9 +667,11 @@ dropping on the right.
   bright spots opening into discs (bokeh); the focus is a distance (*Focus distance*) or an entity kept sharp
   wherever it goes (*Focus on*: a player, a car). The background doesn't spill over a sharp foreground, and a
   blurred foreground spreads over a sharp background (each pixel gathers as far as the largest near blur in its
-  8 x 8 tile and those round it). **Motion blur** (0..1, off by default): the picture smears along each pixel's
-  motion on screen (the depth prepass's motion vectors, turned on by it), at 1 over the whole frame's motion, at
-  most a twentieth of the view; the sky smears with the camera's turn.
+  8 x 8 tile and those round it), laid over it by how much of the pixel it covers, so its edge fades out evenly.
+  **Motion blur** (0..1, off by default, the shutter's share of the frame): the picture smears along the motion on
+  screen (the depth prepass's motion vectors, turned on by it), at most a twentieth of the view; a moving thing
+  smears over the still background beside it, not only within itself (each pixel gathers along the fastest motion
+  round it, McGuire's reconstruction filter); the sky smears with the camera's turn.
   Both run once after temporal AA, before bloom; off at low quality, the main view's alone. The main view
   meters; split-screen views use its exposure, without local tone mapping.
 - **Physical sky and time of day** (Scene look > Physical sky, off by default): the sky worked out from the air,

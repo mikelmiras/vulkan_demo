@@ -2020,7 +2020,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | 125 (done) | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
 | 126 (done) | Soft shadows from lamps: a blocker search for spot and point lights (PCSS, by the light's size), so a lamp's shadows sharpen at contact and soften away from it | Lamp shadows have one fixed softness |
 | 127 (done) | Night Drive's sidewalks: pedestrians walking them (navigation mesh), crossing at the zebra crossings on walk signals, the traffic waiting for them | The streets have cars but no one walking |
-| 128 | Depth of field's near field weighed by coverage (no see-through edge) with tiles at quarter size, and motion blur by each object's own motion within a shutter | The near field's edge is a little transparent; the tiles' pass costs more than it needs |
+| 128 (done) | Depth of field's near field weighed by coverage (no see-through edge) with tiles at quarter size, and motion blur by each object's own motion within a shutter | The near field's edge is a little transparent; the tiles' pass costs more than it needs |
 
 ### Round 12 notes
 - **119, frame-level features specialized out**: of the features listed, only the sun's tint costs when absent: the
@@ -2158,4 +2158,21 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   Checked: Night Drive under CI's validation layer (a pedestrian under an umbrella, the red hands), its GPU frame
   1310 ms against 1300. Not done: pedestrians avoiding each other, the taxi giving way (it's yours), walking
   animation beyond a bob, crossing diagonally at the crossroads.
+- **128, the near field's coverage, motion blur by the neighbourhood**: fxTiles_ is RGBA16F now: r the tile's
+  largest near circle, gb its longest motion (pixels: motionAt, the shutter's share, the sky's from skyMotion); a
+  new DILATE pass (camera_fx_dilate.frag, fxDilatePipeline_) writes fxTilesMax_ (fxSet_ binding 4), the largest of
+  the 3 x 3 tiles round each, so the main pass reads one texel instead of nine (the "quarter-size tiles" of the
+  plan became this: the tiles pass was already cheap, a sixteenth of the pixels' depths; the per-pixel nine reads
+  weren't). Depth of field keeps the near field apart (taps in front and blurrier than the pixel, weighed by whether
+  their circle reaches it) and mixes it over the rest by the share of the disc it covers (camerafx::nearCoverage),
+  and a blurred foreground pixel takes what's behind it within its own circle (half see-through at its edge, as
+  through a lens), so the edge ramps evenly from both sides rather than ending in a step. Motion blur gathers 8
+  taps along the neighbourhood's longest motion with McGuire et al.'s weights (camerafx::motionTapWeight: the tap's
+  motion spanning the gap when in front, this pixel's when behind, both), the centre weighed 1 / its motion.
+  Tested: the weights (a moving tap smears over a still pixel within its motion and no further; a still tap in
+  front isn't smeared over) and the coverage. Checked against the old shaders compiled into the same build: the
+  demo focused at 40 m (the near pillar's blur fades evenly into the sky where it ended in a hard step and a bulge
+  at its foot), a spinning bar over the background with motion blur (its end smears past itself), MSAA, temporal
+  AA, AA off, render scale 0.7, the editor, the demo, under CI's validation layer. Not done: the near field's own
+  half-size gather, motion blur within an object's shutter by its acceleration (straight lines only).
 

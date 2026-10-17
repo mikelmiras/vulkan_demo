@@ -947,7 +947,8 @@ void Renderer::createSampledPipelines() {
         sssPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "sss_ms.frag.spv" : "sss.frag.spv", hdrFormat_, false);
         fxTilesPipeline_ = createPostPipeline(samples_ != VK_SAMPLE_COUNT_1_BIT ? "camera_fx_tiles_ms.frag.spv"
                                                                                  : "camera_fx_tiles.frag.spv",
-                                              VK_FORMAT_R16_SFLOAT, false);
+                                              VK_FORMAT_R16G16B16A16_SFLOAT, false);
+        fxDilatePipeline_ = createPostPipeline("camera_fx_dilate.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false);
     }
     particleAlphaPipeline_ = createParticlePipeline(false);
     particleAdditivePipeline_ = createParticlePipeline(true);
@@ -956,7 +957,7 @@ void Renderer::createSampledPipelines() {
 
 void Renderer::destroySampledPipelines() {
     for (VkPipeline* p : {&scenePipeline_, &transparentPipeline_, &waterPipeline_, &stencilPipeline_, &outlinePipeline_, &aoPipeline_, &aoTemporalPipeline_, &ssrCapturePipeline_,
-                          &shaftsPipeline_, &cameraFxPipeline_, &fxTilesPipeline_, &sssPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
+                          &shaftsPipeline_, &cameraFxPipeline_, &fxTilesPipeline_, &fxDilatePipeline_, &sssPipeline_, &particleAlphaPipeline_, &particleAdditivePipeline_, &skyPipeline_, &foliagePipeline_,
                           &prepassPipeline_, &prepassFoliagePipeline_, &sceneEarlyPipeline_, &foliageEarlyPipeline_,
                           &sceneLayeredPipeline_, &sceneEarlyLayeredPipeline_, &tintedLit_[0][0], &tintedLit_[0][1],
                           &tintedLit_[1][0], &tintedLit_[1][1],
@@ -1498,9 +1499,10 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
                              0, 0, nullptr, 0, nullptr, 1, &b);
         shadowTintFresh_ = false;
     }
-    if (fxTilesFresh_ && fxTiles_.image) {   // (depth of field's near tiles, just made: readable, in fxSet_ either way)
-        mipBarrier(cb, fxTiles_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    if (fxTilesFresh_ && fxTiles_.image) {   // (the camera effects' tiles, just made: readable, in fxSet_ either way)
+        for (VkImage image : {fxTiles_.image, fxTilesMax_.image})
+            mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                       VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         fxTilesFresh_ = false;
     }
     if (refractionFresh_ && refraction_.image) {   // (water's refraction picture, just made: readable from now)

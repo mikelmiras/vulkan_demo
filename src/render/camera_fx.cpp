@@ -1,5 +1,6 @@
 #include "render/camera_fx.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace camerafx {
@@ -37,5 +38,23 @@ void skyMotion(const Mat4& viewProjNow, const Mat4& viewProjBefore, float h[9]) 
             h[r * 3 + c] = s;
         }
 }
+
+namespace {
+float smoothstep(float a, float b, float x) {
+    float t = std::clamp((x - a) / (b - a), 0.f, 1.f);
+    return t * t * (3.f - 2.f * t);
+}
+}  // namespace
+
+float motionTapWeight(float distance, float here, float there, float front) {
+    here = std::max(here, 0.5f);
+    there = std::max(there, 0.5f);
+    front = std::clamp(front, 0.f, 1.f);
+    const float cone = std::clamp(1.f - distance / there, 0.f, 1.f), back = std::clamp(1.f - distance / here, 0.f, 1.f);
+    const float both = (1.f - smoothstep(0.95f * there, 1.05f * there, distance)) * (1.f - smoothstep(0.95f * here, 1.05f * here, distance));
+    return front * cone + (1.f - front) * back + 2.f * both;
+}
+
+float nearCoverage(float covered, int taps) { return taps > 0 ? std::clamp(covered / (float)taps, 0.f, 1.f) : 0.f; }
 
 }  // namespace camerafx
