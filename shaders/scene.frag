@@ -14,6 +14,7 @@ layout(early_fragment_tests) in;
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadowCascades;   // the sun's, 4 layers (comparing)
 layout(set = 0, binding = 5) uniform sampler2DShadow shadowAtlas;          // spot and point lights' (tiles; comparing)
+layout(set = 0, binding = 42) uniform sampler2D atlasDepths;              // the same, as depths (lamps' blocker search)
 layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;        // the sun's again, as depths (PCSS)
 layout(set = 0, binding = 21) uniform sampler3D fogVolume;                 // volumetric fog, integrated (fog.glsl)
 layout(set = 0, binding = 22) uniform sampler2D fogSurface;                // ... each cell column's surface distance
@@ -24,6 +25,7 @@ struct Light {
     vec4 color;      // rgb = colour * intensity (linear), w = 1: spot
     vec4 dir;        // spots: the direction it shines, w = cos outer
     vec4 params;     // x = cos inner, y = first shadow view (-1: none), z = cookie layer (-1: none), w = tan outer
+    vec4 shape;      // x = its size (the bulb's radius, m: lamps' soft shadows)
 };
 layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; };
 layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]; };   // (offset, count) each, then indices
@@ -211,6 +213,51 @@ float atlasShadow(int view, vec3 p, float bias) {
     float lit = 0.0;
     for (int i = 0; i < taps; ++i)
         lit += atlasTap(clamp(at + rot * kDisk[i * (12 / taps)] * texel * 1.75, lo, hi), proj.z - bias);
+    return lit / float(taps);
+}
+
+// A lamp's shadow in its tile (`view`) at `p`, softened by the lamp's size (PCSS, as the sun's): the blockers round
+// the point and how far from the light they are (each depth turned back into a fraction of the way from the light to
+// the point, exactly, through the tile's projection), the penumbra a light `size` m round leaves at the point, and
+// the disk filtered that wide (from a texel and three quarters: as without a size, up to 24 texels). Low quality:
+// the fixed width.
+float lampShadow(int view, vec3 p, float bias, vec3 lightPos, float size) {
+    vec4 clip = frame.shadowViewProj[view] * vec4(p, 1.0);
+    vec3 proj = clip.xyz / clip.w;
+    vec2 uv = proj.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || proj.z > 1.0 || proj.z < 0.0) return 1.0;
+    vec4 rect = frame.shadowRect[view];
+    vec2 texel = 1.0 / vec2(textureSize(shadowAtlas, 0));
+    vec2 lo = rect.xy + texel * 0.5, hi = rect.xy + rect.zw - texel * 0.5;
+    vec2 at = rect.xy + uv * rect.zw;
+    mat2 rot = diskRotation();
+    int quality = int(frame.shadowParams.z + 0.5);
+    int taps = quality >= 2 ? 12 : quality == 1 ? 6 : 4;
+    float radius = 1.75;   // (texels)
+    if (size > 0.0 && quality > 0) {
+        // (texels a metre across spans here: a step sideways, through the projection)
+        vec3 axis = normalize(p - lightPos);
+        vec3 side = normalize(cross(axis, abs(axis.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+        vec4 c2 = frame.shadowViewProj[view] * vec4(p + side * 0.1, 1.0);
+        float perMetre = length((c2.xy / c2.w - proj.xy) * 0.5 * rect.zw / texel) * 10.0;
+        float search = clamp(size * perMetre, 1.5, 24.0);
+        float b = (frame.shadowViewProj[view] * vec4(lightPos, 1.0)).z;   // (the light's own depth term)
+        int searches = quality >= 2 ? 8 : 5;
+        float sum = 0.0, n = 0.0;
+        for (int i = 0; i < searches; ++i) {
+            float d = textureLod(atlasDepths, clamp(at + rot * kDisk[i * 2] * search * texel, lo, hi), 0.0).r;
+            if (d < proj.z - bias) {   // (a blocker: how far along from the light, as a fraction of the point's way)
+                sum += b / (d * clip.w - clip.z + b);
+                n += 1.0;
+            }
+        }
+        if (n == 0.0) return 1.0;   // (nothing between it and the light)
+        float t = clamp(sum / n, 0.02, 1.0);
+        radius = clamp(size * (1.0 - t) / t * perMetre, 1.75, 24.0);
+    }
+    float lit = 0.0;
+    for (int i = 0; i < taps; ++i)
+        lit += atlasTap(clamp(at + rot * kDisk[i * (12 / taps)] * texel * radius, lo, hi), proj.z - bias);
     return lit / float(taps);
 }
 
@@ -1026,11 +1073,11 @@ void main() {
                 light *= dot(texture(cookies, vec3(clamp(cuv, 0.0, 1.0), li.params.z)).rgb, vec3(0.3333));
                 if (light <= 0.0) continue;
             }
-            if (shadowView >= 0) light *= atlasShadow(shadowView, vWorldPos + lightSide * 0.04, 0.00015);
+            if (shadowView >= 0) light *= lampShadow(shadowView, vWorldPos + lightSide * 0.04, 0.00015, li.posRange.xyz, li.shape.x);
         } else if (shadowView >= 0) {   // a point light's cube: the face towards this point (+x -x +y -y +z -z)
             vec3 a = -d, m = abs(a);
             int face = m.x >= m.y && m.x >= m.z ? (a.x > 0.0 ? 0 : 1) : m.y >= m.z ? (a.y > 0.0 ? 2 : 3) : (a.z > 0.0 ? 4 : 5);
-            light *= atlasShadow(shadowView + face, vWorldPos + lightSide * (0.02 + 0.01 * dist), 0.0002);
+            light *= lampShadow(shadowView + face, vWorldPos + lightSide * (0.02 + 0.01 * dist), 0.0002, li.posRange.xyz, li.shape.x);
             shadowView += face;   // (its tint: that face's)
         }
         if (light <= 0.0) continue;

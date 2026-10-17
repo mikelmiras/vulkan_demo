@@ -12,6 +12,7 @@ struct Light {
     vec4 color;      // rgb = colour * intensity (linear), w = 1: spot
     vec4 dir;        // spots: the direction it shines, w = cos outer
     vec4 params;     // x = cos inner
+    vec4 shape;      // x = its size (the bulb's radius, m: lamps' soft shadows)
 };
 layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; };
 layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]; };

@@ -13,6 +13,7 @@ struct Light {
     vec4 color;
     vec4 dir;
     vec4 params;
+    vec4 shape;      // x = its size (the bulb's radius, m: lamps' soft shadows)
 };
 layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; };
 layout(std430, set = 0, binding = 15) readonly buffer Clusters { uint clusters[]; };

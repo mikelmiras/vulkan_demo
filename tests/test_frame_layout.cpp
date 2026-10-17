@@ -90,7 +90,7 @@ void compareLayouts(const char* glslOpen, const char* cppOpen, size_t cppSize, c
     std::string root = std::string(VKWORLD_TEST_ASSETS) + "/../../";
     std::vector<Field> glsl = fields(readFile(root + "shaders/" + shader), glslOpen, glslFloats);
     std::vector<Field> cpp = fields(readFile(root + "src/render/renderer_internal.h"), cppOpen, cppFloats);
-    REQUIRE(glsl.size() > 5);
+    REQUIRE(glsl.size() > 3);
     CHECK(glsl.size() == cpp.size());
     int total = 0;
     for (size_t i = 0; i < glsl.size() && i < cpp.size(); ++i) {
@@ -111,6 +111,7 @@ TEST(frame_uniforms_match_the_shaders) {
     compareLayouts("uniform Frame {", "struct FrameUBO {", sizeof(FrameUBO));
     compareLayouts("struct Instance {", "struct InstanceData {", sizeof(InstanceData));
     compareLayouts("struct GpuDecal {", "struct GpuDecal {", sizeof(GpuDecal), "scene.frag");
+    compareLayouts("struct Light {", "struct GpuLight {", sizeof(GpuLight), "scene.frag");
 }
 
 // The post passes' push constants (renderer.cpp's post layout: 96 bytes, six vec4s) hold every post shader's block

@@ -2018,7 +2018,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
 | 123 (done) | Light in the air from every lamp: point lights' halos in the shafts (their cube's face per step), the air's extinction, the shafts in split-screen views | Only two spot lights and the sun show in the shafts; split-screen views have none |
 | 124 (done) | Temporal AA's history confidence (the blend weighed by how far the history moved and how well it matched), sharpness as a player setting (Settings > Graphics) | Fast motion still blurs a little; sharpness is an environment switch only |
 | 125 (done) | Probes without any waits: the faces drawn in the frame's own command buffer (their own instance and frame slots), first bakes spread over frames (the sky's reflection meanwhile), GI probes seeing the clouds | Each face still waits for its own submission; a new probe stalls a frame |
-| 126 | Soft shadows from lamps: a blocker search for spot and point lights (PCSS, by the light's size), so a lamp's shadows sharpen at contact and soften away from it | Lamp shadows have one fixed softness |
+| 126 (done) | Soft shadows from lamps: a blocker search for spot and point lights (PCSS, by the light's size), so a lamp's shadows sharpen at contact and soften away from it | Lamp shadows have one fixed softness |
 | 127 | Night Drive's sidewalks: pedestrians walking them (navigation mesh), crossing at the zebra crossings on walk signals, the traffic waiting for them | The streets have cars but no one walking |
 | 128 | Depth of field's near field weighed by coverage (no see-through edge) with tiles at quarter size, and motion blur by each object's own motion within a shutter | The near field's edge is a little transparent; the tiles' pass costs more than it needs |
 
@@ -2127,4 +2127,18 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   back to back), MSAA and temporal AA, the editor, Night Drive, the demo, under CI's validation layer (which found
   the multisampled target's write-after-write between faces: fixed). Not done: two probes baking at once, a face's
   lights its own (it takes the main view's nearest), the probe's faces on the GPU culling path.
+- **126, lamps' soft shadows**: Light::size (the bulb's radius, m; 0.05 default, saved for point and spot lights,
+  format 60, module API 69, eq, inspector *Size*) goes through LightInfo into GpuLight's new shape.x (every shader's
+  Light struct has it: scene.frag, shafts.glsl, fog_inject.comp, particle.frag; frame_uniforms_match_the_shaders now
+  compares Light with GpuLight). scene.frag's lampShadow replaces atlasShadow for lamps: a blocker search over
+  binding 42 (the atlas's layer as plain depths, shadowSampler_; set 0 has 43 bindings, the pool 29 samplers a
+  set), 8 taps at high, 5 medium, within the tile; each blocker's depth turned back into its fraction t of the way
+  from the light, exactly: along the ray from the light the projection's z and w are linear and w is 0 at the
+  light, so t = b / (d w - z + b), b the light's own z; penumbra = size (1 - t) / t metres, in texels by
+  projecting a 10 cm step sideways; the disk filtered 1.75 to 24 texels wide. Low quality: the fixed 1.75. The
+  split-screen views' sun tiles keep atlasShadow. Checked: a shadowed point light by a 30 cm pillar and a spot over
+  a box, size 0 (as before) and 0.3 (sharp at the pillar's foot, spreading and fading away); MSAA and temporal AA,
+  split screen, the editor, Night Drive, the demo, under CI's validation layer. Night Drive's opaque pass 476 ms
+  against 444 (its shadowed headlight over most of the view). Not done: the blocker search's own temporal reuse,
+  contact hardening for the volumetric fog's beams, sizes for the sun per scene beyond Shadow softness.
 

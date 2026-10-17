@@ -1161,6 +1161,9 @@ void Editor::drawComponents(Entity& e) {
             if (l.type != Light::Type::Directional) {
                 ImGui::DragFloat("Range", &l.range, 0.1f, 0.1f, 1000.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
                 track();
+                ImGui::SliderFloat("Size", &l.size, 0.f, 1.f, "%.2f m");
+                tooltip("The bulb's radius: its shadows stay sharp where things touch and soften away from them (0: sharp)");
+                track();
             }
             if (l.type == Light::Type::Spot) {
                 ImGui::SliderFloat("Cone angle", &l.spotAngle, 1.f, 89.f, "%.0f deg");

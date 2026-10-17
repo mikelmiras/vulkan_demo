@@ -78,6 +78,7 @@ struct LightInfo {
     Vec3 color{1, 1, 1};        // sRGB
     float intensity = 1.f;
     float range = 15.f;
+    float size = 0.05f;         // point and spot lights: the bulb's radius (m: their shadows' softening)
     bool castShadows = true;
     std::string cookie;         // spot lights: an image projected through the cone (a path; "" none)
 };

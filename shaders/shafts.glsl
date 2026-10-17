@@ -24,6 +24,7 @@ struct Light {
     vec4 color;      // rgb = colour * intensity (linear), w = 1: spot
     vec4 dir;        // the direction it shines, w = cos outer
     vec4 params;     // x = cos inner, y = first shadow view (-1: none)
+    vec4 shape;      // x = its size (the bulb's radius, m: lamps' soft shadows)
 };
 layout(std430, set = 0, binding = 14) readonly buffer Lights { Light lights[]; };
 

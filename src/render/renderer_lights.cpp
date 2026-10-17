@@ -181,6 +181,7 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
         g.color[3] = l.spot ? 1.f : 0.f;
         g.dir[0] = d.x; g.dir[1] = d.y; g.dir[2] = d.z;
         g.params[1] = i < shadowView.size() ? (float)shadowView[i] : -1.f;
+        g.shape[0] = std::max(l.size, 0.f);
         g.params[2] = -1.f;
         if (l.spot) {
             float outer = std::clamp(l.spotAngle, 1.f, 89.f) * DEG2RAD;

@@ -120,6 +120,7 @@ struct GpuLight {
     float color[4];      // rgb linear * intensity, w = 1: spot
     float dir[4];        // spots: the direction it shines, w = cos outer
     float params[4];     // x = cos inner, y = first shadow view (-1: none), z = cookie layer (-1: none), w = tan outer
+    float shape[4];      // x = its size (the bulb's radius, m: lamps' soft shadows)
 };
 
 struct InstanceData {
