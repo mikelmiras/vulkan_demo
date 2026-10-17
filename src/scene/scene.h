@@ -788,6 +788,7 @@ struct RenderSettings {
     // a night street keeps detail both in the shadows and round the lights
     float localToneMapping = 0.f;
     float lensDirt = 0.f;             // 0..1: smudges on the lens lit up by the bloom round bright lights
+    float lensFlare = 0.f;            // 0..1: ghosts of the brightest spots across the view and a halo round its middle
     float lightShafts = 0.f;          // 0..2: the sun's rays through gaps on screen (god rays; without volumetric fog)
     // Camera effects (off at 0)
     float depthOfField = 0.f;         // 0..1: how blurred what's out of focus gets (1: about 1% of the view's height)

@@ -114,7 +114,7 @@ TEST(frame_uniforms_match_the_shaders) {
     compareLayouts("struct Light {", "struct GpuLight {", sizeof(GpuLight), "scene.frag");
 }
 
-// The post passes' push constants (renderer.cpp's post layout: 96 bytes, six vec4s) hold every post shader's block
+// The post passes' push constants (renderer.cpp's post layout: 112 bytes, seven vec4s) hold every post shader's block
 TEST(post_push_constants_fit) {
     std::string root = std::string(VKWORLD_TEST_ASSETS) + "/../../shaders/";
     for (const char* shader : {"ssao.glsl", "composite.frag", "camera_fx.glsl", "bloom_down.frag", "bloom_up.frag",
@@ -126,7 +126,7 @@ TEST(post_push_constants_fit) {
         std::vector<Field> f = fields(text, text.substr(at, open - at + 1), glslFloats);
         int floats = 0;
         for (const Field& x : f) floats += x.floats;
-        if (floats <= 0 || floats > 24) test::fail(__FILE__, __LINE__, std::string(shader) + ": " + std::to_string(floats) + " floats");
+        if (floats <= 0 || floats > 28) test::fail(__FILE__, __LINE__, std::string(shader) + ": " + std::to_string(floats) + " floats");
     }
 }
 

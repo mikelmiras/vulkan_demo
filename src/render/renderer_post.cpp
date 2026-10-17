@@ -448,6 +448,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
     struct Push {
         float a[4], b[4], c[4], d[4], e[4];   // (e: the composite's tone mapper and grading)
         float f[4];                           // (the composite's auto-exposure and local tone mapping)
+        float g[4];                           // (the composite's lens flare and the bloom levels' scale)
     };
     mipBarrier(cb, hdr_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
                VK_ACCESS_SHADER_READ_BIT);
@@ -678,7 +679,9 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                {kOutlineSrgb.x, kOutlineSrgb.y, kOutlineSrgb.z, layered ? 1.f : 0.f},
                {(float)info.colorFilter, output, hdrPeak_, hdrPaperWhite_}, {vx, vy, vw, vh},
                {(float)info.tonemapper, info.contrast, info.saturation, info.vignette},
-               {autoExposed ? 1.f : 0.f, localTone, (float)(kLumMips - 1), lensDirt_.image ? std::clamp(info.lensDirt, 0.f, 1.f) : 0.f}};
+               {autoExposed ? 1.f : 0.f, localTone, (float)(kLumMips - 1), lensDirt_.image ? std::clamp(info.lensDirt, 0.f, 1.f) : 0.f},
+               // (the glow's scale: the levels past the six it was tuned with widen it, not brighten it)
+               {bloom ? std::clamp(info.lensFlare, 0.f, 1.f) : 0.f, bloomMips_ > 6 ? 6.f / (float)bloomMips_ * 1.15f : 1.f, 0.f, 0.f}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
     }

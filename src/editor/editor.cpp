@@ -322,6 +322,7 @@ SceneRenderInfo Editor::renderInfo() const {
     info.adaptationSpeed = r.adaptationSpeed;
     info.localToneMapping = r.localToneMapping;
     info.lensDirt = r.lensDirt;
+    info.lensFlare = r.lensFlare;
     info.lightShafts = r.lightShafts;
     info.depthOfField = r.depthOfField;
     info.motionBlur = r.motionBlur;

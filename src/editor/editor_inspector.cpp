@@ -264,6 +264,9 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::SliderFloat("Lens dirt", &r.lensDirt, 0.f, 1.f, "%.2f");
         track();
         tooltip("Smudges on the lens that the bloom lights up round bright lights");
+        ImGui::SliderFloat("Lens flare", &r.lensFlare, 0.f, 1.f, "%.2f");
+        track();
+        tooltip("Ghosts of the brightest spots mirrored across the view's middle, and a ring round it");
         ImGui::SliderFloat("Light shafts", &r.lightShafts, 0.f, 2.f, "%.2f");
         track();
         tooltip("The sun's rays streaming through gaps (trees, windows, between buildings) when it's in view; with "

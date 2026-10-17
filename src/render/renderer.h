@@ -175,6 +175,7 @@ struct SceneRenderInfo {
     bool autoExposure = false;        // (RenderSettings': the exposure follows the view's brightness)
     float exposureMin = -4.f, exposureMax = 4.f, adaptationSpeed = 1.f, localToneMapping = 0.f;
     float lensDirt = 0.f;             // (RenderSettings': how much the bloom lights up the lens's dirt)
+    float lensFlare = 0.f;            // (RenderSettings': ghosts and a halo from the brightest spots)
     float lightShafts = 0.f;          // (RenderSettings': the sun's rays on screen, without volumetric fog)
     float depthOfField = 0.f, focusDistance = 10.f, motionBlur = 0.f;   // (RenderSettings'; the focus: its target's)
     float frameSeconds = 1.f / 60.f;  // (auto-exposure's easing: the time since the last frame)
@@ -892,7 +893,7 @@ private:
 
     // ---- HDR and post-processing: the scene renders into hdr_ (linear, floating point), then bloom goes down and
     // back up bloom_'s mip chain, and the composite pass tonemaps both onto the swapchain image
-    static constexpr uint32_t kMaxBloomMips = 6;
+    static constexpr uint32_t kMaxBloomMips = 8;
     VkFormat hdrFormat_ = VK_FORMAT_R16G16B16A16_SFLOAT;
     Image hdr_, bloom_;
     // Ambient occlusion: half-size, from the scene's depth (ssao.frag), darkening the composite

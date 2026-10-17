@@ -21,7 +21,33 @@ layout(push_constant) uniform Post {
     vec4 d;   // with the UI layer (drawn over the whole picture): the scene's rectangle (x, y, w, h pixels)
     vec4 e;   // x = tone mapper (0 PBR Neutral, 1 filmic), y = contrast, z = saturation, w = vignette
     vec4 f;   // x = 1: auto-exposure, y = local tone mapping (0..1), z = the luminance's last mip, w = lens dirt
+    vec4 g;   // x = lens flare (0..1), y = the glow's scale (more bloom levels: wider, not brighter)
 } pc;
+
+// A lens's flare (after Chapman's pseudo lens flare): the brightest spots (what's over 1 in the bloom's blurred
+// levels, compressed) mirrored through the view's middle as a row of ghosts (each fading towards the edge, its colours a little
+// apart, as glass splits them) and a ring round the middle (the halo) where a bright spot's light comes from the side
+vec3 brightest(vec2 at, float level) {
+    if (at.x < 0.0 || at.y < 0.0 || at.x > 1.0 || at.y > 1.0) return vec3(0.0);   // (off the picture: nothing)
+    vec3 over = max(textureLod(bloom, at, level).rgb - vec3(1.0), vec3(0.0));
+    return over / (1.0 + dot(over, vec3(0.3333)));   // (compressed: one blinding highlight can't flood the view)
+}
+vec3 lensFlare(vec2 uv) {
+    vec2 flipped = vec2(1.0) - uv;
+    vec2 ghostStep = (vec2(0.5) - flipped) * 0.38;
+    vec3 sum = vec3(0.0);
+    for (int i = 1; i < 5; ++i) {
+        vec2 at = flipped + ghostStep * float(i);
+        float w = pow(1.0 - clamp(length(vec2(0.5) - at) / 0.7071, 0.0, 1.0), 6.0) / float(i);   // (the further, the fainter)
+        vec2 apart = normalize(vec2(0.5) - at + 1e-5) * 0.004 * float(i);
+        sum += vec3(brightest(at + apart, 2.0).r, brightest(at, 2.0).g, brightest(at - apart, 2.0).b) * w;
+    }
+    vec2 aspect = vec2(textureSize(bloom, 0)) / float(textureSize(bloom, 0).y);   // (the halo round, not stretched)
+    vec2 at = flipped + normalize((ghostStep + 1e-5) * aspect) * 0.3 / aspect;
+    float w = pow(1.0 - clamp(length(vec2(0.5) - at) / 0.7071, 0.0, 1.0), 4.0) * 0.15;
+    sum += brightest(at, 3.0) * w * vec3(0.8, 0.9, 1.0);
+    return sum;
+}
 
 layout(location = 0) out vec4 outColor;
 
@@ -105,7 +131,8 @@ void main() {
         scene *= occ * 0.25;
     }
     // (the glow, and where the lens is dirty, more of it: smudges lit up by bright lights)
-    vec3 glow = texture(bloom, uv).rgb * pc.a.y;
+    vec3 glow = texture(bloom, uv).rgb * pc.a.y * pc.g.y;
+    if (pc.g.x > 0.0) glow += lensFlare(uv) * (pc.g.x * 0.06);
     if (pc.f.w > 0.0) glow *= 1.0 + texture(lensDirt, uv).rgb * (pc.f.w * 6.0);
     vec3 c = max(scene, vec3(0.0)) + glow;
     if (pc.a.w > 0.5 && !outside) {   // (a little blur over the half-size shafts, as over the occlusion: their march's dither)

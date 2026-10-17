@@ -659,6 +659,10 @@ dropping on the right.
   mean (by the coarse brightness around each pixel, edge-aware: neighbours of a very different brightness count
   less, so there's no halo along a dark wall against a bright sky), keeping detail in shadows and around lights.
   **Lens dirt** (0..1): smudges, specks and wipe marks on the lens that the bloom lights up round bright lights.
+  **Lens flare** (0..1, off by default): the brightest spots (what's over 1 in the bloom's blurred levels) mirrored
+  through the view's middle as a row of fading ghosts, their colours a little apart, and a faint ring round the
+  middle; a street lamp or headlights near the edge of the view throw them across it. The bloom goes eight levels
+  down (wider glare round bright lights), weighted so its total stays as it was with six.
   **Light shafts** (0..2, off by default; without volumetric fog, which has its own): the clear air lit by the sun
   and scattering it towards you, brightest looking towards the sun, with dark streaks where something blocks it:
   each half-size pixel marches its view ray through the sun's shadow cascades, so what's in the way counts on screen

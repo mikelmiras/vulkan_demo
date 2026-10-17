@@ -2191,7 +2191,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 | 133 (done) | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
 | 134 (done) | Lamps' soft shadows cheaper: the blocker search at half size per tile, or kept from last frame where nothing moved; the lit pass's cost measured on Night Drive | PCSS for lamps costs Night Drive's lit pass 7 % |
 | 135 (done) | Night Drive's neon as area lights: its signs' tubes lighting the wet street in streaks, a few flickering | The neon glows but lights the street like bare bulbs |
-| 136 | Bloom and lens: a wider, physically shaped glare (more levels, energy-preserving), and lens flare ghosts and halo from the brightest spots, as a scene setting | Bloom stops short round bright lights; night scenes want the street lamps to glow into the haze |
+| 136 (done) | Bloom and lens: a wider, physically shaped glare (more levels, energy-preserving), and lens flare ghosts and halo from the brightest spots, as a scene setting | Bloom stops short round bright lights; night scenes want the street lamps to glow into the haze |
 
 ### Round 13 notes
 - **129, lights with a shape**: not LTC in the end: its tables (Heitz's fitted 64 x 64 matrices) would have to be
@@ -2278,3 +2278,16 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   signs' tubes and the flicker are there; night_drive_traffic's 40 s run has no script errors. Checked: Night
   Drive against its scene before (the neon's colour now a band along each sign), under CI's validation layer, 60
   frames. Not done: signs' own shapes (letters) as several tubes, the flicker's buzz.
+- **136, a wider bloom and a lens flare**: kMaxBloomMips 8 (was 6); the composite scales the glow by 6 / levels
+  (x 1.15) past six, so the extra levels widen it rather than brighten it (Night Drive's average 59.0 against
+  58.4); still added over the picture, not an energy-preserving mix (scenes are tuned for that). RenderSettings::
+  lensFlare (format 62, module API 71, eq, inspector *Lens flare*, the runtime and the editor pass it): the post
+  layout's push constants grew to 112 bytes (seven vec4s: post_push_constants_fit allows 28 floats) for the
+  composite's g (the flare, the glow's scale). lensFlare() (after Chapman): four ghosts along the line through the
+  middle from bloom level 2, each fading by its distance from the middle and its number, red and blue a little
+  apart; a halo from level 3, round in screen space; the source is what's over 1, compressed (b / (1 + b)): the
+  first tries, from the bloom as it is, then uncompressed, washed a night scene pink and red, and a halo stretched
+  by the aspect ratio drew a golden ellipse over Night Drive; at 0.06 of the glow it's a faint touch there at 1.
+  Saved and loaded (the lens dirt's test). Checked: the neon test scene and Night Drive with the flare at 1, MSAA,
+  the editor, the demo, under CI's validation layer. Not done: a starburst (the aperture's blades), the flare
+  from the sun's disc by its own (it comes through the bloom like any bright spot).
