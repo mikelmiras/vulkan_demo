@@ -1167,9 +1167,11 @@ void main() {
         bool rect = tube && li.shape.w > 0.0;                // (a rectangle: its x along dir, lighting towards params.xzw)
         vec3 tubeEnd = li.dir.xyz * (0.5 * li.shape.y);
         vec3 facing = vec3(li.params.x, li.params.z, li.params.w), rectY = cross(li.dir.xyz, facing);
+        vec3 rectNear = vec3(0.0);   // (a rectangle's nearest point, from its middle: its picture's there)
         if (rect) {
             if (dot(vWorldPos - li.posRange.xyz, facing) <= 0.0) continue;   // (behind it: it lights one way)
             d = rectNearest(d, li.dir.xyz, rectY, 0.5 * li.shape.y, 0.5 * li.shape.w);
+            rectNear = d - (li.posRange.xyz - vWorldPos);
         } else if (tube) {
             d = nearestOnSegment(li.posRange.xyz - tubeEnd, li.posRange.xyz + tubeEnd, vWorldPos) - vWorldPos;
         }
@@ -1221,7 +1223,25 @@ void main() {
             highlight = highlightScale(alpha, li.shape.x, tube ? li.shape.y : 0.0, cd);
             if (rect) highlight *= alpha / min(alpha + li.shape.w / (2.0 * max(cd, 1e-4)), 1.0);   // (its height too)
         }
-        color += shadeArea(s, Lp, Ls, lampLight, highlight);
+        vec3 lit = shadeArea(s, Lp, Ls, lampLight, highlight);
+        if (rect && li.dir.w >= 0.0) {   // a rectangle's picture (a screen, a sign): the diffuse its colours where it's
+                                         // nearest, blurred the further off (the whole of it lights a far wall), the
+                                         // highlight where the reflection meets it, blurred by the roughness
+            float w = li.shape.y, h = li.shape.w, size = max(w, h);
+            vec3 R = reflect(-s.V, s.N), toLight = li.posRange.xyz - vWorldPos;
+            vec3 seen = rectRayPoint(toLight, li.dir.xyz, rectY, 0.5 * w, 0.5 * h, R) - toLight;
+            // (u along -x: the picture reads the right way round from in front, where it lights; area_light.cpp's
+            // pictureUv and pictureLod, the same sums)
+            vec2 nearUv = vec2(0.5 - dot(rectNear, li.dir.xyz) / w, 0.5 - dot(rectNear, rectY) / h);
+            vec2 seenUv = vec2(0.5 - dot(seen, li.dir.xyz) / w, 0.5 - dot(seen, rectY) / h);
+            float nearLod = log2(max(256.0 * clamp(dist / size, 0.0, 1.0), 1.0));
+            float seenLod = log2(max(256.0 * clamp(2.0 * s.rough * s.rough * length(seen + toLight) / size, 0.0, 1.0), 1.0));
+            vec3 diffuseTint = pow(textureLod(cookies, vec3(clamp(nearUv, 0.0, 1.0), li.dir.w), nearLod).rgb, vec3(2.2));
+            vec3 specularTint = pow(textureLod(cookies, vec3(clamp(seenUv, 0.0, 1.0), li.dir.w), seenLod).rgb, vec3(2.2));
+            lit = (lit - shadeSpecular) * diffuseTint + shadeSpecular * specularTint;
+            shadeSpecular *= specularTint;
+        }
+        color += lit;
         specular += shadeSpecular;
     }
 

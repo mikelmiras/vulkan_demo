@@ -10,6 +10,7 @@
 #include "core/vfs.h"
 #include "render/light_clusters.h"
 #include "render/renderer_internal.h"
+#include "render/texture_streaming.h"
 #include "stb_image.h"
 
 using namespace render_detail;
@@ -182,6 +183,7 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
         g.dir[0] = d.x; g.dir[1] = d.y; g.dir[2] = d.z;
         g.params[1] = i < shadowView.size() ? (float)shadowView[i] : -1.f;
         g.params[2] = -1.f;   // (no cookie; a rectangle's facing goes over it)
+        g.dir[3] = -1.f;      // (no picture: a rectangle's layer of the cookies; a spot's cone goes over it)
         g.shape[0] = std::max(l.size, 0.f);
         g.shape[2] = g.posRange[3];
         if (!l.spot && l.length > 0.f) {   // a tube: along dir, its reach grown by half its length (the clusters' sphere)
@@ -192,6 +194,8 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
                 g.shape[3] = l.height;
                 g.params[0] = l.facing.x; g.params[2] = l.facing.y; g.params[3] = l.facing.z;
                 g.posRange[3] = g.shape[2] + 0.5f * std::sqrt(l.length * l.length + l.height * l.height);
+                if (!l.cookie.empty())
+                    if (auto it = cookieLayers_.find(l.cookie); it != cookieLayers_.end()) g.dir[3] = (float)it->second;
             }
         }
         if (l.spot) {
@@ -250,7 +254,7 @@ void Renderer::createCookies() {
     ci.imageType = VK_IMAGE_TYPE_2D;
     ci.format = VK_FORMAT_R8G8B8A8_UNORM;
     ci.extent = {kCookieSize, kCookieSize, 1};
-    ci.mipLevels = 1;
+    ci.mipLevels = kCookieMips;   // (a rectangle's picture blurred by distance: its smaller levels)
     ci.arrayLayers = kCookieLayers;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -267,7 +271,7 @@ void Renderer::createCookies() {
     vci.image = cookies_.image;
     vci.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
     vci.format = VK_FORMAT_R8G8B8A8_UNORM;
-    vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, kCookieLayers};
+    vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, kCookieMips, 0, kCookieLayers};
     VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &cookies_.view));
     cookiesReady_ = false;   // (made white and readable by the first updateCookies: no command pool yet)
 }
@@ -281,7 +285,7 @@ void Renderer::updateCookies(const SceneRenderInfo& info) {
         b.newLayout = to;
         b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         b.image = cookies_.image;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layer, count};
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, kCookieMips, layer, count};
         vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
                              nullptr, 1, &b);
@@ -290,7 +294,7 @@ void Renderer::updateCookies(const SceneRenderInfo& info) {
         VkCommandBuffer cb = beginOneTimeCommands();
         barrier(cb, 0, kCookieLayers, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         VkClearColorValue white{{1.f, 1.f, 1.f, 1.f}};
-        VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, kCookieLayers};
+        VkImageSubresourceRange all{VK_IMAGE_ASPECT_COLOR_BIT, 0, kCookieMips, 0, kCookieLayers};
         vkCmdClearColorImage(cb, cookies_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &white, 1, &all);
         barrier(cb, 0, kCookieLayers, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         endOneTimeCommands(cb);
@@ -298,7 +302,7 @@ void Renderer::updateCookies(const SceneRenderInfo& info) {
     }
     if (!info.lights) return;
     for (const LightInfo& l : *info.lights) {
-        if (!l.spot || l.cookie.empty() || cookieLayers_.count(l.cookie)) continue;
+        if ((!l.spot && l.height <= 0.f) || l.cookie.empty() || cookieLayers_.count(l.cookie)) continue;
         int layer = (int)std::count_if(cookieLayers_.begin(), cookieLayers_.end(), [](const auto& c) { return c.second >= 0; });
         if (layer >= (int)kCookieLayers) {
             logLine("cookie %s: more than %u cookies in use", l.cookie.c_str(), kCookieLayers);
@@ -332,13 +336,24 @@ void Renderer::updateCookies(const SceneRenderInfo& info) {
                 }
             }
         stbi_image_free(pixels);
-        Buffer staging = createBuffer(rgba.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, rgba.data());
+        // Every level (box-filtered in linear light, as a picture's colours average), one after the other
+        std::vector<uint8_t> levels;
+        std::vector<VkBufferImageCopy> copies;
+        for (uint32_t m = 0; m < kCookieMips; ++m) {
+            uint32_t lw = 0, lh = 0;
+            std::vector<uint8_t> level = streaming::downsample(rgba.data(), kCookieSize, kCookieSize, m, lw, lh);
+            VkBufferImageCopy copy{};
+            copy.bufferOffset = levels.size();
+            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, (uint32_t)layer, 1};
+            copy.imageExtent = {lw, lh, 1};
+            copies.push_back(copy);
+            levels.insert(levels.end(), level.begin(), level.end());
+        }
+        Buffer staging = createBuffer(levels.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, levels.data());
         VkCommandBuffer cb = beginOneTimeCommands();   // (waits for the GPU: cookies arrive rarely)
         barrier(cb, (uint32_t)layer, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        VkBufferImageCopy copy{};
-        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, (uint32_t)layer, 1};
-        copy.imageExtent = {kCookieSize, kCookieSize, 1};
-        vkCmdCopyBufferToImage(cb, staging.buffer, cookies_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        vkCmdCopyBufferToImage(cb, staging.buffer, cookies_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, (uint32_t)copies.size(),
+                               copies.data());
         barrier(cb, (uint32_t)layer, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         endOneTimeCommands(cb);
         destroyBuffer(staging);

@@ -195,7 +195,7 @@ std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>
         l.intensity = e.light->intensity;
         l.range = e.light->range;
         l.castShadows = e.light->castShadows;
-        if (l.spot) l.cookie = e.light->cookie;
+        if (l.spot || l.height > 0.f) l.cookie = e.light->cookie;   // (a spot's cookie, a rectangle's picture)
         lights.push_back(l);
     }
     return lights;

@@ -1,6 +1,7 @@
 #include "render/area_light.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace arealight {
 
@@ -45,5 +46,13 @@ Vec3 rectRayPoint(Vec3 c, Vec3 x, Vec3 y, float hx, float hy, Vec3 r) {
     return c + x * std::clamp(dot(d, x), -hx, hx) + y * std::clamp(dot(d, y), -hy, hy);
 }
 
-}  // namespace arealight
+void pictureUv(Vec3 rel, Vec3 x, Vec3 y, float w, float h, float& u, float& v) {
+    u = 0.5f - dot(rel, x) / w;
+    v = 0.5f - dot(rel, y) / h;
+}
 
+float pictureLod(float distance, float size) {
+    return std::log2(std::max(256.f * std::clamp(distance / size, 0.f, 1.f), 1.f));
+}
+
+}  // namespace arealight

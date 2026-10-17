@@ -1185,14 +1185,17 @@ void Editor::drawComponents(Entity& e) {
                 ImGui::SliderFloat("Edge softness", &l.spotSoftness, 0.f, 1.f, "%.2f");
                 track();
             }
-            if (l.type == Light::Type::Spot) {
-                ImGui::InputText("Cookie", &l.cookie);
+            const bool rectangle = l.type == Light::Type::Point && l.length > 0.f && l.height > 0.f;
+            if (l.type == Light::Type::Spot || rectangle) {
+                ImGui::InputText(rectangle ? "Picture" : "Cookie", &l.cookie);
                 track();
                 if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Texture, dropped)) {
                     pushUndo();
                     l.cookie = project::toStored(dropped.u8string());
                 }
-                tooltip("An image the light shines through (a window frame, leaves): drop one from the Assets panel");
+                tooltip(rectangle ? "An image across the rectangle (a screen, a lit sign): the light's colour where it's nearest "
+                                    "and in its reflection; drop one from the Assets panel"
+                                  : "An image the light shines through (a window frame, leaves): drop one from the Assets panel");
                 if (!l.cookie.empty()) {
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Remove##cookie")) {

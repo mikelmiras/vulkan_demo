@@ -2422,7 +2422,7 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
 | 146 (done) | Volumetric clouds drawn at quarter size with temporal reprojection (the sky's history moved by the camera's turn), brought up with the sky | The clouds march every sky pixel every frame: ~75 ms of lavapipe's frame on a half-sky view |
 | 147 (done) | Clouds' shadows from the volume: the same density marched along the sun's ray into a shadow texture over the view, for the ground's sunlight and the sky's ambient | The ground's cloud shadows still come from the flat layer's coverage, not from the clouds drawn |
 | 148 (done) | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
-| 149 | Rectangle lights with a picture (a texture across the rectangle: the light's colour by where on it the nearest point is) and their shadows (from the middle, as a spot's) | Shop windows light the street in one flat colour and through walls |
+| 149 (done) | Rectangle lights with a picture (a texture across the rectangle: the light's colour by where on it the nearest point is) and their shadows (from the middle, as a spot's) | Shop windows light the street in one flat colour and through walls |
 | 150 | A starburst on the brightest lights: streaks by the aperture's blades (a setting: blades, length), drawn with the lens flare in the composite | Bright lamps bloom round; a camera's iris draws them as stars |
 | 151 | Night Drive's cars as rounded models: a low-poly car mesh written by a tool (a bevelled body, wheel arches, a sloping windscreen), shared by every car and the taxi | The cars are still boxes |
 
@@ -2474,3 +2474,16 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
   0.76 % of pixels changed against 0.94 % between two runs of the new one (the rain); MSAA, the editor under CI's
   validation layer. Not done: fewer slices where nothing changes along a column (the empty air between the camera
   and the street), the sun's taps by quality alone (two at low).
+- **149, rectangles with a picture**: a rectangle's Light::cookie is its picture (saved for rectangles too: scene
+  format 65; the inspector's *Picture*), loaded into the cookies' array like a spot's, which now has nine mips
+  (made on the CPU, box-filtered in linear light: streaming::downsample) for the blur. GpuLight's dir.w (unused but
+  by spots) holds its layer (-1: none). scene.frag: the diffuse from the picture's colour at the nearest point,
+  at a level by how far off the shaded point is against the picture's size (all of it averaged from as far as its
+  size), the highlight's from where the reflected ray meets it (rectRayPoint), at a level by the roughness and that
+  distance; shadeArea's result split by its shadeSpecular so each takes its own colour (sRGB decoded); u along the
+  entity's -x so it reads the right way round in front (area_light's pictureUv and pictureLod, the same sums, tested:
+  the corners as seen from in front). Their shadows already came from the middle (a point light's cube): nothing to
+  add. Checked: a 3 x 2 m panel, red left, blue right, a white bar on top, over the glossy brick floor: its
+  reflection red on the left and blue on the right as seen, the floor lit a purple average; with no picture as
+  before; MSAA, the editor, Night Drive under CI's validation layer; the save / load test. Not done: the picture in
+  the fog and the light shafts (white there), a video's frames, LTC's exact textured integral.

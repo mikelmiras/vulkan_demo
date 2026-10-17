@@ -86,7 +86,8 @@ struct Light {
                                       // towards its -z alone (a shop window, a light box); 0: a tube
     bool castShadows = true;          // the sun (the first directional light), spot and point lights (the
                                       // most important get the biggest tiles of the shadow atlas)
-    std::string cookie;               // spot lights: an image projected through the cone (its brightness)
+    std::string cookie;               // spot lights: an image projected through the cone (its brightness); rectangles:
+                                      // their picture (a screen's, a sign's: the light's colour where it's nearest)
 };
 const char* lightTypeName(Light::Type type);
 

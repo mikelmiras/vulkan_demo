@@ -484,8 +484,10 @@ dropping on the right.
   x axis: neon, fluorescent): lit from its nearest point, its highlight a streak as long as the tube on wet and
   glossy surfaces (Karis's representative points, the highlight's energy kept). With a *Rectangle height* too, the
   tube becomes a **rectangle** (a shop window, a light box) lighting towards its -z alone: lit from its nearest
-  point, fading sideways as a lit panel does, and mirrored on wet ground as a rectangle. A tube's or a rectangle's
-  shadows come from its middle. The volumetric fog lights from its nearest point too (a neon tube's glow a band
+  point, fading sideways as a lit panel does, and mirrored on wet ground as a rectangle. A rectangle can show a
+  **picture** (*Picture*: an image dropped from the Assets panel, a TV's, a cinema's sign's): the light it casts takes
+  the picture's colours where it's nearest, blurred the further off (a far wall gets its average), and its reflection
+  shows the picture, blurred by the surface's roughness. A tube's or a rectangle's shadows come from its middle. The volumetric fog lights from its nearest point too (a neon tube's glow a band
   along it, a window's only in front), the light shafts spread a tube's halo along it; lit particles see a bulb. (Their blocker search costs a few percent of the lit pass where they shine; low quality keeps the fixed edge.)
   **Cached**: a shadow map is only drawn again when what it holds changes (its camera, its place in the atlas, or any
   caster in it moving, animating or changing): a still street lamp's shadows cost nothing frame after frame, and the

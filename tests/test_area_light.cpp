@@ -47,3 +47,23 @@ TEST(area_light_rectangles) {
     CHECK_NEAR(away.y, 3.0, 1e-5);
     CHECK(away.x <= 1.f + 1e-5f && away.x >= -1.f - 1e-5f);
 }
+
+// A rectangle's picture: its top-left corner as seen from in front (the light's side, its -z) is the picture's; the
+// light right against it takes one texel's colour, from as far as its size the whole picture's average
+TEST(area_light_picture) {
+    Vec3 x{1, 0, 0}, y{0, 1, 0};   // (an entity unturned: lighting towards -z, seen from there looking along +z)
+    float u = 0.f, v = 0.f;
+    // Seen from -z looking along +z, the viewer's left is +x: the picture's left edge
+    arealight::pictureUv({1.5f, 1.f, 0.f}, x, y, 3.f, 2.f, u, v);
+    CHECK_NEAR(u, 0.0, 1e-6);
+    CHECK_NEAR(v, 0.0, 1e-6);
+    arealight::pictureUv({-1.5f, -1.f, 0.f}, x, y, 3.f, 2.f, u, v);
+    CHECK_NEAR(u, 1.0, 1e-6);
+    CHECK_NEAR(v, 1.0, 1e-6);
+    arealight::pictureUv({0.f, 0.f, 0.f}, x, y, 3.f, 2.f, u, v);
+    CHECK_NEAR(u, 0.5, 1e-6);
+    CHECK(arealight::pictureLod(0.f, 3.f) == 0.f);
+    CHECK_NEAR(arealight::pictureLod(3.f, 3.f), 8.0, 1e-5);    // (256 texels to 1)
+    CHECK_NEAR(arealight::pictureLod(30.f, 3.f), 8.0, 1e-5);
+    CHECK(arealight::pictureLod(0.3f, 3.f) > 4.f && arealight::pictureLod(0.3f, 3.f) < 5.f);
+}

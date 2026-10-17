@@ -85,7 +85,7 @@ struct LightInfo {
     float height = 0.f;         // ... a rectangle that tall along `axisY`, lighting towards `facing` alone
     Vec3 axisY{0, 1, 0}, facing{0, 0, -1};
     bool castShadows = true;
-    std::string cookie;         // spot lights: an image projected through the cone (a path; "" none)
+    std::string cookie;         // spot lights: an image projected through the cone; rectangles: their picture (a path)
 };
 
 // A reflection probe to draw with (ReflectionProbe, scene/scene.h): baked when its key is new
@@ -681,7 +681,7 @@ private:
     void drawPlants(VkCommandBuffer cb, const SceneRenderInfo& info, VkPipeline pipeline = VK_NULL_HANDLE);
     uint32_t lightCount_ = 0, clusteredIndices_ = 0;   // (stats)
     // Spot lights' cookies: images projected through the cone, in a texture array (binding 6)
-    static constexpr uint32_t kCookieSize = 256, kCookieLayers = 16;
+    static constexpr uint32_t kCookieSize = 256, kCookieLayers = 16, kCookieMips = 9;   // (256 down to 1)
     Image cookies_;
     bool cookiesReady_ = false;
     std::unordered_map<std::string, int> cookieLayers_;   // path -> layer (-1: couldn't load)
