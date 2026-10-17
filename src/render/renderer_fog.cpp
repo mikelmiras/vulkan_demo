@@ -49,7 +49,7 @@ void Renderer::createFog() {
         f.volume = createVolume();
     }
     for (Image& s : fogSurface_)
-        s = createImage(VK_FORMAT_R32_SFLOAT,
+        s = createImage(VK_FORMAT_R32G32_SFLOAT,   // (r: the column's middle's distance, g: its farthest pixel's)
                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                         VK_IMAGE_ASPECT_COLOR_BIT, kFogX, kFogY, VK_SAMPLE_COUNT_1_BIT, 1);
     // The volumes start out readable (frames without fog still bind them), as the scene passes expect them
@@ -194,8 +194,8 @@ void Renderer::recordFog(VkCommandBuffer cb, const SceneRenderInfo& info, bool r
         vkCmdPushConstants(cb, fogSurfaceLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), push);
         vkCmdDispatch(cb, (kFogX + 7) / 8, (kFogY + 7) / 8, 1);
         imageBarrier(cb, surface, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                     VK_ACCESS_SHADER_READ_BIT);
+                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     } else {
         imageBarrier(cb, surface, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
@@ -205,7 +205,7 @@ void Renderer::recordFog(VkCommandBuffer cb, const SceneRenderInfo& info, bool r
         vkCmdClearColorImage(cb, surface, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &zero, 1, &all);
         imageBarrier(cb, surface, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
     const VkPipelineStageFlags readers = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     // The other frame's cells (this frame's history): written by its inject pass, before this one in the queue

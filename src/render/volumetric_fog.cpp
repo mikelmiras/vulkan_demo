@@ -37,4 +37,6 @@ std::vector<Gathered> integrate(const Range& r, float stretch, const std::vector
     return out;
 }
 
+bool cellSeen(const Range& r, int slice, float reach) { return reach <= 0.f || sliceDepth(r, (float)slice - 2.f) <= reach; }
+
 }  // namespace fog

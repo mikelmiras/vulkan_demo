@@ -2421,7 +2421,7 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
 | 145 (done) | Terrain layers' normal maps: one per layer (with a strength), blended by the layers' weights onto the terrain's normal, their mips as data (task 143), specular anti-aliasing reading them | Terrain layers are flat colours: the ground's bumps come only from its heights |
 | 146 (done) | Volumetric clouds drawn at quarter size with temporal reprojection (the sky's history moved by the camera's turn), brought up with the sky | The clouds march every sky pixel every frame: ~75 ms of lavapipe's frame on a half-sky view |
 | 147 (done) | Clouds' shadows from the volume: the same density marched along the sun's ray into a shadow texture over the view, for the ground's sunlight and the sky's ambient | The ground's cloud shadows still come from the flat layer's coverage, not from the clouds drawn |
-| 148 | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
+| 148 (done) | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
 | 149 | Rectangle lights with a picture (a texture across the rectangle: the light's colour by where on it the nearest point is) and their shadows (from the middle, as a spot's) | Shop windows light the street in one flat colour and through walls |
 | 150 | A starburst on the brightest lights: streaks by the aperture's blades (a setting: blades, length), drawn with the lens flare in the composite | Bright lamps bloom round; a camera's iris draws them as stars |
 | 151 | Night Drive's cars as rounded models: a low-poly car mesh written by a tool (a bevelled body, wheel arches, a sloping windscreen), shared by every car and the taxi | The cars are still boxes |
@@ -2464,3 +2464,13 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
   718 ms (the shadow pass 2.3 ms; the scene pass 528 against 544: a texture read instead of the layer's noise).
   Not done: the sky's ambient from the volume (still the layer's coverage on average), shadows lined up against
   the clouds seen from below in a picture (the march is the sky's own density), the fog's sunlight under them.
+- **148, the fog cheaper**: each cell already took only its light cluster's lamps (as scene.frag); the waste was
+  cells nothing can see. fog_surface.comp also writes each column's farthest pixel (its whole footprint: the image
+  RG32F, g; r its middle as before), and fog_inject.comp's seen (fog::cellSeen, the same sums, tested against the
+  slices a pixel's lookup reaches) skips the sun's taps, the lamps and the history for a cell more than two slices
+  beyond the farthest pixel of the nine columns round it, storing its density with the fog's own colour (the
+  integration still sums it); no depth this frame (0): every cell. Binding 22 is read by compute too (its barrier
+  and stages). Checked: Night Drive's fog 161 ms against 210, the frame 1255 against 1289 on lavapipe; the picture
+  0.76 % of pixels changed against 0.94 % between two runs of the new one (the rain); MSAA, the editor under CI's
+  validation layer. Not done: fewer slices where nothing changes along a column (the empty air between the camera
+  and the street), the sun's taps by quality alone (two at low).

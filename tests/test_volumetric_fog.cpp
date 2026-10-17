@@ -57,3 +57,19 @@ TEST(fog_integration) {
     CHECK_NEAR(clear.back().through, 1.f, 1e-4f);
     CHECK(clear.back().light.x == 0.f);
 }
+
+// Cells nothing can see (behind every pixel near them) aren't lit: never one a pixel's lookup reaches. A pixel at
+// distance d reads the volume at its slice and (filtering) the next, which hold cells up to that slice's end
+TEST(fog_unseen_cells) {
+    fog::Range r;
+    r.far = 300.f;
+    for (float d : {3.f, 40.f, 120.f, 299.f}) {
+        int slice = (int)std::floor(fog::volumeZ(r, d) * fog::kCellsZ + 0.5f);   // (the texel read, and the next)
+        for (int s = 0; s <= std::min(slice + 1, fog::kCellsZ - 1); ++s) CHECK(fog::cellSeen(r, s, d));
+    }
+    CHECK(!fog::cellSeen(r, 63, 40.f));   // (far behind a wall 40 m off)
+    CHECK(fog::cellSeen(r, 63, 0.f));     // (unknown: lit)
+    int unseen = 0;
+    for (int s = 0; s < fog::kCellsZ; ++s) unseen += fog::cellSeen(r, s, 120.f) ? 0 : 1;
+    CHECK(unseen > 0 && unseen < 16);   // (beyond 120 m of 300: the last few slices)
+}

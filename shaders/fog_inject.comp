@@ -22,6 +22,21 @@ layout(set = 0, binding = 20) uniform sampler2DArray cascadeDepths;
 #include "tint.glsl"
 layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D scatter;
 layout(set = 1, binding = 2) uniform sampler3D history;   // last frame's cells (the other frame in flight's)
+layout(set = 0, binding = 22) uniform sampler2D fogSurface;   // each column's surface: g, its farthest pixel (0: unknown)
+
+// Whether any pixel can see this cell: the scene reads a pixel's own column and its neighbours' (bilinearly) at its
+// own distance, the slices filtered too, so a cell two slices beyond the farthest pixel of the nine columns round it
+// is never seen (the integration still sums its density: kept, its light the fog's own colour alone)
+bool seen(ivec3 id) {
+    float reach = 0.0;
+    for (int y = -1; y <= 1; ++y)
+        for (int x = -1; x <= 1; ++x) {
+            float s = texelFetch(fogSurface, clamp(id.xy + ivec2(x, y), ivec2(0), kFogCells.xy - 1), 0).g;
+            if (s <= 0.0) return true;   // (no depth this frame: all of it)
+            reach = max(reach, s);
+        }
+    return fogSliceDepth(float(id.z) - 2.0) <= reach;
+}
 
 // A point of the Halton sequence in base b (the cells' jitter: a different spot in each cell every frame)
 float halton(int i, int b) {
@@ -85,6 +100,10 @@ void main() {
     vec3 view = normalize(dir);
     float density = frame.fogColor.w * exp(-frame.fogParams.w * max(p.y, 0.0));
     float g = frame.fogParams.z, strength = frame.fogParams.y;
+    if (!seen(id)) {   // (behind everything in view: not lit, nor blended)
+        imageStore(scatter, id, vec4(frame.fogColor.rgb * density, density));
+        return;
+    }
 
     vec3 light = frame.fogColor.rgb;   // (the plain fog's colour: what it shows with no light of its own)
     float side = 2.0 * depth * tanY / float(kFogCells.y);   // (a cell's size there: across, and along the view)

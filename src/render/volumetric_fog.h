@@ -34,4 +34,8 @@ struct Gathered {
 };
 std::vector<Gathered> integrate(const Range& r, float stretch, const std::vector<Cell>& column);
 
+// Whether a cell of slice `slice` can be seen (fog_inject.comp's seen, the same sums): `reach` the farthest pixel
+// of the nine columns round it (0: unknown, every cell is); two slices of margin for the volume's filtering
+bool cellSeen(const Range& r, int slice, float reach);
+
 }  // namespace fog

@@ -649,7 +649,8 @@ dropping on the right.
   the columns beside it by how near their surface is to its own, so the cells inside the building (shadowed or lit
   differently) don't darken or light the street's edge. Each cell looks at a different point inside itself every frame
   and blends with what that place held the frame before (reprojected), so a beam's or a shaft's edge is smooth, not
-  stepped by the cells. A few percent of a frame. The main view only (split-screen
+  stepped by the cells. Cells behind everything any pixel near them sees (beyond the street below a high camera)
+  aren't lit, only counted. A few percent of a frame. The main view only (split-screen
   views and probes keep the plain fog).
 - **Tone mapping and grading**: PBR Neutral (colours as they are) or **filmic** (AgX: richer contrast, highlights
   bleaching towards white as film's do), then contrast, saturation and a vignette (Scene look).
