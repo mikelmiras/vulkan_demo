@@ -16,6 +16,9 @@ headlights), emissive materials (windows, signs), screen-space reflections on th
 particles from the manholes. It's raining: the weather settings (Scene look: wetness, puddles, rain) make the
 streets wet and glossy, with standing water in the hollows and rings on it. Puddle decals in the gutters under
 about half the lamps mirror them. Rain falls round the taxi as lit, streaked particles that show where there's light.
+The cars are painted metal: a metallic base under a clear coat (the lamps and neon run along their bonnets), glass all
+round the cabin under a painted roof, chrome bumpers and tyres (`car_body` in `tools/make_city.py`); the taxi is
+yellow with a chequered band along each side.
 Traffic drives the grid: a few cars (`scripts/TrafficCar.lua`) in the right-hand lanes, choosing at each crossroads
 to go on or turn (never out of the city), easing to a stop behind whatever's ahead (another car, the taxi: it can
 bump into them, they aren't pushed) and pulling away again, with headlights, tail lamps and their glow on the wet

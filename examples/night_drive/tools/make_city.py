@@ -44,12 +44,15 @@ def entity(name, pos, rot=(0, 0, 0), scale=(1, 1, 1), parent=None, **parts):
     return e["id"]
 
 
-def look(mesh, color, roughness=0.5, metallic=0.0, emissive=None, strength=1.0):
+def look(mesh, color, roughness=0.5, metallic=0.0, emissive=None, strength=1.0, clearcoat=0.0, coat_roughness=0.03):
     m = {"mesh": mesh, "color": list(color)}
     if roughness != 0.5:
         m["roughness"] = roughness
     if metallic:
         m["metallic"] = metallic
+    if clearcoat:
+        m["clearcoat"] = clearcoat
+        m["clearcoatRoughness"] = coat_roughness
     if emissive:
         m["emissive"] = list(emissive)
         if strength != 1.0:
@@ -241,8 +244,34 @@ for _ in range(7):
         "startSize": 0.7, "endSize": 3.4, "startColor": [0.5, 0.5, 0.55], "endColor": [0.35, 0.35, 0.4],
         "startAlpha": 0.22, "endAlpha": 0.0, "intensity": 1.0, "additive": False, "maxParticles": 120, "gpu": True})
 
-# ---- Parked cars along the kerbs ---------------------------------------------------------------------------------
+# ---- Cars: painted metal (a metallic base under a clear coat, so the street's lights run along them), glass all round
+# the cabin under a painted roof, chrome bumpers and tyres; 1.8 x 4.3 m, their entity's middle 0.75 m up, facing -z
 PAINT = [(0.35, 0.03, 0.03), (0.05, 0.08, 0.2), (0.2, 0.2, 0.22), (0.02, 0.02, 0.02), (0.25, 0.18, 0.08)]
+
+
+def paint_look(colour):
+    return look("Cube", colour, roughness=0.4, metallic=0.6, clearcoat=1.0, coat_roughness=0.04)
+
+
+GLASS = look("Cube", (0.015, 0.018, 0.022), roughness=0.03)   # (dark: the reflection of the street is what shows)
+CHROME = look("Cube", (0.75, 0.75, 0.78), roughness=0.18, metallic=1.0)
+
+
+def car_body(car, paint, body=(1.8, 0.7, 4.3), y=-0.15):
+    w, h, l = body
+    entity("Body", (0, y, 0), scale=body, parent=car, meshRenderer=paint_look(paint))
+    top = y + h / 2
+    entity("Glass", (0, top + 0.26, 0.2), scale=(w - 0.24, 0.52, l * 0.5), parent=car, meshRenderer=GLASS)
+    entity("Roof", (0, top + 0.54, 0.25), scale=(w - 0.2, 0.06, l * 0.4), parent=car, meshRenderer=paint_look(paint))
+    for z in (-1, 1):
+        entity("Bumper", (0, y - h / 2 + 0.12, z * (l / 2 + 0.05)), scale=(w + 0.04, 0.12, 0.1), parent=car, meshRenderer=CHROME)
+    for x in (-1, 1):
+        for z in (-1, 1):
+            entity("Tyre", (x * (w / 2 - 0.08), -0.75 + 0.34, z * l * 0.33), (0, 0, 90), scale=(0.68, 0.24, 0.68), parent=car,
+                   meshRenderer=look("Sphere", (0.02, 0.02, 0.02), roughness=0.9))
+
+
+# ---- Parked cars along the kerbs ---------------------------------------------------------------------------------
 for _ in range(16):
     k = rng.randrange(BLOCKS + 1)
     road = -HALF + STREET / 2 + k * PITCH
@@ -251,12 +280,9 @@ for _ in range(16):
     a = block_origin(rng.randrange(BLOCKS)) + rng.uniform(6, BLOCK - 6)
     along_x = rng.random() < 0.5
     pos = (a, 0.75, lane) if along_x else (lane, 0.75, a)
-    scale = (4.3, 1.0, 1.8) if along_x else (1.8, 1.0, 4.3)
     paint = rng.choice(PAINT)
-    car = entity("Parked car", pos, scale=scale, meshRenderer=look("Cube", paint, roughness=0.25, metallic=0.6),
-                 collider=box_collider((1, 1, 1)))
-    entity("Roof", (0, 0.75, 0), scale=(0.55, 0.6, 0.8) if along_x else (0.8, 0.6, 0.55), parent=car,
-           meshRenderer=look("Cube", paint, roughness=0.25, metallic=0.6))
+    car = entity("Parked car", pos, (0, 90 if along_x else 0, 0), collider=box_collider((1.8, 1.0, 4.3)))
+    car_body(car, paint)
 
 # ---- Traffic lights: two poles at each crossroads, one for each way through it (scripts/TrafficLight.lua: red,
 # amber and green lamps shown in turn, each with its glow on the wet road; the traffic stops for them) ---------------
@@ -303,8 +329,7 @@ for n in range(TRAFFIC):
     car = entity("Traffic car", pos, (0, yaw, 0), collider=box_collider((1.8, 1.0, 4.3)),
                  behaviours=[{"type": "TrafficCar", "speed": traffic_rng.uniform(7.5, 10.5), "lane": LANE,
                               "first": -HALF + STREET / 2, "pitch": PITCH, "streets": BLOCKS + 1, "seed": n + 1}])
-    entity("Body", (0, 0, 0), scale=(1.8, 1.0, 4.3), parent=car, meshRenderer=look("Cube", paint, roughness=0.25, metallic=0.6))
-    entity("Roof", (0, 0.75, 0.2), scale=(1.5, 0.6, 2.2), parent=car, meshRenderer=look("Cube", paint, roughness=0.25, metallic=0.6))
+    car_body(car, paint)
     for side in (-1, 1):
         entity("Headlamp", (side * 0.6, 0.1, -2.16), scale=(0.35, 0.16, 0.04), parent=car,
                meshRenderer=look("Cube", (1, 1, 1), emissive=(1.0, 0.95, 0.8), strength=5.0))
@@ -333,11 +358,21 @@ taxi = entity("Taxi", start, meshRenderer=look("Cube", (0.95, 0.68, 0.05), rough
 for e in entities:
     if e["id"] == taxi:
         del e["meshRenderer"]
+TAXI_YELLOW = (0.95, 0.66, 0.04)
 entity("Body", (0, 0, 0), scale=(1.9, 0.75, 4.4), parent=taxi,
-       meshRenderer=look("Cube", (0.95, 0.66, 0.04), roughness=0.28, metallic=0.35))
-entity("Cabin", (0, 0.62, 0.25), scale=(1.65, 0.55, 2.1), parent=taxi,
-       meshRenderer=look("Cube", (0.02, 0.025, 0.03), roughness=0.05, metallic=0.5))
-entity("Roof sign", (0, 1.0, 0.3), scale=(0.8, 0.22, 0.3), parent=taxi,
+       meshRenderer=look("Cube", TAXI_YELLOW, roughness=0.35, metallic=0.3, clearcoat=1.0, coat_roughness=0.04))
+entity("Glass", (0, 0.62, 0.25), scale=(1.65, 0.5, 2.1), parent=taxi, meshRenderer=GLASS)
+entity("Roof", (0, 0.9, 0.3), scale=(1.7, 0.06, 1.75), parent=taxi,
+       meshRenderer=look("Cube", TAXI_YELLOW, roughness=0.35, metallic=0.3, clearcoat=1.0, coat_roughness=0.04))
+for z in (-1, 1):
+    entity("Bumper", (0, -0.27, z * 2.25), scale=(1.94, 0.12, 0.1), parent=taxi, meshRenderer=CHROME)
+# (the livery: a chequered band along each side, black squares on the yellow, two rows staggered)
+for x in (-1, 1):
+    for row in range(2):
+        for k in range(8):
+            entity("Chequer", (x * 0.955, 0.12 - row * 0.18, -1.5 + (2 * k + row) * 0.18 + 0.09), scale=(0.02, 0.18, 0.18),
+                   parent=taxi, meshRenderer=look("Cube", (0.015, 0.015, 0.015), roughness=0.3, clearcoat=1.0))
+entity("Roof sign", (0, 1.05, 0.3), scale=(0.8, 0.22, 0.3), parent=taxi,
        meshRenderer=look("Cube", (1, 1, 0.9), emissive=(1.0, 0.9, 0.6), strength=3.0))
 for side in (-1, 1):
     entity("Headlamp", (side * 0.65, 0.05, -2.21), scale=(0.35, 0.18, 0.04), parent=taxi,

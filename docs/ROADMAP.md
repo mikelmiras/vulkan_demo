@@ -2307,7 +2307,7 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
 | 141 (done) | Contact shadows from the four nearest shadowed lamps, not only the nearest (their directions traced at half size together) | Only one lamp's shadows meet the ground; the others float a little |
 | 142 (done) | Volumetric clouds: a ray-marched layer (the same noise, given height and density), lit by the sun through itself (a phase function, a shadow ray) and the sky, drawn at quarter size with temporal reprojection; the flat layer kept for low quality | The clouds are a flat texture across the sky: no depth, no light through their edges |
 | 143 (done) | Normal maps' mips filtered in linear space (not through the sRGB view), keeping their normals' length for specular anti-aliasing; terrain layers' normal maps in it too | The mips of normal maps are averaged as colours; terrain glints unchecked |
-| 144 | Night Drive's cars as painted metal: clear-coated paint with a metallic base, glass that reflects the street, the taxi's livery | The cars are flat-coloured boxes beside the reflective street |
+| 144 (done) | Night Drive's cars as painted metal: clear-coated paint with a metallic base, glass that reflects the street, the taxi's livery | The cars are flat-coloured boxes beside the reflective street |
 
 ### Round 14 notes
 - **137, rectangle lights**: Light::height (format 63, module API 72, eq, inspector *Rectangle height* once a tube
@@ -2400,3 +2400,12 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
   layer; tests: downsample of two leaning normals (shorter, straight out), cooking and an export. Not done: terrain
   layers have no normal maps to filter (to come with them: a round 15 task); a texture used as both colour and data
   keeps the data mips.
+- **144, Night Drive's cars as painted metal**: make_city.py's look() takes a clear coat; car_body builds every
+  parked and traffic car the same way (1.8 x 4.3 m, the entity's middle 0.75 m up, unscaled: the parked ones are
+  turned instead of scaled): the body (metallic 0.6 under a 0.04-rough coat), a dark glossy glass box round the
+  cabin under a thin painted roof, chrome bumpers, four tyres on the road. The taxi: its yellow coated, the cabin
+  glass under a yellow roof, chrome bumpers, a chequered band (two staggered rows of eight black squares) along each
+  side. 205 entities more (2057). Checked: the game's camera (the taxi reads as a yellow roof over a band of glass,
+  its chequers), closer views from a scratch copy without the rain, the traffic test, TAA and MSAA under CI's
+  validation layer; lavapipe's Night Drive frame 1294 ms against 1267 with the old cars. Not done: rounded shapes (they're still boxes: a
+  car model would be the next step), the paint's flakes.
