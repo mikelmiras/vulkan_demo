@@ -382,24 +382,24 @@ void Renderer::ensureNear() {
     nearLevels_.clear();
     if (near_.image) destroyImage(near_);
     if (!nearPool_) {
-        VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3}};
+        VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kNearLevels}, {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kNearLevels}};
         VkDescriptorPoolCreateInfo dpci{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        dpci.maxSets = 3;
+        dpci.maxSets = kNearLevels;
         dpci.poolSizeCount = 2;
         dpci.pPoolSizes = sizes;
         VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &nearPool_));
-        std::vector<VkDescriptorSetLayout> layouts(3, hizSetLayout_);
+        std::vector<VkDescriptorSetLayout> layouts(kNearLevels, hizSetLayout_);
         VkDescriptorSetAllocateInfo dsai{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         dsai.descriptorPool = nearPool_;
-        dsai.descriptorSetCount = 3;
+        dsai.descriptorSetCount = kNearLevels;
         dsai.pSetLayouts = layouts.data();
         VK_CHECK(vkAllocateDescriptorSets(device_, &dsai, nearSets_));
     }
     nearSize_ = size;
     nearSource_ = prevMip0_;   // (remade with the picture: an anti-aliasing change keeps its size, not its views)
     near_ = createImage(VK_FORMAT_R32_SFLOAT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                        VK_IMAGE_ASPECT_COLOR_BIT, size.width, size.height, VK_SAMPLE_COUNT_1_BIT, 3);
-    for (uint32_t m = 0; m < 3; ++m) {
+                        VK_IMAGE_ASPECT_COLOR_BIT, size.width, size.height, VK_SAMPLE_COUNT_1_BIT, kNearLevels);
+    for (uint32_t m = 0; m < kNearLevels; ++m) {
         VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         vci.image = near_.image;
         vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
@@ -410,7 +410,7 @@ void Renderer::ensureNear() {
         nearLevels_.push_back(v);
     }
     // Level k's set: the picture's first level (its alpha) or level k - 1 to read, level k to write
-    for (uint32_t m = 0; m < 3; ++m) {
+    for (uint32_t m = 0; m < kNearLevels; ++m) {
         VkDescriptorImageInfo src{hizSampler_, m == 0 ? prevMip0_ : nearLevels_[m - 1],
                                   m == 0 ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL};
         VkDescriptorImageInfo dst{VK_NULL_HANDLE, nearLevels_[m], VK_IMAGE_LAYOUT_GENERAL};
@@ -434,7 +434,7 @@ void Renderer::ensureNear() {
     b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b.image = near_.image;
-    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 3, 0, 1};
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, kNearLevels, 0, 1};
     vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &b);
     VkClearColorValue zero{{0.f, 0.f, 0.f, 0.f}};
     vkCmdClearColorImage(cb, near_.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &b.subresourceRange);
@@ -444,12 +444,12 @@ void Renderer::ensureNear() {
     vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          0, 0, nullptr, 0, nullptr, 1, &b);
     endOneTimeCommands(cb);
-    // Every frame's set: binding 39 (all three levels, sampled by level)
+    // Every frame's set: binding 39 (all its levels, sampled by level)
     VkImageViewCreateInfo vci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     vci.image = near_.image;
     vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vci.format = VK_FORMAT_R32_SFLOAT;
-    vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 3, 0, 1};
+    vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, kNearLevels, 0, 1};
     if (near_.view) vkDestroyImageView(device_, near_.view, nullptr);
     VK_CHECK(vkCreateImageView(device_, &vci, nullptr, &near_.view));
     for (VkDescriptorSet set : descSets_) {
@@ -475,7 +475,7 @@ void Renderer::recordNear(VkCommandBuffer cb) {
         b.oldLayout = b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         b.image = near_.image;
-        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 3, 0, 1};
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, kNearLevels, 0, 1};
         vkCmdPipelineBarrier(cb, src, dst, 0, 0, nullptr, 0, nullptr, 1, &b);
     };
     barrier(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -483,7 +483,7 @@ void Renderer::recordNear(VkCommandBuffer cb) {
     struct Push {
         int32_t a[4], b[4];
     } p{};
-    for (uint32_t m = 0; m < 3; ++m) {
+    for (uint32_t m = 0; m < kNearLevels; ++m) {
         uint32_t w = std::max(nearSize_.width >> m, 1u), h = std::max(nearSize_.height >> m, 1u);
         p = {{m == 0 ? 1 : 0, 0, (int32_t)w, (int32_t)h}, {}};
         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, nearPipeline_);
@@ -491,7 +491,7 @@ void Renderer::recordNear(VkCommandBuffer cb) {
         vkCmdPushConstants(cb, hizLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(p), &p);
         vkCmdDispatch(cb, (w + 7) / 8, (h + 7) / 8, 1);
         barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_WRITE_BIT,
-                m < 2 ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+                m + 1 < kNearLevels ? VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT : VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
 }
 

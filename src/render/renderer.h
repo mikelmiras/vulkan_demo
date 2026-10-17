@@ -921,7 +921,8 @@ private:
     // per 2 x 2, 4 x 4 and 8 x 8, built after the picture's captured; GENERAL throughout
     Image near_;
     std::vector<VkImageView> nearLevels_;
-    VkDescriptorSet nearSets_[3] = {};
+    static constexpr uint32_t kNearLevels = 5;   // (the nearest per 2, 4, 8, 16 and 32 pixels square)
+    VkDescriptorSet nearSets_[kNearLevels] = {};
     VkDescriptorPool nearPool_ = VK_NULL_HANDLE;
     VkPipeline nearPipeline_ = VK_NULL_HANDLE;
     VkExtent2D nearSize_{0, 0};

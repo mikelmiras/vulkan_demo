@@ -265,6 +265,7 @@ set(ENGINE_SOURCES
   src/render/probe_schedule.cpp
   src/render/area_light.cpp
   src/render/specular_aa.cpp
+  src/render/hiz_trace.cpp
   src/render/camera_fx.cpp
   src/render/renderer_fog.cpp
   src/render/volumetric_fog.cpp
@@ -501,6 +502,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_probe_schedule.cpp
     tests/test_area_light.cpp
     tests/test_specular_aa.cpp
+    tests/test_hiz_trace.cpp
     tests/test_camera_effects.cpp
     tests/test_hdr_image.cpp
     tests/test_color_glyphs.cpp

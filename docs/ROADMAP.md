@@ -2186,7 +2186,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 |---|------|-----|
 | 129 (done) | Area lights: rectangles and tubes (a Light shape and its size), lit with linearly transformed cosines (LTC: the diffuse and the GGX highlight of a polygon), their shadows from the point at their middle | A neon tube or a shop window lights the street as a point: a pinpoint highlight where a long streak should be |
 | 130 (done) | Specular anti-aliasing: each pixel's roughness widened by its normals' variance (the normal map's mips, Toksvig; the geometry's, from the screen-space derivatives) | Glossy, normal-mapped and wet surfaces sparkle and crawl under motion; temporal AA only partly hides it |
-| 131 | Reflections, rough and far: more levels in the near pyramid (16 and 32 px tiles), and rough surfaces' reflections as a cone over a blurred chain of the captured picture rather than jittered rays | Rough reflections are noisy and smeared by the temporal pass; long rays still take many steps |
+| 131 (done) | Reflections, rough and far: more levels in the near pyramid (16 and 32 px tiles), and rough surfaces' reflections as a cone over a blurred chain of the captured picture rather than jittered rays | Rough reflections are noisy and smeared by the temporal pass; long rays still take many steps |
 | 132 | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
 | 133 | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
 | 134 | Lamps' soft shadows cheaper: the blocker search at half size per tile, or kept from last frame where nothing moved; the lit pass's cost measured on Night Drive | PCSS for lamps costs Night Drive's lit pass 7 % |
@@ -2221,3 +2221,15 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   little broader), temporal AA, Night Drive, the editor, the demo, under CI's validation layer. Not done: the
   terrain layers' normal maps, normal maps' mips made in linear space (the blits average sRGB-decoded values for
   the colour view; the normals read through the linear view of the same mips).
+- **131, reflections further for less**: the rough half of the plan was already there (traceReflection reads the
+  picture's mip by a cone, roughness squared times the distance, no jittered rays); the far half: the near pyramid
+  has five levels now (kNearLevels: 2 to 32 px), and the trace climbs it: over a clear tile it jumps to the tile's
+  edge (or a grown step) and goes a level up, up to 32 x 32; over an occupied one it goes a level down (the step not
+  grown: no further along), down to 8 x 8, then steps finely as before; reach 200 m (was 120). render/hiz_trace.*
+  models the walk in one dimension, tested against a texel-by-texel march: the same hits on 200 random rows of posts
+  and slopes, fewer samples on most, open space crossed in a handful. Checked: a mirror slab and a satin one under
+  the demo's pillars, the old trace compiled into the same build (screen_trace.glsl reaches scene.frag, its early
+  variant, ssr_trace and gi_trace, with their multisampled ones): the same reflections, the half-size traces 22.5
+  ms against 26.7; Night Drive, the editor, the demo, under CI's validation layer. Not done: the GI rays over the
+  pyramid (task 133), rough reflections from more than one ray (a cone over the mips only), a proper blur chain
+  (the mips are box-filtered).
