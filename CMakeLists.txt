@@ -269,6 +269,7 @@ set(ENGINE_SOURCES
   src/render/hiz_trace.cpp
   src/render/lamp_shadow.cpp
   src/render/gi_denoise.cpp
+  src/render/contact_lamps.cpp
   src/render/camera_fx.cpp
   src/render/renderer_fog.cpp
   src/render/volumetric_fog.cpp
@@ -508,6 +509,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_hiz_trace.cpp
     tests/test_lamp_shadow.cpp
     tests/test_gi_denoise.cpp
+    tests/test_contact_lamps.cpp
     tests/test_camera_effects.cpp
     tests/test_hdr_image.cpp
     tests/test_color_glyphs.cpp

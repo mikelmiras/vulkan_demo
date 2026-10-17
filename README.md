@@ -566,8 +566,9 @@ dropping on the right.
 - **Contact shadows** (Scene look > Contact shadows): a short ray towards the sun through the view's depth for
   each pixel (with the half-size traces), catching the contact the shadow maps are too
   coarse for: a tyre on the road, a box against a wall, the gaps between stacked crates. Its reach grows with
-  distance (the same few pixels); about 3% of Night Drive's frame on lavapipe. The nearest point or spot light
-  that casts shadows gets them too (a lamp over a table, a car's headlight on the kerb); the others don't.
+  distance (the same few pixels); about 3% of Night Drive's frame on lavapipe. The four nearest point and spot
+  lights that cast shadows get them too (a lamp over a table, a car's headlight on the kerb), each traced only where
+  it's in reach and lights the surface's side; lamps further off don't.
 - **HDR output** (View > HDR output, `VKWORLD_HDR=1`, or a game's `settings.hdr`): on a display (and driver) that
   takes it, the picture goes out as HDR10 (PQ, Rec.2020 primaries; else scRGB): highlights keep their brightness up
   to the display's peak instead of rolling off at white, and the UI sits at paper white (`VKWORLD_HDR_PAPER_WHITE`,

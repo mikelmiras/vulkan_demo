@@ -91,7 +91,12 @@ layout(set = 0, binding = 35) uniform sampler2D tracedDepth;         // r = the 
 layout(set = 0, binding = 41, rgba16ui) uniform writeonly uimage2D skinSpecular;
 bool halfTraced = false;
 vec4 tracedReflection = vec4(0.0), tracedIrradiance = vec4(0.0);
-float tracedContact = 1.0, tracedLampContact = 1.0;   // (the sun's, frame.contactLight's)
+float tracedContact = 1.0;   // (the sun's)
+vec4 tracedLampContacts = vec4(1.0);   // (frame.contactLights')
+vec4 unpackContacts(vec2 ba) {   // (contact_lamps.cpp's unpack3, and the fourth)
+    float p = round(ba.x);   // (not floor(p + 0.5): near 2^24 the half is lost)
+    return vec4(mod(p, 256.0), mod(floor(p / 256.0), 256.0), floor(p / 65536.0), 0.0) / 255.0 + vec4(0.0, 0.0, 0.0, ba.y);
+}
 void readTraced() {
     vec2 size = vec2(textureSize(tracedDepth, 0));
     vec2 hp = gl_FragCoord.xy * 0.5 - 0.5;
@@ -99,12 +104,15 @@ void readTraced() {
     vec2 f = hp - vec2(b);
     float myZ = dot(vWorldPos - frame.camPos.xyz, frame.camForward.xyz);
     vec4 r = vec4(0.0), g = vec4(0.0);
-    float total = 0.0, nearest = 1e9, contact = 0.0, nearC = 1.0, lamp = 0.0, nearL = 1.0;
+    float total = 0.0, nearest = 1e9, contact = 0.0, nearC = 1.0;
+    vec4 lamp = vec4(0.0), nearL = vec4(1.0);
     vec4 nearR = vec4(0.0), nearG = vec4(0.0);
     for (int i = 0; i < 4; ++i) {
         ivec2 o = ivec2(i & 1, i >> 1);
         ivec2 c = clamp(b + o, ivec2(0), ivec2(size) - 1);
-        vec3 zc = texelFetch(tracedDepth, c, 0).rgb;
+        vec4 zc4 = texelFetch(tracedDepth, c, 0);
+        vec3 zc = zc4.rgb;
+        vec4 lc = unpackContacts(zc4.ba);
         float z = zc.x;
         float off = abs(z - myZ) / max(myZ, 0.1);
         float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y) / (1.0 + off * off * 2500.0);
@@ -112,15 +120,15 @@ void readTraced() {
         r += tr * w;
         g += tg * w;
         contact += zc.y * w;
-        lamp += zc.z * w;
+        lamp += lc * w;
         total += w;
-        if (off < nearest) { nearest = off; nearR = tr; nearG = tg; nearC = zc.y; nearL = zc.z; }
+        if (off < nearest) { nearest = off; nearR = tr; nearG = tg; nearC = zc.y; nearL = lc; }
     }
     // (none near this depth, a thin thing: the nearest in depth)
     tracedReflection = total > 1e-3 ? r / total : nearR;
     tracedIrradiance = total > 1e-3 ? g / total : nearG;
     tracedContact = total > 1e-3 ? contact / total : nearC;
-    tracedLampContact = total > 1e-3 ? lamp / total : nearL;
+    tracedLampContacts = total > 1e-3 ? lamp / total : nearL;
 }
 
 layout(location = 0) out vec4 outColor;
@@ -1156,7 +1164,9 @@ void main() {
             shadowView += face;   // (its tint: that face's)
         }
         if (light <= 0.0) continue;
-        if (halfTraced && frame.trace.w > 0.5 && float(index) == frame.contactLight.w) light *= tracedLampContact;
+        if (halfTraced && frame.trace.w > 0.5)   // (the lamps' contact shadows, for those that have them)
+            for (int c = 0; c < 4; ++c)
+                if (float(index) == frame.contactLights[c].w) light *= tracedLampContacts[c];
         vec3 lampLight = li.color.rgb * light;
         if (kTint && shadowView >= 0 && lampsTinted()) lampLight *= lampTint(shadowView, vWorldPos + lightSide * 0.04);
         // (its highlight from its shape: the tube's point nearest the reflected ray, then its bulb's; the point's

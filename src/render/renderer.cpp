@@ -4,6 +4,7 @@
 #include <chrono>
 
 #include "core/vfs.h"
+#include "render/contact_lamps.h"
 #include "render/light_shafts.h"
 #include "render/renderer_internal.h"
 
@@ -2128,14 +2129,19 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         shadowLayers_ = computeShadows(info, normalize(sun.direction), frameShadows_, points, u, lightShadow);
         for (uint32_t i = 0; i < kShadowLayers; ++i) shadowViewProj_[i] = u.shadowViewProj[i];
     }
-    // Contact shadows from a lamp too: the nearest that casts shadows (the lights come nearest first)
-    set4(u.contactLight, {0.f, 0.f, 0.f}, -1.f);
-    if (shadows && u.trace[3] > 0.5f)
-        for (size_t i = 0; i < points.size() && i < lightShadow.size(); ++i)
-            if (lightShadow[i] >= 0) {
-                set4(u.contactLight, points[i]->position, (float)i);
-                break;
+    // Contact shadows from lamps too: the four nearest that cast shadows (the lights come nearest first)
+    for (int k = 0; k < contactlamps::kMax; ++k) set4(u.contactLights[k], {0.f, 0.f, 0.f}, -1.f);
+    set4(u.contactRanges, {0.f, 0.f, 0.f}, 0.f);
+    if (shadows && u.trace[3] > 0.5f) {
+        std::vector<bool> shadowed(std::min(points.size(), lightShadow.size()), false);
+        for (size_t i = 0; i < shadowed.size(); ++i) shadowed[i] = lightShadow[i] >= 0;
+        const std::array<int, contactlamps::kMax> lamps = contactlamps::choose(shadowed);
+        for (int k = 0; k < contactlamps::kMax; ++k)
+            if (lamps[(size_t)k] >= 0) {
+                set4(u.contactLights[k], points[(size_t)lamps[(size_t)k]]->position, (float)lamps[(size_t)k]);
+                u.contactRanges[k] = points[(size_t)lamps[(size_t)k]]->range;
             }
+    }
     set4(u.camPos, info.camPos, 1.f);
     set4(u.fogColor, fog, info.fogDensity);
     u.viewport[0] = info.viewportW;

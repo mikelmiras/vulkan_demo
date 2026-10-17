@@ -64,8 +64,9 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 trace;               // x = 1: reflections and GI traced at half size this frame, y = 1: their history is
                               // good, z = which of each 2 x 2 block's pixels they trace this frame (0..3), w = 1:
                               // contact shadows with them
-    vec4 contactLight;        // the point or spot light with contact shadows too (the nearest shadowed one): xyz
-                              // where, w = its index in the lights (-1: none)
+    vec4 contactLights[4];    // the lamps with contact shadows too (the four nearest shadowed): xyz where, w = its
+                              // index in the lights (-1: none); tracedDepth's b (three, packed) and a (the fourth)
+    vec4 contactRanges;       // ... their ranges
     vec4 shafts;              // light shafts (shafts.glsl): x = scattering per metre (0: none), y = how many lamps, w = steps
     vec4 shaftsViewport;      // the picture's rectangle (pixels: not scaled down), the shafts' half-size pixels' frame
     vec4 shaftLamps;          // the lamps' indices in the lights (shafts.y of them)

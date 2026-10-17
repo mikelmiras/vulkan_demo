@@ -98,7 +98,9 @@ struct FrameUBO {
     float drawnViewport[4];   // the scene's rectangle as drawn (pixels: smaller with a render scale): the traces'
     float trace[4];           // x = 1: traced this frame, y = 1: their history is good, z = the 2 x 2 block's pixel,
                               // w = 1: contact shadows (in tracedDepth_'s g)
-    float contactLight[4];    // the lamp with contact shadows too (tracedDepth_'s b): xyz where, w = its index (-1: none)
+    float contactLights[4][4];   // the lamps with contact shadows too (tracedDepth_'s b, packed, and a): xyz where, w =
+                                 // its index (-1: none)
+    float contactRanges[4];      // ... their ranges
     float shafts[4];          // light shafts: scattering per metre (0: none), how many lamps, unused, steps
     float shaftsViewport[4];  // the picture's rectangle (not scaled down)
     float shaftLamps[4];      // the lamps' indices in the lights

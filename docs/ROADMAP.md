@@ -2304,7 +2304,7 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
 | 138 (done) | The sharpening folded into the temporal pass's output (it writes the sharpened picture and keeps the history unsharpened in a second target), one full-screen pass fewer; measured | The sharpening is a whole pass of its own after the temporal one |
 | 139 (done) | Screen-space GI's bounce denoised: an edge-aware blur (depth and normal weighted) of the half-size traced light before scene.frag brings it up | The longer bounce rays (task 133) left grain where they meet things sporadically |
 | 140 (done) | Shaped lights in the fog and the shafts: tubes' and rectangles' nearest points for the volumetric fog's in-scattering and the light shafts' halos | A neon tube glows in the fog as a ball of light |
-| 141 | Contact shadows from the four nearest shadowed lamps, not only the nearest (their directions traced at half size together) | Only one lamp's shadows meet the ground; the others float a little |
+| 141 (done) | Contact shadows from the four nearest shadowed lamps, not only the nearest (their directions traced at half size together) | Only one lamp's shadows meet the ground; the others float a little |
 | 142 | Volumetric clouds: a ray-marched layer (the same noise, given height and density), lit by the sun through itself (a phase function, a shadow ray) and the sky, drawn at quarter size with temporal reprojection; the flat layer kept for low quality | The clouds are a flat texture across the sky: no depth, no light through their edges |
 | 143 | Normal maps' mips filtered in linear space (not through the sRGB view), keeping their normals' length for specular anti-aliasing; terrain layers' normal maps in it too | The mips of normal maps are averaged as colours; terrain glints unchecked |
 | 144 | Night Drive's cars as painted metal: clear-coated paint with a metallic base, glass that reflects the street, the taxi's livery | The cars are flat-coloured boxes beside the reflective street |
@@ -2358,3 +2358,15 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
   lit teal by it, as it should), Night Drive (the neon's glow in its fog a band along each sign), the editor, the
   demo, under CI's validation layer. Not done: lit particles by the shapes, a halo integrated along the tube
   exactly.
+- **141, contact shadows from four lamps**: FrameUBO's contactLight became contactLights[4] (xyz, the light's index)
+  and contactRanges; contactlamps::choose takes the first four lamps that cast shadows (the lights come nearest
+  first). ssr_trace.frag traces each one in reach that lights the point's side, and packs the four into
+  tracedDepth_'s two free floats: three 8-bit values exactly in b (contactlamps::pack3), the fourth in a, so no new
+  target. scene.frag's readTraced unpacks each texel's before its depth-aware upsample, and the lamp loop takes
+  the contact for whichever of the four the light is. Tested: the choice, and the packing round trip, which found
+  a bug before it shipped: unpacking by floor(p + 0.5) turned 2^24 - 1 (all three lit) into 2^24 (floats step by
+  2 there): round() now, in the shader too. Checked: three shadowed lamps by thin posts and small cubes, with the
+  four contacts visualised (temporary hacks, reverted): the lamps reach the trace and darken where something's in
+  the way within reach; in these scenes the shadow maps already catch most of it, so the visible difference is
+  small (contact shadows reach 15 cm to 1 m); Night Drive, the editor, the demo, under CI's validation layer.
+  Not done: more than four, a longer reach for lamps near the camera.
