@@ -185,7 +185,7 @@ EntityId Editor::pickAt(ImVec2 mp) const {
     mouseRay(mp, origin, dir);
     EntityId best = kNoEntity;
     float bestT = FLT_MAX;
-    for (size_t i = 0; i < scene_.entities.size(); ++i) {
+    for (size_t i = 0; i < std::min(scene_.entities.size(), worlds_.size()); ++i) {   // (see drawEntityIcons)
         const Entity& e = scene_.entities[i];
         if (e.locked) continue;
         const Mat4& world = worlds_[i];
@@ -325,7 +325,8 @@ void Editor::drawEntityIcons() {
     if (viewingGameCamera()) return;
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     dl->PushClipRect(ImVec2(vx_, vy_), ImVec2(vx_ + vw_, vy_ + vh_), true);
-    for (size_t i = 0; i < scene_.entities.size(); ++i) {
+    // (worlds_ is from the frame's start: a scene opened or entities added since have none until the next one)
+    for (size_t i = 0; i < std::min(scene_.entities.size(), worlds_.size()); ++i) {
         const Entity& e = scene_.entities[i];
         if (e.meshRenderer) continue;
         const Mat4& m = worlds_[i];
