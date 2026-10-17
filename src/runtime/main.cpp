@@ -832,6 +832,8 @@ int main(int argc, char** argv) {
         info.localToneMapping = scene.render.localToneMapping;
         info.lensDirt = scene.render.lensDirt;
         info.lensFlare = scene.render.lensFlare;
+        info.starburst = scene.render.starburst;
+        info.starburstBlades = scene.render.starburstBlades;
         info.lightShafts = scene.render.lightShafts;
         info.depthOfField = scene.render.depthOfField;
         info.motionBlur = scene.render.motionBlur;

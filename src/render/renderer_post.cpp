@@ -7,6 +7,7 @@
 
 #include "render/camera_fx.h"
 #include "render/renderer_internal.h"
+#include "render/starburst.h"
 
 using namespace render_detail;
 
@@ -116,6 +117,22 @@ void Renderer::createPostImages() {
     for (uint32_t m = 1; m < bloomMips_; ++m) write(downSets_[m], bloomViews_[m - 1], bloomViews_[m - 1]);
     for (uint32_t m = 0; m + 1 < bloomMips_; ++m) write(upSets_[m], bloomViews_[m + 1], bloomViews_[m + 1]);
     write(compositeSet_, hdr_.view, bloomViews_[0]);
+    write(starburstSet_, bloomViews_[0], bloomViews_[0]);   // (the starburst reads the bloom: binding 1)
+    // The starburst's image: a quarter of the size each way (its streaks come from the half-size bloom)
+    starburstSize_ = {std::max((w * 2 + 3) / 4, 1u), std::max((h * 2 + 3) / 4, 1u)};
+    starburst_ = createImage(hdrFormat_, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT,
+                             starburstSize_.width, starburstSize_.height, VK_SAMPLE_COUNT_1_BIT, 1);
+    starburstFresh_ = true;
+    {
+        VkDescriptorImageInfo info{postSampler_, starburst_.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+        VkWriteDescriptorSet ws{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        ws.dstSet = compositeSet_;
+        ws.dstBinding = 8;
+        ws.descriptorCount = 1;
+        ws.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        ws.pImageInfo = &info;
+        vkUpdateDescriptorSets(device_, 1, &ws, 0, nullptr);
+    }
 
     // Ambient occlusion: half size, single channel; read by the composite (binding 2), made from the depth
     aoSize_ = {w, h};
@@ -396,6 +413,7 @@ void Renderer::destroyPostImages() {
     bloomMips_ = 0;
     if (bloom_.image) destroyImage(bloom_);
     if (ao_.image) destroyImage(ao_);
+    if (starburst_.image) destroyImage(starburst_);
     if (hdr_.image) destroyImage(hdr_);
 }
 
@@ -549,6 +567,16 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                        fragStage, VK_ACCESS_SHADER_READ_BIT);
         }
     }
+    // The starburst from the finished bloom (the main view's), at a quarter of the size
+    const bool starred = view < 0 && bloom && info.starburst > 0.f && starburstPipeline_ && starburst_.image;
+    if (starred) {
+        mipBarrier(cb, starburst_.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        Push p{{1.f / (float)starburstSize_.width, 1.f / (float)starburstSize_.height, 0.f, 0.f}, {}, {}, {}, {}, {},
+               {0.f, 0.f, 0.f, starburst::pack(info.starburstBlades, info.starburst)}};
+        pass(starburst_.view, starburstSize_, starburstPipeline_, starburstSet_, p, false);
+        mipBarrier(cb, starburst_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+                   VK_ACCESS_SHADER_READ_BIT);
+    }
 
     // Ambient occlusion from the depth (or nothing: the composite then ignores it)
     float vx = std::clamp(info.viewportX, 0.f, (float)extent_.width);
@@ -688,7 +716,7 @@ void Renderer::recordPost(VkCommandBuffer cb, uint32_t imageIndex, const SceneRe
                {autoExposed ? 1.f : 0.f, localTone, (float)(kLumMips - 1), lensDirt_.image ? std::clamp(info.lensDirt, 0.f, 1.f) : 0.f},
                // (the glow's scale: the levels past the six it was tuned with widen it, not brighten it)
                {bloom ? std::clamp(info.lensFlare, 0.f, 1.f) : 0.f, bloomMips_ > 6 ? 6.f / (float)bloomMips_ * 1.15f : 1.f,
-                compositeSharpness(view), 0.f}};
+                compositeSharpness(view), starred ? starburst::pack(info.starburstBlades, info.starburst) : 0.f}};
         vkCmdPushConstants(cb, postLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(Push), &p);
         vkCmdDraw(cb, 3, 1, 0, 0);
     }

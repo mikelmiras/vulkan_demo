@@ -670,6 +670,9 @@ dropping on the right.
   through the view's middle as a row of fading ghosts, their colours a little apart, and a faint ring round the
   middle; a street lamp or headlights near the edge of the view throw them across it. The bloom goes eight levels
   down (wider glare round bright lights), weighted so its total stays as it was with six.
+  **Starburst** (0..1, off by default; *Iris blades* 4..9): thin streaks through the brightest spots, as a camera's
+  iris draws them: as many as its blades when they're even, twice as many when odd (Night Drive's lamps: six, faint).
+  Drawn at a quarter of the size each way from the bloom, before the composite adds it.
   **Light shafts** (0..2, off by default; without volumetric fog, which has its own): the clear air lit by the sun
   and scattering it towards you, brightest looking towards the sun, with dark streaks where something blocks it:
   each half-size pixel marches its view ray through the sun's shadow cascades, so what's in the way counts on screen

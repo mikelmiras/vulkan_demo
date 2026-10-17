@@ -214,6 +214,8 @@ TEST(materials_and_render_settings_saved) {
     s.render.localToneMapping = 0.6f;
     s.render.lensDirt = 0.3f;
     s.render.lensFlare = 0.4f;
+    s.render.starburst = 0.7f;
+    s.render.starburstBlades = 7;
     s.render.ssgi = true;
     s.render.contactShadows = true;
     s.render.ssgiIntensity = 0.7f;
@@ -261,6 +263,9 @@ TEST(materials_and_render_settings_saved) {
     CHECK_NEAR(loaded.render.lensDirt, 0.3, 1e-6);
     CHECK_NEAR(loaded.render.lensFlare, 0.4, 1e-6);
     CHECK(Scene{}.render.lensFlare == 0.f);   // (off unless asked for)
+    CHECK_NEAR(loaded.render.starburst, 0.7, 1e-6);
+    CHECK(loaded.render.starburstBlades == 7);
+    CHECK(Scene{}.render.starburst == 0.f && Scene{}.render.starburstBlades == 6);
     CHECK(loaded.render.ssgi && loaded.render.contactShadows);
     CHECK_NEAR(loaded.render.ssgiIntensity, 0.7, 1e-6);
     CHECK(sameRenderSettings(loaded.render, s.render));

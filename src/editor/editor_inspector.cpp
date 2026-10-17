@@ -267,6 +267,14 @@ void Editor::drawInspector(const std::string& gpuName, const RenderStats& stats)
         ImGui::SliderFloat("Lens flare", &r.lensFlare, 0.f, 1.f, "%.2f");
         track();
         tooltip("Ghosts of the brightest spots mirrored across the view's middle, and a ring round it");
+        ImGui::SliderFloat("Starburst", &r.starburst, 0.f, 1.f, "%.2f");
+        track();
+        tooltip("Streaks from the brightest spots (street lamps, the sun on chrome), as a camera's iris draws them");
+        if (r.starburst > 0.f) {
+            ImGui::SliderInt("Iris blades", &r.starburstBlades, 4, 9);
+            track();
+            tooltip("As many streaks as blades when they're even, twice as many when odd");
+        }
         ImGui::SliderFloat("Light shafts", &r.lightShafts, 0.f, 2.f, "%.2f");
         track();
         tooltip("The sun's rays streaming through gaps (trees, windows, between buildings) when it's in view; with "

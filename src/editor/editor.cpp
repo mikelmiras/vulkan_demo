@@ -323,6 +323,8 @@ SceneRenderInfo Editor::renderInfo() const {
     info.localToneMapping = r.localToneMapping;
     info.lensDirt = r.lensDirt;
     info.lensFlare = r.lensFlare;
+    info.starburst = r.starburst;
+    info.starburstBlades = r.starburstBlades;
     info.lightShafts = r.lightShafts;
     info.depthOfField = r.depthOfField;
     info.motionBlur = r.motionBlur;

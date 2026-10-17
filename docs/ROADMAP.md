@@ -2423,7 +2423,7 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
 | 147 (done) | Clouds' shadows from the volume: the same density marched along the sun's ray into a shadow texture over the view, for the ground's sunlight and the sky's ambient | The ground's cloud shadows still come from the flat layer's coverage, not from the clouds drawn |
 | 148 (done) | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
 | 149 (done) | Rectangle lights with a picture (a texture across the rectangle: the light's colour by where on it the nearest point is) and their shadows (from the middle, as a spot's) | Shop windows light the street in one flat colour and through walls |
-| 150 | A starburst on the brightest lights: streaks by the aperture's blades (a setting: blades, length), drawn with the lens flare in the composite | Bright lamps bloom round; a camera's iris draws them as stars |
+| 150 (done) | A starburst on the brightest lights: streaks by the aperture's blades (a setting: blades, length), drawn with the lens flare in the composite | Bright lamps bloom round; a camera's iris draws them as stars |
 | 151 | Night Drive's cars as rounded models: a low-poly car mesh written by a tool (a bevelled body, wheel arches, a sloping windscreen), shared by every car and the taxi | The cars are still boxes |
 
 ### Round 15 notes
@@ -2487,3 +2487,15 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
   reflection red on the left and blue on the right as seen, the floor lit a purple average; with no picture as
   before; MSAA, the editor, Night Drive under CI's validation layer; the save / load test. Not done: the picture in
   the fog and the light shafts (white there), a video's frames, LTC's exact textured integral.
+- **150, a starburst**: RenderSettings::starburst and starburstBlades (scene format 66, module API 74, eq, the
+  inspector's *Starburst* and *Iris blades*). starburst.frag, after the bloom (the main view's), into starburst_ (a
+  quarter of the size each way, hdr format; its own post set reading the bloom; the post sets' layout gains binding
+  8, the composite's): for each of render/starburst.cpp's lines (n / 2 for an even n, n for an odd one), sixteen
+  steps each way along it over a fifth of the height, the bloom's finest level's excess over 1 (compressed as the
+  flare's), weighted (1 - t)^2; skipped where the bloom's level 5 is dark, faded in over 0.03..0.12 (a hard gate drew
+  a disc round each lamp). The composite's push constants are full: g.w carries blades + strength x 0.99
+  (starburst::pack, tested). First drawn in the composite itself: 91 ms more on Night Drive (lamps everywhere pass
+  the gate), the level-1 streaks fat and short; at a quarter of the size from level 0: 12 ms (the composite 119
+  against 107), thin six-pointed stars. Night Drive has it at 0.5. Checked: Night Drive (TAA, MSAA), the editor,
+  the demo under CI's validation layer; the save / load test. Not done: the streaks' colours split (a diffraction
+  rainbow), streaks in extra views (theirs: none).

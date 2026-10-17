@@ -43,7 +43,7 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/particles.comp shaders/particle_sort.comp shaders/particle_gather.comp
                    shaders/shafts.frag shaders/shafts_ms.frag shaders/camera_fx.frag shaders/camera_fx_ms.frag
                    shaders/ssao_temporal.frag shaders/ssao_temporal_ms.frag shaders/camera_fx_tiles.frag shaders/camera_fx_dilate.frag
-                   shaders/gi_denoise.frag shaders/clouds.frag shaders/cloud_shadow.frag
+                   shaders/gi_denoise.frag shaders/clouds.frag shaders/cloud_shadow.frag shaders/starburst.frag
                    shaders/camera_fx_tiles_ms.frag shaders/shadow_tint.frag shaders/sss.frag shaders/sss_ms.frag
                    shaders/near_z.comp)
 set(SPIRV_OUTPUTS)
@@ -269,6 +269,7 @@ set(ENGINE_SOURCES
   src/render/hiz_trace.cpp
   src/render/lamp_shadow.cpp
   src/render/gi_denoise.cpp
+  src/render/starburst.cpp
   src/render/contact_lamps.cpp
   src/render/cloud_shape.cpp
   src/render/camera_fx.cpp
@@ -510,6 +511,7 @@ if(VKWORLD_BUILD_TESTS)
     tests/test_hiz_trace.cpp
     tests/test_lamp_shadow.cpp
     tests/test_gi_denoise.cpp
+    tests/test_starburst.cpp
     tests/test_contact_lamps.cpp
     tests/test_cloud_shape.cpp
     tests/test_camera_effects.cpp

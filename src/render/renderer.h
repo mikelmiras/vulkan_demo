@@ -179,6 +179,8 @@ struct SceneRenderInfo {
     float exposureMin = -4.f, exposureMax = 4.f, adaptationSpeed = 1.f, localToneMapping = 0.f;
     float lensDirt = 0.f;             // (RenderSettings': how much the bloom lights up the lens's dirt)
     float lensFlare = 0.f;            // (RenderSettings': ghosts and a halo from the brightest spots)
+    float starburst = 0.f;            // (... and streaks from them, by the iris's blades)
+    int starburstBlades = 6;
     float lightShafts = 0.f;          // (RenderSettings': the sun's rays on screen, without volumetric fog)
     float depthOfField = 0.f, focusDistance = 10.f, motionBlur = 0.f;   // (RenderSettings'; the focus: its target's)
     float frameSeconds = 1.f / 60.f;  // (auto-exposure's easing: the time since the last frame)
@@ -907,6 +909,13 @@ private:
     Image hdr_, bloom_;
     // Ambient occlusion: half-size, from the scene's depth (ssao.frag), darkening the composite
     Image ao_;
+    // The starburst (starburst.frag, after the bloom: the main view's), a quarter of the size each way; the
+    // composite's binding 8. Its own post set (the bloom at binding 1)
+    Image starburst_;
+    VkExtent2D starburstSize_{1, 1};
+    VkDescriptorSet starburstSet_ = VK_NULL_HANDLE;
+    VkPipeline starburstPipeline_ = VK_NULL_HANDLE;
+    bool starburstFresh_ = false;
     VkExtent2D aoSize_{};
     VkImageView depthSampleView_ = VK_NULL_HANDLE;   // depth_'s depth, for reading
     bool aoSupported_ = false;                       // the depth format can be sampled

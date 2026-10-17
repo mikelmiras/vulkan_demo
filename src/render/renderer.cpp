@@ -826,7 +826,7 @@ void Renderer::createPipelines() {
     }
 
     // Post-processing: one or two images to read, parameters in push constants
-    VkDescriptorSetLayoutBinding postBindings[8] = {
+    VkDescriptorSetLayoutBinding postBindings[9] = {
         {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: AO)
@@ -835,8 +835,9 @@ void Renderer::createPipelines() {
         {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: luminance)
         {6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: lens dirt)
         {7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: light shafts)
+        {8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},   // (composite: the starburst)
     };
-    dslci.bindingCount = 8;
+    dslci.bindingCount = 9;
     dslci.pBindings = postBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &postSetLayout_));
     VkPushConstantRange pcr{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 112};   // (seven vec4s: the composite's)
@@ -866,6 +867,7 @@ void Renderer::createPipelines() {
     giTraceMsPipeline_ = createPostPipeline("gi_trace_ms.frag.spv", VK_FORMAT_R16G16B16A16_SFLOAT, false, pipelineLayout_);
     adaptPipeline_ = createPostPipeline("adapt.frag.spv", VK_FORMAT_R32_SFLOAT, false);
     bloomUpPipeline_ = createPostPipeline("bloom_up.frag.spv", hdrFormat_, true);
+    starburstPipeline_ = createPostPipeline("starburst.frag.spv", hdrFormat_, false);
     compositePipeline_ = createPostPipeline("composite.frag.spv", swapFormat_, false);
     compositeViewPipeline_ = createPostPipeline("composite.frag.spv", sdrFormat_, false);
     createSampledPipelines();
@@ -1230,8 +1232,9 @@ void Renderer::createResources(const MeshLibrary&) {
 
     // Post-processing sets: prefilter, the downsamples, the upsamples and the composite
     // (+2 per view: the temporal pass's two directions; +2: auto-exposure's luminance and adaptation; +1: the sky's)
-    const uint32_t postSetCount = 2 * kMaxBloomMips + 14 + 2 * kMaxViews;   // (+1: the camera effects'; +2: AO's history; +2: SSS)
-    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 8 * postSetCount};
+    const uint32_t postSetCount = 2 * kMaxBloomMips + 15 + 2 * kMaxViews;   // (+1: the camera effects'; +2: AO's history; +2: SSS;
+                                                                           //  +1: the starburst's)
+    VkDescriptorPoolSize postSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9 * postSetCount};
     dpci.maxSets = postSetCount;
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &postSize;
@@ -1259,6 +1262,7 @@ void Renderer::createResources(const MeshLibrary&) {
     aoTemporalSets_[1] = postSets[11 + 2 * kMaxBloomMips + 2 * kMaxViews];
     sssSets_[0] = postSets[12 + 2 * kMaxBloomMips + 2 * kMaxViews];
     sssSets_[1] = postSets[13 + 2 * kMaxBloomMips + 2 * kMaxViews];
+    starburstSet_ = postSets[14 + 2 * kMaxBloomMips + 2 * kMaxViews];
     {   // (the luminance image is mipped by blits: its format must allow filtered ones)
         VkFormatProperties fp;
         vkGetPhysicalDeviceFormatProperties(gpu_, VK_FORMAT_R16_SFLOAT, &fp);
@@ -1463,6 +1467,11 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
                      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
     }
     uiLayerFresh_ = false;
+    if (starburstFresh_ && starburst_.image) {   // (the starburst's, just made: readable before the composite samples it)
+        mipBarrier(cb, starburst_.image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        starburstFresh_ = false;
+    }
     if (lumFresh_) {   // (auto-exposure's images, just made: readable before anything samples them)
         for (VkImage image : {lum_.image, exposure_[0].image, exposure_[1].image})
             mipBarrier(cb, image, 0, image == lum_.image ? kLumMips : 1, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -2479,7 +2488,7 @@ void Renderer::shutdown() {
     destroySwapchainResources();
     vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     destroySampledPipelines();
-    for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, shadowTintPipeline_, bloomDownPipeline_, bloomUpPipeline_, compositePipeline_,
+    for (VkPipeline p : {shadowPipeline_, shadowCutoutPipeline_, shadowTintPipeline_, bloomDownPipeline_, bloomUpPipeline_, starburstPipeline_, compositePipeline_,
                          compositeViewPipeline_,
                          taaPipeline_, taaUpscalePipeline_, lumPipeline_, adaptPipeline_, ssrTracePipeline_, giTracePipeline_, giDenoisePipeline_, cloudsPipeline_, cloudShadowPipeline_,
                          ssrTraceMsPipeline_, giTraceMsPipeline_})

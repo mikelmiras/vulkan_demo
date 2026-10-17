@@ -488,6 +488,8 @@ scene = {
             "wetness": 0.85, "puddles": 0.4, "rain": 0.7,
             # Contact shadows: tyres on the road, kerbs, the lamp posts' feet (the shadow maps are coarse from up there)
             "contactShadows": True,
+            # The street lamps drawn as a camera's iris would: faint six-pointed stars
+            "starburst": 0.5, "starburstBlades": 6,
         }
     },
 }

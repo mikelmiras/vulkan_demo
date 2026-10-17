@@ -10,6 +10,7 @@ layout(set = 0, binding = 3) uniform sampler2D uiLayer;   // the UI, drawn apart
 layout(set = 0, binding = 4) uniform sampler2D exposureMap;   // auto-exposure: log2 of its factor (one texel)
 layout(set = 0, binding = 5) uniform sampler2D luminance;     // the view's log2 luminance, mipped (local tone mapping)
 layout(set = 0, binding = 6) uniform sampler2D lensDirt;      // smudges and specks the bloom catches (renderer_post.cpp)
+layout(set = 0, binding = 8) uniform sampler2D starburstLayer;   // the starburst, quarter size (starburst.frag; when g.w > 0)
 layout(set = 0, binding = 7) uniform sampler2D shafts;        // the light shafts, half size (when a.w = 1: shafts.glsl; a = what
                                                               // the air leaves of the picture)
 layout(push_constant) uniform Post {
@@ -22,7 +23,8 @@ layout(push_constant) uniform Post {
     vec4 e;   // x = tone mapper (0 PBR Neutral, 1 filmic), y = contrast, z = saturation, w = vignette
     vec4 f;   // x = 1: auto-exposure, y = local tone mapping (0..1), z = the luminance's last mip, w = lens dirt
     vec4 g;   // x = lens flare (0..1), y = the glow's scale (more bloom levels: wider, not brighter), z = sharpening
-              // (0..1: temporal AA's or the upscaler's softness taken back)
+              // (0..1: temporal AA's or the upscaler's softness taken back), w = starburst: the iris's blades + its
+              // strength x 0.99 (render/starburst.cpp's pack; 0: none)
 } pc;
 
 // A lens's flare (after Chapman's pseudo lens flare): the brightest spots (what's over 1 in the bloom's blurred
@@ -156,6 +158,7 @@ void main() {
     // (the glow, and where the lens is dirty, more of it: smudges lit up by bright lights)
     vec3 glow = texture(bloom, uv).rgb * pc.a.y * pc.g.y;
     if (pc.g.x > 0.0) glow += lensFlare(uv) * (pc.g.x * 0.06);
+    if (pc.g.w > 0.0) glow += texture(starburstLayer, uv).rgb;
     if (pc.f.w > 0.0) glow *= 1.0 + texture(lensDirt, uv).rgb * (pc.f.w * 6.0);
     vec3 c = max(scene, vec3(0.0)) + glow;
     if (pc.a.w > 0.5 && !outside) {   // (a little blur over the half-size shafts, as over the occlusion: their march's dither)
