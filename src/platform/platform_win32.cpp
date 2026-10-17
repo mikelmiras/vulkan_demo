@@ -671,7 +671,12 @@ VkSurfaceKHR createVulkanSurface(VkInstance instance) {
     return surface;
 }
 
-void imguiInit() { ImGui_ImplWin32_Init(g_hwnd); }
+void imguiInit() {
+    ImGui_ImplWin32_Init(g_hwnd);
+    // The backend always offers multi-viewports, but the Vulkan backend then asserts on a CreateVkSurface handler
+    // the Win32 backend doesn't provide. The editor doesn't use them (docking only), so withdraw the offer.
+    ImGui::GetIO().BackendFlags &= ~ImGuiBackendFlags_PlatformHasViewports;
+}
 
 void imguiNewFrame(float) {
     ImGui_ImplWin32_NewFrame();   // the backend measures size and time itself
