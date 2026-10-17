@@ -30,6 +30,10 @@ walk the sidewalks and now and then cross at a zebra to the next block, waiting 
 The cycle is worked out from the clock the same way by the lights, the cars and the pedestrians, so nothing is
 shared between them.
 
+The neon signs over the doors light the street as tubes (point lights with a *Tube length*), their colour
+stretched along the wall and the wet road mirroring a streak; about one in eight is on the blink
+(`scripts/NeonFlicker.lua`: a burst of quick flickers every few seconds, the sign's tube and light together).
+
 ## Models
 
 `models/city/` (City Kit Commercial) and `models/roads/` (City Kit Roads) are by Kenney (www.kenney.nl), CC0: see the

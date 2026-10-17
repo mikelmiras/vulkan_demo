@@ -479,7 +479,7 @@ TEST(night_drive_example_loads) {
     REQUIRE(fs::is_regular_file(dir / "project.json"));
     fs::path previous = project::root();
     project::setRoot(dir);
-    CHECK(scripting::loadProject(dir) == 5);
+    CHECK(scripting::loadProject(dir) == 6);
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary texs = buildTextureLibrary();
     Scene scene;
@@ -494,9 +494,15 @@ TEST(night_drive_example_loads) {
     CHECK(std::string(cam->behaviours[0]->typeName()) == "ChaseCamera");
     CHECK(!dynamic_cast<const MissingBehaviour*>(cam->behaviours[0].get()));
     CHECK(scene.render.reflections);
-    int lights = 0;
-    for (const Entity& e : scene.entities) lights += e.light ? 1 : 0;
+    int lights = 0, tubes = 0, flickering = 0;
+    for (const Entity& e : scene.entities) {
+        lights += e.light ? 1 : 0;
+        tubes += e.light && e.name == "Neon light" && e.light->length > 1.f ? 1 : 0;   // (the neon: tube lights)
+        for (const auto& b : e.behaviours) flickering += std::string(b->typeName()) == "NeonFlicker" ? 1 : 0;
+    }
     CHECK(lights > 50);
+    CHECK(tubes > 10);
+    CHECK(flickering > 0 && flickering < tubes);
     scripting::reset();
     project::setRoot(previous);
 }
@@ -511,7 +517,7 @@ TEST(night_drive_traffic) {
     fs::path dir = fs::u8path(VKWORLD_SAMPLE_GAME).parent_path() / "night_drive";
     fs::path previous = project::root();
     project::setRoot(dir);
-    REQUIRE(scripting::loadProject(dir) == 5);
+    REQUIRE(scripting::loadProject(dir) == 6);
     MeshLibrary meshes = buildMeshLibrary();
     TextureLibrary texs = buildTextureLibrary();
     Scene scene;

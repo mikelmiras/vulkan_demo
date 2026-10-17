@@ -2190,7 +2190,7 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
 | 132 (done) | The temporal pass's cost back down: the nearest motion found once per 2 x 2 (gathered), the history's Catmull-Rom taps shared, measured against round 12 | 132 ms on lavapipe against about 70 before task 117 |
 | 133 (done) | Screen-space GI over the near pyramid: its rays jump empty tiles as the reflections' do, reaching further for the same steps | The bounced light's rays are short: a lit wall a few metres off adds nothing |
 | 134 (done) | Lamps' soft shadows cheaper: the blocker search at half size per tile, or kept from last frame where nothing moved; the lit pass's cost measured on Night Drive | PCSS for lamps costs Night Drive's lit pass 7 % |
-| 135 | Night Drive's neon as area lights: its signs' tubes lighting the wet street in streaks, a few flickering | The neon glows but lights the street like bare bulbs |
+| 135 (done) | Night Drive's neon as area lights: its signs' tubes lighting the wet street in streaks, a few flickering | The neon glows but lights the street like bare bulbs |
 | 136 | Bloom and lens: a wider, physically shaped glare (more levels, energy-preserving), and lens flare ghosts and halo from the brightest spots, as a scene setting | Bloom stops short round bright lights; night scenes want the street lamps to glow into the haze |
 
 ### Round 13 notes
@@ -2268,3 +2268,13 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   three shadowed point lights by four pillars, the old search compiled into the same build (the same penumbrae, a
   touch smoother), Night Drive, the editor, the demo, under CI's validation layer. Not done: a search kept from
   last frame where nothing moved; a lamp-heavy GPU benchmark scene steadier than lavapipe allows.
+- **135, Night Drive's neon as tubes**: make_city.py's signs are groups now ("Neon sign", turned with their
+  building so x runs along the sign): the glowing bar, and a tube light (task 129) 0.9 of the sign's length, 1.2 m
+  out and a little below (at half a metre the light washed only the wall: the coloured pools on the street, the
+  showcase's look from above, shrank; out there they stretch along the sign onto the road), 2.2 bright, range 11.
+  scripts/NeonFlicker.lua blinks a sign's group (the bar and its light together, `visible`): steady for a few
+  seconds, then an odd number of quick flips so it ends lit; which signs flicker comes from a stream of its own
+  (neon_rng), so the rest of the city is as it was (4 of 31). The project tests count six scripts and check the
+  signs' tubes and the flicker are there; night_drive_traffic's 40 s run has no script errors. Checked: Night
+  Drive against its scene before (the neon's colour now a band along each sign), under CI's validation layer, 60
+  frames. Not done: signs' own shapes (letters) as several tubes, the flicker's buzz.

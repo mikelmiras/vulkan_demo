@@ -22,6 +22,7 @@ LAMP_EVERY = 22.0     # street lamps along each street (m)
 rng = random.Random(SEED)
 puddle_rng = random.Random(SEED + 1)   # (its own: the rest of the city stays as it was without puddles)
 traffic_rng = random.Random(SEED + 2)  # (and the traffic's)
+neon_rng = random.Random(SEED + 4)     # (and which neon signs flicker)
 TRAFFIC = 6           # cars driving the streets
 LANE = 3.6            # from a street's middle to its lanes'
 entities = []
@@ -181,11 +182,18 @@ for bx in range(BLOCKS):
                     sw = min(width * 0.6, rng.uniform(3, 5))
                     y = rng.uniform(3.4, 5.0)
                     front = (px + face[0] * (sx / 2 + 0.3), pz + face[2] * (sz / 2 + 0.3))
-                    scale = (sw, 0.6, 0.12) if face[2] != 0 else (0.12, 0.6, sw)
-                    entity("Neon", (front[0] - px, 0.15 + y - (0.15 + height / 2), front[1] - pz), scale=scale, parent=root,
+                    # (a group turned with the building, its x along the sign: the tube, and a tube light as long a
+                    # little out over the street, so the wet street mirrors a streak, not a dot; about one in eight on the blink)
+                    flicker = neon_rng.random() < 0.12
+                    sign = entity("Neon sign", (front[0] - px, 0.15 + y - (0.15 + height / 2), front[1] - pz), (0, yaw, 0),
+                                  parent=root, **({"behaviours": [{"type": "NeonFlicker", "seed": neon_rng.randrange(1, 100000),
+                                                                   "steady": round(neon_rng.uniform(2, 9), 2)}]}
+                                                  if flicker else {}))
+                    entity("Neon", (0, 0, 0), scale=(sw, 0.6, 0.12), parent=sign,
                            meshRenderer=look("Cube", neon, emissive=neon, strength=3.0))
-                    entity("Neon light", (front[0] + face[0] * 2.5, y - 1.0, front[1] + face[2] * 2.5),
-                           light=point_light(neon, 1.8, 10.0))
+                    tube = point_light(neon, 2.2, 11.0)
+                    tube["length"] = round(sw * 0.9, 2)
+                    entity("Neon light", (0, -0.4, 1.2), parent=sign, light=tube)
                 along += width + rng.uniform(0.2, 1.2)
 
 # ---- Street lamps: sodium orange, along the sidewalks' edges -----------------------------------------------------
