@@ -43,7 +43,7 @@ set(SHADER_SOURCES shaders/scene.vert shaders/scene.frag shaders/outline.vert sh
                    shaders/particles.comp shaders/particle_sort.comp shaders/particle_gather.comp
                    shaders/shafts.frag shaders/shafts_ms.frag shaders/camera_fx.frag shaders/camera_fx_ms.frag
                    shaders/ssao_temporal.frag shaders/ssao_temporal_ms.frag shaders/camera_fx_tiles.frag shaders/camera_fx_dilate.frag
-                   shaders/gi_denoise.frag shaders/clouds.frag
+                   shaders/gi_denoise.frag shaders/clouds.frag shaders/cloud_shadow.frag
                    shaders/camera_fx_tiles_ms.frag shaders/shadow_tint.frag shaders/sss.frag shaders/sss_ms.frag
                    shaders/near_z.comp)
 set(SPIRV_OUTPUTS)

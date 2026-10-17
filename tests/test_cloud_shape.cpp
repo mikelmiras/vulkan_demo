@@ -48,3 +48,23 @@ TEST(cloud_history_by_direction) {
     CHECK(v < 0.5f);
     CHECK(!clouds::historyUv(still, Vec3{0, 0, 1}, u, v));   // (behind)
 }
+
+// The clouds' shadow: points along one ray towards the sun share a texel (a roof and the ground below it, in line
+// with the sun); the plane's own points where they are; outside the square: none (the flat layer's then); thick cloud
+// lets through little, never under a quarter
+TEST(cloud_shadow_lookup) {
+    Vec3 L = normalize(Vec3{0.5f, 0.6f, -0.2f});
+    float u = 0.f, v = 0.f, u2 = 0.f, v2 = 0.f;
+    REQUIRE(clouds::shadowUv(-4000.f, -4000.f, 8000.f, L, {100.f, 0.f, 50.f}, u, v));
+    CHECK_NEAR(u, 4100.f / 8000.f, 1e-5);
+    CHECK_NEAR(v, 4050.f / 8000.f, 1e-5);
+    Vec3 up = Vec3{100.f, 0.f, 50.f} + L * 40.f;   // (40 m along the ray: a roof in line)
+    REQUIRE(clouds::shadowUv(-4000.f, -4000.f, 8000.f, L, up, u2, v2));
+    CHECK_NEAR(u2, u, 1e-5);
+    CHECK_NEAR(v2, v, 1e-5);
+    CHECK(!clouds::shadowUv(-4000.f, -4000.f, 8000.f, L, {4500.f, 0.f, 0.f}, u, v));
+    CHECK(clouds::shadowThrough(0.f) == 1.f);
+    CHECK(clouds::shadowThrough(100.f) > 0.75f && clouds::shadowThrough(100.f) < 0.85f);   // (a thin edge)
+    CHECK(clouds::shadowThrough(400.f) > 0.35f && clouds::shadowThrough(400.f) < 0.45f);   // (a full cloud's height)
+    CHECK(clouds::shadowThrough(5000.f) == 0.25f);
+}

@@ -2420,7 +2420,7 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
 |---|------|-----|
 | 145 (done) | Terrain layers' normal maps: one per layer (with a strength), blended by the layers' weights onto the terrain's normal, their mips as data (task 143), specular anti-aliasing reading them | Terrain layers are flat colours: the ground's bumps come only from its heights |
 | 146 (done) | Volumetric clouds drawn at quarter size with temporal reprojection (the sky's history moved by the camera's turn), brought up with the sky | The clouds march every sky pixel every frame: ~75 ms of lavapipe's frame on a half-sky view |
-| 147 | Clouds' shadows from the volume: the same density marched along the sun's ray into a shadow texture over the view, for the ground's sunlight and the sky's ambient | The ground's cloud shadows still come from the flat layer's coverage, not from the clouds drawn |
+| 147 (done) | Clouds' shadows from the volume: the same density marched along the sun's ray into a shadow texture over the view, for the ground's sunlight and the sky's ambient | The ground's cloud shadows still come from the flat layer's coverage, not from the clouds drawn |
 | 148 | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
 | 149 | Rectangle lights with a picture (a texture across the rectangle: the light's colour by where on it the nearest point is) and their shadows (from the middle, as a spot's) | Shop windows light the street in one flat colour and through walls |
 | 150 | A starburst on the brightest lights: streaks by the aperture's blades (a setting: blades, length), drawn with the lens flare in the composite | Bright lamps bloom round; a camera's iris draws them as stars |
@@ -2451,3 +2451,16 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
   801 (the clouds 23 ms at half size, the scene pass 544 against 618). Not done: a neighbourhood clamp on the
   history (the clouds' drift is slow: no ghosts seen), the march's own temporal split (a quarter of the half-size
   pixels each frame), clouds in probes and reflections still marched whole.
+- **147, clouds' shadows from the volume**: cloud_shadow.frag (recordCloudShadow, after the clouds, before the
+  scene; 256 x 256, R16F, made once) marches the volume (clouds.glsl's cloudAt, eroded: the clouds drawn) along the
+  sun's ray across the slab from each texel of an 8 km square round the camera at height 0 (its corner snapped to
+  whole texels so it doesn't crawl), eight dithered samples, Beer's law at 1.5 times the view's extinction, never
+  under a quarter (clouds::shadowThrough). The UBO's new cloudShadowArea (corner, size, w = drawn; every view gets
+  the main one's) and set 0 binding 46; scene.frag's cloudsOver reads it where a point's ray towards the sun meets
+  the plane (clouds::shadowUv, tested: a roof and the ground in line with the sun share a texel), else (low quality,
+  outside the square, no volume) the flat layer's cloudShadow as before. Checked: a scratch noon from 250 m up
+  (the map forced to 1 lights the whole square: the lookup's right; at 3 times the extinction the shadows were
+  near black, 1.5 it is), noon, MSAA, the editor, Night Drive under CI's validation layer; lavapipe's noon frame
+  718 ms (the shadow pass 2.3 ms; the scene pass 528 against 544: a texture read instead of the layer's noise).
+  Not done: the sky's ambient from the volume (still the layer's coverage on average), shadows lined up against
+  the clouds seen from below in a picture (the march is the sky's own density), the fog's sunlight under them.

@@ -1,6 +1,7 @@
 #include "render/cloud_shape.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace clouds {
 
@@ -15,6 +16,15 @@ float density(float cover, float h) {
     if (h <= 0.f || h >= 1.f || cover <= 0.f) return 0.f;
     return smoothstep(0.f, 0.15f, cover - 0.2f - 0.8f * h * h) * smoothstep(0.f, 0.03f, h);
 }
+
+bool shadowUv(float cornerX, float cornerZ, float size, Vec3 L, Vec3 pos, float& u, float& v) {
+    const float up = std::max(L.y, 0.02f);
+    u = (pos.x - L.x / up * pos.y - cornerX) / size;
+    v = (pos.z - L.z / up * pos.y - cornerZ) / size;
+    return u > 0.f && u < 1.f && v > 0.f && v < 1.f;
+}
+
+float shadowThrough(float opticalDepth) { return std::max(std::exp(-opticalDepth * 0.0015f * 1.5f), 0.25f); }
 
 bool historyUv(const Mat4& p, Vec3 d, float& u, float& v) {
     const float x = p.m[0] * d.x + p.m[4] * d.y + p.m[8] * d.z, y = p.m[1] * d.x + p.m[5] * d.y + p.m[9] * d.z;

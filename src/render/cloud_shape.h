@@ -15,4 +15,12 @@ float density(float cover, float h);
 // when it was behind or off the picture
 bool historyUv(const Mat4& prevViewProj, Vec3 dir, float& u, float& v);
 
+// The clouds' shadow map (shaders/cloud_shadow.frag, scene.frag's cloudsOver; the same sums): where a point's ray
+// towards the sun `L` meets the map's plane (height 0), as uv over its square (low corner, size in metres); false
+// outside it
+bool shadowUv(float cornerX, float cornerZ, float size, Vec3 L, Vec3 pos, float& u, float& v);
+// The sunlight let through by `opticalDepth` of cloud (the densities summed times the step, metres): Beer's law at
+// one and a half times the view's extinction, never under a quarter
+float shadowThrough(float opticalDepth);
+
 }  // namespace clouds

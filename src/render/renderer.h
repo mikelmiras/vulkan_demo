@@ -994,6 +994,14 @@ private:
     VkPipeline cloudsPipeline_ = VK_NULL_HANDLE;
     bool cloudsOn_ = false, cloudsHistory_ = false;
     void recordClouds(VkCommandBuffer cb);
+    // ... and their shadow (cloud_shadow.frag, recordCloudShadow): the sunlight through them over a square around the
+    // camera, at height 0 (set 0 binding 46, scene.frag's cloudsOver); its corner and size (m) in the frame data
+    static constexpr uint32_t kCloudShadowSize = 256;   // (texels across: cloud_shadow.frag's kShadowTexels)
+    static constexpr float kCloudShadowSpan = 8000.f;
+    Image cloudShadow_;
+    VkPipeline cloudShadowPipeline_ = VK_NULL_HANDLE;
+    float cloudShadowArea_[4] = {};
+    void recordCloudShadow(VkCommandBuffer cb);
     bool traceOn_ = false;           // this frame's main view traces at half size
     bool traceHistory_ = false;      // last frame did (its results are this frame's history)
     uint32_t traceIndex_ = 0;

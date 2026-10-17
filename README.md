@@ -707,7 +707,9 @@ dropping on the right.
   up: flat bases, domes as tall as the cover is dense, their edges eroded), each point lit by the sun through the
   cloud above it (silver edges looking towards the sun, darker bases) and by the sky. The main view marches them at
   half size, before the scene, blending each frame's march with the last's (found by direction: only the camera's
-  turn moves them), so they cost a quarter as much and their grain averages out; at low quality, in
+  turn moves them), so they cost a quarter as much and their grain averages out. Their shadows on the ground come
+  from the same volume: the sunlight through them marched into a map over 8 km round the camera, so the shadows have
+  the shapes in the sky; at low quality, in
   reflections and in the sky's light they're a flat layer, lit by the sun through the air (red at sunset). They're in the sky's light too: as much of the ambient's harmonics as they cover (on average) takes their
   colour, so an overcast day's shade is grey and even rather than blue, and the ground's light is dimmed by their
   shadows on average.

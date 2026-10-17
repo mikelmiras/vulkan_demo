@@ -7,6 +7,7 @@
 // little back-scattering), its thin edges darker (the "powder" term), and the sky's light from all round.
 // rgb = the light they send this way, a = what of the sky behind gets through
 const float kCloudBase = 1500.0, kCloudTop = 1900.0;
+const float kCloudExtinction = 0.0015;   // (per metre at full density)
 float noise3(vec3 p) {
     vec3 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
     float n000 = skyHash(i), n100 = skyHash(i + vec3(1, 0, 0)), n010 = skyHash(i + vec3(0, 1, 0)), n110 = skyHash(i + vec3(1, 1, 0));
@@ -41,7 +42,6 @@ vec4 volumetricClouds(vec3 d, float noise) {
     float phase = mix(henyeyGreenstein(c, 0.6), henyeyGreenstein(c, -0.2), 0.3) * 4.0 * kPi;   // (1: no preference)
     vec3 sun = frame.atmosphere.z > 0.5 ? frame.sunColor.rgb * 0.5 : frame.sunColor.rgb;
     vec3 ambient = (frame.zenith.rgb + frame.fogColor.rgb) * 0.3;
-    const float kExtinction = 0.0015;   // (per metre at full density)
     vec3 light = vec3(0.0);
     float through = 1.0;
     for (int i = 0; i < steps && through > 0.02; ++i) {
@@ -51,10 +51,10 @@ vec4 volumetricClouds(vec3 d, float noise) {
         if (rho <= 0.0) continue;
         // (the sun's light at p, through the cloud above it towards the sun: two steps, coverage alone)
         float above = cloudAt(p + L * 120.0, false) + cloudAt(p + L * 300.0, false);
-        float sunThrough = exp(-above * 180.0 * kExtinction);
+        float sunThrough = exp(-above * 180.0 * kCloudExtinction);
         float powder = 1.0 - exp(-rho * 6.0);
         vec3 S = sun * (sunThrough * phase * mix(1.0, powder, 0.5)) + ambient * (0.4 + 0.6 * (p.y - kCloudBase) / (kCloudTop - kCloudBase));
-        float sigma = rho * kExtinction, stepThrough = exp(-sigma * ds);
+        float sigma = rho * kCloudExtinction, stepThrough = exp(-sigma * ds);
         light += through * S * (1.0 - stepThrough);   // (what this step scatters this way, of what reaches it)
         through *= stepThrough;
     }

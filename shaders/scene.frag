@@ -37,6 +37,7 @@ layout(set = 0, binding = 12) uniform sampler2D probe3;
 layout(std430, set = 0, binding = 17) readonly buffer GiProbes { vec4 giProbes[]; };
 // Texture streaming: the finest mip level each texture was wanted at this frame (texture_streaming.h)
 layout(std430, set = 0, binding = 19) buffer TextureFeedback { uint wantedLevel[]; };
+layout(set = 0, binding = 46) uniform sampler2D cloudShadowMap; // the volumetric clouds' shadow (cloud_shadow.frag)
 layout(set = 1, binding = 0) uniform sampler2D albedoMap;      // sRGB view (white if none)
 layout(set = 1, binding = 1) uniform sampler2D normalMap;      // tangent space (flat if none)
 layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness, b = metallic (white if none)
@@ -800,6 +801,17 @@ vec3 terrainColor() {
            w.z * texture(metalRoughMap, vUV * L[2].w).rgb * L[2].rgb + w.w * texture(emissiveMap, vUV * L[3].w).rgb * L[3].rgb;
 }
 
+// The sunlight the clouds let through to a point: from the volumetric clouds' shadow map where they're marched (the
+// ray towards the sun from here meets its plane, height 0, there), else (or outside it) the flat layer's
+float cloudsOver(vec3 pos) {
+    if (frame.cloudShadowArea.w > 0.5) {
+        vec3 L = normalize(frame.skyToSun.xyz);
+        vec2 uv = (pos.xz - L.xz / max(L.y, 0.02) * pos.y - frame.cloudShadowArea.xy) / frame.cloudShadowArea.z;
+        if (all(greaterThan(uv, vec2(0.0))) && all(lessThan(uv, vec2(1.0)))) return textureLod(cloudShadowMap, uv, 0.0).r;
+    }
+    return cloudShadow(pos);
+}
+
 // A terrain's bumps: its layers' normal maps mixed by the same weights, each tiled as its layer and scaled by its
 // strength (column k's x of the matrix after the tints; 0: none, not read), the mix's spread for specular AA
 vec3 terrainNormal(vec3 N) {
@@ -1113,7 +1125,7 @@ void main() {
     if (s.subsurface > 0.0) vis = mix(vis, sqrt(vis), s.subsurface);
     if (!water && frame.waterInfo.y > 0.5) vis *= caustics(vWorldPos);   // (under water: the waves focus it)
     if (halfTraced && frame.trace.w > 0.5) vis *= tracedContact;   // (the contact the shadow maps miss)
-    if (frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0) vis *= cloudShadow(vWorldPos);   // (clouds drifting over)
+    if (frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0) vis *= cloudsOver(vWorldPos);   // (clouds drifting over)
     vec3 sunLight = frame.sunColor.rgb;
     if (kTint && sunTinted() && vis > 0.0) sunLight *= sunTint(vWorldPos, N);   // (through glass, a curtain: coloured)
     color += shade(s, L, sunLight) * vis;
@@ -1127,7 +1139,7 @@ void main() {
                                                     // light went through (the sun's depth), each channel fading over its width
         vec3 transmitted = 0.6 * sunTransmission(vWorldPos, 0.004 * s.subsurface * profile);
         float facing = clamp(0.3 - dot(N, L), 0.0, 1.0);
-        float clouds = frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0 ? cloudShadow(vWorldPos) : 1.0;
+        float clouds = frame.atmosphere.x > 0.5 && frame.atmosphere.w > 0.0 ? cloudsOver(vWorldPos) : 1.0;
         color += s.base * (1.0 - metallic) * transmitted * (facing * s.subsurface * clouds) * frame.sunColor.rgb;
     }
 
