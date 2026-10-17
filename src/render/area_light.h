@@ -18,6 +18,14 @@ Vec3 segmentNearestRay(Vec3 l0, Vec3 l1, Vec3 r);
 // The point of a sphere `radius` round c (relative to the shaded point) nearest the ray along r (unit)
 Vec3 sphereNearestRay(Vec3 c, Vec3 r, float radius);
 
+// A rectangle centred on c (relative to the shaded point), its half extents hx along x and hy along y (unit, at
+// right angles): its point nearest the shaded point (the origin)
+Vec3 rectNearest(Vec3 c, Vec3 x, Vec3 y, float hx, float hy);
+
+// Its point the ray along r (unit) from the shaded point meets, kept inside the rectangle; a ray parallel to it or
+// going away: the rectangle's point nearest the ray's direction a long way off
+Vec3 rectRayPoint(Vec3 c, Vec3 x, Vec3 y, float hx, float hy, Vec3 r);
+
 // The GGX highlight's scale for a light `radius` round and `length` long, `distance` away, at roughness alpha
 // (roughness squared): the sphere's (alpha / alpha')^2, the tube's alpha / alpha'', 1 for a point
 float highlightScale(float alpha, float radius, float length, float distance);

@@ -27,3 +27,23 @@ TEST(area_light_highlight_scale) {
     CHECK(arealight::highlightScale(0.9f, 0.2f, 0.f, 3.f) > 0.9f);   // (0.93, against 0.56 at alpha 0.1)
     CHECK(arealight::highlightScale(0.1f, 0.5f, 2.f, 3.f) > 0.f);
 }
+
+// A rectangle light 2 x 1 m, its middle 3 m up, facing down (x along x, y along z)
+TEST(area_light_rectangles) {
+    const Vec3 c{0, 3, 0}, x{1, 0, 0}, y{0, 0, 1};
+    // From the origin straight under it: its middle; from off to the side: its edge's point nearest
+    CHECK_VEC(arealight::rectNearest(c, x, y, 1.f, 0.5f), test::v3(0.f, 3.f, 0.f), 1e-6f);
+    CHECK_VEC(arealight::rectNearest(c - Vec3{4, 0, 0}, x, y, 1.f, 0.5f), test::v3(-3.f, 3.f, 0.f), 1e-6f);
+    // A ray up at 45 degrees along x meets its plane at x = 3, past its edge: kept to x = 1
+    CHECK_VEC(arealight::rectRayPoint(c, x, y, 1.f, 0.5f, normalize(Vec3{1, 1, 0})), test::v3(1.f, 3.f, 0.f), 1e-5f);
+    // ... a steeper one meets it inside: where it meets
+    const Vec3 steep = normalize(Vec3{0.2f, 1, 0.1f});
+    const Vec3 at = arealight::rectRayPoint(c, x, y, 1.f, 0.5f, steep);
+    CHECK_NEAR(at.y, 3.0, 1e-5);
+    CHECK_NEAR(at.x, 0.6, 1e-4);
+    CHECK_NEAR(at.z, 0.3, 1e-4);
+    // A ray going down, away from it: a point of the rectangle all the same, on its plane
+    const Vec3 away = arealight::rectRayPoint(c, x, y, 1.f, 0.5f, normalize(Vec3{1, -1, 0}));
+    CHECK_NEAR(away.y, 3.0, 1e-5);
+    CHECK(away.x <= 1.f + 1e-5f && away.x >= -1.f - 1e-5f);
+}

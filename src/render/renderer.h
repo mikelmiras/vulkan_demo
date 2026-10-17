@@ -81,6 +81,8 @@ struct LightInfo {
     float size = 0.05f;         // point and spot lights: the bulb's radius (m: their shadows' softening, highlights)
     float length = 0.f;         // point lights: a tube this long (m) along `axis`
     Vec3 axis{1, 0, 0};
+    float height = 0.f;         // ... a rectangle that tall along `axisY`, lighting towards `facing` alone
+    Vec3 axisY{0, 1, 0}, facing{0, 0, -1};
     bool castShadows = true;
     std::string cookie;         // spot lights: an image projected through the cone (a path; "" none)
 };

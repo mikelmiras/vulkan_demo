@@ -490,6 +490,15 @@ vec3 sphereNearestRay(vec3 c, vec3 r, float radius) {
     float len = length(toRay);
     return len > 1e-6 ? c + toRay * min(radius / len, 1.0) : c;
 }
+vec3 rectNearest(vec3 c, vec3 x, vec3 y, float hx, float hy) {
+    return c + x * clamp(dot(-c, x), -hx, hx) + y * clamp(dot(-c, y), -hy, hy);
+}
+vec3 rectRayPoint(vec3 c, vec3 x, vec3 y, float hx, float hy, vec3 r) {
+    vec3 n = cross(x, y);
+    float along = dot(r, n), t = abs(along) > 1e-6 ? dot(c, n) / along : -1.0;
+    vec3 d = (t > 0.0 ? r * t : r * (length(c) * 4.0)) - c;   // (away or parallel: far along the ray)
+    return c + x * clamp(dot(d, x), -hx, hx) + y * clamp(dot(d, y), -hy, hy);
+}
 float highlightScale(float alpha, float radius, float len, float dist) {
     alpha = max(alpha, 1e-4);
     dist = max(dist, 1e-4);
@@ -1109,14 +1118,22 @@ void main() {
         Light li = lights[index];
         vec3 d = li.posRange.xyz - vWorldPos;
         bool tube = li.color.w < 0.5 && li.shape.y > 0.0;   // (a tube along dir: lit from its nearest point)
+        bool rect = tube && li.shape.w > 0.0;                // (a rectangle: its x along dir, lighting towards params.xzw)
         vec3 tubeEnd = li.dir.xyz * (0.5 * li.shape.y);
-        if (tube) d = nearestOnSegment(li.posRange.xyz - tubeEnd, li.posRange.xyz + tubeEnd, vWorldPos) - vWorldPos;
+        vec3 facing = vec3(li.params.x, li.params.z, li.params.w), rectY = cross(li.dir.xyz, facing);
+        if (rect) {
+            if (dot(vWorldPos - li.posRange.xyz, facing) <= 0.0) continue;   // (behind it: it lights one way)
+            d = rectNearest(d, li.dir.xyz, rectY, 0.5 * li.shape.y, 0.5 * li.shape.w);
+        } else if (tube) {
+            d = nearestOnSegment(li.posRange.xyz - tubeEnd, li.posRange.xyz + tubeEnd, vWorldPos) - vWorldPos;
+        }
         float dist = length(d), range = li.shape.z > 0.0 ? li.shape.z : li.posRange.w;
         if (dist >= range) continue;
         vec3 Lp = d / max(dist, 1e-4);
         vec3 lightSide = dot(N, Lp) < 0.0 && s.translucency > 0.0 ? -N : N;   // (the shadow on the side it's lit from)
         float window = clamp(1.0 - (dist * dist) / (range * range), 0.0, 1.0);
         float light = window * window;
+        if (rect) light *= max(dot(-Lp, facing), 0.0);   // (a rectangle's light falls off sideways, as a lit panel's)
         int shadowView = int(li.params.y);
         if (li.color.w > 0.5) {   // a spot
             float cosAngle = dot(-Lp, li.dir.xyz);
@@ -1148,10 +1165,13 @@ void main() {
         float highlight = 1.0;
         if (tube || li.shape.x > 0.0) {
             vec3 R = reflect(-s.V, s.N), toLight = li.posRange.xyz - vWorldPos;
-            vec3 c = tube ? segmentNearestRay(toLight - tubeEnd, toLight + tubeEnd, R) : toLight;
+            vec3 c = rect ? rectRayPoint(toLight, li.dir.xyz, rectY, 0.5 * li.shape.y, 0.5 * li.shape.w, R)
+                          : tube ? segmentNearestRay(toLight - tubeEnd, toLight + tubeEnd, R) : toLight;
             vec3 p = sphereNearestRay(c, R, li.shape.x);
             Ls = normalize(p);
-            highlight = highlightScale(max(s.rough * s.rough, 0.002), li.shape.x, tube ? li.shape.y : 0.0, length(c));
+            float alpha = max(s.rough * s.rough, 0.002), cd = length(c);
+            highlight = highlightScale(alpha, li.shape.x, tube ? li.shape.y : 0.0, cd);
+            if (rect) highlight *= alpha / min(alpha + li.shape.w / (2.0 * max(cd, 1e-4)), 1.0);   // (its height too)
         }
         color += shadeArea(s, Lp, Ls, lampLight, highlight);
         specular += shadeSpecular;

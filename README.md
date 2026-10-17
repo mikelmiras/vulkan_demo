@@ -482,8 +482,10 @@ dropping on the right.
   old fixed edge): a lamp post's shadow sharp at its foot and spreading away from it, a big soft lamp's blurring
   fast. The size broadens the lamp's highlights too, and a point light can be a **tube** (*Tube length*, along its
   x axis: neon, fluorescent): lit from its nearest point, its highlight a streak as long as the tube on wet and
-  glossy surfaces (Karis's representative points, the highlight's energy kept). A tube's shadows come from its
-  middle; the fog, the light shafts and lit particles see it as a bulb. (Their blocker search costs a few percent of the lit pass where they shine; low quality keeps the fixed edge.)
+  glossy surfaces (Karis's representative points, the highlight's energy kept). With a *Rectangle height* too, the
+  tube becomes a **rectangle** (a shop window, a light box) lighting towards its -z alone: lit from its nearest
+  point, fading sideways as a lit panel does, and mirrored on wet ground as a rectangle. A tube's or a rectangle's
+  shadows come from its middle; the fog, the light shafts and lit particles see it as a bulb. (Their blocker search costs a few percent of the lit pass where they shine; low quality keeps the fixed edge.)
   **Cached**: a shadow map is only drawn again when what it holds changes (its camera, its place in the atlas, or any
   caster in it moving, animating or changing): a still street lamp's shadows cost nothing frame after frame, and the
   sun's two far cascades catch up with a moving camera every second and fourth frame (`VKWORLD_SHADOW_CACHE=0`:

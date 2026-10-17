@@ -2300,7 +2300,7 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
 
 | # | Task | Why |
 |---|------|-----|
-| 137 | Rectangle lights (a Light shape: width and height, facing its -z), lit by representative points as the tubes are (the rectangle's point nearest the reflected ray; the diffuse from its nearest point and its facing), one-sided | Shop windows and light boxes light the street as bulbs or tubes |
+| 137 (done) | Rectangle lights (a Light shape: width and height, facing its -z), lit by representative points as the tubes are (the rectangle's point nearest the reflected ray; the diffuse from its nearest point and its facing), one-sided | Shop windows and light boxes light the street as bulbs or tubes |
 | 138 | The sharpening folded into the temporal pass's output (it writes the sharpened picture and keeps the history unsharpened in a second target), one full-screen pass fewer; measured | The sharpening is a whole pass of its own after the temporal one |
 | 139 | Screen-space GI's bounce denoised: an edge-aware blur (depth and normal weighted) of the half-size traced light before scene.frag brings it up | The longer bounce rays (task 133) left grain where they meet things sporadically |
 | 140 | Shaped lights in the fog and the shafts: tubes' and rectangles' nearest points for the volumetric fog's in-scattering and the light shafts' halos | A neon tube glows in the fog as a ball of light |
@@ -2310,4 +2310,18 @@ light, one full-screen pass fewer after the temporal one, and Night Drive's cars
 | 144 | Night Drive's cars as painted metal: clear-coated paint with a metallic base, glass that reflects the street, the taxi's livery | The cars are flat-coloured boxes beside the reflective street |
 
 ### Round 14 notes
-
+- **137, rectangle lights**: Light::height (format 63, module API 72, eq, inspector *Rectangle height* once a tube
+  length is set): a point light with both is a rectangle, its width along the entity's x, height along y, lighting
+  towards its -z alone. LightInfo carries height, axisY and facing; GpuLight puts the facing in params.x, z, w
+  (spots' slots point lights don't use) and the height in shape.w; its reach (and the CPU clusters' sphere) grows
+  by half the diagonal. scene.frag: behind it, no light; the diffuse and the falloff from rectNearest (the
+  rectangle's point nearest the shaded point), times the emitter's cosine (a lit panel's light falls off
+  sideways); the highlight from rectRayPoint (where the reflected ray meets its plane, kept inside it; going away:
+  a point far along the ray, kept inside) then the bulb's sphere, scaled for the width as a tube's and for the
+  height by alpha / alpha'. area_light.{h,cpp} hold both, tested (nearest points, rays meeting it inside and past
+  its edge, rays going away). Found on the way, debugging striped reflections (the highlight visualised: the
+  representative point left the reflected ray in bands): writeLights cleared params.z (the cookie slot) after the
+  rectangle's facing had gone in, tilting it; cleared first now. Checked: a 3 x 2 m shop window over a glossy
+  floor against a point light (a clean rectangle mirrored where a dot was), temporal AA, Night Drive, the editor,
+  the demo, under CI's validation layer. Not done: rectangles' own shadows (from the middle), textured rectangles
+  (a screen's picture), LTC's exact irradiance.

@@ -82,6 +82,8 @@ struct Light {
                                       // and its highlights that much broader
     float length = 0.f;               // point lights: a tube this long (m) along the entity's x axis (a neon or
                                       // fluorescent tube: a streak of highlight); 0: a bulb
+    float height = 0.f;               // ... with a length too: a rectangle this tall along its y axis, lighting
+                                      // towards its -z alone (a shop window, a light box); 0: a tube
     bool castShadows = true;          // the sun (the first directional light), spot and point lights (the
                                       // most important get the biggest tiles of the shadow atlas)
     std::string cookie;               // spot lights: an image projected through the cone (its brightness)

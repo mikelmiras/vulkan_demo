@@ -174,6 +174,12 @@ std::vector<LightInfo> collectLights(const Scene& scene, const std::vector<Mat4>
             const Vec3 x = transformDir(m, {1, 0, 0});
             l.length = e.light->length * length(x);
             l.axis = normalize(x);
+            if (e.light->height > 0.f) {   // (a rectangle: its y along the entity's, lighting towards its -z)
+                const Vec3 y = transformDir(m, {0, 1, 0});
+                l.height = e.light->height * length(y);
+                l.axisY = normalize(y);
+                l.facing = normalize(transformDir(m, {0, 0, -1}));
+            }
         }
         l.position = {m.m[12], m.m[13], m.m[14]};
         l.direction = normalize(transformDir(m, {0, 0, -1}));

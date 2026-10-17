@@ -119,9 +119,11 @@ struct GpuLight {
     float posRange[4];   // xyz, w = range
     float color[4];      // rgb linear * intensity, w = 1: spot
     float dir[4];        // spots: the direction it shines, w = cos outer
-    float params[4];     // x = cos inner, y = first shadow view (-1: none), z = cookie layer (-1: none), w = tan outer
+    float params[4];     // x = cos inner, y = first shadow view (-1: none), z = cookie layer (-1: none), w = tan outer;
+                         // a rectangle (a point light): x, z, w = the way it lights (its -z)
     float shape[4];      // x = its size (the bulb's radius, m: lamps' soft shadows), y = a tube's length (along dir),
-                         // z = its range (posRange.w: grown by half the tube, for the clusters)
+                         // z = its range (posRange.w: grown by half the tube, for the clusters), w = a rectangle's
+                         // height (0: a tube)
 };
 
 struct InstanceData {

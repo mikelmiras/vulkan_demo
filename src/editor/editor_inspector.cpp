@@ -1172,6 +1172,12 @@ void Editor::drawComponents(Entity& e) {
                 ImGui::DragFloat("Tube length", &l.length, 0.05f, 0.f, 50.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
                 tooltip("A tube this long along the light's x axis (neon, fluorescent): a streak of highlight (0: a bulb)");
                 track();
+                if (l.length > 0.f) {
+                    ImGui::DragFloat("Rectangle height", &l.height, 0.05f, 0.f, 50.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+                    tooltip("With a tube length: a rectangle this tall along the light's y axis, lighting towards its -z "
+                            "(a shop window, a light box; 0: a tube)");
+                    track();
+                }
             }
             if (l.type == Light::Type::Spot) {
                 ImGui::SliderFloat("Cone angle", &l.spotAngle, 1.f, 89.f, "%.0f deg");

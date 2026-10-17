@@ -181,14 +181,19 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
         g.color[3] = l.spot ? 1.f : 0.f;
         g.dir[0] = d.x; g.dir[1] = d.y; g.dir[2] = d.z;
         g.params[1] = i < shadowView.size() ? (float)shadowView[i] : -1.f;
+        g.params[2] = -1.f;   // (no cookie; a rectangle's facing goes over it)
         g.shape[0] = std::max(l.size, 0.f);
         g.shape[2] = g.posRange[3];
         if (!l.spot && l.length > 0.f) {   // a tube: along dir, its reach grown by half its length (the clusters' sphere)
             g.dir[0] = l.axis.x; g.dir[1] = l.axis.y; g.dir[2] = l.axis.z;
             g.shape[1] = l.length;
             g.posRange[3] += l.length * 0.5f;
+            if (l.height > 0.f) {   // a rectangle: its height, the way it lights (in the spots' slots), half its diagonal
+                g.shape[3] = l.height;
+                g.params[0] = l.facing.x; g.params[2] = l.facing.y; g.params[3] = l.facing.z;
+                g.posRange[3] = g.shape[2] + 0.5f * std::sqrt(l.length * l.length + l.height * l.height);
+            }
         }
-        g.params[2] = -1.f;
         if (l.spot) {
             float outer = std::clamp(l.spotAngle, 1.f, 89.f) * DEG2RAD;
             float inner = outer * (1.f - std::clamp(l.spotSoftness, 0.f, 1.f));
@@ -230,7 +235,9 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
     clusterSetupValid_ = true;
     std::vector<ClusterLight> bounds(count);
     for (size_t i = 0; i < count; ++i)   // (a tube's reach: grown by half its length, as its GPU range)
-        bounds[i] = {lights[i]->position, std::max(lights[i]->range, 0.01f) + (lights[i]->spot ? 0.f : lights[i]->length * 0.5f)};
+        bounds[i] = {lights[i]->position, std::max(lights[i]->range, 0.01f) +
+                                              (lights[i]->spot ? 0.f : 0.5f * std::sqrt(lights[i]->length * lights[i]->length +
+                                                                                       lights[i]->height * lights[i]->height))};
     std::vector<uint32_t> data;
     buildLightClusters(s, bounds, data, kMaxClusterIndices);
     std::memcpy(clusters_[frame_].mapped, data.data(), data.size() * sizeof(uint32_t));

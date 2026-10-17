@@ -316,7 +316,8 @@ TEST(spot_lights_and_sky_saved) {
     CHECK_VEC(loaded.render.ground, test::v3(0.3f, 0.2f, 0.1f), 1e-6f);
 }
 
-// A lamp's size (its bulb's radius: soft shadows) and a tube's length, kept by a save; older scenes get the defaults
+// A lamp's size (its bulb's radius: soft shadows), a tube's length and a rectangle's height, kept by a save; older
+// scenes get the defaults
 TEST(light_sizes_saved) {
     MeshLibrary meshes = buildMeshLibrary();
     Scene s;
@@ -327,6 +328,10 @@ TEST(light_sizes_saved) {
     spot.size = 0.f;
     s.create("Bulb").light = point;
     s.create("Spot").light = spot;
+    Light window;   // (a rectangle: a tube's length and a height)
+    window.length = 3.f;
+    window.height = 2.f;
+    s.create("Window").light = window;
     std::string error;
     auto path = test::tempPath("sizes.vkw").string();
     REQUIRE(saveScene(path, s, meshes, textures(), error));
@@ -335,6 +340,8 @@ TEST(light_sizes_saved) {
     CHECK_NEAR(loaded.findByName("Bulb")->light->size, 0.3, 1e-6);
     CHECK_NEAR(loaded.findByName("Bulb")->light->length, 2.5, 1e-6);
     CHECK_NEAR(loaded.findByName("Spot")->light->length, 0.0, 1e-6);   // (bulbs and spots: none)
+    CHECK_NEAR(loaded.findByName("Window")->light->height, 2.0, 1e-6);
+    CHECK_NEAR(loaded.findByName("Bulb")->light->height, 0.0, 1e-6);   // (a tube: none)
     CHECK_NEAR(loaded.findByName("Spot")->light->size, 0.0, 1e-6);
     CHECK_NEAR(Light{}.size, 0.05, 1e-6);   // (old scenes: a small bulb)
     Scene after = loaded;   // (undo sees the edit)

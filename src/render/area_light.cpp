@@ -32,4 +32,18 @@ float highlightScale(float alpha, float radius, float length, float distance) {
     return sphere * sphere * tube;
 }
 
+Vec3 rectNearest(Vec3 c, Vec3 x, Vec3 y, float hx, float hy) {
+    const Vec3 d = c * -1.f;   // (the shaded point, from the centre)
+    return c + x * std::clamp(dot(d, x), -hx, hx) + y * std::clamp(dot(d, y), -hy, hy);
+}
+
+Vec3 rectRayPoint(Vec3 c, Vec3 x, Vec3 y, float hx, float hy, Vec3 r) {
+    const Vec3 n = cross(x, y);
+    const float along = dot(r, n), t = std::abs(along) > 1e-6f ? dot(c, n) / along : -1.f;
+    const Vec3 hit = t > 0.f ? r * t : r * (length(c) * 4.f);   // (away or parallel: far along the ray)
+    const Vec3 d = hit - c;
+    return c + x * std::clamp(dot(d, x), -hx, hx) + y * std::clamp(dot(d, y), -hy, hy);
+}
+
 }  // namespace arealight
+
