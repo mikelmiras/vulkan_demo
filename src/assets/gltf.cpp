@@ -322,9 +322,22 @@ bool importGltfAnimations(MeshLibrary& meshes, const std::string& path, std::str
     return true;
 }
 
-bool gltfImageFiles(const std::string& path, std::vector<std::string>& files, std::string& error) {
+bool gltfImageFiles(const std::string& path, std::vector<std::string>& files, std::string& error,
+                    std::vector<bool>* dataImages) {
     Data data = load(path, error);
     if (!data) return false;
+    if (dataImages) {
+        dataImages->assign(data->images_count, false);
+        auto mark = [&](const cgltf_texture* t) {
+            if (t && t->image) (*dataImages)[(size_t)(t->image - data->images)] = true;
+        };
+        for (size_t i = 0; i < data->materials_count; ++i) {
+            const cgltf_material& m = data->materials[i];
+            mark(m.normal_texture.texture);
+            mark(m.occlusion_texture.texture);
+            if (m.has_pbr_metallic_roughness) mark(m.pbr_metallic_roughness.metallic_roughness_texture.texture);
+        }
+    }
     files.assign(data->images_count, std::string());
     for (size_t i = 0; i < data->images_count; ++i) {
         const cgltf_image& img = data->images[i];

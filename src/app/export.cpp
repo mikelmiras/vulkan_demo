@@ -15,6 +15,7 @@
 #include "app/exe_metadata.h"
 #include "app/updates.h"
 #include "assets/cooking.h"
+#include "assets/gltf.h"
 #include "core/json.h"
 #include "core/png.h"
 #include "core/project.h"
@@ -132,18 +133,42 @@ void cookData(std::vector<std::pair<std::string, fs::path>>& data, const fs::pat
         return ec ? std::string() : rel.generic_u8string();
     };
     std::map<std::string, int> asTexture;   // project-relative image path -> its uses in "textures" lists
+    std::set<std::string> asData;           // ... those a material reads as numbers (a normal map): mips made so
     std::vector<std::string> texts;
     for (const auto& [rel, file] : data) {
         std::string ext = lower(file.extension().u8string());
+        if (ext == ".glb" || ext == ".gltf") {   // (a model's normal maps in files of their own)
+            std::vector<std::string> files;
+            std::vector<bool> isData;
+            std::string error;
+            if (gltfImageFiles(file.u8string(), files, error, &isData))
+                for (size_t i = 0; i < files.size(); ++i)
+                    if (isData[i] && !files[i].empty()) asData.insert(relative(files[i]));
+            continue;
+        }
         if (ext != ".vkw" && ext != ".prefab" && ext != ".json" && ext != ".lua" && ext != ".txt" && ext != ".ui") continue;
         texts.push_back(read(file));
         json::Value doc;
         std::string error;
-        if ((ext == ".vkw" || ext == ".prefab") && json::parse(texts.back(), doc, error))
-            for (const json::Value& t : doc["textures"].elements()) {
-                std::string source = t["source"].asString();
-                if (!source.empty() && source.find('#') == std::string::npos) ++asTexture[relative(source)];
+        if ((ext != ".vkw" && ext != ".prefab") || !json::parse(texts.back(), doc, error)) continue;
+        std::map<std::string, std::string> sources;   // (texture name -> its file)
+        for (const json::Value& t : doc["textures"].elements()) {
+            std::string source = t["source"].asString();
+            if (!source.empty() && source.find('#') == std::string::npos) {
+                ++asTexture[relative(source)];
+                sources[t["name"].asString()] = relative(source);
             }
+        }
+        std::function<void(const json::Value&)> walk = [&](const json::Value& v) {   // (components naming data maps)
+            for (const auto& [key, value] : v.members()) {
+                if (key == "normalTexture" || key == "metalRoughTexture" || key == "heightTexture" || key == "detailTexture") {
+                    if (auto it = sources.find(value.asString()); it != sources.end()) asData.insert(it->second);
+                }
+                walk(value);
+            }
+            for (const json::Value& e : v.elements()) walk(e);
+        };
+        walk(doc["entities"]);
     }
     auto mentions = [&](const std::string& rel) {
         int n = 0;
@@ -164,7 +189,7 @@ void cookData(std::vector<std::pair<std::string, fs::path>>& data, const fs::pat
         }
         std::string cooked, error;
         bool ok = model ? cook::cookModel(file.u8string(), compression, cooked, error)
-                        : cook::cookImageFile(file.u8string(), compression, cooked, error);
+                        : cook::cookImageFile(file.u8string(), compression, cooked, error, asData.count(rel) > 0);
         if (!ok) {   // (shipped as it is: still loads, only slower)
             result.warnings.push_back("not cooked: " + error);
             out.emplace_back(rel, file);

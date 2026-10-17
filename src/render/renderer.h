@@ -348,8 +348,13 @@ private:
         uint32_t wanted = ~0u;                   // the finest level reported lately (~0: none)
         double lastWanted = -1e9;
         uint32_t blockBytes = 0;                 // block compressed on the GPU: bytes a 4 x 4 block (0: RGBA8)
+        bool data = false;                       // read as data (a normal, metal/rough, height map): a UNORM image,
+                                                 // its mips averaged as numbers, not as sRGB colours
     };
     void reuploadChangedTextures();
+    void remakeDataTextures(VkCommandBuffer frame);   // dataWanted_'s, their mips made again as numbers
+    void markData(int id);                            // a material or decal reads it as data
+    std::vector<int> dataWanted_;                     // (textures in a data slot whose mips were made as colours)
     // Texture streaming (renderer_textures.cpp): the shaders' reports (binding 19, one buffer per frame in flight),
     // read back when the frame's buffer comes round again; textures remade with more or fewer levels a few at a
     // time, the old images kept until the frames using them are done
@@ -491,9 +496,9 @@ private:
     // Records the upload into `frame` when given (its staging buffer retired with that frame), else uploads now
     // `first`: the full chain's finest level to hold (texture streaming: smaller, the levels below it)
     GpuTexture createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame = VK_NULL_HANDLE,
-                             bool mipmaps = true, uint32_t first = 0);
+                             bool mipmaps = true, uint32_t first = 0, bool data = false);
     // A library texture: from its rgba as above, or its cooked levels as they are (decoded first without BC support)
-    GpuTexture createTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first);
+    GpuTexture createTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first, bool data = false);
     GpuTexture createCookedTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first);
     void destroyTexture(GpuTexture& t);
     VkCommandBuffer beginOneTimeCommands();

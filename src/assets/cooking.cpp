@@ -118,7 +118,7 @@ bc::Format formatFor(const Texture& t, Compression c) {
     return bc::Format::BC1;
 }
 
-std::string cookTexture(const Texture& t, Compression c) {
+std::string cookTexture(const Texture& t, Compression c, bool data) {
     bc::Format format = formatFor(t, c);
     uint32_t levels = t.mipmaps ? streaming::mipCount(t.width, t.height) : 1;
     Writer w;
@@ -131,7 +131,7 @@ std::string cookTexture(const Texture& t, Compression c) {
     w.u32((t.nearest ? 1u : 0u) | (t.mipmaps ? 2u : 0u));
     for (uint32_t level = 0; level < levels; ++level) {
         uint32_t lw = t.width, lh = t.height;
-        std::vector<uint8_t> pixels = level == 0 ? t.rgba : streaming::downsample(t.rgba.data(), t.width, t.height, level, lw, lh);
+        std::vector<uint8_t> pixels = level == 0 ? t.rgba : streaming::downsample(t.rgba.data(), t.width, t.height, level, lw, lh, data);
         w.array(bc::encode(format, pixels.data(), lw, lh));
     }
     return w.out;
@@ -164,12 +164,12 @@ bool readTexture(const std::string& bytes, Texture& out, std::string& error) {
     return true;
 }
 
-bool cookImageFile(const std::string& path, Compression c, std::string& out, std::string& error) {
+bool cookImageFile(const std::string& path, Compression c, std::string& out, std::string& error, bool data) {
     TextureLibrary lib;
     int id = loadTexture(lib, path, error);
     if (id < 0) return false;
     if (lib.get(id).cooked()) { error = path + ": already cooked"; return false; }
-    out = cookTexture(lib.get(id), c);
+    out = cookTexture(lib.get(id), c, data);
     return true;
 }
 
@@ -200,7 +200,8 @@ bool cookModel(const std::string& path, Compression c, std::string& out, std::st
     }
     // Images: cooked in, unless they're files of their own (shared by models, maybe cooked themselves): named then
     std::vector<std::string> files;
-    if (!gltfImageFiles(path, files, error)) return false;
+    std::vector<bool> data;   // (normal, metal / rough and occlusion maps: mips averaged as numbers)
+    if (!gltfImageFiles(path, files, error, &data)) return false;
     w.u32((uint32_t)images.count());
     for (const Texture& t : images.textures) {
         w.str(t.name);
@@ -209,7 +210,7 @@ bool cookModel(const std::string& path, Compression c, std::string& out, std::st
         size_t image = (size_t)std::atoi(at.c_str() + 6);   // ("#imageN")
         std::string file = image < files.size() ? files[image] : std::string();
         w.u8(file.empty() ? 0 : 1);
-        w.str(file.empty() ? cookTexture(t, c) : fs::relative(fs::u8path(file), fs::u8path(path).parent_path()).generic_u8string());
+        w.str(file.empty() ? cookTexture(t, c, image < data.size() && data[image]) : fs::relative(fs::u8path(file), fs::u8path(path).parent_path()).generic_u8string());
     }
     w.u32((uint32_t)meshes.animations.size());
     for (const AnimationClip& clip : meshes.animations) {

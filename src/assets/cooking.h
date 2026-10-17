@@ -27,12 +27,13 @@ std::string modelPath(const std::string& source);     // source + ".vkmodel"
 // The format a texture is cooked in (BC1 / BC3 by whether any pixel isn't opaque)
 bc::Format formatFor(const Texture& t, Compression c);
 
-// A texture (its rgba) cooked: every level made (box filtered in linear light, as streaming does), then encoded
-std::string cookTexture(const Texture& t, Compression c);
+// A texture (its rgba) cooked: every level made (box filtered in linear light, as streaming does; `data`, a normal or
+// metal / rough map: its bytes averaged as numbers), then encoded
+std::string cookTexture(const Texture& t, Compression c, bool data = false);
 // ... read back: width, height, format, levels, nearest, mipmaps (rgba stays empty)
 bool readTexture(const std::string& bytes, Texture& out, std::string& error);
 // An image file cooked, its import settings applied (assets/asset_db.h)
-bool cookImageFile(const std::string& path, Compression c, std::string& out, std::string& error);
+bool cookImageFile(const std::string& path, Compression c, std::string& out, std::string& error, bool data = false);
 
 // A glTF file cooked: everything importGltfMeshes / Images / Animations would bring in
 bool cookModel(const std::string& path, Compression c, std::string& out, std::string& error);

@@ -38,8 +38,10 @@ struct Settings {
 // give up their finest level, never past the start level
 std::vector<uint32_t> plan(const std::vector<TextureState>& textures, const Settings& settings, double now);
 
-// RGBA8 sRGB pixels at mip `level` of a w x h image, box-filtered (in linear light) level by level
+// RGBA8 sRGB pixels at mip `level` of a w x h image, box-filtered (in linear light) level by level. `data`: the
+// bytes are numbers (a normal, metal / rough or height map), averaged as they are: a normal map's averaged normals
+// come out shorter where they disagree, which specular anti-aliasing reads as roughness
 std::vector<uint8_t> downsample(const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t level, uint32_t& outWidth,
-                                uint32_t& outHeight);
+                                uint32_t& outHeight, bool data = false);
 
 }  // namespace streaming

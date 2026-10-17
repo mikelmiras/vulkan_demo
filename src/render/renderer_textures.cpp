@@ -27,10 +27,11 @@ void imageBarrier(VkCommandBuffer cb, VkImage image, uint32_t mip, uint32_t coun
 
 }  // namespace
 
-// Uploads RGBA8 sRGB pixels to a device-local image with a full mip chain (when the format can be blitted)
+// Uploads RGBA8 sRGB pixels to a device-local image with a full mip chain (when the format can be blitted). `data`
+// (a normal or metal / rough map): the image is UNORM, so the blits average its bytes as numbers, not as colours
 Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width, uint32_t height, VkCommandBuffer frame,
-                                             bool mipmaps, uint32_t first) {
-    const VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
+                                             bool mipmaps, uint32_t first, bool data) {
+    const VkFormat format = data ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_SRGB;
     VkFormatProperties fp;
     vkGetPhysicalDeviceFormatProperties(gpu_, format, &fp);
     const VkFormatFeatureFlags blit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
@@ -40,7 +41,7 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
     first = std::min(first, fullMips - 1);
     std::vector<uint8_t> smaller;   // (streaming: the finest level held, box-filtered down from the whole image)
     if (first > 0) {
-        smaller = streaming::downsample(rgba, width, height, first, width, height);
+        smaller = streaming::downsample(rgba, width, height, first, width, height, data);
         rgba = smaller.data();
     }
     uint32_t mips = fullMips - first;
@@ -48,12 +49,15 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
     GpuTexture t;
     t.first = first;
     t.mips = fullMips;
+    t.data = data;
     // Mutable format: an sRGB view for colour and a UNORM view of the same bytes for data (normal maps)
     t.image = createImage(format,
                           VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                           VK_IMAGE_ASPECT_COLOR_BIT, width, height, VK_SAMPLE_COUNT_1_BIT, mips,
                           VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT);
-    t.linear = createView(t.image.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, mips);
+    t.linear = createView(t.image.image, data ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM,
+                          VK_IMAGE_ASPECT_COLOR_BIT, mips);
+    if (data) std::swap(t.image.view, t.linear);   // (image.view stays the sRGB one, linear the UNORM one)
     Buffer staging = createBuffer((VkDeviceSize)width * height * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, rgba);
 
     auto barrier = [&](VkCommandBuffer cb, uint32_t mip, uint32_t count, VkImageLayout from, VkImageLayout to,
@@ -98,9 +102,9 @@ Renderer::GpuTexture Renderer::createTexture(const uint8_t* rgba, uint32_t width
     return t;
 }
 
-Renderer::GpuTexture Renderer::createTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first) {
-    if (tex.cooked()) return createCookedTexture(tex, frame, first);
-    return createTexture(tex.rgba.data(), tex.width, tex.height, frame, tex.mipmaps, first);
+Renderer::GpuTexture Renderer::createTexture(const Texture& tex, VkCommandBuffer frame, uint32_t first, bool data) {
+    if (tex.cooked()) return createCookedTexture(tex, frame, first);   // (its levels made as cooking chose)
+    return createTexture(tex.rgba.data(), tex.width, tex.height, frame, tex.mipmaps, first, data);
 }
 
 // Cooked levels (assets/cooking.h) copied in as they are: from `first` down, no blits
@@ -176,7 +180,7 @@ void Renderer::reuploadChangedTextures() {
         const Texture& tex = textures_->get((int)i);
         GpuTexture old = gpuTextures_[i];
         destroyTexture(gpuTextures_[i]);
-        gpuTextures_[i] = createTexture(tex, VK_NULL_HANDLE, old.first);
+        gpuTextures_[i] = createTexture(tex, VK_NULL_HANDLE, old.first, old.data);
         gpuTextures_[i].revision = tex.revision;
         gpuTextures_[i].nearest = tex.nearest;
         gpuTextures_[i].pinned = old.pinned || !tex.mipmaps;
@@ -216,6 +220,7 @@ void Renderer::uploadTextures(VkCommandBuffer frame) {
         sent += streaming::chainBytes(tex.width, tex.height, g.first, g.mips, g.blockBytes);
     }
     if (frame) {
+        remakeDataTextures(frame);
         if (streaming_) streamTextures(frame);   // (reads this frame's reports, then starts them again)
         ensureFeedback(gpuTextures_.size());
     }
@@ -312,7 +317,7 @@ void Renderer::streamTextures(VkCommandBuffer cb) {
         if (sent > 0 && sent >= kFrameBytes) break;
         const Texture& tex = textures_->get((int)i);
         GpuTexture old = gpuTextures_[i];
-        GpuTexture fresh = createTexture(tex, cb, target[i]);
+        GpuTexture fresh = createTexture(tex, cb, target[i], old.data);
         fresh.revision = old.revision;
         fresh.nearest = old.nearest;
         fresh.pinned = old.pinned;
@@ -336,6 +341,33 @@ void Renderer::streamTextures(VkCommandBuffer cb) {
     stats_.textureBudget = streamSettings_.budget;
 }
 
+// A texture first met in a data slot (a normal, metal / rough, height or detail map) had its mips made as colours:
+// made again next frame (remakeDataTextures). A texture also used as a colour keeps the data mips (rare).
+void Renderer::markData(int id) {
+    if (id < 0 || id >= (int)gpuTextures_.size() || gpuTextures_[(size_t)id].data) return;
+    if (textures_->get(id).cooked()) return;   // (cooked: its levels are as the export made them)
+    if (std::find(dataWanted_.begin(), dataWanted_.end(), id) == dataWanted_.end()) dataWanted_.push_back(id);
+}
+
+void Renderer::remakeDataTextures(VkCommandBuffer frame) {
+    for (int id : dataWanted_) {
+        GpuTexture& old = gpuTextures_[(size_t)id];
+        if (old.data) continue;
+        GpuTexture fresh = createTexture(textures_->get(id), frame, old.first, true);
+        fresh.revision = old.revision;
+        fresh.nearest = old.nearest;
+        fresh.pinned = old.pinned;
+        fresh.wanted = old.wanted;
+        fresh.lastWanted = old.lastWanted;
+        retiredTextures_[frame_].push_back(old);   // (draws in flight may still use it: gone when this index comes round)
+        old = fresh;
+        const uint16_t key = (uint16_t)(id + 1);   // (the sets naming it: made again, pointing at the new image)
+        for (auto* cache : {&materialSets_, &terrainSets_})
+            for (auto it = cache->begin(); it != cache->end();) it = it->first.uses(key) ? cache->erase(it) : std::next(it);
+    }
+    dataWanted_.clear();
+}
+
 VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
     auto valid = [&](int id) { return id >= 0 && id < (int)gpuTextures_.size() ? id : -1; };
     int ids[6] = {valid(o.texture), valid(o.normalTexture), valid(o.metalRoughTexture), valid(o.emissiveTexture),
@@ -344,6 +376,8 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
         for (int k = 0; k < 4; ++k) ids[k] = valid(o.layerTextures[k]);
         ids[4] = ids[5] = -1;
     }
+    if (!o.terrain)
+        for (int k : {1, 2, 4, 5}) markData(ids[k]);
     MaterialKey key;
     for (int k = 0; k < 6; ++k) key.ids[k] = (uint16_t)(ids[k] + 1);
     auto& cache = o.terrain ? terrainSets_ : materialSets_;

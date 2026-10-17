@@ -1,6 +1,8 @@
 // render/texture_streaming: which mip levels textures keep on the GPU, under a budget, and the downsampling
 #include "test.h"
 
+#include <cmath>
+
 #include "render/texture_streaming.h"
 
 using streaming::TextureState;
@@ -59,4 +61,20 @@ TEST(streaming_downsample) {
     std::vector<uint8_t> l2 = streaming::downsample(img.data(), 4, 2, 2, w, h);
     REQUIRE(w == 1 && h == 1);
     CHECK(l2[0] > 180 && l2[0] < 195);   // (half the light: sRGB ~188, not 128)
+}
+
+// A normal map's levels (data): its bytes averaged as numbers. Two normals leaning 45 degrees apart along x average to
+// a shorter one pointing straight out (what specular anti-aliasing reads as roughness); as colours, x would be pulled
+// towards the brighter byte and the normal tilted.
+TEST(streaming_downsample_data) {
+    std::vector<uint8_t> img = {218, 128, 218, 255, 37, 128, 218, 255};   // (+0.71, 0, 0.71) and (-0.71, 0, 0.71)
+    uint32_t w = 0, h = 0;
+    std::vector<uint8_t> data = streaming::downsample(img.data(), 2, 1, 1, w, h, true);
+    REQUIRE(w == 1 && h == 1);
+    CHECK(data[0] >= 127 && data[0] <= 128);
+    CHECK(data[1] == 128 && data[2] == 218 && data[3] == 255);
+    float x = data[0] / 255.f * 2 - 1, z = data[2] / 255.f * 2 - 1;
+    CHECK(std::sqrt(x * x + z * z) < 0.75f);   // (shorter: the two disagreed)
+    std::vector<uint8_t> colour = streaming::downsample(img.data(), 2, 1, 1, w, h);
+    CHECK(colour[0] > 150);   // (as colours: tilted towards +x)
 }

@@ -144,6 +144,13 @@ TEST(cooked_texture_round_trip) {
     REQUIRE(cook::readTexture(cook::cookTexture(t, cook::Compression::None), back, error));
     REQUIRE(back.levels.size() == 1);
     CHECK(back.format == bc::Format::RGBA8 && back.levels[0] == t.rgba && !back.mipmaps);
+    // A data map (normals): its levels averaged as numbers (alternate pixels dark and bright: not as colours)
+    t.mipmaps = true;
+    for (size_t i = 0; i < t.rgba.size(); i += 8) t.rgba[i] = 30;
+    REQUIRE(cook::readTexture(cook::cookTexture(t, cook::Compression::None, true), back, error));
+    CHECK(back.levels[1] == streaming::downsample(t.rgba.data(), 20, 12, 1, lw, lh, true));
+    CHECK(back.levels[1] != streaming::downsample(t.rgba.data(), 20, 12, 1, lw, lh));
+    t.mipmaps = false;
     // Damaged: refused
     std::string bytes = cook::cookTexture(t, cook::Compression::Quality);
     CHECK(!cook::readTexture(bytes.substr(0, bytes.size() - 5), back, error));
@@ -298,6 +305,53 @@ TEST(export_cooks_texture_images) {
     Texture t;
     REQUIRE(cook::readTexture(readFile(dir / "textures" / "wall.png.vktex"), t, error));
     CHECK(t.format == bc::Format::BC1);
+    fs::remove_all(project);
+    fs::remove_all(out);
+}
+
+// Which of a model's images are data (normal, metal / rough, occlusion maps: their levels averaged as numbers), and
+// an export cooking a scene's normal map so
+TEST(cooking_data_maps) {
+    fs::path project = test::tempPath("cook_data"), out = test::tempPath("cook_data_out");
+    fs::remove_all(project);
+    fs::remove_all(out);
+    fs::create_directories(project);
+    std::ofstream(project / "model.gltf") << R"({"asset": {"version": "2.0"},
+        "images": [{"uri": "colour.png"}, {"uri": "bumps.png"}, {"uri": "rough.png"}],
+        "textures": [{"source": 0}, {"source": 1}, {"source": 2}],
+        "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicRoughnessTexture": {"index": 2}},
+                       "normalTexture": {"index": 1}}]})";
+    std::vector<std::string> files;
+    std::vector<bool> data;
+    std::string error;
+    REQUIRE(gltfImageFiles((project / "model.gltf").u8string(), files, error, &data));
+    REQUIRE(data.size() == 3);
+    CHECK(!data[0] && data[1] && data[2]);
+
+    std::vector<uint8_t> px = testImage(16, 16, false);
+    for (size_t i = 0; i < px.size(); i += 8) px[i] = 30;   // (alternate pixels: data and colour averages differ)
+    REQUIRE(writePng((project / "wall.png").u8string(), 16, 16, px.data()));
+    REQUIRE(writePng((project / "wall_n.png").u8string(), 16, 16, px.data()));
+    fs::remove(project / "model.gltf");
+    std::ofstream(project / "project.json") << R"({"format": "vkworld-project", "version": 1, "name": "Data", "startScene": "level.vkw"})";
+    std::ofstream(project / "level.vkw") << R"({"format": "vkworld-scene", "version": 60, "entities": [
+        {"name": "Wall", "transform": {"position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1]},
+         "meshRenderer": {"mesh": "Cube", "texture": "Wall", "normalTexture": "WallN"}}],
+        "textures": [{"name": "Wall", "source": "wall.png"}, {"name": "WallN", "source": "wall_n.png"}]})";
+    ExportOptions options;
+    options.cook = true;
+    options.textureCompression = "none";
+    options.layout = ExportOptions::Layout::Folder;
+    ExportResult result;
+    REQUIRE(exportGame(project, out, platform::executableDir(), result, error, options));
+    fs::path dir = result.executable.parent_path();
+    Texture colour, normals;
+    REQUIRE(cook::readTexture(readFile(dir / "wall.png.vktex"), colour, error));
+    REQUIRE(cook::readTexture(readFile(dir / "wall_n.png.vktex"), normals, error));
+    uint32_t w = 0, h = 0;
+    CHECK(colour.levels[1] == streaming::downsample(px.data(), 16, 16, 1, w, h));
+    CHECK(normals.levels[1] == streaming::downsample(px.data(), 16, 16, 1, w, h, true));
+    CHECK(normals.levels[1] != colour.levels[1]);
     fs::remove_all(project);
     fs::remove_all(out);
 }

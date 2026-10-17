@@ -111,6 +111,7 @@ void Renderer::writeDecals(const SceneRenderInfo& info, FrameUBO& u) {
     for (uint32_t s = 0; s < kDecalNormals; ++s) {
         const GpuTexture* t = &flatNormal_;
         if (s < pick.normalTextures.size() && pick.normalTextures[s] >= 0 && pick.normalTextures[s] < textureCount) {
+            markData(pick.normalTextures[s]);
             t = &gpuTextures_[(size_t)pick.normalTextures[s]];
             t->pinned = true;
         }

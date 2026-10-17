@@ -126,8 +126,8 @@ compiled pipelines between runs (`pipelines.cache` in the user's data folder), s
 
 **Cooked assets** (a build profile's *Cook assets*, on by default; `--cook` or `--textures bc7|bc1|none` with
 `--export`): the build ships textures and models ready for the GPU instead of their sources. Every image a scene
-or prefab uses as a texture becomes `<image>.vktex`: its mip levels made at build time (filtered in linear light,
-its import settings applied) and **block compressed**, BC7 by default (8 bits a pixel instead of 32, close to the
+or prefab uses as a texture becomes `<image>.vktex`: its mip levels made at build time (filtered in linear light;
+normal, metal/rough, height and detail maps averaged as plain numbers; its import settings applied) and **block compressed**, BC7 by default (8 bits a pixel instead of 32, close to the
 original), or BC1 (4 bits; BC3 for images with alpha) for the smallest, or uncompressed with the mips baked. Every
 glTF model becomes `<model>.vkmodel`: the meshes as the importer makes them, LODs included, its images cooked and
 its animation clips, copied straight into memory at load with no parsing. Loading looks for the cooked file first,
@@ -712,7 +712,11 @@ dropping on the right.
 - **Specular anti-aliasing**: where the normal changes within a pixel (small curved things, distant bumpy ground),
   highlights are widened to match, so they don't sparkle and crawl; and where a normal map's (or a detail map's)
   bumps are smaller than a pixel, by how much they vary (Toksvig: their mip levels' shorter normals), so a glossy
-  brick or cobbled floor glows evenly in the distance instead of glinting along every edge.
+  brick or cobbled floor glows evenly in the distance instead of glinting along every edge. Those mip levels are
+  averaged as numbers, not as colours: a texture a material (or a decal) reads as data — a normal, metal/rough,
+  height or detail map — has its mips made again that way the first time it's drawn as one (an sRGB average tilts
+  normals towards the brighter byte and keeps them too long). Cooked builds bake them so (glTF models' normal,
+  metal/rough and occlusion maps too). A texture used both as a colour and as data keeps the data mips.
 - **Skeletal animation**: glTF skins are imported with their joint weights; skinned meshes are deformed on the GPU
   (joint matrices in a storage buffer, up to 4 joints per vertex) in every pass, shadows and outline included.
 - **Batching and culling**: objects are drawn instanced, one draw call per mesh + material. Each object's data

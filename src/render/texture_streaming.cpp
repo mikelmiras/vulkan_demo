@@ -79,7 +79,7 @@ uint8_t toSrgb(float v) {
 }  // namespace
 
 std::vector<uint8_t> downsample(const uint8_t* rgba, uint32_t width, uint32_t height, uint32_t level, uint32_t& outWidth,
-                                uint32_t& outHeight) {
+                                uint32_t& outHeight, bool data) {
     outWidth = width;
     outHeight = height;
     std::vector<uint8_t> out(rgba, rgba + (size_t)width * height * 4);
@@ -100,7 +100,9 @@ std::vector<uint8_t> downsample(const uint8_t* rgba, uint32_t width, uint32_t he
                 const uint8_t* p[4] = {&out[((size_t)y0 * outWidth + x0) * 4], &out[((size_t)y0 * outWidth + x1) * 4],
                                        &out[((size_t)y1 * outWidth + x0) * 4], &out[((size_t)y1 * outWidth + x1) * 4]};
                 uint8_t* d = &next[((size_t)y * w + x) * 4];
-                for (int c = 0; c < 3; ++c) d[c] = toSrgb((lut[p[0][c]] + lut[p[1][c]] + lut[p[2][c]] + lut[p[3][c]]) * 0.25f);
+                for (int c = 0; c < 3; ++c)
+                    d[c] = data ? (uint8_t)((p[0][c] + p[1][c] + p[2][c] + p[3][c] + 2) / 4)
+                                : toSrgb((lut[p[0][c]] + lut[p[1][c]] + lut[p[2][c]] + lut[p[3][c]]) * 0.25f);
                 d[3] = (uint8_t)((p[0][3] + p[1][3] + p[2][3] + p[3][3] + 2) / 4);
             }
         out.swap(next);
