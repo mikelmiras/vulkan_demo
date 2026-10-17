@@ -2176,7 +2176,7 @@ light in the air from every lamp, the last stalls in probes, and Night Drive's s
   AA, AA off, render scale 0.7, the editor, the demo, under CI's validation layer. Not done: the near field's own
   half-size gather, motion blur within an object's shutter by its acceleration (straight lines only).
 
-## Round 13 (planned)
+## Round 13 (done)
 
 Visuals and performance (the standing request), from round 12's notes: light from shapes, not points (shop signs,
 neon tubes), less shimmer on glossy and wet surfaces, rough and longer reflections, the temporal pass and the lamps'
@@ -2291,3 +2291,23 @@ soft shadows back down in cost, longer screen-space bounces, and Night Drive's n
   Saved and loaded (the lens dirt's test). Checked: the neon test scene and Night Drive with the flare at 1, MSAA,
   the editor, the demo, under CI's validation layer. Not done: a starburst (the aperture's blades), the flare
   from the sun's disc by its own (it comes through the bloom like any bright spot).
+
+## Round 14 (planned)
+
+Visuals and performance (the standing request), from round 13's notes: rectangles of light (shop windows), lights
+with a shape in the fog, contact shadows from every near lamp, a sky with real clouds, less grain in the bounced
+light, one full-screen pass fewer after the temporal one, and Night Drive's cars looking like painted metal.
+
+| # | Task | Why |
+|---|------|-----|
+| 137 | Rectangle lights (a Light shape: width and height, facing its -z), lit by representative points as the tubes are (the rectangle's point nearest the reflected ray; the diffuse from its nearest point and its facing), one-sided | Shop windows and light boxes light the street as bulbs or tubes |
+| 138 | The sharpening folded into the temporal pass's output (it writes the sharpened picture and keeps the history unsharpened in a second target), one full-screen pass fewer; measured | The sharpening is a whole pass of its own after the temporal one |
+| 139 | Screen-space GI's bounce denoised: an edge-aware blur (depth and normal weighted) of the half-size traced light before scene.frag brings it up | The longer bounce rays (task 133) left grain where they meet things sporadically |
+| 140 | Shaped lights in the fog and the shafts: tubes' and rectangles' nearest points for the volumetric fog's in-scattering and the light shafts' halos | A neon tube glows in the fog as a ball of light |
+| 141 | Contact shadows from the four nearest shadowed lamps, not only the nearest (their directions traced at half size together) | Only one lamp's shadows meet the ground; the others float a little |
+| 142 | Volumetric clouds: a ray-marched layer (the same noise, given height and density), lit by the sun through itself (a phase function, a shadow ray) and the sky, drawn at quarter size with temporal reprojection; the flat layer kept for low quality | The clouds are a flat texture across the sky: no depth, no light through their edges |
+| 143 | Normal maps' mips filtered in linear space (not through the sRGB view), keeping their normals' length for specular anti-aliasing; terrain layers' normal maps in it too | The mips of normal maps are averaged as colours; terrain glints unchecked |
+| 144 | Night Drive's cars as painted metal: clear-coated paint with a metallic base, glass that reflects the street, the taxi's livery | The cars are flat-coloured boxes beside the reflective street |
+
+### Round 14 notes
+
