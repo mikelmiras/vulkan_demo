@@ -51,6 +51,7 @@ struct DrawItem {
     // A terrain (scene/terrain.h): its mesh's skin weights mix four layers, each a texture (sRGB) times a tint
     bool terrain = false;
     int layerTextures[4] = {-1, -1, -1, -1};
+    int layerNormals[4] = {-1, -1, -1, -1};   // (their normal maps; strengths in the matrix after the tints)
     int terrainLayers = -1;     // its layers' tints and tilings (a matrix, column per layer) in SceneRenderInfo::joints
     // A water surface (scene/water.h): its grid moved by the waves in the vertex shader (shaders/water.glsl)
     bool water = false;
@@ -573,9 +574,9 @@ private:
     VkDescriptorPool materialPool_ = VK_NULL_HANDLE;
     // Material sets by their six texture ids (colour, normal, metal / rough, emissive, height, detail; +1, 0: none)
     struct MaterialKey {
-        uint16_t ids[6] = {};
-        bool operator==(const MaterialKey& o) const { return std::equal(ids, ids + 6, o.ids); }
-        bool uses(uint16_t id) const { return std::find(ids, ids + 6, id) != ids + 6; }
+        uint16_t ids[10] = {};   // (the six maps; a terrain's four layer normal maps after them)
+        bool operator==(const MaterialKey& o) const { return std::equal(ids, ids + 10, o.ids); }
+        bool uses(uint16_t id) const { return std::find(ids, ids + 10, id) != ids + 10; }
     };
     struct MaterialKeyHash {
         size_t operator()(const MaterialKey& k) const {
@@ -586,6 +587,7 @@ private:
     };
     std::unordered_map<MaterialKey, VkDescriptorSet, MaterialKeyHash> materialSets_;
     std::unordered_map<MaterialKey, VkDescriptorSet, MaterialKeyHash> terrainSets_;   // terrains': four colour layers
+                                                                                        // and their normal maps
     mutable std::unordered_map<int, VkDescriptorSet> uiSets_;      // texture id -> ImGui's set for it
     VkSampler sampler_ = VK_NULL_HANDLE;
     VkSampler nearestSampler_ = VK_NULL_HANDLE;

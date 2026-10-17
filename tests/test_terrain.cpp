@@ -7,6 +7,7 @@
 #include "core/png.h"
 #include "game/navigation.h"
 #include "physics/physics.h"
+#include "scene/scene_diff.h"
 #include "scene/serialization.h"
 #include "scene/terrain.h"
 
@@ -109,6 +110,8 @@ TEST(terrain_encoding_and_scene_files) {
     e.terrain->layers[1].texture = 1;   // the built-in Bricks
     e.terrain->layers[2].color = {0.2f, 0.4f, 0.6f};
     e.terrain->layers[3].tiling = 2.f;
+    e.terrain->layers[1].normalTexture = 3;   // the built-in Bricks Normal
+    e.terrain->layers[1].normalStrength = 0.5f;
     MeshLibrary lib = buildMeshLibrary();
     TextureLibrary tex = buildTextureLibrary();
     std::string error, path = test::tempPath("terrain.vkw").u8string();
@@ -121,6 +124,11 @@ TEST(terrain_encoding_and_scene_files) {
     CHECK(g->terrain->layers[1].texture == 1);
     CHECK_NEAR(g->terrain->layers[2].color.y, 0.4f, 1e-6);
     CHECK(g->terrain->layers[3].tiling == 2.f);
+    CHECK(g->terrain->layers[1].normalTexture == 3 && g->terrain->layers[1].normalStrength == 0.5f);
+    CHECK(g->terrain->layers[0].normalTexture == -1 && g->terrain->layers[0].normalStrength == 1.f);
+    Entity edited = *g;   // (undo sees the strength change)
+    edited.terrain->layers[1].normalStrength = 1.f;
+    CHECK(sameEntity(*g, *g) && !sameEntity(*g, edited));
     CHECK_NEAR(terrain::heightAt(*g->terrain, 5.f, 5.f), terrain::heightAt(t, 5.f, 5.f), 0.002);
     CHECK(g->terrain->revision != 0);
 }

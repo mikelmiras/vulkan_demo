@@ -43,6 +43,7 @@ layout(set = 1, binding = 2) uniform sampler2D metalRoughMap;  // g = roughness,
 layout(set = 1, binding = 3) uniform sampler2D emissiveMap;    // sRGB view (white if none)
 layout(set = 1, binding = 4) uniform sampler2D heightMap;      // parallax occlusion: r = height (white if none)
 layout(set = 1, binding = 5) uniform sampler2D detailMap;      // a fine normal map, tiled (flat if none)
+layout(set = 1, binding = 6) uniform sampler2D layerNormals[4]; // a terrain's layers' normal maps (flat if none)
 // Decals (renderer_decals.cpp): the nearest, each a box projected down onto the surfaces in it, and their textures
 struct GpuDecal {
     mat4 toBox;     // world -> the box (-0.5..0.5; it projects down its -y: u along x, v along z)
@@ -799,6 +800,30 @@ vec3 terrainColor() {
            w.z * texture(metalRoughMap, vUV * L[2].w).rgb * L[2].rgb + w.w * texture(emissiveMap, vUV * L[3].w).rgb * L[3].rgb;
 }
 
+// A terrain's bumps: its layers' normal maps mixed by the same weights, each tiled as its layer and scaled by its
+// strength (column k's x of the matrix after the tints; 0: none, not read), the mix's spread for specular AA
+vec3 terrainNormal(vec3 N) {
+    int at = int(-vParams.w + 0.5) - 2;
+    if (at < 0) return N;
+    mat4 L = joints[at], S = joints[at + 1];
+    if (S[0].x + S[1].x + S[2].x + S[3].x <= 0.0) return N;
+    vec4 w = max(vSplat, vec4(0.0));
+    w /= max(w.x + w.y + w.z + w.w, 1e-4);
+    vec3 n = vec3(0.0);
+    for (int k = 0; k < 4; ++k) {
+        vec3 m = vec3(0.0, 0.0, 1.0);
+        if (S[k].x > 0.0) {   // (the same for the whole draw)
+            m = texture(layerNormals[k], vUV * L[k].w).xyz * 2.0 - 1.0;
+            mapVariance += w[k] * normalMapVariance(length(m), S[k].x);
+            m.xy *= S[k].x;
+        }
+        n += w[k] * m;
+    }
+    vec3 T, B;
+    tangentFrame(N, T, B);
+    return bend(N, T, B, n, 1.0);
+}
+
 void main() {
     // Texture streaming: the finest level this texture is needed at, reported by one pixel in sixteen (a different
     // one each frame), a level finer than its footprint (anisotropic filtering reaches further)
@@ -849,6 +874,7 @@ void main() {
     if (!gl_FrontFacing && vParams.x > -0.5) N = -N;   // (two-sided surfaces; foliage keeps its normals)
     vec3 surfaceN = N;   // (a clear coat's: smooth over the normal map)
     if (vMaterial.z > 0.0) N = perturbNormal(N, vMaterial.z);
+    if (terrain) N = terrainNormal(N);
     if (vSurface.z > 0.0 && !terrain && !water) {   // the detail map: finer bumps over the normal map's
         vec3 T, B;
         tangentFrame(surfaceN, T, B);

@@ -32,8 +32,16 @@ std::vector<DrawItem> collectDrawItems(const Scene& scene, const std::vector<Mat
                     layers.m[k * 4 + 2] = tint.z;
                     layers.m[k * 4 + 3] = l.tiling;
                 }
+                Mat4 bumps;   // (the layers' normal maps' strengths: column k's x; 0 without one)
+                for (int k = 0; k < Terrain::kLayers; ++k) {
+                    const Terrain::Layer& l = e.terrain->layers[k];
+                    d.layerNormals[k] = l.normalTexture;
+                    bumps.m[k * 4 + 0] = l.normalTexture >= 0 ? l.normalStrength : 0.f;
+                    bumps.m[k * 4 + 1] = bumps.m[k * 4 + 2] = bumps.m[k * 4 + 3] = 0.f;
+                }
                 d.terrainLayers = (int)joints->size();
                 joints->push_back(layers);
+                joints->push_back(bumps);
             }
             for (int chunk : e.terrain->meshes) {   // a draw per chunk: culled and given a level of detail on its own
                 if (meshes && (chunk < 0 || chunk >= meshes->count())) continue;

@@ -788,11 +788,12 @@ void Renderer::createPipelines() {
     dslci.bindingCount = 44;
     dslci.pBindings = frameBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &setLayout_));
-    // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal)
-    VkDescriptorSetLayoutBinding matBindings[6];
-    for (uint32_t i = 0; i < 6; ++i)
-        matBindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
-    dslci.bindingCount = 6;
+    // Set 1, per draw: the material's maps (albedo, normal, metal/rough, emissive, height, detail normal), then a
+    // terrain's four layers' normal maps (an array; flat for everything else)
+    VkDescriptorSetLayoutBinding matBindings[7];
+    for (uint32_t i = 0; i < 7; ++i)
+        matBindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, i == 6 ? 4u : 1u, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    dslci.bindingCount = 7;
     dslci.pBindings = matBindings;
     VK_CHECK(vkCreateDescriptorSetLayout(device_, &dslci, nullptr, &materialSetLayout_));
 
@@ -1215,8 +1216,8 @@ void Renderer::createResources(const MeshLibrary&) {
     dpci.poolSizeCount = 4;
     dpci.pPoolSizes = poolSizes;
     VK_CHECK(vkCreateDescriptorPool(device_, &dpci, nullptr, &descPool_));
-    // Material sets (four maps each), made as materials are first drawn
-    VkDescriptorPoolSize matSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 6 * 4096};
+    // Material sets (ten maps each), made as materials are first drawn
+    VkDescriptorPoolSize matSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 10 * 4096};
     dpci.maxSets = 4096;
     dpci.poolSizeCount = 1;
     dpci.pPoolSizes = &matSize;

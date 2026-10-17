@@ -119,7 +119,8 @@ bool eq(const Terrain& a, const Terrain& b) {
     if (a.revision != b.revision || a.resolution != b.resolution || a.size != b.size) return false;
     for (int k = 0; k < Terrain::kLayers; ++k)
         if (a.layers[k].texture != b.layers[k].texture || !eq(a.layers[k].color, b.layers[k].color) ||
-            a.layers[k].tiling != b.layers[k].tiling)
+            a.layers[k].tiling != b.layers[k].tiling || a.layers[k].normalTexture != b.layers[k].normalTexture ||
+            a.layers[k].normalStrength != b.layers[k].normalStrength)
             return false;
     if (a.foliage.size() != b.foliage.size()) return false;   // (holes and painting: a new revision)
     for (size_t k = 0; k < a.foliage.size(); ++k) {

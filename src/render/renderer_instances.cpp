@@ -423,8 +423,9 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     };
     for (const DrawItem& o : items) {
         if (o.terrain) {   // (terrains' layers: whole, they're tiled across everything)
-            for (int id : o.layerTextures)
-                if (valid(id)) gpuTextures_[(size_t)id].pinned = true;
+            for (int k = 0; k < 4; ++k)
+                for (int id : {o.layerTextures[k], o.layerNormals[k]})
+                    if (valid(id)) gpuTextures_[(size_t)id].pinned = true;
             continue;
         }
         int lead = leadOf(o);

@@ -564,6 +564,8 @@ struct Terrain {
         int texture = -1;          // id in the TextureLibrary (-1: just the tint)
         Vec3 color{1, 1, 1};       // sRGB tint
         float tiling = 0.25f;      // texture repeats per metre
+        int normalTexture = -1;    // its bumps: a normal map, tiled as the texture (-1: flat)
+        float normalStrength = 1.f;
     };
     int resolution = 0;            // height samples along each side: 64, 128 or 256 (0: not made yet)
     float size = 64.f;             // metres along X and Z

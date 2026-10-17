@@ -19,7 +19,7 @@
 namespace {
 
 constexpr const char* kFormat = "vkworld-scene";
-constexpr int kVersion = 63;  // 63: rectangle lights; 62: lens flare; 61: tube lights; 60: lights' sizes (soft lamp shadows); 59: depth of field, motion blur; 58: light shafts; 57: glowing decals; 56: translucency and subsurface scattering in materials; 55: GPU particles; 54: lens dirt; 53: clouds; 52: contact shadows; 51: decal normal maps; 50: particle streaks, lit particles; 49: parallax, detail maps, decals, weather; 48: screen-space global illumination; 47: physical sky, time of day; 46: auto-exposure, local tone mapping; 45: clear coat, sheen and anisotropy in materials; 44: scene music and reverb from the world; 43: animation events' particles and camera shakes, retargeting that plants feet, mirrored clips; 42: water (waves, currents); 41: shadow softness, volumetric fog, tone mapper and grading; 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
+constexpr int kVersion = 64;  // 64: terrain layers' normal maps; 63: rectangle lights; 62: lens flare; 61: tube lights; 60: lights' sizes (soft lamp shadows); 59: depth of field, motion blur; 58: light shafts; 57: glowing decals; 56: translucency and subsurface scattering in materials; 55: GPU particles; 54: lens dirt; 53: clouds; 52: contact shadows; 51: decal normal maps; 50: particle streaks, lit particles; 49: parallax, detail maps, decals, weather; 48: screen-space global illumination; 47: physical sky, time of day; 46: auto-exposure, local tone mapping; 45: clear coat, sheen and anisotropy in materials; 44: scene music and reverb from the world; 43: animation events' particles and camera shakes, retargeting that plants feet, mirrored clips; 42: water (waves, currents); 41: shadow softness, volumetric fog, tone mapper and grading; 40: cloth tearing, soft bodies in water, fractures held together; 39: animation events' sounds, retargeting that matches rest poses; 38: global illumination, screen-space reflections; 37: split-screen player cameras; 36: soft bodies, fracture, buoyancy; 35: network relevance; 34: AI brains; 33: terrain holes and foliage; 32: light cookies; 31: audio occlusion; 30: vehicles; 29: replication, network settings; 28: UI elements; 27: 2D blend spaces, additive layers, IK; 26: reflection probes, sky images; 25: terrains; 24: asset ids next to file references (assets/asset_db.h); 23: audio buses, streaming, Doppler, reverb zones; 22: ambient occlusion settings; 21: navigation links; 20: blend trees, animation layers, root motion; 19: joints, kinematic bodies; 18: tags, layers; 17: navigation settings; 16: animation events and state machines; 15: alpha modes; 14: spot lights, sky colours; 13: particle emitters; 12: PBR materials, render settings; 11: skins, animators; 10: pause action; 9: quicksave / quickload actions; 8: audio sources; 7: rigid bodies; 6: linked prefabs; 5: textures, lights; 4: prefabs; 3: entities
 
 json::Value vec3(Vec3 v) {
     float a[3] = {v.x, v.y, v.z};
@@ -508,6 +508,10 @@ json::Value entityToJson(const Entity& e, const MeshLibrary& meshes, const Textu
             if (l.texture >= 0 && l.texture < textures.count()) lv.set("texture", textures.name(l.texture));
             lv.set("color", vec3(l.color));
             lv.set("tiling", l.tiling);
+            if (l.normalTexture >= 0 && l.normalTexture < textures.count()) {
+                lv.set("normalTexture", textures.name(l.normalTexture));
+                if (l.normalStrength != 1.f) lv.set("normalStrength", l.normalStrength);
+            }
             layers.push(std::move(lv));
         }
         if (std::any_of(t.holes.begin(), t.holes.end(), [](uint8_t h) { return h != 0; }))
@@ -986,6 +990,12 @@ bool entityFromJson(const json::Value& v, const AssetIds& ids, Entity& out, std:
             }
             l.color = readVec3(lv["color"], l.color);
             l.tiling = lv["tiling"].asFloat(l.tiling);
+            if (const std::string& normals = lv["normalTexture"].asString(); !normals.empty()) {   // (64 on)
+                auto it = ids.textures.find(normals);
+                if (it == ids.textures.end()) { error = "entity '" + e.name + "': unknown texture '" + normals + "'"; return false; }
+                l.normalTexture = it->second;
+            }
+            l.normalStrength = lv["normalStrength"].asFloat(1.f);
         }
         size_t points = (size_t)t.resolution * (size_t)t.resolution;
         if (c.has("holes") && !terrain::decodeBytes(c["holes"].asString(), points, t.holes)) {
@@ -1292,7 +1302,8 @@ void assetListsToJson(json::Value& doc, const std::vector<const std::vector<Enti
             }
             if (e.terrain)
                 for (const Terrain::Layer& l : e.terrain->layers)
-                    if (l.texture >= kBuiltinTextureCount) usedTextures.insert(l.texture);
+                    for (int t : {l.texture, l.normalTexture})
+                        if (t >= kBuiltinTextureCount) usedTextures.insert(t);
             if (e.decal)
                 for (int t : {e.decal->texture, e.decal->normalTexture})
                     if (t >= kBuiltinTextureCount) usedTextures.insert(t);

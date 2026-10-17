@@ -372,14 +372,20 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
     auto valid = [&](int id) { return id >= 0 && id < (int)gpuTextures_.size() ? id : -1; };
     int ids[6] = {valid(o.texture), valid(o.normalTexture), valid(o.metalRoughTexture), valid(o.emissiveTexture),
                   valid(o.heightTexture), valid(o.detailTexture)};
-    if (o.terrain) {   // (four colour layers: sRGB views, white where there's none)
-        for (int k = 0; k < 4; ++k) ids[k] = valid(o.layerTextures[k]);
+    int normals[4] = {-1, -1, -1, -1};
+    if (o.terrain) {   // (four colour layers: sRGB views, white where there's none; their normal maps, flat)
+        for (int k = 0; k < 4; ++k) {
+            ids[k] = valid(o.layerTextures[k]);
+            normals[k] = valid(o.layerNormals[k]);
+            markData(normals[k]);
+        }
         ids[4] = ids[5] = -1;
-    }
-    if (!o.terrain)
+    } else {
         for (int k : {1, 2, 4, 5}) markData(ids[k]);
+    }
     MaterialKey key;
     for (int k = 0; k < 6; ++k) key.ids[k] = (uint16_t)(ids[k] + 1);
+    for (int k = 0; k < 4; ++k) key.ids[6 + k] = (uint16_t)(normals[k] + 1);
     auto& cache = o.terrain ? terrainSets_ : materialSets_;
     auto it = cache.find(key);
     if (it != cache.end()) return it->second;
@@ -403,16 +409,18 @@ VkDescriptorSet Renderer::materialSet(const DrawItem& o) {
                                       pick(ids[4], false, whiteTexture_), pick(ids[5], false, flatNormal_)};
     if (o.terrain)
         for (int k = 0; k < 4; ++k) infos[k] = pick(ids[k], true, whiteTexture_);
-    VkWriteDescriptorSet w[6];
-    for (uint32_t i = 0; i < 6; ++i) {
+    VkDescriptorImageInfo layerNormals[4];
+    for (int k = 0; k < 4; ++k) layerNormals[k] = pick(normals[k], false, flatNormal_);
+    VkWriteDescriptorSet w[7];
+    for (uint32_t i = 0; i < 7; ++i) {
         w[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         w[i].dstSet = set;
         w[i].dstBinding = i;
-        w[i].descriptorCount = 1;
+        w[i].descriptorCount = i == 6 ? 4 : 1;
         w[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        w[i].pImageInfo = &infos[i];
+        w[i].pImageInfo = i == 6 ? layerNormals : &infos[i];
     }
-    vkUpdateDescriptorSets(device_, 6, w, 0, nullptr);
+    vkUpdateDescriptorSets(device_, 7, w, 0, nullptr);
     cache.emplace(key, set);
     return set;
 }

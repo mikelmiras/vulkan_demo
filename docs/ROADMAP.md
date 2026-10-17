@@ -2418,7 +2418,7 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
 
 | # | Task | Why |
 |---|------|-----|
-| 145 | Terrain layers' normal maps: one per layer (with a strength), blended by the layers' weights onto the terrain's normal, their mips as data (task 143), specular anti-aliasing reading them | Terrain layers are flat colours: the ground's bumps come only from its heights |
+| 145 (done) | Terrain layers' normal maps: one per layer (with a strength), blended by the layers' weights onto the terrain's normal, their mips as data (task 143), specular anti-aliasing reading them | Terrain layers are flat colours: the ground's bumps come only from its heights |
 | 146 | Volumetric clouds drawn at quarter size with temporal reprojection (the sky's history moved by the camera's turn), brought up with the sky | The clouds march every sky pixel every frame: ~75 ms of lavapipe's frame on a half-sky view |
 | 147 | Clouds' shadows from the volume: the same density marched along the sun's ray into a shadow texture over the view, for the ground's sunlight and the sky's ambient | The ground's cloud shadows still come from the flat layer's coverage, not from the clouds drawn |
 | 148 | Volumetric fog cheaper: each froxel lit only by the lights whose range reaches it (the clusters' lists), fewer slices where nothing changes, measured on Night Drive | The fog is 204 ms of Night Drive's 1294 on lavapipe, the largest pass after the opaque scene |
@@ -2427,3 +2427,15 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
 | 151 | Night Drive's cars as rounded models: a low-poly car mesh written by a tool (a bevelled body, wheel arches, a sloping windscreen), shared by every car and the taxi | The cars are still boxes |
 
 ### Round 15 notes
+- **145, terrain layers' normal maps**: Terrain::Layer gains normalTexture and normalStrength (scene format 64,
+  module API 73, eq, the inspector's *Normal map* and *Bumpiness*, the scene's texture list). The material set grows
+  a binding: 6, an array of four (a terrain's layers' normal maps, flat for everything else; the pool 10 a set),
+  MaterialKey ten ids. scene_draw pushes a second matrix after the layers' tints, column k's x the layer's strength (0
+  without a map); scene.frag's terrainNormal reads only the layers with one (the test is the same for the whole
+  draw), mixes their tangent-space normals by the paint weights (each's xy times its strength), adds each one's
+  Toksvig spread by its weight, and bends the normal in the UVs' tangent frame. The maps are marked as data (task
+  143) and pinned whole like the layers' colours. Checked: a scratch terrain of the built-in bricks under a lamp
+  with and without the built-in brick normal map (bricks stand out, their lit and dark edges the same way round as
+  the same map on a plane's material), MSAA, the editor, Night Drive under CI's validation layer; the save / load
+  test with a layer's map and strength, undo seeing a strength change. Not done: triplanar mapping on steep slopes
+  (the maps stretch down cliffs as the colours do), height-blended layers (by the maps' heights).

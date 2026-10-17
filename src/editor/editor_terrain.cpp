@@ -147,6 +147,29 @@ void Editor::drawTerrainInspector(Entity& e) {
             track();
             ImGui::DragFloat("Tiling", &l.tiling, 0.005f, 0.001f, 100.f, "%.3f / m", ImGuiSliderFlags_AlwaysClamp);
             track();
+            int normals = l.normalTexture + 1;
+            if (ImGui::Combo(
+                    "Normal map", &normals,
+                    [](void* lib, int i) { return i == 0 ? "(none)" : ((const TextureLibrary*)lib)->name(i - 1); },
+                    &textures_, textures_.count() + 1)) {
+                pushUndo();
+                l.normalTexture = normals - 1;
+            }
+            if (std::filesystem::path dropped; acceptAssetDrop(AssetKind::Texture, dropped)) {
+                std::string error;
+                int id = loadTexture(textures_, dropped.u8string(), error);
+                if (id >= 0) {
+                    pushUndo();
+                    l.normalTexture = id;
+                } else {
+                    setStatus("Texture failed: " + error);
+                }
+            }
+            tooltip("The layer's bumps, tiled as its texture; drop a texture from the Assets panel here");
+            if (l.normalTexture >= 0) {
+                ImGui::DragFloat("Bumpiness", &l.normalStrength, 0.01f, 0.f, 4.f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+                track();
+            }
             if (ImGui::SmallButton("Paint with this")) {
                 brush_.mode = terrain::Brush::Paint;
                 brush_.layer = k;

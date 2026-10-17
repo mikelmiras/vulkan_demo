@@ -838,7 +838,10 @@ a brush (its circle follows the ground under the mouse):
   samples along each side; changing it keeps the shape), its *Width*, *Add hills* (random rolling hills) and
   *Flatten all*.
 - **Layers**: four, each a texture (or none) times a tint, repeating every so many metres; the terrain starts as
-  grass, with rock, dirt and sand to paint. Drop a texture from the Assets panel onto a layer.
+  grass, with rock, dirt and sand to paint. Drop a texture from the Assets panel onto a layer. A layer can also have
+  a **normal map** (tiled as its texture) with a *Bumpiness*: the layers' bumps are mixed by the same paint as their
+  colours, so cobbles stand out where cobbles are painted; their mips are averaged as numbers and their spread widens
+  highlights in the distance (specular anti-aliasing), as a material's normal map does.
 - **Holes** cut the ground away (cave mouths, tunnels; Shift, or **Fill**, puts it back): the triangles touching a
   hole point go, from the picture and from the collision alike, and rays pass through. A hole still casts a shadow.
 - **Import heightmap...** takes a greyscale image (16-bit PNGs keep the most detail) as the heights, black at 0 and
