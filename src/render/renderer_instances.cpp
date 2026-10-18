@@ -93,6 +93,14 @@ void Renderer::prepareMotion(const SceneRenderInfo& info) {
     const size_t n = info.items ? info.items->size() : 0;
     const size_t jointCount = info.joints ? info.joints->size() : 0;
     prevModels_.resize(n);
+    itemMoving_.assign(n, 0);
+    size_t fresh = 0;   // (items not seen last frame: a scene loading, or the first frame, if it's a good part of them)
+    for (size_t i = 0; i < n; ++i) {
+        const uint32_t key = (*info.items)[i].key;
+        auto it = key ? motion_.find(key) : motion_.end();
+        fresh += key && (it == motion_.end() || it->second.frame + 1 != motionFrame_) ? 1 : 0;
+    }
+    const bool manyNew = fresh * 8 > n;
     prevJointOffsets_.assign(n, -1);
     prevJoints_.clear();
     // (each skinned item's joints run from its offset to the next one's in the buffer: terrains' layers in it too)
@@ -111,6 +119,11 @@ void Renderer::prepareMotion(const SceneRenderInfo& info) {
         const bool known = it != motion_.end() && it->second.frame + 1 == motionFrame_;
         if (known) prevModels_[i] = it->second.model;
         Motion& m = known ? it->second : motion_[o.key];
+        // (moved, or new (just shown, as a flickering sign: not a whole scene appearing at once): the cascades draw it
+        // apart from the still casters until it settles)
+        if ((!known && !manyNew) || o.jointOffset >= 0 || (known && std::memcmp(m.model.m, o.model.m, sizeof(o.model.m)) != 0))
+            m.moved = motionFrame_;
+        itemMoving_[i] = m.moved != 0 && m.moved + kSettleFrames >= motionFrame_ ? 1 : 0;   // (0: never moved)
         m.model = o.model;
         m.frame = motionFrame_;
         if (o.jointOffset >= 0 && (size_t)o.jointOffset < jointCount) {
@@ -169,6 +182,7 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
     for (auto& b : shadowBatches_) b.clear();
     for (auto& b : shadowCutoutBatches_) b.clear();
     for (auto& b : shadowTintBatches_) b.clear();
+    for (auto& b : shadowMovingBatches_) b.clear();
     outlineBatches_.clear();
     stats_ = {};
     if (!info.items) return;
@@ -280,6 +294,41 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         if (items[i].jointOffset >= 0 || levels == 0) return lods[i];
         return shadowLayers[k] >= 2 && shadowLayers[k] < kCascades ? std::min(lods[i] + 1, levels) : lods[i];
     };
+    // The cascades' solid casters that moved lately: apart (drawn every frame over the still ones' copy), out of the
+    // signature; the rest as before (cut-outs and tinting ones always with the still ones)
+    std::vector<std::vector<uint32_t>> moving(casters.size());
+    for (size_t k = 0; k < casters.size(); ++k) {
+        if (shadowLayers[k] >= kCascades || !staticCascades_.image) continue;
+        auto isMoving = [&](uint32_t i) {
+            return i < itemMoving_.size() && itemMoving_[i] && items[i].alphaMode == 0 && !tintsShadow(items[i]);
+        };
+        for (uint32_t i : casters[k])
+            if (isMoving(i)) moving[k].push_back(i);
+        casters[k].erase(std::remove_if(casters[k].begin(), casters[k].end(), isMoving), casters[k].end());
+        // (the texels each covers: its box's corners through the cascade's camera, a texel of margin)
+        const uint32_t layer = shadowLayers[k];
+        movingRects_[layer].clear();
+        for (uint32_t i : moving[k]) {
+            int rect[4] = {(int)kCascadeSize, (int)kCascadeSize, 0, 0};
+            const Mesh& mesh = meshes_->get(items[i].mesh);
+            for (int c = 0; c < 8; ++c) {
+                Vec3 corner{c & 1 ? mesh.boundsMax.x : mesh.boundsMin.x, c & 2 ? mesh.boundsMax.y : mesh.boundsMin.y,
+                            c & 4 ? mesh.boundsMax.z : mesh.boundsMin.z};
+                const Vec3 p = transformPoint(items[i].model, corner);
+                const float* m = shadowViewProj_[layer].m;
+                const float cx = m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12], cy = m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13];
+                const float cw = std::max(m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15], 1e-6f);   // (orthographic: 1)
+                const float tx = (cx / cw * 0.5f + 0.5f) * (float)kCascadeSize, ty = (cy / cw * 0.5f + 0.5f) * (float)kCascadeSize;
+                rect[0] = std::min(rect[0], (int)std::floor(tx) - 1);
+                rect[1] = std::min(rect[1], (int)std::floor(ty) - 1);
+                rect[2] = std::max(rect[2], (int)std::ceil(tx) + 1);
+                rect[3] = std::max(rect[3], (int)std::ceil(ty) + 1);
+            }
+            std::array<int, 4> r;
+            for (int c = 0; c < 4; ++c) r[c] = std::clamp(rect[c], 0, (int)kCascadeSize);
+            if (r[2] > r[0] && r[3] > r[1]) movingRects_[layer].push_back(r);
+        }
+    }
     // Each shadow layer's casters, hashed (FNV-1a): what's drawn into it (mesh, level, material for cut-outs, where,
     // vertices rewritten in place); skinned ones change every frame
     for (size_t k = 0; k < casters.size(); ++k) {
@@ -306,6 +355,10 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
         shadowSignature_[shadowLayers[k]] = h;
     }
     size_t casterCount = 0;
+    for (auto& list : moving) {
+        std::stable_sort(list.begin(), list.end(), [&](uint32_t a, uint32_t b) { return items[a].mesh < items[b].mesh; });
+        casterCount += list.size();
+    }
     for (auto& list : casters) {   // solid ones by mesh; ones with holes after them, by material
         std::stable_sort(list.begin(), list.end(), [&](uint32_t a, uint32_t b) {
             bool ha = items[a].alphaMode != 0, hb = items[b].alphaMode != 0;
@@ -547,6 +600,8 @@ void Renderer::prepareInstances(const SceneRenderInfo& info, bool gpuCulling) {
             else if (items[i].alphaMode == 0) append(shadowBatches_[shadowLayers[k]], i, items[i].mesh, lod, plain);
             else append(shadowCutoutBatches_[shadowLayers[k]], i, items[i].mesh, lod, textureSet(items[i]));
         }
+    for (size_t k = 0; k < moving.size(); ++k)
+        for (uint32_t i : moving[k]) append(shadowMovingBatches_[shadowLayers[k]], i, items[i].mesh, shadowLod(k, i), plain);
     for (int g = 0; g < giCount_; ++g)
         for (uint32_t i : giVisible[(size_t)g]) {
             int coarsest = items[i].jointOffset < 0 ? (int)meshes_->get(items[i].mesh).lods.size() : 0;

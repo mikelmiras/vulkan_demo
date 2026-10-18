@@ -29,8 +29,9 @@ Renderer::ShadowArray Renderer::createShadowArray(uint32_t size, uint32_t count,
     ci.arrayLayers = count;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = (colour ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) |
-               VK_IMAGE_USAGE_SAMPLED_BIT;
+    ci.usage = (colour ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                       : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) |
+               VK_IMAGE_USAGE_SAMPLED_BIT;   // (depth: the cascades' still casters copied aside and back)
     VK_CHECK(vkCreateImage(device_, &ci, nullptr, &a.image));
     VkMemoryRequirements req;
     vkGetImageMemoryRequirements(device_, a.image, &req);
@@ -230,8 +231,15 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
         if (!active && layer < kCascades && !(shadowCacheOn_ && shadowCache_[layer].valid && shadowCache_[layer].empty))
             clearOnly |= 1ull << layer;
     }
+    // (cascades whose still casters are kept but which have moving ones, now or last time: those drawn again over a
+    // copy of the still ones)
+    uint64_t refresh = 0;
+    for (uint32_t layer = 0; layer < kCascades && staticCascades_.image; ++layer) {
+        const bool kept = !(((draw | clearOnly) >> layer) & 1) && !((shadowDeferred_ >> layer) & 1) && ((shadowLayers_ >> layer) & 1);
+        if (kept && (!shadowMovingBatches_[layer].empty() || hadMoving_[layer])) refresh |= 1ull << layer;
+    }
     const uint64_t cascadeBits = (1ull << kCascades) - 1;
-    bool cascadesTouched = ((draw | clearOnly) & cascadeBits) != 0, atlasTouched = (draw >> kCascades) != 0;
+    bool cascadesTouched = ((draw | clearOnly | refresh) & cascadeBits) != 0, atlasTouched = (draw >> kCascades) != 0;
     if (!cascadesTouched && !atlasTouched) return;   // (all as they were)
     std::vector<VkImage> images;
     if (cascadesTouched) images.push_back(cascades_.image);
@@ -274,13 +282,63 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
             }
         }
     };
-    // The sun's cascades: a layer each (cleared and drawn; unused ones cleared, reading as "lit")
-    for (uint32_t layer = 0; layer < kCascades; ++layer) {
-        if (!(((draw | clearOnly) >> layer) & 1)) continue;
+    // The sun's cascades: a layer each (cleared and drawn; unused ones cleared, reading as "lit"). With moving casters
+    // the still ones are drawn, copied aside, and the moving ones drawn over them; while the still ones are kept,
+    // each frame starts from that copy
+    auto layerBarrier = [&](VkImage image, uint32_t layer, VkImageLayout from, VkImageLayout to, VkPipelineStageFlags src,
+                            VkAccessFlags srcAccess, VkPipelineStageFlags dst, VkAccessFlags dstAccess) {
+        VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        b.srcAccessMask = srcAccess;
+        b.dstAccessMask = dstAccess;
+        b.oldLayout = from;
+        b.newLayout = to;
+        b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, layer, 1};
+        vkCmdPipelineBarrier(cb, src, dst, 0, 0, nullptr, 0, nullptr, 1, &b);
+    };
+    const VkPipelineStageFlags transfer = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    const VkAccessFlags depthAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    const VkImageLayout attachment = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    auto copyLayer = [&](VkImage from, VkImage to, uint32_t layer, const std::vector<std::array<int, 4>>& rects) {
+        std::vector<VkImageCopy> regions;
+        for (const auto& r : rects) {
+            VkImageCopy region{};
+            region.srcSubresource = region.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, layer, 1};
+            region.srcOffset = region.dstOffset = {r[0], r[1], 0};
+            region.extent = {(uint32_t)(r[2] - r[0]), (uint32_t)(r[3] - r[1]), 1};
+            regions.push_back(region);
+        }
+        if (!regions.empty())
+            vkCmdCopyImage(cb, from, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, to, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           (uint32_t)regions.size(), regions.data());
+    };
+    auto saveStill = [&](uint32_t layer) {   // (the layer as drawn, still casters alone, into the copy)
+        layerBarrier(cascades_.image, layer, attachment, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, depthStages,
+                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
+        layerBarrier(staticCascades_.image, layer, staticSaved_[layer] ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, transfer, VK_ACCESS_TRANSFER_READ_BIT, transfer,
+                     VK_ACCESS_TRANSFER_WRITE_BIT);
+        copyLayer(cascades_.image, staticCascades_.image, layer, {{0, 0, (int)cascades_.size, (int)cascades_.size}});
+        layerBarrier(staticCascades_.image, layer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                     transfer, VK_ACCESS_TRANSFER_WRITE_BIT, transfer, VK_ACCESS_TRANSFER_READ_BIT);
+        layerBarrier(cascades_.image, layer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, attachment, transfer,
+                     VK_ACCESS_TRANSFER_READ_BIT, depthStages, depthAccess);
+        staticSaved_[layer] = true;
+    };
+    auto restoreStill = [&](uint32_t layer, const std::vector<std::array<int, 4>>& rects) {   // (the copy back where the
+                                                                                          //  moving casters were or are)
+        layerBarrier(cascades_.image, layer, attachment, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, depthStages, depthAccess,
+                     transfer, VK_ACCESS_TRANSFER_WRITE_BIT);
+        copyLayer(staticCascades_.image, cascades_.image, layer, rects);
+        layerBarrier(cascades_.image, layer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, attachment, transfer,
+                     VK_ACCESS_TRANSFER_WRITE_BIT, depthStages, depthAccess);
+    };
+    auto cascadePass = [&](uint32_t layer, bool clear, const std::vector<Batch>* only) {
         VkRenderingAttachmentInfo sd{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         sd.imageView = cascades_.layers[layer];
-        sd.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        sd.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        sd.imageLayout = attachment;
+        sd.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         sd.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         sd.clearValue.depthStencil = {1.f, 0};
         VkRenderingInfo ri{VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -288,9 +346,42 @@ void Renderer::recordShadows(VkCommandBuffer cb) {
         ri.layerCount = 1;
         ri.pDepthAttachment = &sd;
         vkCmdBeginRendering(cb, &ri);
-        if ((draw >> layer) & 1) drawView(layer, 0, 0, cascades_.size);
+        if (only) {   // (the moving casters alone)
+            VkViewport vp{0.f, 0.f, (float)cascades_.size, (float)cascades_.size, 0.f, 1.f};
+            VkRect2D sc{{0, 0}, {cascades_.size, cascades_.size}};
+            vkCmdSetViewport(cb, 0, 1, &vp);
+            vkCmdSetScissor(cb, 0, 1, &sc);
+            int32_t index = (int32_t)layer;
+            vkCmdPushConstants(cb, pipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(index), &index);
+            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
+            for (const Batch& b : *only) drawBatch(cb, b);
+        } else if (((draw | refresh) >> layer) & 1) {
+            drawView(layer, 0, 0, cascades_.size);
+        }
         vkCmdEndRendering(cb);
-        remember(layer, !((draw >> layer) & 1));
+    };
+    for (uint32_t layer = 0; layer < kCascades; ++layer) {
+        const bool full = ((draw | clearOnly) >> layer) & 1, again = (refresh >> layer) & 1;
+        if (!full && !again) continue;
+        const bool moving = (((draw | refresh) >> layer) & 1) != 0 && !shadowMovingBatches_[layer].empty();
+        // (its camera as last drawn: a camera on the move redraws it every frame anyway, so no copy is worth making)
+        const ShadowCache& k = shadowCache_[layer];
+        const bool sameCamera = k.valid && std::memcmp(k.viewProj.m, shadowViewProj_[layer].m, sizeof(k.viewProj.m)) == 0;
+        if (full || !staticSaved_[layer]) {   // the still casters (or nothing: an unused cascade) drawn afresh
+            cascadePass(layer, true, nullptr);
+            if (full) remember(layer, !((draw >> layer) & 1));
+            staticSaved_[layer] = false;
+            if ((moving && sameCamera) || again) saveStill(layer);
+        } else {
+            // (where the moving casters are, and were last time: their old shadows go; overlapping patches merged)
+            std::vector<std::array<int, 4>> rects = movingRects_[layer];
+            if (hadMoving_[layer]) rects.insert(rects.end(), lastMovingRects_[layer].begin(), lastMovingRects_[layer].end());
+            restoreStill(layer, shadows::mergeRects(rects));
+        }
+        if (moving) cascadePass(layer, false, &shadowMovingBatches_[layer]);
+        hadMoving_[layer] = moving;
+        lastMovingRects_[layer] = moving ? movingRects_[layer] : std::vector<std::array<int, 4>>{};
+        if (again) ++shadowsDrawn_;
     }
     // ... and their tint layers (white, then what lets light through multiplied in): with them, as cached as they are
     if (cascadesTouched && shadowTintPipeline_) {

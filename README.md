@@ -492,7 +492,11 @@ dropping on the right.
   **Cached**: a shadow map is only drawn again when what it holds changes (its camera, its place in the atlas, or any
   caster in it moving, animating or changing): a still street lamp's shadows cost nothing frame after frame, and the
   sun's two far cascades catch up with a moving camera every second and fourth frame (`VKWORLD_SHADOW_CACHE=0`:
-  everything every frame). The sun's cascades are **fitted to the view**: they start at the nearest thing in sight
+  everything every frame). **Moving casters** apart: what moved or appeared in the last second and a half (traffic, a
+  flickering sign) is drawn into the sun's cascades over a copy of the still casters, put back each frame only where
+  the moving ones are and were, so a still camera over a busy street doesn't redraw the whole city's shadows
+  (`VKWORLD_MOVING_CASTERS=0`: everything redrawn with them, as before; a moving camera redraws the cascades anyway).
+  The sun's cascades are **fitted to the view**: they start at the nearest thing in sight
   rather than at the camera (`VKWORLD_SHADOW_FIT=0`: from the camera), so an overhead camera's four cascades all
   fall on the ground it sees, and the shadow distance counts from there. Their **casters are culled by the view**:
   a caster is drawn into the sun's maps only if its shadow (its bounds swept along the sunlight, down to the lowest
@@ -623,7 +627,8 @@ dropping on the right.
   (medium at about two thirds of high's cost, low at half), and saves it (`settings.qualityChosen`; the player can
   change it after; `VKWORLD_AUTO_QUALITY=0` or `VKWORLD_QUALITY` skip it).
 - **GPU benchmark**: `vkgame [scene] --benchmark [frames] [--benchmark-out results.json]` holds the scene's camera
-  where it starts and turns it a whole circle over the run (after 30 frames' warm-up), then prints each pass's
+  where it starts and turns it a whole circle over the run (after 30 frames' warm-up; `VKWORLD_BENCHMARK_STILL=1`:
+  not turning, for what's kept while a camera stands still, like cached shadows), then prints each pass's
   median GPU time, the GPU's frame and the frame on the clock, and exits. `tools/check_gpu_bench.py --game
   build/vkgame` runs it on Night Drive and the stress scene and compares the GPU's frame with this GPU's baseline in
   `tools/gpu_baselines.json` (by the driver's name for it; `--write` stores this machine's).

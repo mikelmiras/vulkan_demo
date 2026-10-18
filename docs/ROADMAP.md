@@ -2523,7 +2523,7 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
 | # | Task | Why |
 |---|------|-----|
 | 152 (done) | The opaque pass measured part by part (lamps, decals, the half-size upsamples, reflections, fog lookups: each switched off in turn on Night Drive), its largest cost cut | It's 40 % of Night Drive's frame and nobody knows which part |
-| 153 | Moving shadowed lamps cheaper: their atlas tiles sized by how much of the screen they light (smaller far off), and only the casters inside their range drawn | The taxi's headlights redraw their shadow every frame: most of the shadow pass |
+| 153 (done) | Moving shadowed lamps cheaper: their atlas tiles sized by how much of the screen they light (smaller far off), and only the casters inside their range drawn | The taxi's headlights redraw their shadow every frame: most of the shadow pass |
 | 154 | Screen-space reflections' half-size trace denoised as the GI's is (an edge-aware blur weighted by roughness), the history kept raw | Rough wet asphalt's reflections are grainy |
 | 155 | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
 | 156 | Night Drive's neon signs as lettering: each sign's word built from short tube lights (a stroke font of segments), their light from every stroke | The signs are single bars of light |
@@ -2545,3 +2545,22 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
   on lavapipe, with four fetches or one gather for the surfaces: reverted (the depth-aware blend stays exact).
   Checked: Night Drive TAA and MSAA and the demo under CI's validation layer; the picture within run-to-run noise.
   Not done: the clusters' own bounds tighter (cones for spots), the sun's shadow taps by quality.
+- **153, the shadows measured, moving casters apart**: measured first: the taxi's shadowed headlights were 8 ms of
+  the shadow pass (147); the moon's cascades the rest. ("Shadows" was everything since the frame's start: the
+  instances' upload and the GPU culling have timestamps of their own now, 0.2 ms each; kMaxTimestamps 24.) The
+  benchmark turns its camera (so every cascade is redrawn every frame, and nothing kept can show): with
+  VKWORLD_BENCHMARK_STILL=1 it holds still; then the cascades were redrawn every frame anyway: the traffic (and the
+  flickering signs, shown and hidden) changed their casters' signature. Now prepareMotion keeps when each draw item
+  last moved or appeared (a whole scene appearing at once, more than an eighth of the items, doesn't count), and the
+  cascades' solid casters that did within kSettleFrames (90; skinned ones always) go apart (shadowMovingBatches_),
+  out of the signature: the still ones are drawn, copied aside (staticCascades_: a second cascade array, the depth
+  arrays given transfer usage) when the cascade's camera hasn't moved, and the moving ones drawn over them; while
+  the still ones are kept, each frame puts back only the patches the moving ones cover now and covered last time
+  (their boxes through the cascade's camera, merged where they overlap: shadows::mergeRects, tested) and draws them
+  again. A moving camera: drawn in one go as before, no copy. VKWORLD_MOVING_CASTERS=0: as before. Found on the way:
+  a new motion entry's frame 0 made everything "moving" for its first 90 frames (0 means never now), and one box
+  round all the cars was most of the cascade (a patch each now). Checked: a still camera on Night Drive, the shadow
+  pass 15.6 ms against 101 (the frame 1017 against 1190), the traffic frozen 0.7 against 0.02 (the flickering signs'
+  patches); the turning benchmark 143 against 147; the demo's rolling ball with one shadow, not a trail; 150 frames
+  of Night Drive under CI's validation layer with sync checks. Not done: the lamps' atlas tiles likewise (one moving
+  light redraws its own anyway), scrolling cascades for a moving camera (the copy shifted, the new strip drawn).

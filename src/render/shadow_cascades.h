@@ -4,6 +4,9 @@
 // view and each split-screen view (renderer_shadows.cpp), tests check it.
 #pragma once
 
+#include <array>
+#include <vector>
+
 #include "core/vecmath.h"
 
 namespace shadows {
@@ -41,5 +44,9 @@ bool castsIntoView(const Camera& camera, float near, float far, float widen, Vec
 // (widening with the distance) out to the range, against the view (and the receivers' box)
 bool castsIntoViewFrom(const Camera& camera, float near, float far, float widen, Vec3 light, float range, Vec3 centre,
                        float radius, const Box& receivers = {});
+
+// Rectangles (x0, y0, x1, y1, ends excluded) merged where they overlap or touch, each pair into its bounding box,
+// until none do: what they cover, no texel twice (the cascades' moving casters' patches, copied back)
+std::vector<std::array<int, 4>> mergeRects(std::vector<std::array<int, 4>> rects);
 
 }  // namespace shadows

@@ -97,4 +97,21 @@ bool castsIntoViewFrom(const Camera& camera, float near, float far, float widen,
     return capsuleInView(camera, near, far, widen, centre, radius, centre + away * reach, far_, receivers);
 }
 
+std::vector<std::array<int, 4>> mergeRects(std::vector<std::array<int, 4>> rects) {
+    bool merged = true;
+    while (merged) {
+        merged = false;
+        for (size_t a = 0; a < rects.size() && !merged; ++a)
+            for (size_t b = a + 1; b < rects.size(); ++b) {
+                const auto &p = rects[a], &q = rects[b];
+                if (p[0] > q[2] || q[0] > p[2] || p[1] > q[3] || q[1] > p[3]) continue;   // (apart)
+                rects[a] = {std::min(p[0], q[0]), std::min(p[1], q[1]), std::max(p[2], q[2]), std::max(p[3], q[3])};
+                rects.erase(rects.begin() + (long)b);
+                merged = true;
+                break;
+            }
+    }
+    return rects;
+}
+
 }  // namespace shadows

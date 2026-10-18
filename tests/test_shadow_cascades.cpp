@@ -121,3 +121,23 @@ TEST(shadow_casters_culled_by_the_view_for_lamps) {
     CHECK(!shadows::castsIntoView(cam, 0.1f, 100.f, 0.05f, {0, -1, 0}, 0.f, {40, 1, -50}, 0.5f, seen));
     CHECK(shadows::castsIntoView(cam, 0.1f, 100.f, 0.05f, {0, -1, 0}, 0.f, {0, 1, -10}, 0.5f, seen));
 }
+
+// The cascades' moving casters' patches: overlapping ones merged into their boxes (until none overlap), apart ones
+// kept apart; every texel covered stays covered
+TEST(shadow_patches_merged) {
+    std::vector<std::array<int, 4>> in = {{0, 0, 10, 10}, {5, 5, 20, 12}, {100, 100, 110, 110}, {18, 11, 25, 30}};
+    std::vector<std::array<int, 4>> out = shadows::mergeRects(in);
+    REQUIRE(out.size() == 2);
+    auto covers = [&](int x, int y) {
+        for (const auto& r : out)
+            if (x >= r[0] && x < r[2] && y >= r[1] && y < r[3]) return true;
+        return false;
+    };
+    for (const auto& r : in)
+        for (int y = r[1]; y < r[3]; ++y)
+            for (int x = r[0]; x < r[2]; ++x) CHECK(covers(x, y));
+    for (size_t a = 0; a < out.size(); ++a)
+        for (size_t b = a + 1; b < out.size(); ++b)
+            CHECK(out[a][0] > out[b][2] || out[b][0] > out[a][2] || out[a][1] > out[b][3] || out[b][1] > out[a][3]);
+    CHECK(shadows::mergeRects({}).empty());
+}

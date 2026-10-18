@@ -1125,6 +1125,9 @@ void Renderer::endOneTimeCommands(VkCommandBuffer cb) {
 
 void Renderer::createShadowResources() {
     cascades_ = createShadowArray(kCascadeSize, kCascades);
+    // (their still casters, copied aside; VKWORLD_MOVING_CASTERS=0: none, every caster redrawn with the cascade)
+    if (const char* v = std::getenv("VKWORLD_MOVING_CASTERS"); !v || std::strcmp(v, "0"))
+        staticCascades_ = createShadowArray(kCascadeSize, kCascades);
     shadowTint_ = createShadowArray(kCascadeSize / 2, kCascades, VK_FORMAT_R16G16B16A16_SFLOAT);
     lampTint_ = createShadowArray(kAtlasSize / 4, 1, VK_FORMAT_R16G16B16A16_SFLOAT);   // (the lamps': the atlas's shape)
     shadowTintFresh_ = true;
@@ -1572,7 +1575,9 @@ void Renderer::recordCommands(VkCommandBuffer cb, uint32_t imageIndex, const Sce
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &mainSlot);
 
     recordInstanceUpload(cb);   // (what changed in the instances: before anything reads them)
+    timestamp(cb, "Instances upload");
     recordCulling(cb, scene);   // (compute: before any rendering)
+    timestamp(cb, "GPU culling");
 
     // ---- Pass 0: shadow maps (the sun's cascades, spot lights)
     if (info.items) recordShadows(cb);
@@ -2517,6 +2522,7 @@ void Renderer::shutdown() {
     vkDestroySampler(device_, shadowSampler_, nullptr);
     vkDestroySampler(device_, shadowCompareSampler_, nullptr);
     destroyShadowArray(cascades_);
+    if (staticCascades_.image) destroyShadowArray(staticCascades_);
     destroyShadowArray(shadowTint_);
     destroyShadowArray(lampTint_);
     destroyShadowArray(atlas_);

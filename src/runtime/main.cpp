@@ -768,7 +768,9 @@ int main(int argc, char** argv) {
         if (benchmarkFrames > 0) {   // the benchmark: the camera held where it starts, turning a whole circle over the run
             if (!benchmarkCamera) benchmarkCamera = cam;
             cam = *benchmarkCamera;
-            const float turn = 2.f * PI * (float)std::max(frameNumber - kBenchmarkWarmup, 0) / (float)benchmarkFrames;
+            // (VKWORLD_BENCHMARK_STILL=1: not turning, for what's kept while the camera stands: cached shadows)
+            static const bool still = [] { const char* v = std::getenv("VKWORLD_BENCHMARK_STILL"); return v && !std::strcmp(v, "1"); }();
+            const float turn = still ? 0.f : 2.f * PI * (float)std::max(frameNumber - kBenchmarkWarmup, 0) / (float)benchmarkFrames;
             cam.view = cam.view * translate(cam.position) * rotateAxis({0.f, 1.f, 0.f}, turn) * translate(cam.position * -1.f);
         }
         std::array<float, 4> rect = pixels(cam);

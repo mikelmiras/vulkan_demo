@@ -10,6 +10,7 @@
 #include <future>
 #include <string>
 #include <unordered_map>
+#include <array>
 #include <vector>
 
 #include "assets/meshes.h"
@@ -534,7 +535,7 @@ private:
                             std::vector<int>& shadowLayer);
     void recordShadows(VkCommandBuffer cb);
     // GPU pass times (core/profiler.h): timestamps between the passes, read back a couple of frames later
-    static constexpr uint32_t kMaxTimestamps = 16;
+    static constexpr uint32_t kMaxTimestamps = 24;
     VkQueryPool timestamps_[MAX_FRAMES] = {};
     std::vector<const char*> stampNames_[MAX_FRAMES];
     uint32_t timestampBits_ = 0;
@@ -892,6 +893,15 @@ private:
     std::vector<Batch> shadowBatches_[kShadowLayers];         // per shadow layer: solid casters ...
     std::vector<Batch> shadowCutoutBatches_[kShadowLayers];   // ... and ones with holes (cut-outs, see-through)
     std::vector<Batch> shadowTintBatches_[kShadowLayers];     // ... and those letting light through, tinted (sun, lamps)
+    // The sun's cascades: solid casters that moved lately (traffic, a flickering sign) apart from the rest, drawn each
+    // frame over a copy of the still ones (staticCascades_: kept while their camera and the still casters are)
+    std::vector<Batch> shadowMovingBatches_[kCascades];
+    ShadowArray staticCascades_;
+    bool staticSaved_[kCascades] = {};   // (its layer holds the still casters for the cache's camera and signature)
+    bool hadMoving_[kCascades] = {};     // (last drawn with moving casters over the still ones)
+    // The texels each moving caster covers in each cascade (x0, y0, x1, y1: this frame's, and the last drawn ones):
+    // only those patches of the copy are put back
+    std::vector<std::array<int, 4>> movingRects_[kCascades], lastMovingRects_[kCascades];
     Mat4 shadowViewProj_[kShadowLayers];
     VkPipeline skyPipeline_ = VK_NULL_HANDLE;
     VkPipeline createSkyPipeline();
@@ -976,9 +986,12 @@ private:
         Mat4 model;
         std::vector<Mat4> joints;
         uint64_t frame = 0;          // (seen in: older ones are dropped)
+        uint64_t moved = 0;          // (the frame it last moved or appeared in, 0: never: the cascades' moving casters)
     };
     std::unordered_map<uint32_t, Motion> motion_;
     std::vector<Mat4> prevModels_;       // per draw item this frame: its model matrix last frame
+    std::vector<uint8_t> itemMoving_;    // per draw item: moved or appeared within kSettleFrames (skinned: always)
+    static constexpr uint64_t kSettleFrames = 90;
     std::vector<int> prevJointOffsets_;  // ... its joints last frame, in the joints buffer after this frame's (-1: none)
     std::vector<Mat4> prevJoints_;
     Mat4 motionPrevViewProj_;
