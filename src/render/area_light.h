@@ -30,6 +30,10 @@ Vec3 rectRayPoint(Vec3 c, Vec3 x, Vec3 y, float hx, float hy, Vec3 r);
 // (roughness squared): the sphere's (alpha / alpha')^2, the tube's alpha / alpha'', 1 for a point
 float highlightScale(float alpha, float radius, float length, float distance);
 
+// How far a light reaches from its middle (GpuLight's posRange.w: the clusters' spheres, and the shaders' first test,
+// before the rest of a light is read): its range, grown by half a tube's length, or by half a rectangle's diagonal
+float reach(float range, float length, float height);
+
 // Where on a rectangle's picture a point of it is (scene.frag's, the same sums): `rel` from its middle, `x` its width's
 // axis (the entity's x), `y` its height's, `w` and `h` its size; u runs along -x so the picture reads the right way
 // round to someone in front of it (on the side it lights), v down from the top

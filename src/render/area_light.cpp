@@ -55,4 +55,10 @@ float pictureLod(float distance, float size) {
     return std::log2(std::max(256.f * std::clamp(distance / size, 0.f, 1.f), 1.f));
 }
 
+float reach(float range, float length, float height) {
+    if (length <= 0.f) return range;
+    if (height <= 0.f) return range + 0.5f * length;
+    return range + 0.5f * std::sqrt(length * length + height * height);
+}
+
 }  // namespace arealight

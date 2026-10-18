@@ -67,3 +67,24 @@ TEST(area_light_picture) {
     CHECK_NEAR(arealight::pictureLod(30.f, 3.f), 8.0, 1e-5);
     CHECK(arealight::pictureLod(0.3f, 3.f) > 4.f && arealight::pictureLod(0.3f, 3.f) < 5.f);
 }
+
+// A light's reach (posRange.w: what the shaders test first, skipping the rest of a light beyond it) never cuts off a
+// point it lights: wherever a tube's or a rectangle's nearest point is within its range, its middle is within reach
+TEST(area_light_reach_is_conservative) {
+    CHECK(arealight::reach(10.f, 0.f, 0.f) == 10.f);
+    CHECK_NEAR(arealight::reach(10.f, 3.f, 0.f), 11.5, 1e-6);
+    CHECK_NEAR(arealight::reach(10.f, 3.f, 4.f), 12.5, 1e-6);
+    Vec3 x = normalize(Vec3{1, 0.2f, 0}), y = normalize(cross(Vec3{0, 0, 1}, x));
+    uint32_t seed = 7;
+    auto rnd = [&] { seed = seed * 1664525u + 1013904223u; return (float)(seed >> 8) / 16777216.f * 2.f - 1.f; };
+    int checked = 0;
+    for (int i = 0; i < 2000; ++i) {
+        Vec3 p{rnd() * 14.f, rnd() * 14.f, rnd() * 14.f};   // (from the light's middle)
+        const float range = 6.f, w = 5.f, h = 3.f;
+        Vec3 tube = arealight::nearestOnSegment(x * (-0.5f * w), x * (0.5f * w), p) - p;
+        Vec3 rect = arealight::rectNearest(Vec3{0, 0, 0} - p, x, y, 0.5f * w, 0.5f * h);
+        if (length(tube) < range) { CHECK(length(p) < arealight::reach(range, w, 0.f)); ++checked; }
+        if (length(rect) < range) { CHECK(length(p) < arealight::reach(range, w, h)); ++checked; }
+    }
+    CHECK(checked > 100);
+}

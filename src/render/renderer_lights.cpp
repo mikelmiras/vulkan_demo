@@ -8,6 +8,7 @@
 
 #include "core/project.h"
 #include "core/vfs.h"
+#include "render/area_light.h"
 #include "render/light_clusters.h"
 #include "render/renderer_internal.h"
 #include "render/texture_streaming.h"
@@ -189,11 +190,11 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
         if (!l.spot && l.length > 0.f) {   // a tube: along dir, its reach grown by half its length (the clusters' sphere)
             g.dir[0] = l.axis.x; g.dir[1] = l.axis.y; g.dir[2] = l.axis.z;
             g.shape[1] = l.length;
-            g.posRange[3] += l.length * 0.5f;
+            g.posRange[3] = arealight::reach(g.shape[2], l.length, 0.f);
             if (l.height > 0.f) {   // a rectangle: its height, the way it lights (in the spots' slots), half its diagonal
                 g.shape[3] = l.height;
                 g.params[0] = l.facing.x; g.params[2] = l.facing.y; g.params[3] = l.facing.z;
-                g.posRange[3] = g.shape[2] + 0.5f * std::sqrt(l.length * l.length + l.height * l.height);
+                g.posRange[3] = arealight::reach(g.shape[2], l.length, l.height);
                 if (!l.cookie.empty())
                     if (auto it = cookieLayers_.find(l.cookie); it != cookieLayers_.end()) g.dir[3] = (float)it->second;
             }
@@ -239,9 +240,9 @@ void Renderer::writeLights(const SceneRenderInfo& info, const std::vector<const 
     clusterSetupValid_ = true;
     std::vector<ClusterLight> bounds(count);
     for (size_t i = 0; i < count; ++i)   // (a tube's reach: grown by half its length, as its GPU range)
-        bounds[i] = {lights[i]->position, std::max(lights[i]->range, 0.01f) +
-                                              (lights[i]->spot ? 0.f : 0.5f * std::sqrt(lights[i]->length * lights[i]->length +
-                                                                                       lights[i]->height * lights[i]->height))};
+        bounds[i] = {lights[i]->position, lights[i]->spot ? std::max(lights[i]->range, 0.01f)
+                                                          : arealight::reach(std::max(lights[i]->range, 0.01f),
+                                                                             lights[i]->length, lights[i]->height)};
     std::vector<uint32_t> data;
     buildLightClusters(s, bounds, data, kMaxClusterIndices);
     std::memcpy(clusters_[frame_].mapped, data.data(), data.size() * sizeof(uint32_t));

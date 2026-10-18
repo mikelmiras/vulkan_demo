@@ -1161,6 +1161,11 @@ void main() {
     }
     for (uint k = 0u; k < count; ++k) {
         uint index = clustered ? clusters[first + k] : k;
+        // (out of its reach (a tube's or a rectangle's grown by half its size): skipped before the rest of it is read;
+        // most of a cluster's lamps are, and reading each whole was most of their cost)
+        vec4 reach = lights[index].posRange;
+        vec3 toReach = reach.xyz - vWorldPos;
+        if (dot(toReach, toReach) >= reach.w * reach.w) continue;
         Light li = lights[index];
         vec3 d = li.posRange.xyz - vWorldPos;
         bool tube = li.color.w < 0.5 && li.shape.y > 0.0;   // (a tube along dir: lit from its nearest point)

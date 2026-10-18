@@ -2522,7 +2522,7 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
 
 | # | Task | Why |
 |---|------|-----|
-| 152 | The opaque pass measured part by part (lamps, decals, the half-size upsamples, reflections, fog lookups: each switched off in turn on Night Drive), its largest cost cut | It's 40 % of Night Drive's frame and nobody knows which part |
+| 152 (done) | The opaque pass measured part by part (lamps, decals, the half-size upsamples, reflections, fog lookups: each switched off in turn on Night Drive), its largest cost cut | It's 40 % of Night Drive's frame and nobody knows which part |
 | 153 | Moving shadowed lamps cheaper: their atlas tiles sized by how much of the screen they light (smaller far off), and only the casters inside their range drawn | The taxi's headlights redraw their shadow every frame: most of the shadow pass |
 | 154 | Screen-space reflections' half-size trace denoised as the GI's is (an edge-aware blur weighted by roughness), the history kept raw | Rough wet asphalt's reflections are grainy |
 | 155 | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
@@ -2531,3 +2531,17 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
 | 158 | Rain on glass: drops and short streaks running down glass surfaces facing the sky or the camera (a material's *rain on it*, procedural, by the weather's rain) | Night Drive's car windows are dry in the rain |
 
 ### Round 16 notes
+- **152, the opaque pass measured**: each part of scene.frag switched off in turn (scratch copies compiled into the
+  build's scene_early.frag.spv, the lit pass's shader after the prepass; Night Drive, lavapipe, 30 frames; the
+  opaque pass 512 ms): the lamps 150 ms, the volumetric fog's lookup 62, the sun's shadow 35, the surroundings'
+  reflection 26, the decals 17, the weather nothing. Within the lamps' 150: their shadows 14 (spots; point lights'
+  cubes nothing), their shading 12: the rest was reading each of a cluster's lamps whole (five vec4s) to find most
+  of them out of reach. The loops (scene.frag, fog_inject.comp, particle.frag) now read the light's posRange first
+  and skip it when the point is beyond its reach (arealight::reach: its range grown by half a tube's length or a
+  rectangle's diagonal, what writeLights and the clusters use; tested conservative: wherever a tube's or a
+  rectangle's nearest point is in range, its middle is in reach). The opaque pass 452 against 518 in the same run,
+  the fog's injection 146 against 161; the frame about 1210-1225 against 1271-1285. The fog lookup's fast path (one
+  filtered fetch where the four columns' surfaces agree, nearly everywhere: shown by a debug render) gained nothing
+  on lavapipe, with four fetches or one gather for the surfaces: reverted (the depth-aware blend stays exact).
+  Checked: Night Drive TAA and MSAA and the demo under CI's validation layer; the picture within run-to-run noise.
+  Not done: the clusters' own bounds tighter (cones for spots), the sun's shadow taps by quality.

@@ -123,7 +123,11 @@ void main() {
         uint headers = uint(frame.clusterGrid.x * frame.clusterGrid.y * frame.clusterGrid.z) * 2u;
         uint first = headers + clusters[cluster * 2u], count = clusters[cluster * 2u + 1u];
         for (uint k = 0u; k < count; ++k) {
-            Light li = lights[clusters[first + k]];
+            uint index = clusters[first + k];
+            vec4 reach = lights[index].posRange;   // (out of its reach: skipped before the rest is read, as scene.frag)
+            vec3 toReach = p - reach.xyz;
+            if (dot(toReach, toReach) >= reach.w * reach.w) continue;
+            Light li = lights[index];
             vec3 d = p - li.posRange.xyz, fromMiddle = d;
             // (a tube or a rectangle, scene.frag's way: from its nearest point; a rectangle lights its front alone)
             bool tube = li.color.w < 0.5 && li.shape.y > 0.0, rect = tube && li.shape.w > 0.0;

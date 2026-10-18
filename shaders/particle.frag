@@ -51,7 +51,11 @@ vec3 lightAt(vec3 p) {
         count = clusters[cluster * 2u + 1u];
     }
     for (uint k = 0u; k < count; ++k) {
-        Light li = lights[clustered ? clusters[first + k] : k];
+        uint index = clustered ? clusters[first + k] : k;
+        vec4 reach = lights[index].posRange;   // (out of its reach: skipped before the rest is read, as scene.frag)
+        vec3 toReach = reach.xyz - p;
+        if (dot(toReach, toReach) >= reach.w * reach.w) continue;
+        Light li = lights[index];
         vec3 d = li.posRange.xyz - p;
         float dist = length(d), range = li.posRange.w;
         if (dist >= range) continue;
