@@ -99,7 +99,10 @@ vec4 unpackContacts(vec2 ba) {   // (contact_lamps.cpp's unpack3, and the fourth
     float p = round(ba.x);   // (not floor(p + 0.5): near 2^24 the half is lost)
     return vec4(mod(p, 256.0), mod(floor(p / 256.0), 256.0), floor(p / 65536.0), 0.0) / 255.0 + vec4(0.0, 0.0, 0.0, ba.y);
 }
-void readTraced() {
+// (`rough`: on a rough surface (render/gi_denoise.cpp's ssrBlurShare: from 0.15, fully from 0.4) the reflections'
+// four from the next ring out too, depth-weighed alike: their grain evened out where the highlight is broad anyway;
+// smooth ones (a mirror, wet asphalt) keep their own sharp reflection and pay nothing)
+void readTraced(float rough) {
     vec2 size = vec2(textureSize(tracedDepth, 0));
     vec2 hp = gl_FragCoord.xy * 0.5 - 0.5;
     ivec2 b = ivec2(floor(hp));
@@ -128,6 +131,19 @@ void readTraced() {
     }
     // (none near this depth, a thin thing: the nearest in depth)
     tracedReflection = total > 1e-3 ? r / total : nearR;
+    float share = clamp((rough - 0.15) / 0.25, 0.0, 1.0);
+    if (share > 0.0 && total > 1e-3) {   // (the ring's average blended in: half of it at full share)
+        float wide = 0.0;
+        vec4 rw = vec4(0.0);
+        for (int i = 0; i < 4; ++i) {
+            ivec2 c = clamp(b + ivec2(i & 1, i >> 1) * 3 - 1, ivec2(0), ivec2(size) - 1);   // (the ring's corners)
+            float off = abs(texelFetch(tracedDepth, c, 0).r - myZ) / max(myZ, 0.1);
+            float w = 1.0 / (1.0 + off * off * 2500.0);
+            rw += texelFetch(tracedReflections, c, 0) * w;
+            wide += w;
+        }
+        if (wide > 1e-3) tracedReflection = mix(tracedReflection, rw / wide, 0.5 * share);
+    }
     tracedIrradiance = total > 1e-3 ? g / total : nearG;
     tracedContact = total > 1e-3 ? contact / total : nearC;
     tracedLampContacts = total > 1e-3 ? lamp / total : nearL;
@@ -1025,7 +1041,7 @@ void main() {
     vec3 V = normalize(frame.camPos.xyz - vWorldPos);
     float NdotV = max(dot(N, V), 1e-4);
     halfTraced = frame.trace.x > 0.5 && alphaMode != 2 && !water;   // (see-through things and water: traced here)
-    if (halfTraced) readTraced();
+    if (halfTraced) readTraced(rough);
 
     // The surface: its layers (Instance.layers), and the energy the single-bounce specular misses (Fdez-Aguera's
     // multiple-scattering compensation: rough metals keep their brightness)

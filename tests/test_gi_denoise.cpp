@@ -13,3 +13,11 @@ TEST(gi_denoise_weights) {
     // A slope's gentle change of depth across a tap or two: still counts
     CHECK(gidenoise::tapWeight(1, 0, 10.f, 10.1f, 0.99f) > 0.3f);
 }
+
+// The reflections' blur by roughness: a mirror's and wet asphalt's stay their own, rough metal's evens out
+TEST(ssr_denoise_by_roughness) {
+    CHECK(gidenoise::ssrBlurShare(0.02f) == 0.f);
+    CHECK(gidenoise::ssrBlurShare(0.12f) == 0.f);   // (Night Drive's wet streets)
+    CHECK(gidenoise::ssrBlurShare(0.275f) > 0.4f && gidenoise::ssrBlurShare(0.275f) < 0.6f);
+    CHECK(gidenoise::ssrBlurShare(0.4f) == 1.f && gidenoise::ssrBlurShare(0.9f) == 1.f);
+}

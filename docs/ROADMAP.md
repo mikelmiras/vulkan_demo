@@ -2524,7 +2524,7 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
 |---|------|-----|
 | 152 (done) | The opaque pass measured part by part (lamps, decals, the half-size upsamples, reflections, fog lookups: each switched off in turn on Night Drive), its largest cost cut | It's 40 % of Night Drive's frame and nobody knows which part |
 | 153 (done) | Moving shadowed lamps cheaper: their atlas tiles sized by how much of the screen they light (smaller far off), and only the casters inside their range drawn | The taxi's headlights redraw their shadow every frame: most of the shadow pass |
-| 154 | Screen-space reflections' half-size trace denoised as the GI's is (an edge-aware blur weighted by roughness), the history kept raw | Rough wet asphalt's reflections are grainy |
+| 154 (done) | Screen-space reflections' half-size trace denoised as the GI's is (an edge-aware blur weighted by roughness), the history kept raw | Rough wet asphalt's reflections are grainy |
 | 155 | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
 | 156 | Night Drive's neon signs as lettering: each sign's word built from short tube lights (a stroke font of segments), their light from every stroke | The signs are single bars of light |
 | 157 | Night Drive's car model with wheel arches cut into the body and its lamps moulded into it (emissive faces of the mesh), and a second model (a van) in the traffic | The cars' tyres sit under a box-like sill; every car is the same |
@@ -2564,3 +2564,15 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
   patches); the turning benchmark 143 against 147; the demo's rolling ball with one shadow, not a trail; 150 frames
   of Night Drive under CI's validation layer with sync checks. Not done: the lamps' atlas tiles likewise (one moving
   light redraws its own anyway), scrolling cascades for a moving camera (the copy shifted, the new strip drawn).
+- **154, rough reflections evened out**: first as task 139's GI was: an edge-aware 3 x 3 blur pass of the traced
+  reflections (ssr_denoise.frag, binding 31 the blurred, the history raw), then folded into the GI's denoise pass
+  (two outputs, the taps read once). Both cost 25-34 ms on lavapipe for Night Drive (the half-size traces 107-116
+  against 82): a full-screen half-size pass costs that however little it does, and Night Drive has no GI to share
+  it with; its wet asphalt (roughness 0.12) gained nothing visible. Kept instead: scene.frag's readTraced, which
+  brings the traced reflections up from the four nearest half-size texels, blends in the next ring's four (the
+  corners three texels apart, depth-weighed alike) on rough surfaces only: gidenoise::ssrBlurShare (none below
+  roughness 0.15: mirrors and wet asphalt keep their sharp reflection and pay nothing; half the ring's average at 0.4
+  and up), tested. Checked: a scratch floor (roughness 0.35, metallic 0.6) reflecting three glowing boxes, the
+  reflections' blocky edges smoothed as the blur pass did; Night Drive's half-size traces 81 ms; Night Drive, the
+  scratch floor, MSAA under CI's validation layer. Not done: a bilateral blur of the rough reflections' own history
+  (temporal), roughness-sized cone traces.

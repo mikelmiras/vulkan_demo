@@ -12,4 +12,6 @@ float tapWeight(int x, int y, float z, float tapZ, float normalDot) {
     return w;
 }
 
+float ssrBlurShare(float roughness) { return std::clamp((roughness - 0.15f) / 0.25f, 0.f, 1.f); }
+
 }  // namespace gidenoise

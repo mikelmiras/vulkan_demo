@@ -8,4 +8,8 @@ namespace gidenoise {
 // A tap `x`, `y` (-1..1) from the centre at distance z, the tap at distance tapZ, the normals' dot product
 float tapWeight(int x, int y, float z, float tapZ, float normalDot);
 
+// How much of the traced reflections' wider ring a surface this rough blends in (scene.frag's readTraced: half of
+// it at full share): none on a mirror or wet asphalt (below 0.15: their reflections stay sharp), all from 0.4 up
+float ssrBlurShare(float roughness);
+
 }  // namespace gidenoise

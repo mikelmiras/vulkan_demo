@@ -564,7 +564,8 @@ dropping on the right.
   too): the depth prepass also writes each pixel's normal and roughness, each half-size pixel traces one of its four pixels
   (a different one each frame, more GI rays than per pixel) and keeps a history of the others (followed by the
   motion vectors, dropped where the depth changed), and the lit pass brings them up to full size with a depth-aware
-  filter. With MSAA the prepass draws them multisampled and averages them, and the traces read the depth's first
+  filter, wider on rough surfaces (from roughness 0.15: their reflections' grain evened out; mirrors and wet asphalt
+  stay sharp). With MSAA the prepass draws them multisampled and averages them, and the traces read the depth's first
   sample; under a render scale they cover the drawn area alone. On see-through surfaces and water they're traced
   per pixel in the lit pass (the rays turning every frame). Off at low quality.
   Where GI is traced at half size, its rays also give **specular occlusion**: in a crevice, where they find things
