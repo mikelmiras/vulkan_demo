@@ -462,8 +462,10 @@ dropping on the right.
   each pixel only checks the decals near it.
 - **Weather** (Scene look > Wetness, Puddles, Rain): surfaces facing up (and the walls, a little) get darker where
   porous and glossier, standing water collects in hollows of flat ground (as much as Puddles says, placed by noise)
-  as dark, smooth mirrors, and rain rings spread on them. With screen-space reflections on, wet ground reflects
-  the street, most of the cost of a wet scene.
+  as dark, smooth mirrors, and rain rings spread on them. Glass and clear-coated paint out in the rain gather
+  **beads**, and on steep panes (windows, windscreens) drops run down at their own paces with short trails, their
+  domes bending the reflections. With screen-space reflections on, wet ground reflects the street, most of the
+  cost of a wet scene.
 - **Lights**: Light components, directional (shines along the entity's -Z), point (colour, intensity, range) or
   spot (a cone along -Z, with a soft edge). The first directional light is the sun; up to 1024 point and spot lights
   (nearest the camera) light each frame, through **clustered** lighting: the view is cut into 16 x 9 tiles and 24

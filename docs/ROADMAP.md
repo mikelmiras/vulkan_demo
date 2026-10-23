@@ -2513,7 +2513,7 @@ windows with pictures and shadows, a starburst on the brightest lamps, and Night
   TAA under CI's validation layer, the Night Drive tests; lavapipe's frame 1285 ms (1294 with the boxes). Not done:
   wheel arches cut into the body, lights moulded into it (still boxes on it), other models (a van, a bus).
 
-## Round 16 (planned)
+## Round 16 (done)
 
 Visuals and performance (the standing request), from round 15's notes and Night Drive's profile on lavapipe (1285 ms:
 the opaque pass 520, the shadows 150, the fog 161): measure the opaque pass and cut its largest part, a moving
@@ -2528,7 +2528,7 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
 | 155 (done) | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
 | 156 (done) | Night Drive's neon signs as lettering: each sign's word built from short tube lights (a stroke font of segments), their light from every stroke | The signs are single bars of light |
 | 157 (done) | Night Drive's car model with wheel arches cut into the body and its lamps moulded into it (emissive faces of the mesh), and a second model (a van) in the traffic | The cars' tyres sit under a box-like sill; every car is the same |
-| 158 | Rain on glass: drops and short streaks running down glass surfaces facing the sky or the camera (a material's *rain on it*, procedural, by the weather's rain) | Night Drive's car windows are dry in the rain |
+| 158 (done) | Rain on glass: drops and short streaks running down glass surfaces facing the sky or the camera (a material's *rain on it*, procedural, by the weather's rain) | Night Drive's car windows are dry in the rain |
 
 ### Round 16 notes
 - **152, the opaque pass measured**: each part of scene.frag switched off in turn (scratch copies compiled into the
@@ -2605,3 +2605,14 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
   close views from a scratch copy without the rain (a saloon's tyres in their arches and its tail lamps glowing flush,
   a parked van, the taxi), the game's camera under CI's validation layer, the Night Drive tests. Not done: wheels
   turning with the speed (the traffic's), a bus, doors and mirrors.
+- **158, rain on glass**: not a new material setting in the end: the weather finds the surfaces itself, smooth ones
+  (roughness under 0.12) or clear-coated ones, out in it (not sheltered), facing sideways or up, while it rains: in
+  each one's plane (across: its horizontal; up: along its slope) render/rain_drops.cpp's dropAt (scene.frag's
+  rainDrops, the same sums, tested: dry without rain, partly wet in heavy rain, running drops moving on a steep pane
+  and not on a flat one): beads in 6 cm cells (more in heavier rain), and on steep panes drops in 4 cm columns
+  running down 15 cm cells at their own paces, a short wet trail above each; their domes bend the normal (0.8 of
+  their slope) and smooth the surface under them. The first try (4 cm cells, half the bend) was all but invisible
+  from six metres. Checked: a close view of the taxi in Night Drive's rain (beads on the glass catching the light,
+  running drops red with the tail lamp's glow), the demo (no rain: unchanged), Night Drive TAA and MSAA under CI's
+  validation layer; the opaque pass 475 ms against 452-467. Not done: drops seen from the game's 100 m camera (they
+  are a few millimetres: a few pixels only close up), the wipers, rain on the camera's lens.

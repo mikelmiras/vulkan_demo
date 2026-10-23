@@ -764,6 +764,37 @@ float valueNoise(vec2 p) {
 }
 // The slope of the water's surface at p (metres, on the ground) from rings spreading where drops fell: one drop per
 // 0.4 m cell at a time, each at its own place and moment, its ring growing and fading over its life
+// Rain on glass and on clear-coated paint (render/rain_drops.cpp's dropAt, the same sums): beads where they fell (cells 6 cm across) and,
+// on steep surfaces, drops running down at their own paces with a short trail above; `q` in the surface's plane
+// (x along its horizontal, y up it, metres). xy = the water's slope, z = how wet (1 under a drop)
+float dropHash(float cx, float cy) { return fract(sin(cx * 127.1 + cy * 311.7) * 43758.5453); }
+bool dropDome(vec2 d, float height, inout vec3 result) {
+    float l2 = dot(d, d);
+    if (l2 >= 1.0) return false;
+    result = vec3(d * (height / max(sqrt(1.0 - l2), 0.2)), 1.0);
+    return true;
+}
+vec3 rainDrops(vec2 q, float t, float rain, float steep) {
+    vec3 result = vec3(0.0);
+    if (rain <= 0.0) return result;
+    vec2 cell = floor(q / 0.06);
+    if (dropHash(cell.x, cell.y) < rain * 0.6) {   // (a bead: cells 6 cm across)
+        vec2 o = vec2(dropHash(cell.x + 17.0, cell.y + 17.0), dropHash(cell.x + 31.0, cell.y + 31.0)) * 0.6 + 0.2;
+        float r = 0.2 + 0.2 * dropHash(cell.x + 7.0, cell.y + 7.0);
+        dropDome((q / 0.06 - cell - o) / r, 0.5, result);
+    }
+    if (steep > 0.0) {   // (running drops: columns 4 cm wide, cells 15 cm tall moving down)
+        float col = floor(q.x / 0.04);
+        float speed = 0.05 + 0.15 * dropHash(col, 3.0);
+        float y = q.y / 0.15 + t * speed / 0.15 + dropHash(col, 9.0) * 10.0;
+        float row = floor(y);
+        if (dropHash(col, row) < rain * 0.35 * steep) {
+            vec2 d = vec2((fract(q.x / 0.04) - 0.5) / 0.35, (fract(y) - 0.3) / 0.18);
+            if (!dropDome(d, 0.6, result) && d.y > 0.0 && abs(d.x) < 0.3) result.z = max(result.z, 0.5 * (1.0 - fract(y)));
+        }
+    }
+    return result;
+}
 vec2 rainRings(vec2 p, float t, float rain) {
     vec2 q = p * 2.5, cell = floor(q), slope = vec2(0.0);
     for (int y = -1; y <= 1; ++y)
@@ -1038,6 +1069,19 @@ void main() {
                 flatN = normalize(vec3(-slope.x, 1.0, -slope.y));
             }
             N = normalize(mix(N, flatN, puddle));
+        }
+        // Rain on glass and on clear-coated paint (smooth, out in it): beads, and on steep panes drops running down
+        // and their trails; their domes bend the reflections
+        bool glassy = rough < 0.12 || (kLayers && vLayers.x > 0.0);
+        if (glassy && exposed > 0.0 && frame.weather.z > 0.0 && surfaceN.y > -0.3) {
+            vec3 across = abs(surfaceN.y) > 0.95 ? vec3(1.0, 0.0, 0.0) : normalize(cross(vec3(0.0, 1.0, 0.0), surfaceN));
+            vec3 up = cross(surfaceN, across);   // (up the surface: along its slope)
+            float steep = 1.0 - smoothstep(0.5, 0.85, surfaceN.y);
+            vec3 drop = rainDrops(vec2(dot(vWorldPos, across), dot(vWorldPos, up)), frame.time.x, frame.weather.z, steep);
+            if (drop.z > 0.0) {
+                N = normalize(N + (across * drop.x + up * drop.y) * 0.8);
+                rough = mix(rough, 0.02, drop.z);
+            }
         }
     }
     // Specular anti-aliasing (render/specular_aa.cpp's widenedRoughness): where the normal changes from pixel to pixel
