@@ -2526,7 +2526,7 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
 | 153 (done) | Moving shadowed lamps cheaper: their atlas tiles sized by how much of the screen they light (smaller far off), and only the casters inside their range drawn | The taxi's headlights redraw their shadow every frame: most of the shadow pass |
 | 154 (done) | Screen-space reflections' half-size trace denoised as the GI's is (an edge-aware blur weighted by roughness), the history kept raw | Rough wet asphalt's reflections are grainy |
 | 155 (done) | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
-| 156 | Night Drive's neon signs as lettering: each sign's word built from short tube lights (a stroke font of segments), their light from every stroke | The signs are single bars of light |
+| 156 (done) | Night Drive's neon signs as lettering: each sign's word built from short tube lights (a stroke font of segments), their light from every stroke | The signs are single bars of light |
 | 157 | Night Drive's car model with wheel arches cut into the body and its lamps moulded into it (emissive faces of the mesh), and a second model (a van) in the traffic | The cars' tyres sit under a box-like sill; every car is the same |
 | 158 | Rain on glass: drops and short streaks running down glass surfaces facing the sky or the camera (a material's *rain on it*, procedural, by the weather's rain) | Night Drive's car windows are dry in the rain |
 
@@ -2586,3 +2586,11 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
   scratch noon from 250 m up against HEAD's scene.frag (the ground under the clouds' shadows darker, the open
   ground a little brighter: the shadows read as clouds'), noon MSAA, the editor, Night Drive (no clouds: unchanged)
   under CI's validation layer. Not done: the reflections of the sky dimmed likewise, the fog's ambient.
+- **156, neon lettering**: make_city.py's FONT (19 letters as strokes in a unit cell) and WORDS (BAR, CLUB, OPEN,
+  DELI, HOTEL, MOTEL, PIZZA, DINER, GRILL, BOOKS, SUSHI, DRUGS, SALOON, KEBAB: a word that fits the sign's room,
+  from a random generator of its own, SEED + 5, so the city and which signs flicker stay as they were): each stroke
+  a glowing box (0.07 m thick) on a dark board, letters 0.6 x 0.42 m, the flicker hiding the group as before.
+  Each sign keeps one tube light, along its word: a light per stroke would be some 1700 lamps, and the lamps were
+  already the opaque pass's largest part (task 152). 562 entities more (2596). Checked: the game's camera zoomed
+  on two signs (MOTEL's strokes where a bar was), the Night Drive tests, under CI's validation layer. Not done:
+  curved strokes (rounded letters), a light per letter, lettering facing the high camera more (tilted signs).

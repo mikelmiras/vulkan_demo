@@ -23,6 +23,7 @@ rng = random.Random(SEED)
 puddle_rng = random.Random(SEED + 1)   # (its own: the rest of the city stays as it was without puddles)
 traffic_rng = random.Random(SEED + 2)  # (and the traffic's)
 neon_rng = random.Random(SEED + 4)     # (and which neon signs flicker)
+word_rng = random.Random(SEED + 5)     # (and the words they spell)
 TRAFFIC = 6           # cars driving the streets
 LANE = 3.6            # from a street's middle to its lanes'
 entities = []
@@ -66,6 +67,55 @@ def box_collider(size):
 
 def point_light(color, intensity, rng_, shadows=False):
     return {"type": "point", "color": list(color), "intensity": intensity, "range": rng_, "castShadows": shadows}
+
+
+# ---- Neon lettering: a stroke font (each letter's strokes in a unit cell, x right, y up) and the words signs spell
+FONT = {
+    "A": [((0, 0), (0.5, 1)), ((0.5, 1), (1, 0)), ((0.25, 0.5), (0.75, 0.5))],
+    "B": [((0, 0), (0, 1)), ((0, 1), (0.8, 1)), ((0.8, 1), (0.8, 0.5)), ((0, 0.5), (1, 0.5)), ((1, 0.5), (1, 0)), ((1, 0), (0, 0))],
+    "C": [((1, 1), (0, 1)), ((0, 1), (0, 0)), ((0, 0), (1, 0))],
+    "D": [((0, 0), (0, 1)), ((0, 1), (0.7, 1)), ((0.7, 1), (1, 0.7)), ((1, 0.7), (1, 0.3)), ((1, 0.3), (0.7, 0)), ((0.7, 0), (0, 0))],
+    "E": [((1, 1), (0, 1)), ((0, 1), (0, 0)), ((0, 0), (1, 0)), ((0, 0.5), (0.7, 0.5))],
+    "G": [((1, 1), (0, 1)), ((0, 1), (0, 0)), ((0, 0), (1, 0)), ((1, 0), (1, 0.5)), ((1, 0.5), (0.5, 0.5))],
+    "H": [((0, 0), (0, 1)), ((1, 0), (1, 1)), ((0, 0.5), (1, 0.5))],
+    "I": [((0.5, 0), (0.5, 1)), ((0.2, 1), (0.8, 1)), ((0.2, 0), (0.8, 0))],
+    "K": [((0, 0), (0, 1)), ((1, 1), (0, 0.5)), ((0, 0.5), (1, 0))],
+    "L": [((0, 1), (0, 0)), ((0, 0), (1, 0))],
+    "M": [((0, 0), (0, 1)), ((0, 1), (0.5, 0.5)), ((0.5, 0.5), (1, 1)), ((1, 1), (1, 0))],
+    "N": [((0, 0), (0, 1)), ((0, 1), (1, 0)), ((1, 0), (1, 1))],
+    "O": [((0, 0), (0, 1)), ((0, 1), (1, 1)), ((1, 1), (1, 0)), ((1, 0), (0, 0))],
+    "P": [((0, 0), (0, 1)), ((0, 1), (1, 1)), ((1, 1), (1, 0.5)), ((1, 0.5), (0, 0.5))],
+    "R": [((0, 0), (0, 1)), ((0, 1), (1, 1)), ((1, 1), (1, 0.5)), ((1, 0.5), (0, 0.5)), ((0.4, 0.5), (1, 0))],
+    "S": [((1, 1), (0, 1)), ((0, 1), (0, 0.5)), ((0, 0.5), (1, 0.5)), ((1, 0.5), (1, 0)), ((1, 0), (0, 0))],
+    "T": [((0, 1), (1, 1)), ((0.5, 1), (0.5, 0))],
+    "U": [((0, 1), (0, 0)), ((0, 0), (1, 0)), ((1, 0), (1, 1))],
+    "Z": [((0, 1), (1, 1)), ((1, 1), (0, 0)), ((0, 0), (1, 0))],
+}
+WORDS = ["BAR", "CLUB", "OPEN", "DELI", "HOTEL", "MOTEL", "PIZZA", "DINER", "GRILL", "BOOKS", "SUSHI", "DRUGS", "SALOON",
+         "KEBAB"]
+LETTER_H, LETTER_W, LETTER_GAP, STROKE = 0.6, 0.42, 0.14, 0.07
+
+
+def neon_word(sign, word_rng, room, colour):
+    """A word that fits in `room` metres, in glowing strokes on a dark board, centred on the sign's middle (its x
+    along the sign, facing +z); its width"""
+    width = lambda w: len(w) * LETTER_W + (len(w) - 1) * LETTER_GAP
+    fitting = [w for w in WORDS if width(w) <= room - 0.3] or ["BAR"]
+    word = word_rng.choice(fitting)
+    total = width(word)
+    entity("Board", (0, 0, -0.05), scale=(total + 0.4, LETTER_H + 0.35, 0.05), parent=sign,
+           meshRenderer=look("Cube", (0.02, 0.02, 0.025), roughness=0.6))
+    left = -total / 2
+    for k, letter in enumerate(word):
+        x0 = left + k * (LETTER_W + LETTER_GAP)
+        for (ax, ay), (bx, by) in FONT[letter]:
+            ax, bx = x0 + ax * LETTER_W, x0 + bx * LETTER_W
+            ay, by = (ay - 0.5) * LETTER_H, (by - 0.5) * LETTER_H
+            length = math.hypot(bx - ax, by - ay)
+            angle = math.degrees(math.atan2(by - ay, bx - ax))
+            entity("Neon", ((ax + bx) / 2, (ay + by) / 2, 0.02), (0, 0, angle), (length + STROKE, STROKE, STROKE),
+                   parent=sign, meshRenderer=look("Cube", colour, emissive=colour, strength=3.0))
+    return total
 
 
 PITCH = BLOCK + STREET                      # from one block's start to the next's
@@ -192,10 +242,10 @@ for bx in range(BLOCKS):
                                   parent=root, **({"behaviours": [{"type": "NeonFlicker", "seed": neon_rng.randrange(1, 100000),
                                                                    "steady": round(neon_rng.uniform(2, 9), 2)}]}
                                                   if flicker else {}))
-                    entity("Neon", (0, 0, 0), scale=(sw, 0.6, 0.12), parent=sign,
-                           meshRenderer=look("Cube", neon, emissive=neon, strength=3.0))
+                    # (its word in glass tubes on a dark board: neon_word's strokes; the tube light as long as the word)
+                    word_width = neon_word(sign, word_rng, sw, neon)
                     tube = point_light(neon, 2.2, 11.0)
-                    tube["length"] = round(sw * 0.9, 2)
+                    tube["length"] = round(word_width * 0.9, 2)
                     entity("Neon light", (0, -0.4, 1.2), parent=sign, light=tube)
                 along += width + rng.uniform(0.2, 1.2)
 
