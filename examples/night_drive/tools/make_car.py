@@ -1,7 +1,9 @@
-"""Writes models/car/car.glb: a low-poly 1980s saloon, 1.8 x 4.3 m, its middle 0.75 m up (as make_city.py's cars),
-facing -z. Three meshes, drawn with the scene's materials: 0 the painted body (rounded sides lofted along it, the
-bonnet and boot below the beltline, the roof), 1 the glass all round the cabin (narrower and shorter at the roof:
-the windscreen and the rear window slope), 2 a tyre (a unit cylinder along x, scaled by the scene).
+"""Writes models/car/car.glb and van.glb: a low-poly 1980s saloon, 1.8 x 4.3 m, and a van, 1.9 x 4.8 m, their middle
+0.75 m up (as make_city.py's cars), facing -z. Five meshes each, drawn with the scene's materials: 0 the painted body
+(rounded sides lofted along it, arches over the wheels, the bonnet and boot below the beltline (the van's box up to
+its roof behind the cab), the roof), 1 the glass round the cabin (narrower and shorter at the roof: the windscreen
+and the rear window slope), 2 a tyre (a unit cylinder along x, scaled by the scene), 3 the headlamps and 4 the tail
+lamps (flush on the nose and the tail: made to glow by the scene).
 
     python3 tools/make_car.py
 """
@@ -10,27 +12,47 @@ import math
 import os
 import struct
 
-STATIONS = 28          # cross-sections along the body
+STATIONS = 48          # cross-sections along the body (enough for round wheel arches)
 CORNER = 7             # points round each rounded corner of a section
-BOTTOM, BELT = -0.42, 0.2   # the body's underside and its beltline (metres from the middle)
-HALF_WIDTH, HALF_LENGTH = 0.9, 2.15
+WHEEL_Y, ARCH = -0.41, 0.42   # the wheels' middles (0.34 m tyres on the road, 0.75 m below the middle) and the arches'
+                              # radius round them
+
+# The models' numbers: their size, the underside and the beltline, where the bonnet and the boot (or a van's box)
+# start, the glasshouse (its ring at the beltline, x half-width, z from / to, and under the roof, with its height),
+# the wheels along z, and the lamps (their middles' x, y and half-size)
+SALOON = dict(half_width=0.9, half_length=2.15, bottom=-0.42, belt=0.2, bonnet=-0.95, boot=1.3, box=None,
+              glass_low=(0.84, -0.95, 1.28), glass_high=(0.7, -0.22, 0.98, 0.72), wheels=(-1.42, 1.42),
+              head=(0.42, -0.17, 0.15, 0.07), tail=(0.42, -0.12, 0.15, 0.06))
+VAN = dict(half_width=0.95, half_length=2.4, bottom=-0.4, belt=0.25, bonnet=-1.5, boot=None, box=(-0.6, 1.2),
+           glass_low=(0.89, -1.55, -0.55), glass_high=(0.85, -1.15, -0.55, 1.12), wheels=(-1.55, 1.55),
+           head=(0.45, -0.13, 0.15, 0.07), tail=(0.5, -0.05, 0.12, 0.1))
 
 
-def body_section(z):
-    """The body's cross-section at z: half its width, its top (the bonnet and boot lower than the beltline), the
-    radius of its upper corners. The plan rounds off at the nose and the tail."""
-    t = abs(z) / HALF_LENGTH
+def body_section(m, z):
+    """The body's cross-section at z: half its width, its underside (raised in an arch over each wheel), its top (the
+    bonnet and boot below the beltline; a van's box up to its roof behind the cab), the radius of its upper corners.
+    The plan rounds off at the nose and the tail."""
+    hl = m["half_length"]
+    t = abs(z) / hl
     end = max(0.0, (t - 0.86) / 0.14)                    # 0 along the sides, 1 at the very end
-    half = HALF_WIDTH * math.sqrt(max(1.0 - 0.55 * end * end, 0.0))
-    if z < -0.95:      # the bonnet: sloping down to the nose
-        u = (-0.95 - z) / (HALF_LENGTH - 0.95)
-        top = BELT - 0.12 * u - 0.1 * u * u
-    elif z > 1.3:      # the boot: a little lower, down at the tail
-        u = (z - 1.3) / (HALF_LENGTH - 1.3)
-        top = BELT - 0.04 - 0.08 * u * u
+    half = m["half_width"] * math.sqrt(max(1.0 - 0.55 * end * end, 0.0))
+    belt = m["belt"]
+    if z < m["bonnet"]:      # the bonnet: sloping down to the nose
+        u = (m["bonnet"] - z) / (hl + m["bonnet"])
+        top = belt - 0.12 * u - 0.1 * u * u
+    elif m["boot"] is not None and z > m["boot"]:   # the boot: a little lower, down at the tail
+        u = (z - m["boot"]) / (hl - m["boot"])
+        top = belt - 0.04 - 0.08 * u * u
+    elif m["box"] is not None and z > m["box"][0]:   # a van's box behind its cab, up to its roof
+        top = m["box"][1]
     else:
-        top = BELT
-    return half, top, 0.14
+        top = belt
+    bottom = m["bottom"]
+    for w in m["wheels"]:
+        d = abs(z - w)
+        if d < ARCH:
+            bottom = max(bottom, WHEEL_Y + math.sqrt(ARCH * ARCH - d * d))
+    return half, bottom, top, 0.14
 
 
 def section_ring(half, bottom, top, radius):
@@ -122,30 +144,48 @@ def flat_top(ring, positions, indices, up=True):
         indices += [base, a, b] if up else [base, b, a]
 
 
-def body():
+def body(m):
     positions, indices = [], []
-    zs = [-HALF_LENGTH + 2 * HALF_LENGTH * s / (STATIONS - 1) for s in range(STATIONS)]
+    hl = m["half_length"]
+    zs = [-hl + 2 * hl * s / (STATIONS - 1) for s in range(STATIONS)]
     rings = []
     for z in zs:
-        half, top, radius = body_section(z)
-        rings.append(section_ring(half, BOTTOM, top, radius))
+        half, bottom, top, radius = body_section(m, z)
+        rings.append(section_ring(half, bottom, top, radius))
     loft(rings, zs, positions, indices)
     cap(rings[0], zs[0], positions, indices, -1)
     cap(rings[-1], zs[-1], positions, indices, +1)
     # The roof: a thin painted slab over the glass (glass(): its top ring)
-    roof_low = plan_ring(0.7, -0.22, 0.98, 0.72, 0.18)
-    roof_high = plan_ring(0.68, -0.2, 0.96, 0.76, 0.16)
+    hw, z0, z1, y = m["glass_high"]
+    roof_low = plan_ring(hw, z0, z1, y, 0.18)
+    roof_high = plan_ring(hw - 0.02, z0 + 0.02, z1 - 0.02, y + 0.04, 0.16)
     band(roof_low, roof_high, positions, indices)
     flat_top(roof_high, positions, indices, True)
     return positions, indices
 
 
-def glass():
+def glass(m):
     positions, indices = [], []
     # From the beltline (a little inside the body's sides) up to under the roof: shorter and narrower at the top
-    belt = plan_ring(0.84, -0.95, 1.28, BELT - 0.02, 0.2)
-    top = plan_ring(0.7, -0.22, 0.98, 0.72, 0.18)
-    band(belt, top, positions, indices)
+    lw, l0, l1 = m["glass_low"]
+    hw, h0, h1, y = m["glass_high"]
+    band(plan_ring(lw, l0, l1, m["belt"] - 0.02, 0.2), plan_ring(hw, h0, h1, y, 0.18), positions, indices)
+    return positions, indices
+
+
+def lamps(m, which):
+    """A pair of lamps flush on the nose (head) or the tail, just off its flat end: quads facing out"""
+    positions, indices = [], []
+    x, y, hx, hy = m[which]
+    front = which == "head"
+    z = -m["half_length"] - 0.004 if front else m["half_length"] + 0.004
+    for side in (-1, 1):
+        base = len(positions) // 3
+        x0, x1 = side * x - hx, side * x + hx
+        for px, py in ((x0, y - hy), (x0, y + hy), (x1, y + hy), (x1, y - hy)):
+            positions += [px, py, z]
+        a, b, c, d = base, base + 1, base + 2, base + 3
+        indices += [a, b, c, a, c, d] if front else [a, c, b, a, d, c]   # (facing -z at the nose, +z at the tail)
     return positions, indices
 
 
@@ -208,6 +248,8 @@ def write_glb(path, meshes):
 here = os.path.dirname(os.path.abspath(__file__))
 out_dir = os.path.join(here, "..", "models", "car")
 os.makedirs(out_dir, exist_ok=True)
-out = os.path.join(out_dir, "car.glb")
-write_glb(out, [("body", body()), ("glass", glass()), ("tyre", tyre())])
-print("wrote %s" % os.path.normpath(out))
+for name, model in (("car", SALOON), ("van", VAN)):
+    out = os.path.join(out_dir, name + ".glb")
+    write_glb(out, [("body", body(model)), ("glass", glass(model)), ("tyre", tyre()), ("headlamps", lamps(model, "head")),
+                    ("taillamps", lamps(model, "tail"))])
+    print("wrote %s" % os.path.normpath(out))

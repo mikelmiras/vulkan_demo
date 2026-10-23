@@ -20,9 +20,11 @@ Neon signs spell words (BAR, HOTEL, PIZZA, ...) in glowing strokes on dark board
 `tools/make_city.py` (`FONT`, `WORDS`), each sign's light a tube along its word.
 The cars are painted metal: a metallic base under a clear coat (the lamps and neon run along their bonnets), glass all
 round the cabin under a painted roof, chrome bumpers and tyres (`car_body` in `tools/make_city.py`); the taxi is
-yellow with a chequered band along each side. Their shape is one low-poly saloon, `models/car/car.glb`, made by
-`tools/make_car.py` (rounded sides, the bonnet and boot below the beltline, the windscreen and rear window sloping;
-run it again after changing its numbers), fitted to the taxi's size.
+yellow with a chequered band along each side. Their shapes are two low-poly models made by `tools/make_car.py`
+(run it again after changing their numbers): a saloon (`models/car/car.glb`: rounded sides, arches over the wheels,
+the bonnet and boot below the beltline, the windscreen and rear window sloping, its lamps flush on the nose and
+tail), fitted to the taxi's size, and a van (`van.glb`: a glazed cab before a tall box), about a third of the
+traffic and the parked cars (the parked ones' lamps dark).
 Traffic drives the grid: a few cars (`scripts/TrafficCar.lua`) in the right-hand lanes, choosing at each crossroads
 to go on or turn (never out of the city), easing to a stop behind whatever's ahead (another car, the taxi: it can
 bump into them, they aren't pushed) and pulling away again, with headlights, tail lamps and their glow on the wet

@@ -2527,7 +2527,7 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
 | 154 (done) | Screen-space reflections' half-size trace denoised as the GI's is (an edge-aware blur weighted by roughness), the history kept raw | Rough wet asphalt's reflections are grainy |
 | 155 (done) | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
 | 156 (done) | Night Drive's neon signs as lettering: each sign's word built from short tube lights (a stroke font of segments), their light from every stroke | The signs are single bars of light |
-| 157 | Night Drive's car model with wheel arches cut into the body and its lamps moulded into it (emissive faces of the mesh), and a second model (a van) in the traffic | The cars' tyres sit under a box-like sill; every car is the same |
+| 157 (done) | Night Drive's car model with wheel arches cut into the body and its lamps moulded into it (emissive faces of the mesh), and a second model (a van) in the traffic | The cars' tyres sit under a box-like sill; every car is the same |
 | 158 | Rain on glass: drops and short streaks running down glass surfaces facing the sky or the camera (a material's *rain on it*, procedural, by the weather's rain) | Night Drive's car windows are dry in the rain |
 
 ### Round 16 notes
@@ -2594,3 +2594,14 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
   already the opaque pass's largest part (task 152). 562 entities more (2596). Checked: the game's camera zoomed
   on two signs (MOTEL's strokes where a bar was), the Night Drive tests, under CI's validation layer. Not done:
   curved strokes (rounded letters), a light per letter, lettering facing the high camera more (tilted signs).
+- **157, arches, lamps and a van**: make_car.py's models from a set of numbers each (SALOON, VAN): the body's
+  underside rises in an arch over each wheel (a 0.42 m radius round the wheels' middles; 48 sections along for a
+  round arch), the lamps are meshes of their own (3 the headlamps, 4 the tail lamps: flush quads just off the
+  nose's and tail's flat ends, facing out), and the van has a short bonnet, a glazed cab and a tall box behind it to
+  1.2 m (its roof slab over the cab). make_city.py's car_body takes the model (MODELS_FIT: its length, its wheels'
+  places, its collider) and draws the lamps glowing or, parked, dark; a third of the traffic and the parked cars are
+  vans (van_rng: SEED + 6, the rest of the city as it was); the box lamps went. 2614 entities. Checked: the models'
+  triangles facing out (the lamps by their normals; 95-96 % by the middle test, the arches' concave slopes fooling it),
+  close views from a scratch copy without the rain (a saloon's tyres in their arches and its tail lamps glowing flush,
+  a parked van, the taxi), the game's camera under CI's validation layer, the Night Drive tests. Not done: wheels
+  turning with the speed (the traffic's), a bus, doors and mirrors.

@@ -23,6 +23,7 @@ rng = random.Random(SEED)
 puddle_rng = random.Random(SEED + 1)   # (its own: the rest of the city stays as it was without puddles)
 traffic_rng = random.Random(SEED + 2)  # (and the traffic's)
 neon_rng = random.Random(SEED + 4)     # (and which neon signs flicker)
+van_rng = random.Random(SEED + 6)      # (and which cars are vans)
 word_rng = random.Random(SEED + 5)     # (and the words they spell)
 TRAFFIC = 6           # cars driving the streets
 LANE = 3.6            # from a street's middle to its lanes'
@@ -305,24 +306,36 @@ def paint_look(colour, mesh="Cube"):
 
 GLASS_COLOUR = (0.015, 0.018, 0.022)   # (dark: the reflection of the street is what shows)
 CHROME = look("Cube", (0.75, 0.75, 0.78), roughness=0.18, metallic=1.0)
-# The car model (tools/make_car.py: models/car/car.glb): its painted body, its glass, a tyre
-for part, index in (("car-body", 0), ("car-glass", 1), ("car-tyre", 2)):
-    meshes_used[part] = "models/car/car.glb#%d.0" % index
+# The models (tools/make_car.py: models/car/car.glb and van.glb): each one's painted body, its glass, a tyre, its head
+# and tail lamps; and what make_car.py made them: half their length, their wheels' places along and across
+for model in ("car", "van"):
+    for part, index in (("body", 0), ("glass", 1), ("tyre", 2), ("headlamps", 3), ("taillamps", 4)):
+        meshes_used["%s-%s" % (model, part)] = "models/car/%s.glb#%d.0" % (model, index)
+MODELS_FIT = {"car": dict(half_length=2.15, wheel_z=1.42, wheel_x=0.82, size=(1.8, 1.0, 4.3)),
+              "van": dict(half_length=2.4, wheel_z=1.55, wheel_x=0.87, size=(1.9, 1.0, 4.8))}
+HEAD_GLOW = look("car-headlamps", (1, 1, 1), emissive=(1.0, 0.95, 0.8), strength=5.0)
+TAIL_GLOW = look("car-taillamps", (0.5, 0.0, 0.0), emissive=(1.0, 0.05, 0.02), strength=6.0)
 
 
-def car_body(car, paint, scale=(1.0, 1.0, 1.0), y=0.0, tyres=True):
-    """A car's look on `car` (its middle 0.75 m up, facing -z): the model's body and glass, chrome bumpers, tyres;
-    `scale` and `y` fit it to another size and ride height (the taxi)"""
+def car_body(car, paint, scale=(1.0, 1.0, 1.0), y=0.0, tyres=True, model="car", lit=True):
+    """A car's look on `car` (its middle 0.75 m up, facing -z): the model's body, glass and lamps (glowing when `lit`;
+    a parked one's dark), chrome bumpers, tyres in its arches; `scale` and `y` fit it to another size and ride height
+    (the taxi)"""
     sx, sy, sz = scale
-    entity("Body", (0, y, 0), scale=scale, parent=car, meshRenderer=paint_look(paint, "car-body"))
-    entity("Glass", (0, y, 0), scale=scale, parent=car, meshRenderer=look("car-glass", GLASS_COLOUR, roughness=0.03))
+    fit = MODELS_FIT[model]
+    entity("Body", (0, y, 0), scale=scale, parent=car, meshRenderer=paint_look(paint, model + "-body"))
+    entity("Glass", (0, y, 0), scale=scale, parent=car, meshRenderer=look(model + "-glass", GLASS_COLOUR, roughness=0.03))
+    for part, glow, dark in (("headlamps", HEAD_GLOW, (0.6, 0.6, 0.55)), ("taillamps", TAIL_GLOW, (0.25, 0.0, 0.0))):
+        lamp = dict(glow, mesh=model + "-" + part) if lit else look(model + "-" + part, dark, roughness=0.1)
+        entity("Lamps", (0, y, 0), scale=scale, parent=car, meshRenderer=lamp)
     for z in (-1, 1):
-        entity("Bumper", (0, y - 0.31 * sy, z * 2.17 * sz), scale=(1.66 * sx, 0.11, 0.1), parent=car, meshRenderer=CHROME)
+        entity("Bumper", (0, y - 0.31 * sy, z * (fit["half_length"] + 0.02) * sz), scale=(1.66 * sx, 0.11, 0.1), parent=car,
+               meshRenderer=CHROME)
     if tyres:
         for x in (-1, 1):
             for z in (-1, 1):
-                entity("Tyre", (x * 0.82 * sx, -0.75 + 0.34, z * 1.42 * sz), scale=(0.24, 0.68, 0.68), parent=car,
-                       meshRenderer=look("car-tyre", (0.02, 0.02, 0.02), roughness=0.9))
+                entity("Tyre", (x * fit["wheel_x"] * sx, -0.75 + 0.34, z * fit["wheel_z"] * sz), scale=(0.24, 0.68, 0.68),
+                       parent=car, meshRenderer=look(model + "-tyre", (0.02, 0.02, 0.02), roughness=0.9))
 
 
 # ---- Parked cars along the kerbs ---------------------------------------------------------------------------------
@@ -335,8 +348,9 @@ for _ in range(16):
     along_x = rng.random() < 0.5
     pos = (a, 0.75, lane) if along_x else (lane, 0.75, a)
     paint = rng.choice(PAINT)
-    car = entity("Parked car", pos, (0, 90 if along_x else 0, 0), collider=box_collider((1.8, 1.0, 4.3)))
-    car_body(car, paint)
+    model = "van" if van_rng.random() < 0.3 else "car"
+    car = entity("Parked car", pos, (0, 90 if along_x else 0, 0), collider=box_collider(MODELS_FIT[model]["size"]))
+    car_body(car, paint, model=model, lit=False)
 
 # ---- Traffic lights: two poles at each crossroads, one for each way through it (scripts/TrafficLight.lua: red,
 # amber and green lamps shown in turn, each with its glow on the wet road; the traffic stops for them) ---------------
@@ -380,15 +394,11 @@ for n in range(TRAFFIC):
     else:
         pos, yaw = (street - sign * LANE, 0.75, a), 90 + 90 * sign
     paint = traffic_rng.choice(PAINT)
-    car = entity("Traffic car", pos, (0, yaw, 0), collider=box_collider((1.8, 1.0, 4.3)),
+    model = "van" if van_rng.random() < 0.3 else "car"
+    car = entity("Traffic car", pos, (0, yaw, 0), collider=box_collider(MODELS_FIT[model]["size"]),
                  behaviours=[{"type": "TrafficCar", "speed": traffic_rng.uniform(7.5, 10.5), "lane": LANE,
                               "first": -HALF + STREET / 2, "pitch": PITCH, "streets": BLOCKS + 1, "seed": n + 1}])
-    car_body(car, paint)
-    for side in (-1, 1):
-        entity("Headlamp", (side * 0.5, -0.18, -2.14), scale=(0.3, 0.14, 0.04), parent=car,
-               meshRenderer=look("Cube", (1, 1, 1), emissive=(1.0, 0.95, 0.8), strength=5.0))
-        entity("Tail lamp", (side * 0.55, -0.1, 2.14), scale=(0.3, 0.12, 0.04), parent=car,
-               meshRenderer=look("Cube", (0.5, 0.0, 0.0), emissive=(1.0, 0.05, 0.02), strength=6.0))
+    car_body(car, paint, model=model)
     entity("Headlights", (0, 0.2, -2.3), rot=(-14, 0, 0), parent=car,
            light={"type": "spot", "color": [1.0, 0.93, 0.78], "intensity": 3.5, "range": 22.0, "spotAngle": 48.0,
                   "spotSoftness": 0.8, "castShadows": False})
@@ -428,11 +438,6 @@ for x in (-1, 1):
                    parent=taxi, meshRenderer=look("Cube", (0.015, 0.015, 0.015), roughness=0.3, clearcoat=1.0))
 entity("Roof sign", (0, 0.99, 0.4), scale=(0.8, 0.22, 0.3), parent=taxi,
        meshRenderer=look("Cube", (1, 1, 0.9), emissive=(1.0, 0.9, 0.6), strength=3.0))
-for side in (-1, 1):
-    entity("Headlamp", (side * 0.52, -0.06, -2.19), scale=(0.3, 0.15, 0.04), parent=taxi,
-           meshRenderer=look("Cube", (1, 1, 1), emissive=(1.0, 0.95, 0.8), strength=5.0))
-    entity("Tail lamp", (side * 0.58, 0.02, 2.19), scale=(0.3, 0.12, 0.04), parent=taxi,
-           meshRenderer=look("Cube", (0.5, 0.0, 0.0), emissive=(1.0, 0.05, 0.02), strength=6.0))
 # (low beams: aimed down and wide with a soft edge, so the road is lit from just ahead of the bumper and the pool fades
 # out instead of starting a few metres ahead behind a sharp edge)
 entity("Headlights", (0, 0.2, -2.4), rot=(-14, 0, 0), parent=taxi,
