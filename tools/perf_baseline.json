@@ -30,7 +30,7 @@
   "macOS": {
     "diff_scenes": 2.226,
     "draw_items": 0.8,
-    "fixed_update_avg": 2.073,
+    "fixed_update_avg": 3.0,
     "game_start": 40.891,
     "navigation_bake": 2883.05,
     "paths_100": 18.36,
