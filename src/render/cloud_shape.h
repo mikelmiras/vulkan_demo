@@ -22,5 +22,8 @@ bool shadowUv(float cornerX, float cornerZ, float size, Vec3 L, Vec3 pos, float&
 // The sunlight let through by `opticalDepth` of cloud (the densities summed times the step, metres): Beer's law at
 // one and a half times the view's extinction, never under a quarter
 float shadowThrough(float opticalDepth);
+// The sky's light at a point under the clouds against its average (scene.frag's cloudsOverhead): the light the layer
+// overhead lets through against the map's average, at 70 %, between 0.4 and 1.8
+float ambientUnder(float overhead, float mean);
 
 }  // namespace clouds

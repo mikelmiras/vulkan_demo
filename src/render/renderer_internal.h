@@ -104,7 +104,8 @@ struct FrameUBO {
     float shafts[4];          // light shafts: scattering per metre (0: none), how many lamps, unused, steps
     float shaftsViewport[4];  // the picture's rectangle (not scaled down)
     float shaftLamps[4];      // the lamps' indices in the lights
-    float cloudShadowArea[4]; // the clouds' shadow map (binding 46): its low corner's x, z, its size (m), w = 1: drawn
+    float cloudShadowArea[4]; // the clouds' shadow map (binding 46): its low corner's x, z, its size (m), w = 1: drawn,
+                              // 2: with its mips
 };
 
 // A decal (set 0, binding 24): render/decals.h picks them

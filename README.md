@@ -721,7 +721,7 @@ dropping on the right.
   half size, before the scene, blending each frame's march with the last's (found by direction: only the camera's
   turn moves them), so they cost a quarter as much and their grain averages out. Their shadows on the ground come
   from the same volume: the sunlight through them marched into a map over 8 km round the camera, so the shadows have
-  the shapes in the sky; at low quality, in
+  the shapes in the sky, and the sky's light is dimmer under a cloud overhead and brighter under a gap; at low quality, in
   reflections and in the sky's light they're a flat layer, lit by the sun through the air (red at sunset). They're in the sky's light too: as much of the ambient's harmonics as they cover (on average) takes their
   colour, so an overcast day's shade is grey and even rather than blue, and the ground's light is dimmed by their
   shadows on average.

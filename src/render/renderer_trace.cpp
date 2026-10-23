@@ -35,9 +35,18 @@ void Renderer::createTraceImages() {
     for (Image& c : clouds_)
         c = createImage(VK_FORMAT_R16G16B16A16_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, hw, hh, VK_SAMPLE_COUNT_1_BIT, 1);
     cloudsHistory_ = false;
-    if (!cloudShadow_.image)   // (not by the window's size: made once)
-        cloudShadow_ = createImage(VK_FORMAT_R16_SFLOAT, usage, VK_IMAGE_ASPECT_COLOR_BIT, kCloudShadowSize, kCloudShadowSize,
-                                   VK_SAMPLE_COUNT_1_BIT, 1);
+    if (!cloudShadow_.image) {   // (not by the window's size: made once; mipped where blits can filter it)
+        VkFormatProperties fp;
+        vkGetPhysicalDeviceFormatProperties(gpu_, VK_FORMAT_R16_SFLOAT, &fp);
+        const VkFormatFeatureFlags blit = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                          VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+        cloudShadowMips_ = (fp.optimalTilingFeatures & blit) == blit ? kCloudShadowMips : 1;
+        cloudShadow_ = createImage(VK_FORMAT_R16_SFLOAT,
+                                   usage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                   VK_IMAGE_ASPECT_COLOR_BIT, kCloudShadowSize, kCloudShadowSize, VK_SAMPLE_COUNT_1_BIT,
+                                   cloudShadowMips_);
+        cloudShadowLevel0_ = createView(cloudShadow_.image, VK_FORMAT_R16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+    }
     // (subsurface pixels' specular, stored by the lit pass, read by the diffusion: half floats as integers, and a
     // profile; integer, so read unfiltered)
     sssSpecular_ = createImage(VK_FORMAT_R16G16B16A16_UINT, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -228,7 +237,7 @@ void Renderer::recordCloudShadow(VkCommandBuffer cb) {
     const VkImageLayout readable = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, target = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     mipBarrier(cb, cloudShadow_.image, 0, 1, readable, target, fragStage, 0, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
     VkRenderingAttachmentInfo att{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    att.imageView = cloudShadow_.view;
+    att.imageView = cloudShadowLevel0_;
     att.imageLayout = target;
     att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -248,8 +257,30 @@ void Renderer::recordCloudShadow(VkCommandBuffer cb) {
     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout_, 0, 1, &descSets_[frame_], 1, &slot);
     vkCmdDraw(cb, 3, 1, 0, 0);
     vkCmdEndRendering(cb);
-    mipBarrier(cb, cloudShadow_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
-               VK_ACCESS_SHADER_READ_BIT);
+    if (cloudShadowMips_ > 1) {   // (its mips, each a filtered half of the one before: blits)
+        const VkPipelineStageFlags transfer = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        const VkImageLayout src = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        mipBarrier(cb, cloudShadow_.image, 0, 1, target, src, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, transfer,
+                   VK_ACCESS_TRANSFER_READ_BIT);
+        int32_t s = (int32_t)kCloudShadowSize;
+        for (uint32_t m = 1; m < cloudShadowMips_; ++m) {
+            mipBarrier(cb, cloudShadow_.image, m, 1, readable, dst, fragStage, 0, transfer, VK_ACCESS_TRANSFER_WRITE_BIT);
+            VkImageBlit region{};
+            region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
+            region.srcOffsets[1] = {s, s, 1};
+            s = std::max(s / 2, 1);
+            region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+            region.dstOffsets[1] = {s, s, 1};
+            vkCmdBlitImage(cb, cloudShadow_.image, src, cloudShadow_.image, dst, 1, &region, VK_FILTER_LINEAR);
+            mipBarrier(cb, cloudShadow_.image, m, 1, dst, src, transfer, VK_ACCESS_TRANSFER_WRITE_BIT, transfer,
+                       VK_ACCESS_TRANSFER_READ_BIT);
+        }
+        mipBarrier(cb, cloudShadow_.image, 0, cloudShadowMips_, src, readable, transfer, VK_ACCESS_TRANSFER_READ_BIT,
+                   fragStage, VK_ACCESS_SHADER_READ_BIT);
+    } else {
+        mipBarrier(cb, cloudShadow_.image, 0, 1, target, readable, colorStage, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, fragStage,
+                   VK_ACCESS_SHADER_READ_BIT);
+    }
     timestamp(cb, "Cloud shadow");
 }
 

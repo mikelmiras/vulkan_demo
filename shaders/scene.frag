@@ -641,10 +641,21 @@ vec3 skyIrradianceAt(vec3 n) {
     return mix(below, above, n.y * 0.5 + 0.5) * frame.ambient.rgb;
 }
 // (probes' light is scaled by the ambient strength like the sky's: indirect light the same strength inside and out)
+// The sky's light under the volumetric clouds overhead: what the cloud layer straight above lets through (the shadow
+// map's level 4: about 500 m round), against the whole map's average (its last level: the harmonics already have
+// that); render/cloud_shape.cpp's ambientUnder, the same sums
+float cloudsOverhead(vec3 pos) {
+    if (frame.cloudShadowArea.w < 1.5) return 1.0;
+    vec3 L = normalize(frame.skyToSun.xyz);
+    vec2 uv = (pos.xz - L.xz / max(L.y, 0.02) * 1700.0 - frame.cloudShadowArea.xy) / frame.cloudShadowArea.z;
+    float here = textureLod(cloudShadowMap, clamp(uv, vec2(0.0), vec2(1.0)), 4.0).r;
+    float mean = textureLod(cloudShadowMap, vec2(0.5), 8.0).r;
+    return clamp(mix(1.0, here / max(mean, 0.05), 0.7), 0.4, 1.8);
+}
 vec3 irradiance(vec3 n) {
     float w;
     int p = probeAt(w);
-    vec3 sky = skyIrradianceAt(n);
+    vec3 sky = skyIrradianceAt(n) * cloudsOverhead(vWorldPos);   // (under a cloud darker, under a gap brighter)
     float gw;
     vec3 gi = giIrradiance(n, gw);   // (light from the sky and bounced, where the grid has it)
     sky = mix(sky, gi * frame.ambient.rgb, gw);

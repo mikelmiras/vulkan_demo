@@ -68,3 +68,13 @@ TEST(cloud_shadow_lookup) {
     CHECK(clouds::shadowThrough(400.f) > 0.35f && clouds::shadowThrough(400.f) < 0.45f);   // (a full cloud's height)
     CHECK(clouds::shadowThrough(5000.f) == 0.25f);
 }
+
+// The sky's light under the clouds: as bright as the harmonics say where the layer above is average, darker under a
+// cloud, brighter under a gap, within bounds
+TEST(cloud_ambient_overhead) {
+    CHECK_NEAR(clouds::ambientUnder(0.6f, 0.6f), 1.0, 1e-6);
+    CHECK(clouds::ambientUnder(0.3f, 0.6f) < 0.7f);
+    CHECK(clouds::ambientUnder(1.0f, 0.6f) > 1.3f);
+    CHECK(clouds::ambientUnder(0.f, 0.9f) == 0.4f);
+    CHECK(clouds::ambientUnder(1.f, 0.f) == 1.8f);
+}

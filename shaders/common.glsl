@@ -71,7 +71,7 @@ layout(set = 0, binding = 0) uniform Frame {
     vec4 shaftsViewport;      // the picture's rectangle (pixels: not scaled down), the shafts' half-size pixels' frame
     vec4 shaftLamps;          // the lamps' indices in the lights (shafts.y of them)
     vec4 cloudShadowArea;     // the clouds' shadow map (binding 46: cloud_shadow.frag): its low corner's x and z, its
-                              // size (m), w = 1: drawn this frame
+                              // size (m), w = 1: drawn this frame, 2: with its mips (the sky's light under them)
 } frame;
 
 // The sky image (render/environment.h): an equirectangular panorama, and its radiance prefiltered by roughness

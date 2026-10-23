@@ -24,6 +24,10 @@ bool shadowUv(float cornerX, float cornerZ, float size, Vec3 L, Vec3 pos, float&
     return u > 0.f && u < 1.f && v > 0.f && v < 1.f;
 }
 
+float ambientUnder(float overhead, float mean) {
+    return std::clamp(1.f + (overhead / std::max(mean, 0.05f) - 1.f) * 0.7f, 0.4f, 1.8f);
+}
+
 float shadowThrough(float opticalDepth) { return std::max(std::exp(-opticalDepth * 0.0015f * 1.5f), 0.25f); }
 
 bool historyUv(const Mat4& p, Vec3 d, float& u, float& v) {

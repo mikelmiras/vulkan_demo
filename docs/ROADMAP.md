@@ -2525,7 +2525,7 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
 | 152 (done) | The opaque pass measured part by part (lamps, decals, the half-size upsamples, reflections, fog lookups: each switched off in turn on Night Drive), its largest cost cut | It's 40 % of Night Drive's frame and nobody knows which part |
 | 153 (done) | Moving shadowed lamps cheaper: their atlas tiles sized by how much of the screen they light (smaller far off), and only the casters inside their range drawn | The taxi's headlights redraw their shadow every frame: most of the shadow pass |
 | 154 (done) | Screen-space reflections' half-size trace denoised as the GI's is (an edge-aware blur weighted by roughness), the history kept raw | Rough wet asphalt's reflections are grainy |
-| 155 | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
+| 155 (done) | The sky's light under the volumetric clouds: the ambient harmonics dimmed and greyed by the clouds' shadow map over the view (what's overhead), not the layer's average coverage | An overcast patch overhead and a clear one light the ground the same |
 | 156 | Night Drive's neon signs as lettering: each sign's word built from short tube lights (a stroke font of segments), their light from every stroke | The signs are single bars of light |
 | 157 | Night Drive's car model with wheel arches cut into the body and its lamps moulded into it (emissive faces of the mesh), and a second model (a van) in the traffic | The cars' tyres sit under a box-like sill; every car is the same |
 | 158 | Rain on glass: drops and short streaks running down glass surfaces facing the sky or the camera (a material's *rain on it*, procedural, by the weather's rain) | Night Drive's car windows are dry in the rain |
@@ -2576,3 +2576,13 @@ street: neon lettering, cars with arches and moulded lights, rain on glass.
   reflections' blocky edges smoothed as the blur pass did; Night Drive's half-size traces 81 ms; Night Drive, the
   scratch floor, MSAA under CI's validation layer. Not done: a bilateral blur of the rough reflections' own history
   (temporal), roughness-sized cone traces.
+- **155, the sky's light under the clouds**: the harmonics keep the clouds' average (cloudyHarmonics: dimmer and
+  greyer by the cover); what was missing was where: under a cloud as bright as under a gap. The clouds' shadow map
+  (task 147) gets nine mips (blitted after its pass, where R16F can be filtered by a blit: cloudShadowArea.w = 2;
+  a level-0 view for the pass to draw into; made readable whole when fresh), and scene.frag's irradiance scales the
+  sky's share by cloudsOverhead: what the layer straight above lets through (where the sun's ray through the slab
+  above the point meets the map's plane; level 4: about 500 m round) against the map's average (its last level),
+  at 70 %, between 0.4 and 1.8 (clouds::ambientUnder, tested). Probes and GI keep their own light. Checked: the
+  scratch noon from 250 m up against HEAD's scene.frag (the ground under the clouds' shadows darker, the open
+  ground a little brighter: the shadows read as clouds'), noon MSAA, the editor, Night Drive (no clouds: unchanged)
+  under CI's validation layer. Not done: the reflections of the sky dimmed likewise, the fog's ambient.

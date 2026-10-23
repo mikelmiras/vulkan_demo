@@ -1020,7 +1020,11 @@ private:
     // camera, at height 0 (set 0 binding 46, scene.frag's cloudsOver); its corner and size (m) in the frame data
     static constexpr uint32_t kCloudShadowSize = 256;   // (texels across: cloud_shadow.frag's kShadowTexels)
     static constexpr float kCloudShadowSpan = 8000.f;
+    static constexpr uint32_t kCloudShadowMips = 9;     // (its mips: the sky's light under the clouds overhead,
+                                                        //  against the average; 1 where R16F can't be blitted)
     Image cloudShadow_;
+    VkImageView cloudShadowLevel0_ = VK_NULL_HANDLE;    // (what the pass draws into)
+    uint32_t cloudShadowMips_ = 1;
     VkPipeline cloudShadowPipeline_ = VK_NULL_HANDLE;
     float cloudShadowArea_[4] = {};
     void recordCloudShadow(VkCommandBuffer cb);

@@ -1485,8 +1485,11 @@ void Renderer::readyFreshImages(VkCommandBuffer cb) {
     if (velocityFresh_ && velocity_.image) {   // (the prepass's outputs and the traces', just made: readable from now)
         for (VkImage image : {velocity_.image, gbuffer_.image, traced_[0].image, traced_[1].image, tracedLight_[0].image,
                               tracedLight_[1].image, tracedDepth_.image, aoLit_[0].image, aoLit_[1].image, tracedLightBlur_.image,
-                              clouds_[0].image, clouds_[1].image, cloudShadow_.image})
+                              clouds_[0].image, clouds_[1].image})
             mipBarrier(cb, image, 0, 1, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                       VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+        if (cloudShadow_.image)   // (every level)
+            mipBarrier(cb, cloudShadow_.image, 0, cloudShadowMips_, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         velocityFresh_ = false;
     }
@@ -2149,7 +2152,7 @@ void Renderer::fillFrameUBO(const SceneRenderInfo& info, FrameUBO& u, bool shado
         cloudShadowArea_[0] = std::floor((info.camPos.x - kCloudShadowSpan * 0.5f) / texel) * texel;
         cloudShadowArea_[1] = std::floor((info.camPos.z - kCloudShadowSpan * 0.5f) / texel) * texel;
         cloudShadowArea_[2] = kCloudShadowSpan;
-        cloudShadowArea_[3] = cloudsOn_ && cloudShadowPipeline_ && cloudShadow_.image ? 1.f : 0.f;
+        cloudShadowArea_[3] = cloudsOn_ && cloudShadowPipeline_ && cloudShadow_.image ? (cloudShadowMips_ > 1 ? 2.f : 1.f) : 0.f;
         u.motionViewProj = info.viewProj;
         u.motionPrevViewProj = motionPrevValid_ ? motionPrevViewProj_ : info.viewProj;
         fxPrevViewProj_ = u.motionPrevViewProj;   // (the camera effects' sky motion)
@@ -2486,6 +2489,7 @@ void Renderer::shutdown() {
     for (ViewImage& v : viewImages_) destroyViewImage(v);   // (their textures: before the ImGui backend goes)
     destroyGi();
     destroyFog();
+    if (cloudShadowLevel0_) vkDestroyImageView(device_, cloudShadowLevel0_, nullptr);
     if (cloudShadow_.image) destroyImage(cloudShadow_);   // (made once, not with the window's size)
     destroySky();
     destroyGpuParticles();
