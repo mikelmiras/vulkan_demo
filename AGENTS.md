@@ -53,7 +53,16 @@ python3 tools/check_screenshot.py shot.png
 - Look at the screenshots; comparing two of them pixel by pixel (e.g. a feature on and off) is a good way to show a
   change doesn't alter the picture.
 - If the validation layer isn't installed system-wide, unpack `vulkan-validationlayers` locally and point
-  `VK_ADD_LAYER_PATH` and `LD_LIBRARY_PATH` at it.
+  `VK_ADD_LAYER_PATH` and `LD_LIBRARY_PATH` at it. CI's Ubuntu runner has 1.3.275, whose synchronisation checks
+  catch hazards newer layers don't report: for changes to barriers, storage images or buffers, run the checks under
+  that version too (`dpkg-deb -x` the noble package
+  `vulkan-validationlayers_1.3.275.0-1_amd64.deb` into a scratch folder).
+- Check rendering changes on Night Drive as well as the demo scene (`./build/vkgame examples/night_drive`: lamps,
+  rain, fog, reflections, traffic), and with a moving camera: a still screenshot hides history (TAA, reflections,
+  clouds) and caching bugs.
+- Lavapipe takes about a second per Night Drive frame, so each frame is a long time step: the simulation runs at
+  most 8 fixed steps (`kMaxStepsPerFrame`, about 0.13 s) and drops the rest, so `--frames 20` is only a few
+  seconds of play, while anything animated by the frame's real time (rain, clouds) jumps far between frames.
 - Throwaway scenes and tools for checks go in a scratch folder outside the repository, never in it.
 - Native Wayland (Linux): run a headless compositor, `weston --backend=headless --renderer=pixman --socket=wl-test`
   (unpacked locally like the validation layer if need be), then `WAYLAND_DISPLAY=wl-test VKWORLD_PLATFORM=wayland
@@ -69,6 +78,17 @@ performance, update the baseline from the numbers CI prints.
 The GPU's side: `tools/check_gpu_bench.py --game build/vkgame` (under `xvfb-run` here: lavapipe) times each pass
 with `vkgame --benchmark` on Night Drive and the stress scene, against `tools/gpu_baselines.json` for that GPU;
 `--write` records a machine's numbers (lavapipe's are in; real GPUs' are added from the machines that have them).
+
+- `vkgame --benchmark [frames]` prints each pass's median GPU time. It turns the camera a full circle, so anything
+  cached while the camera is still (the sun's cascades, task 153) never shows: `VKWORLD_BENCHMARK_STILL=1` holds it
+  still. Lavapipe's numbers move by 10-20 ms between runs: compare a change with its baseline in the same session,
+  not with numbers in the roadmap.
+- To find what a pass spends its time on, measure before optimising (a guess was wrong more than once): switch
+  one part of the shader off at a time in a scratch copy, compile it with `glslc` over the build's `.spv` (e.g.
+  `build/shaders/scene_early.frag.spv`, the lit pass's shader), benchmark, then rebuild to put the real one back.
+- On lavapipe a full-screen pass costs tens of milliseconds however little it does: prefer folding work into a pass
+  that already runs, or running it at half or quarter size.
+- A new pass's timestamp needs room in `kMaxTimestamps` (`src/render/renderer.h`).
 
 ## Conventions
 
@@ -88,7 +108,15 @@ with `vkgame --benchmark` on Night Drive and the stress scene, against `tools/gp
 - **Renderer**: per-frame resources are indexed by `frame_` (`MAX_FRAMES` in flight) and may only be rewritten after
   that frame's fence; a descriptor set in use by a pending frame must not be updated. Every new GPU access needs its
   barrier (sync validation will tell you). Uniform layouts in `src/render/renderer_internal.h` must match
-  `shaders/common.glsl` exactly.
+  `shaders/common.glsl` exactly. The frame set's bindings are listed in `frameBindings` in `src/render/renderer.cpp`
+  (an array sized by hand: grow it with a new binding).
+- **Textures read as data** (normal maps, metallic-roughness, masks) are filtered and mipmapped as numbers, not as
+  sRGB colour: a new material or decal slot that reads one must mark it (`Renderer::markData`, as
+  `Renderer::materialSet` does for the normal, metal-roughness, height and detail slots).
+- **Generated examples**: Night Drive's scene and models are written by scripts in `examples/night_drive/tools/`
+  (`make_city.py` → `scenes/city.vkw`, `make_car.py` → `models/car/*.glb`, `make_window_map.py`). Change the script
+  and run it again rather than editing the outputs; give a new random choice its own generator (`SEED + n`) so
+  the rest of the city stays as it was. The Night Drive tests (`tests/test_project.cpp`) load the result.
 - **Cross-platform**: Linux, Windows (MSVC) and macOS (Clang) all build in CI. Guard OS-specific code with
   `#if defined(_WIN32)` / `__APPLE__`, and watch for headers MSVC doesn't pull in implicitly.
 - **Environment switches** for features are named `VKWORLD_<FEATURE>` and documented in the README.
@@ -101,7 +129,32 @@ with `vkgame --benchmark` on Night Drive and the stress scene, against `tools/gp
    was checked, "Not done: ...").
 3. One commit per task, with a message saying what changed and why.
 4. After pushing, check CI (`gh run list -b main -L 1`, `gh run watch <id> --exit-status`) and fix whatever breaks
-   on the other platforms.
+   on the other platforms. Let a run finish before pushing again: a new push cancels the one in progress, and its
+   commit is then never checked on its own.
+
+### Known flaky checks
+
+- macOS runners: the loopback network and relay tests can time out under load (they sleep 1 ms per poll since
+  0bfc056), and `engine_bench`'s `fixed_update_avg` varies a lot (its baseline was raised to 3.0 ms). Rerun once
+  before chasing a failure in these; raise a baseline only after repeated failures with no related change.
+- A rare one-off failure of the full suite locally has passed on rerun; if it comes back, find which test it is
+  (`./build/engine_tests <substring>`) rather than rerunning until it passes.
+
+## Open follow-ups
+
+The work is planned in rounds in `docs/ROADMAP.md` (rounds 1-16 done, tasks 1-158). The maintainer chooses each
+new round's direction: don't plan or start one unasked. Each finished task's notes end with "Not done: ..."; the
+larger ones still open:
+
+- **Rendering cost** (Night Drive on lavapipe: a frame about 1.2 s, the opaque pass about 450-475 ms): tighter light
+  clusters (cones for spots), the sun's shadow taps scaled by quality, scrolling cascades for a moving camera (the
+  still-caster cache only helps a still one), the shadow atlas's moving lamps cached like the cascades.
+- **Reflections and sky**: temporal filtering of rough reflections, roughness-sized cone traces, the sky's
+  reflections and the fog's ambient dimmed under clouds as the irradiance is.
+- **Night Drive**: wheels turning with the traffic's speed, a bus, doors and mirrors, curved neon letters, rain on
+  the camera's lens and wipers (rain drops on glass only show close up, not from the game's camera).
+- **Platforms**: CI runs the programs for real only on Linux (lavapipe); Windows and macOS are built and unit-tested
+  only, so platform rendering is checked on the maintainer's machines (GTX 1050 Ti, Apple M4, Intel).
 
 ## Releases
 
